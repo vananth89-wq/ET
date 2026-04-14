@@ -1,0 +1,246 @@
+/* ── FOUNDATION ──────────────────────────────── */
+
+/* Import Poppins from Google Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap');
+
+/* CSS Variables — brand colors in one place.
+   Change a color here and it updates everywhere. */
+:root {
+    --navy: #18345B;
+    --blue: #2F77B5;
+    --green: #61CE70;
+    --white: #ffffff;
+    --light: #f4f7fb;
+    --text: #333333;
+    --border: #e0e0e0;
+}
+
+/* Reset default browser spacing */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Poppins', sans-serif;
+    background-color: var(--light);
+    color: var(--text);
+    font-size: 15px;
+}
+
+/* Reusable container — centers content, limits width */
+.container {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 20px;
+}
+
+/* ── HEADER ──────────────────────────────────── */
+
+.header {
+    background-color: var(--white);
+    padding: 20px 0;
+    border-bottom: 4px solid var(--green);
+    border-top: 5px solid var(--navy);
+}
+
+.header-content {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+}
+
+.logo {
+    height: 55px;
+    width: auto;
+}
+
+.tagline {
+    font-size: 13px;
+    color: var(--blue);
+    font-weight: 600;
+    letter-spacing: 1px;
+    margin-top: 6px;
+}
+
+/* ── DASHBOARD ───────────────────────────────── */
+
+.dashboard {
+    background-color: var(--navy);
+    padding: 40px 0;
+}
+
+.section-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--white);
+    margin-bottom: 20px;
+}
+
+.cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 16px;
+}
+
+.card {
+    background-color: var(--white);
+    border-radius: 10px;
+    padding: 20px;
+    text-align: center;
+    border-top: 4px solid var(--blue);
+    transition: transform 0.2s ease;
+}
+
+.card:hover {
+    transform: translateY(-4px);
+}
+
+.total-card {
+    border-top: 4px solid var(--green);
+}
+
+.card-label {
+    font-size: 13px;
+    color: #666;
+    margin-bottom: 8px;
+}
+
+.card-amount {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--navy);
+}
+
+/* ── FORM ────────────────────────────────────── */
+
+.form-section {
+    padding: 40px 0;
+    background-color: var(--light);
+}
+
+.form-section .section-title {
+    color: var(--navy);
+}
+
+.form-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--navy);
+}
+
+input,
+select {
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-family: 'Poppins', sans-serif;
+    font-size: 14px;
+    color: var(--text);
+    background-color: var(--white);
+    outline: none;
+    transition: border-color 0.2s ease;
+}
+
+input:focus,
+select:focus {
+    border-color: var(--blue);
+}
+
+.btn-add {
+    background-color: var(--navy);
+    color: var(--white);
+    border: none;
+    padding: 12px 30px;
+    font-family: 'Poppins', sans-serif;
+    font-size: 15px;
+    font-weight: 600;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.btn-add:hover {
+    background-color: var(--blue);
+}
+
+/* ── TABLE ───────────────────────────────────── */
+
+.table-section {
+    padding: 40px 0 60px;
+    background-color: var(--light);
+}
+
+.table-section .section-title {
+    color: var(--navy);
+}
+
+.table-wrapper {
+    overflow-x: auto;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    background-color: var(--white);
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+}
+
+thead {
+    background-color: var(--navy);
+}
+
+thead th {
+    padding: 14px 16px;
+    text-align: left;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--white);
+    letter-spacing: 0.5px;
+}
+
+tbody tr {
+    border-bottom: 1px solid var(--border);
+    transition: background-color 0.15s ease;
+}
+
+tbody tr:hover {
+    background-color: #f0f5ff;
+}
+
+tbody td {
+    padding: 12px 16px;
+    font-size: 14px;
+    color: var(--text);
+}
+
+tbody tr:last-child {
+    border-bottom: none;
+}
+
+.no-data {
+    text-align: center;
+    color: #999;
+    font-size: 14px;
+    padding: 40px !important;
+}

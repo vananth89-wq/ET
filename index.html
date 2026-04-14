@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Prowess Expense Tracker</title>
+
+    <!-- Google Fonts: Poppins (Prowess brand font) -->
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet" />
+
+    <!-- Our stylesheet -->
+    <link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+
+    <!-- Everything visible goes here -->
+    <!-- HEADER -->
+    <header class="header">
+        <div class="header-content">
+            <img src="logo.png" alt="Prowess Logo" class="logo-img" />
+            <p class="tagline">Employee Expense Tracker</p>
+        </div>
+    </header>
+    <!-- DASHBOARD -->
+    <section class="dashboard">
+        <div class="container">
+            <h2 class="section-title">Expense Summary</h2>
+            <div class="cards">
+                <div class="card total-card">
+                    <p class="card-label">Total Expenses</p>
+                    <p class="card-amount" id="total-amount">₹0</p>
+                </div>
+                <div class="card">
+                    <p class="card-label">🚕 Cab</p>
+                    <p class="card-amount" id="cat-Cab">₹0</p>
+                </div>
+                <div class="card">
+                    <p class="card-label">📱 Mobile</p>
+                    <p class="card-amount" id="cat-Mobile">₹0</p>
+                </div>
+                <div class="card">
+                    <p class="card-label">✈️ Flight</p>
+                    <p class="card-amount" id="cat-Flight">₹0</p>
+                </div>
+                <div class="card">
+                    <p class="card-label">🌐 Internet</p>
+                    <p class="card-amount" id="cat-Internet">₹0</p>
+                </div>
+                <div class="card">
+                    <p class="card-label">📦 Miscellaneous</p>
+                    <p class="card-amount" id="cat-Miscellaneous">₹0</p>
+                </div>
+            </div>
+        </div>
+    </section>
+    <!-- EXPENSE FORM -->
+    <section class="form-section">
+        <div class="container">
+            <h2 class="section-title">Add New Expense</h2>
+            <form id="expense-form">
+                <div class="form-row">
+
+                    <div class="form-group">
+                        <label for="category">Category</label>
+                        <select id="category" required>
+                            <option value="">-- Select --</option>
+                            <option value="Cab">🚕 Cab</option>
+                            <option value="Mobile">📱 Mobile</option>
+                            <option value="Flight">✈️ Flight</option>
+                            <option value="Internet">🌐 Internet</option>
+                            <option value="Miscellaneous">📦 Miscellaneous</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="date">Date</label>
+                        <input type="date" id="date" required />
+                    </div>
+
+                    <div class="form-group">
+                        <label for="amount">Amount (₹)</label>
+                        <input type="number" id="amount" placeholder="e.g. 500" min="1" required />
+                    </div>
+
+                    <div class="form-group">
+                        <label for="note">Note</label>
+                        <input type="text" id="note" placeholder="Optional note" />
+                    </div>
+
+                </div>
+                <button type="submit" class="btn-add">+ Add Expense</button>
+            </form>
+        </div>
+    </section>
+    <!-- EXPENSE TABLE -->
+    <section class="table-section">
+        <div class="container">
+            <h2 class="section-title">My Expenses</h2>
+            <div class="table-wrapper">
+                <table id="expense-table">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Category</th>
+                            <th>Date</th>
+                            <th>Amount (₹)</th>
+                            <th>Note</th>
+                        </tr>
+                    </thead>
+                    <tbody id="expense-body">
+                        <!-- Rows will be added here by JavaScript -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+    <!-- JS loaded last, before body closes -->
+    <script src="script.js"></script>
+</body>
+
+</html>
