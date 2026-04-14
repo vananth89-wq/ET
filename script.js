@@ -16,32 +16,44 @@ let expenses = JSON.parse(localStorage.getItem('prowess-expenses')) || [];
 // ── STEP 3: Handle form submission ─────────────
 
 form.addEventListener('submit', function (event) {
-
-    // Prevent page from refreshing on form submit
     event.preventDefault();
 
-    // Build an expense object from the form values
-    const newExpense = {
-        id: Date.now(),
-        category: categoryInput.value,
-        date: dateInput.value,
-        amount: parseFloat(amountInput.value),
-        note: noteInput.value.trim() || '—'
-    };
+    if (editingId !== null) {
+        // ── EDIT MODE: update existing expense ──
+        expenses = expenses.map(function (e) {
+            if (e.id === editingId) {
+                return {
+                    ...e,
+                    category: categoryInput.value,
+                    date: dateInput.value,
+                    amount: parseFloat(amountInput.value),
+                    note: noteInput.value.trim() || '—'
+                };
+            }
+            return e;
+        });
 
-    // Add it to our expenses array
-    expenses.push(newExpense);
+        // Reset edit mode
+        editingId = null;
+        document.querySelector('.btn-add').textContent = '+ Add Expense';
 
-    // Save updated array to localStorage
+    } else {
+        // ── ADD MODE: create new expense ────────
+        const newExpense = {
+            id: Date.now(),
+            category: categoryInput.value,
+            date: dateInput.value,
+            amount: parseFloat(amountInput.value),
+            note: noteInput.value.trim() || '—'
+        };
+        expenses.push(newExpense);
+    }
+
+    // Save, reset and re-render (runs for both add and edit)
     localStorage.setItem('prowess-expenses', JSON.stringify(expenses));
-
-    // Reset the form fields
     form.reset();
-
-    // Re-render the table and dashboard
     renderTable();
     renderDashboard();
-
 });
 
 // ── STEP 4: Render the expenses table ──────────
@@ -68,7 +80,10 @@ function renderTable() {
       <td>₹${expense.amount.toLocaleString('en-IN')}</td>
       <td>${expense.note}</td>
       <td>
-         <button class="btn-delete" data-id="${expense.id}">
+        <button class="btn-edit" data-id="${expense.id}">
+            <i class="fa-solid fa-pen-to-square" data-id="${expense.id}"></i>
+        </button>
+        <button class="btn-delete" data-id="${expense.id}">
             <i class="fa-solid fa-trash" data-id="${expense.id}"></i>
         </button>
       </td>
@@ -106,12 +121,12 @@ renderDashboard();
 
 // ── STEP 7: Handle delete button click ─────────
 
-expenseBody.addEventListener('click', function(event) {
-  const deleteBtn = event.target.closest('.btn-delete');
-  if (deleteBtn) {
-    const confirmed = confirm('Are you sure you want to delete this expense?');
-    if (!confirmed) return;
-    const id = Number(deleteBtn.getAttribute('data-id'));
+expenseBody.addEventListener('click', function (event) {
+    const deleteBtn = event.target.closest('.btn-delete');
+    if (deleteBtn) {
+        const confirmed = confirm('Are you sure you want to delete this expense?');
+        if (!confirmed) return;
+        const id = Number(deleteBtn.getAttribute('data-id'));
 
         // Remove the expense with that id from the array
         expenses = expenses.filter(e => e.id !== id);
@@ -122,5 +137,34 @@ expenseBody.addEventListener('click', function(event) {
         // Re-render table and dashboard
         renderTable();
         renderDashboard();
+    }
+});
+
+// ── STEP 8: Handle edit button click ───────────
+
+expenseBody.addEventListener('click', function (event) {
+    const editBtn = event.target.closest('.btn-edit');
+    if (editBtn) {
+
+        // Get the id of the expense to edit
+        const id = Number(editBtn.getAttribute('data-id'));
+
+        // Find that expense in the array
+        const expense = expenses.find(e => e.id === id);
+
+        // Fill the form with its values
+        categoryInput.value = expense.category;
+        dateInput.value = expense.date;
+        amountInput.value = expense.amount;
+        noteInput.value = expense.note === '—' ? '' : expense.note;
+
+        // Remember which expense we're editing
+        editingId = id;
+
+        // Change button text to show we're in edit mode
+        document.querySelector('.btn-add').textContent = '✔ Update Expense';
+
+        // Scroll up to the form smoothly
+        document.querySelector('.form-section').scrollIntoView({ behavior: 'smooth' });
     }
 });
