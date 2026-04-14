@@ -599,6 +599,257 @@ tbody td:last-child {
     color: #c62828;
 }
 
+.badge-depthead {
+    background-color: #ede7f6;
+    color: #4527a0;
+}
+
+.badge-hr {
+    background-color: #fce4ec;
+    color: #880e4f;
+}
+
+.badge-finance {
+    background-color: #e0f2f1;
+    color: #00695c;
+}
+
+/* ── FIELD HINT ──────────────────────────────── */
+
+.field-hint {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #f57f17;
+    background-color: #fff8e1;
+    border: 1px solid #ffe082;
+    border-radius: 5px;
+    padding: 6px 10px;
+    margin-top: 4px;
+}
+
+.field-hint i {
+    font-size: 12px;
+    color: #f57f17;
+}
+
+/* ── DEPT DATE CONTROLLER ────────────────────── */
+
+.dept-date-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background-color: var(--white);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--blue);
+    border-radius: 8px;
+    padding: 12px 20px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+}
+
+.dept-date-bar i {
+    color: var(--blue);
+    font-size: 16px;
+}
+
+.dept-date-bar label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--navy);
+    white-space: nowrap;
+}
+
+.dept-date-bar input[type="date"] {
+    padding: 7px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-family: 'Poppins', sans-serif;
+    font-size: 13px;
+    color: var(--text);
+}
+
+.dept-date-hint {
+    font-size: 12px;
+    color: var(--blue);
+    font-weight: 600;
+}
+
+/* ── ORG CHART ───────────────────────────────── */
+
+/* Outer scroll wrapper — centers the tree */
+.org-tree-wrap {
+    overflow-x: auto;
+    padding: 24px 16px 12px;
+    text-align: center;
+}
+
+/* Root <ul> — inline-flex so it auto-sizes to content and stays centered */
+.org-tree {
+    display: inline-flex;
+    justify-content: center;
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+/* Every <li> — column layout, children centered under their node */
+.org-tree li {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+}
+
+/* Child <ul> — horizontal row of children, relative so ::before can anchor */
+.org-tree li > ul {
+    display: flex;
+    justify-content: center;
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    position: relative;
+}
+
+/* Vertical stem: parent node → top of child row
+   Rides inside the 20px margin-bottom that every .org-node carries */
+.org-tree li > ul::before {
+    content: '';
+    position: absolute;
+    top: -20px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 2px;
+    height: 20px;
+    background: #b0bec5;
+}
+
+/* Each child <li> — 40px top-padding creates room for connector lines */
+.org-tree li > ul > li {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 40px 20px 0;
+    position: relative;
+}
+
+/* Horizontal bar — left half (runs from li's left edge to its centre) */
+.org-tree li > ul > li::before {
+    content: '';
+    position: absolute;
+    top: 20px;   /* midpoint of the 40px padding */
+    left: 0;
+    width: 50%;
+    height: 2px;
+    background: #b0bec5;
+}
+
+/* Horizontal bar — right half */
+.org-tree li > ul > li::after {
+    content: '';
+    position: absolute;
+    top: 20px;
+    left: 50%;
+    width: 50%;
+    height: 2px;
+    background: #b0bec5;
+}
+
+/* First child has no left bar; last child has no right bar */
+.org-tree li > ul > li:first-child::before { display: none; }
+.org-tree li > ul > li:last-child::after   { display: none; }
+
+/* Vertical drop: horizontal-bar level → top of child org-node
+   top: -40px from the org-node = li's top (0), height: 40px brings us back
+   to the node — passes through the horizontal bar at 20px creating a T-junction */
+.org-tree li > ul > li > .org-node {
+    position: relative;
+}
+
+.org-tree li > ul > li > .org-node::before {
+    content: '';
+    position: absolute;
+    top: -40px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 2px;
+    height: 40px;
+    background: #b0bec5;
+}
+
+/* ── ORG NODE CARD ────────────────────────────── */
+
+.org-node {
+    display: inline-flex;
+    flex-direction: column;
+    background-color: var(--white);
+    border: 1px solid var(--border);
+    border-top: 4px solid var(--blue);
+    border-radius: 8px;
+    padding: 12px 16px;
+    min-width: 180px;
+    max-width: 220px;
+    margin-bottom: 20px;   /* space used by ul::before stem */
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    transition: box-shadow 0.2s ease;
+    text-align: left;
+}
+
+.org-node:hover {
+    box-shadow: 0 4px 14px rgba(0,0,0,0.14);
+}
+
+.org-node-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+}
+
+.org-dept-id {
+    background-color: var(--navy);
+    color: var(--white);
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 20px;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+}
+
+.org-dept-name {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--navy);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.org-node-body {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.org-head,
+.org-emp-count {
+    font-size: 11px;
+    color: #666;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.org-head i     { color: var(--blue); }
+.org-emp-count i { color: var(--green); }
+
 /* ── INSIGHTS SECTION ────────────────────────── */
 
 /* Smart text insight cards */
@@ -670,6 +921,206 @@ tbody td:last-child {
     position: relative;
     height: 280px;
 }
+
+/* ── WORKFLOW ROLES ──────────────────────────── */
+
+/* Employee chip selector */
+.wf-emp-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+    padding: 14px;
+    background: var(--light);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    min-height: 56px;
+    align-items: flex-start;
+}
+
+.emp-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 14px;
+    border: 1.5px solid var(--border);
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text);
+    background: var(--white);
+    transition: all 0.15s ease;
+    user-select: none;
+}
+
+.emp-chip input[type="checkbox"] {
+    display: none;
+}
+
+.emp-chip:hover {
+    border-color: var(--blue);
+    color: var(--blue);
+}
+
+.emp-chip.checked {
+    background: var(--navy);
+    border-color: var(--navy);
+    color: var(--white);
+}
+
+.emp-chip.checked i { color: var(--green); }
+
+.emp-chip.disabled {
+    opacity: 0.38;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+.wf-count-hint {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--blue);
+    margin-left: 2px;
+}
+
+.wf-count-hint.maxed { color: #e53935; }
+
+/* Role cards grid */
+#wf-roles-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+    gap: 20px;
+}
+
+.wf-role-card {
+    border-radius: 12px;
+    border: 1px solid;
+    overflow: hidden;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.07);
+    transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.wf-role-card:hover {
+    box-shadow: 0 6px 20px rgba(0,0,0,0.13);
+    transform: translateY(-2px);
+}
+
+.wf-role-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    gap: 12px;
+}
+
+.wf-role-header-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    min-width: 0;
+}
+
+.wf-role-header-left > i {
+    color: rgba(255,255,255,0.8);
+    font-size: 16px;
+    flex-shrink: 0;
+}
+
+.wf-role-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.wf-role-count {
+    font-size: 11px;
+    font-weight: 600;
+    color: rgba(255,255,255,0.9);
+    background: rgba(255,255,255,0.2);
+    padding: 3px 10px;
+    border-radius: 20px;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.wf-role-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.wf-btn-edit,
+.wf-btn-delete {
+    background: rgba(255,255,255,0.15);
+    border: 1px solid rgba(255,255,255,0.30);
+    color: #fff;
+    width: 30px;
+    height: 30px;
+    border-radius: 6px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    transition: background 0.15s ease;
+}
+
+.wf-btn-edit:hover   { background: rgba(255,255,255,0.30); }
+.wf-btn-delete:hover { background: rgba(220,53,69,0.55); }
+
+.wf-role-body {
+    padding: 16px 18px;
+}
+
+.wf-member-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 14px;
+}
+
+.wf-member-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.wf-role-footer {
+    font-size: 11px;
+    color: #999;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex-wrap: wrap;
+}
+
+.wf-role-footer i    { color: var(--green); }
+.wf-role-footer code {
+    background: rgba(0,0,0,0.06);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-family: monospace;
+}
+
+/* Empty state */
+.wf-empty {
+    text-align: center;
+    padding: 60px 20px;
+    color: #bbb;
+}
+
+.wf-empty i    { font-size: 48px; margin-bottom: 14px; display: block; }
+.wf-empty p    { font-size: 14px; }
 
 /* ── MOBILE RESPONSIVE ───────────────────────── */
 

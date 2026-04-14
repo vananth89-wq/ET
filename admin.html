@@ -30,13 +30,21 @@
         <!-- ADMIN SIDEBAR -->
         <nav class="sidebar">
             <ul class="sidebar-menu">
-                <li class="tab-item active" data-tab="employee-profile">
-                    <i class="fa-solid fa-user"></i>
-                    <span>Employee Profile</span>
+                <li class="tab-item active" data-tab="employees">
+                    <i class="fa-solid fa-users"></i>
+                    <span>Employees</span>
+                </li>
+                <li class="tab-item" data-tab="departments">
+                    <i class="fa-solid fa-sitemap"></i>
+                    <span>Departments</span>
                 </li>
                 <li class="tab-item" data-tab="projects">
                     <i class="fa-solid fa-folder"></i>
                     <span>Projects</span>
+                </li>
+                <li class="tab-item" data-tab="workflow-roles">
+                    <i class="fa-solid fa-shield-halved"></i>
+                    <span>Workflow Roles</span>
                 </li>
             </ul>
         </nav>
@@ -44,15 +52,14 @@
         <!-- ADMIN CONTENT -->
         <main class="content">
 
-            <!-- ── TAB 1: EMPLOYEE PROFILE ───────── -->
-            <section id="tab-employee-profile" class="tab-panel active">
+            <!-- ── TAB 1: EMPLOYEES ──────────────── -->
+            <section id="tab-employees" class="tab-panel active">
                 <h2 class="page-title">Employee Management</h2>
 
-                <!-- ADD / EDIT FORM -->
                 <div class="form-card" style="margin-bottom: 24px;">
                     <p class="form-note">
                         <i class="fa-solid fa-circle-info"></i>
-                        Employee information is read-only for the employee. Only admin can add, edit or delete.
+                        Employee information is read-only for employees. Role is auto-derived from org structure.
                     </p>
                     <form id="profile-form">
                         <div class="form-row">
@@ -72,6 +79,18 @@
                                 <label for="emp-mobile">Mobile No</label>
                                 <input type="tel" id="emp-mobile" placeholder="e.g. +91 98765 43210" required />
                             </div>
+                            <div class="form-group">
+                                <label for="emp-department">Department</label>
+                                <select id="emp-department">
+                                    <option value="">-- Select Department --</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="emp-manager-id">Manager</label>
+                                <select id="emp-manager-id">
+                                    <option value="">-- No Manager --</option>
+                                </select>
+                            </div>
                         </div>
                         <div style="display:flex; gap:12px; align-items:center;">
                             <button type="submit" class="btn-add" id="emp-submit-btn">
@@ -90,43 +109,129 @@
                         <thead>
                             <tr>
                                 <th>#</th>
-                                <th>Employee ID</th>
+                                <th>Emp ID</th>
                                 <th>Full Name</th>
                                 <th>Designation</th>
-                                <th>Mobile</th>
+                                <th>Department</th>
+                                <th>Manager</th>
+                                <th>Role</th>
                                 <th>Action</th>
                             </tr>
                         </thead>
-                        <tbody id="employee-body">
-                            <!-- Populated by JavaScript -->
-                        </tbody>
+                        <tbody id="employee-body"></tbody>
                     </table>
                 </div>
             </section>
 
-            <!-- ── TAB 2: PROJECTS ───────────────── -->
+            <!-- ── TAB 2: DEPARTMENTS ────────────── -->
+            <section id="tab-departments" class="tab-panel">
+                <h2 class="page-title">Department Management</h2>
+
+                <!-- DATE CONTROLLER -->
+                <div class="dept-date-bar">
+                    <i class="fa-solid fa-calendar-days"></i>
+                    <label for="dept-view-date">View as of</label>
+                    <input type="date" id="dept-view-date" />
+                    <span class="dept-date-hint" id="dept-date-hint"></span>
+                </div>
+
+                <!-- ORG CHART — appears above form -->
+                <div class="form-card" style="margin-bottom: 24px;">
+                    <h3 class="chart-title">Organisation Structure</h3>
+                    <div id="org-chart">
+                        <p class="no-data" style="padding: 20px 0;">Add departments to see the org chart.</p>
+                    </div>
+                </div>
+
+                <!-- ADD / EDIT FORM -->
+                <div class="form-card" style="margin-bottom: 24px;">
+                    <form id="dept-form">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="dept-name">Department Name</label>
+                                <input type="text" id="dept-name" placeholder="e.g. Engineering" required />
+                            </div>
+                            <div class="form-group">
+                                <label for="dept-id">Department ID</label>
+                                <!-- Read-only — auto-generated -->
+                                <input type="text" id="dept-id" placeholder="Auto-generated" readonly
+                                    style="background:#f4f7fb; cursor:not-allowed;" />
+                            </div>
+                            <div class="form-group">
+                                <label for="dept-head">Department Head</label>
+                                <select id="dept-head">
+                                    <option value="">-- Select Employee --</option>
+                                </select>
+                                <small id="dept-head-hint" class="field-hint" style="display:none;">
+                                    <i class="fa-solid fa-triangle-exclamation"></i> Please verify the department head.
+                                </small>
+                            </div>
+                            <div class="form-group">
+                                <label for="dept-parent">Parent Department</label>
+                                <select id="dept-parent">
+                                    <option value="">-- None (Top Level) --</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="dept-start-date">Start Date</label>
+                                <input type="date" id="dept-start-date" required />
+                            </div>
+                            <div class="form-group">
+                                <label for="dept-end-date">End Date</label>
+                                <input type="date" id="dept-end-date" required />
+                            </div>
+                        </div>
+                        <div style="display:flex; gap:12px; align-items:center;">
+                            <button type="submit" class="btn-add" id="dept-submit-btn">
+                                <i class="fa-solid fa-plus"></i> Add Department
+                            </button>
+                            <button type="button" class="btn-cancel" id="dept-cancel-btn" style="display:none;">
+                                Cancel
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- DEPARTMENTS TABLE -->
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Dept ID</th>
+                                <th>Department Name</th>
+                                <th>Department Head</th>
+                                <th>Parent Department</th>
+                                <th>Start Date</th>
+                                <th>End Date</th>
+                                <th>Status</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="dept-body"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- ── TAB 3: PROJECTS ───────────────── -->
             <section id="tab-projects" class="tab-panel">
                 <h2 class="page-title">Project Management</h2>
 
                 <div class="form-card" style="margin-bottom: 24px;">
                     <form id="project-form">
                         <div class="form-row">
-
                             <div class="form-group">
                                 <label for="project-name">Project Name</label>
                                 <input type="text" id="project-name" placeholder="e.g. AMTPJ" required />
                             </div>
-
                             <div class="form-group">
                                 <label for="start-date">Start Date</label>
                                 <input type="date" id="start-date" required />
                             </div>
-
                             <div class="form-group">
                                 <label for="end-date">End Date</label>
                                 <input type="date" id="end-date" required />
                             </div>
-
                         </div>
                         <div style="display:flex; gap:12px; align-items:center;">
                             <button type="submit" class="btn-add" id="proj-submit-btn">+ Add Project</button>
@@ -147,11 +252,50 @@
                                 <th>Action</th>
                             </tr>
                         </thead>
-                        <tbody id="project-body">
-                            <!-- Rows added by JavaScript -->
-                        </tbody>
+                        <tbody id="project-body"></tbody>
                     </table>
                 </div>
+            </section>
+
+            <!-- ── TAB 4: WORKFLOW ROLES ─────────── -->
+            <section id="tab-workflow-roles" class="tab-panel">
+                <h2 class="page-title">Workflow Roles</h2>
+
+                <div class="form-note" style="margin-bottom:24px;">
+                    <i class="fa-solid fa-circle-info"></i>
+                    Workflow roles define approval groups for expense flows. Each role requires 1–5 employees and will be consumed by the approval workflow engine.
+                </div>
+
+                <!-- CREATE / EDIT FORM -->
+                <div class="form-card" style="margin-bottom:28px;">
+                    <form id="wf-role-form">
+                        <div class="form-row" style="margin-bottom:4px;">
+                            <div class="form-group">
+                                <label for="wf-role-name">Role Name</label>
+                                <input type="text" id="wf-role-name" placeholder="e.g. HR, Finance, L1 Approver" required />
+                            </div>
+                        </div>
+                        <div class="form-group" style="margin-bottom:20px;">
+                            <label>
+                                Assign Employees &nbsp;
+                                <span id="wf-count-hint" class="wf-count-hint">0 selected (min 1, max 5)</span>
+                            </label>
+                            <div class="wf-emp-grid" id="wf-emp-grid">
+                                <p class="no-data" style="padding:12px 0;">Add employees first to assign them here.</p>
+                            </div>
+                        </div>
+                        <div style="display:flex; gap:12px; align-items:center;">
+                            <button type="submit" class="btn-add" id="wf-submit-btn">
+                                <i class="fa-solid fa-plus"></i> Create Role
+                            </button>
+                            <button type="button" class="btn-cancel" id="wf-cancel-btn" style="display:none;">Cancel</button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- ROLE CARDS -->
+                <div id="wf-roles-container"></div>
+
             </section>
 
         </main>
