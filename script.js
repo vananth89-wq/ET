@@ -502,8 +502,9 @@ expenseBody.addEventListener('click', function (event) {
         // Change button text to show we're in edit mode
         document.querySelector('.btn-add').textContent = '✔ Update Expense';
 
-        // Scroll up to the form smoothly
-        document.querySelector('.form-section').scrollIntoView({ behavior: 'smooth' });
+        // Switch to Add Expense tab and scroll to top
+        switchToAddTab();
+        document.querySelector('.content').scrollTop = 0;
     }
 });
 
@@ -521,8 +522,94 @@ projectFilter.addEventListener('change', function () {
     renderInsights();
 });
 
+// ── TAB NAVIGATION ─────────────────────────────
+
+const tabItems = document.querySelectorAll('.tab-item');
+const tabPanels = document.querySelectorAll('.tab-panel');
+
+tabItems.forEach(function (item) {
+    item.addEventListener('click', function () {
+
+        // Remove active from all tabs and panels
+        tabItems.forEach(t => t.classList.remove('active'));
+        tabPanels.forEach(p => p.classList.remove('active'));
+
+        // Activate clicked tab
+        item.classList.add('active');
+        const targetTab = item.getAttribute('data-tab');
+        document.getElementById('tab-' + targetTab).classList.add('active');
+
+        // Redraw charts when Insights tab is opened
+        // (charts don't render correctly when panel is hidden)
+        if (targetTab === 'insights') {
+            renderInsights();
+        }
+
+        // Scroll to top of content on tab switch
+        document.querySelector('.content').scrollTop = 0;
+    });
+});
+
+// When edit is clicked, switch to Add Expense tab
+function switchToAddTab() {
+    tabItems.forEach(t => t.classList.remove('active'));
+    tabPanels.forEach(p => p.classList.remove('active'));
+    document.querySelector('[data-tab="add-expense"]').classList.add('active');
+    document.getElementById('tab-add-expense').classList.add('active');
+}
+
+// ── PROFILE: Load and display ──────────────────
+
+function loadProfile() {
+    const profile = JSON.parse(localStorage.getItem('prowess-profile')) || null;
+
+    if (profile) {
+        document.getElementById('profile-name').textContent = profile.name || 'Employee';
+        document.getElementById('profile-designation').textContent = profile.designation || '—';
+        document.getElementById('profile-mobile').innerHTML =
+            `<i class="fa-solid fa-phone"></i> ${profile.mobile || '—'}`;
+
+        // Load saved photo if exists
+        if (profile.photo) {
+            document.getElementById('profile-photo').src = profile.photo;
+        } else {
+            // Generate avatar from name
+            const initials = profile.name.replace(' ', '+');
+            document.getElementById('profile-photo').src =
+                `https://ui-avatars.com/api/?name=${initials}&background=2F77B5&color=fff&size=80`;
+        }
+    }
+}
+
+// ── PROFILE: Photo upload ───────────────────────
+
+document.getElementById('photo-overlay').addEventListener('click', function () {
+    document.getElementById('photo-upload').click();
+});
+
+document.getElementById('photo-upload').addEventListener('change', function (event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    // Convert image to Base64 and save to localStorage
+    const reader = new FileReader();
+    reader.onload = function (e) {
+        const base64Photo = e.target.result;
+
+        // Update profile photo in localStorage
+        const profile = JSON.parse(localStorage.getItem('prowess-profile')) || {};
+        profile.photo = base64Photo;
+        localStorage.setItem('prowess-profile', JSON.stringify(profile));
+
+        // Update displayed photo immediately
+        document.getElementById('profile-photo').src = base64Photo;
+    };
+    reader.readAsDataURL(file);
+});
+
 // ── STEP 13: Initialize on page load ───────────
 
+loadProfile();
 renderTable();
 renderDashboard();
 renderInsights();

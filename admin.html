@@ -4,15 +4,10 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Prowess Admin - Project Management</title>
+    <title>Prowess Admin</title>
 
-    <!-- Google Fonts: Poppins -->
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet" />
-
-    <!-- Font Awesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
-
-    <!-- Shared stylesheet -->
     <link rel="stylesheet" href="style.css" />
 </head>
 
@@ -22,64 +17,145 @@
     <header class="header">
         <div class="header-content">
             <img src="logo.png" alt="Prowess Logo" class="logo" />
-            <p class="tagline">Admin — Project Management</p>
+            <p class="tagline">Admin Panel</p>
         </div>
         <a href="index.html" class="admin-link">
             <i class="fa-solid fa-arrow-left"></i> Employee View
         </a>
     </header>
 
-    <!-- ADD PROJECT FORM -->
-    <section class="form-section">
-        <div class="container">
-            <h2 class="section-title">Add New Project</h2>
-            <form id="project-form">
-                <div class="form-row">
+    <!-- ADMIN LAYOUT -->
+    <div class="app-layout">
 
-                    <div class="form-group">
-                        <label for="project-name">Project Name</label>
-                        <input type="text" id="project-name" placeholder="e.g. AMTPJ" required />
-                    </div>
+        <!-- ADMIN SIDEBAR -->
+        <nav class="sidebar">
+            <ul class="sidebar-menu">
+                <li class="tab-item active" data-tab="employee-profile">
+                    <i class="fa-solid fa-user"></i>
+                    <span>Employee Profile</span>
+                </li>
+                <li class="tab-item" data-tab="projects">
+                    <i class="fa-solid fa-folder"></i>
+                    <span>Projects</span>
+                </li>
+            </ul>
+        </nav>
 
-                    <div class="form-group">
-                        <label for="start-date">Start Date</label>
-                        <input type="date" id="start-date" required />
-                    </div>
+        <!-- ADMIN CONTENT -->
+        <main class="content">
 
-                    <div class="form-group">
-                        <label for="end-date">End Date</label>
-                        <input type="date" id="end-date" required />
-                    </div>
+            <!-- ── TAB 1: EMPLOYEE PROFILE ───────── -->
+            <section id="tab-employee-profile" class="tab-panel active">
+                <h2 class="page-title">Employee Management</h2>
 
+                <!-- ADD / EDIT FORM -->
+                <div class="form-card" style="margin-bottom: 24px;">
+                    <p class="form-note">
+                        <i class="fa-solid fa-circle-info"></i>
+                        Employee information is read-only for the employee. Only admin can add, edit or delete.
+                    </p>
+                    <form id="profile-form">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="emp-name">Full Name</label>
+                                <input type="text" id="emp-name" placeholder="e.g. Vijey Ananthan" required />
+                            </div>
+                            <div class="form-group">
+                                <label for="emp-id">Employee ID</label>
+                                <input type="text" id="emp-id" placeholder="e.g. EMP001" required />
+                            </div>
+                            <div class="form-group">
+                                <label for="emp-designation">Designation</label>
+                                <input type="text" id="emp-designation" placeholder="e.g. Senior Developer" required />
+                            </div>
+                            <div class="form-group">
+                                <label for="emp-mobile">Mobile No</label>
+                                <input type="tel" id="emp-mobile" placeholder="e.g. +91 98765 43210" required />
+                            </div>
+                        </div>
+                        <div style="display:flex; gap:12px; align-items:center;">
+                            <button type="submit" class="btn-add" id="emp-submit-btn">
+                                <i class="fa-solid fa-plus"></i> Add Employee
+                            </button>
+                            <button type="button" class="btn-cancel" id="emp-cancel-btn" style="display:none;">
+                                Cancel
+                            </button>
+                        </div>
+                    </form>
                 </div>
-                <button type="submit" class="btn-add">+ Add Project</button>
-            </form>
-        </div>
-    </section>
 
-    <!-- PROJECTS TABLE -->
-    <section class="table-section">
-        <div class="container">
-            <h2 class="section-title">All Projects</h2>
-            <div class="table-wrapper">
-                <table id="project-table">
-                    <thead>
-                        <tr>
-                            <th>#</th>
-                            <th>Project Name</th>
-                            <th>Start Date</th>
-                            <th>End Date</th>
-                            <th>Status</th>
-                            <th>Action</th>
-                        </tr>
-                    </thead>
-                    <tbody id="project-body">
-                        <!-- Rows added by JavaScript -->
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </section>
+                <!-- EMPLOYEES TABLE -->
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Employee ID</th>
+                                <th>Full Name</th>
+                                <th>Designation</th>
+                                <th>Mobile</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="employee-body">
+                            <!-- Populated by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- ── TAB 2: PROJECTS ───────────────── -->
+            <section id="tab-projects" class="tab-panel">
+                <h2 class="page-title">Project Management</h2>
+
+                <div class="form-card" style="margin-bottom: 24px;">
+                    <form id="project-form">
+                        <div class="form-row">
+
+                            <div class="form-group">
+                                <label for="project-name">Project Name</label>
+                                <input type="text" id="project-name" placeholder="e.g. AMTPJ" required />
+                            </div>
+
+                            <div class="form-group">
+                                <label for="start-date">Start Date</label>
+                                <input type="date" id="start-date" required />
+                            </div>
+
+                            <div class="form-group">
+                                <label for="end-date">End Date</label>
+                                <input type="date" id="end-date" required />
+                            </div>
+
+                        </div>
+                        <div style="display:flex; gap:12px; align-items:center;">
+                            <button type="submit" class="btn-add" id="proj-submit-btn">+ Add Project</button>
+                            <button type="button" class="btn-cancel" id="proj-cancel-btn" style="display:none;">Cancel</button>
+                        </div>
+                    </form>
+                </div>
+
+                <div class="table-wrapper">
+                    <table id="project-table">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Project Name</th>
+                                <th>Start Date</th>
+                                <th>End Date</th>
+                                <th>Status</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="project-body">
+                            <!-- Rows added by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+        </main>
+    </div>
 
     <script src="admin.js"></script>
 </body>

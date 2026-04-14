@@ -68,17 +68,224 @@ body {
     margin-top: 6px;
 }
 
-/* ── DASHBOARD ───────────────────────────────── */
+/* ── APP LAYOUT ──────────────────────────────── */
 
-.dashboard {
-    background-color: var(--navy);
-    padding: 40px 0;
+.app-layout {
+    display: flex;
+    min-height: calc(100vh - 90px);
 }
+
+/* ── SIDEBAR ─────────────────────────────────── */
+
+.sidebar {
+    width: 220px;
+    min-width: 220px;
+    background-color: var(--navy);
+    padding: 24px 0;
+}
+
+.sidebar-menu {
+    list-style: none;
+}
+
+.tab-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 24px;
+    cursor: pointer;
+    color: rgba(255,255,255,0.65);
+    font-size: 14px;
+    font-weight: 500;
+    border-left: 3px solid transparent;
+    transition: all 0.2s ease;
+}
+
+.tab-item:hover {
+    background-color: rgba(255,255,255,0.08);
+    color: var(--white);
+}
+
+.tab-item.active {
+    background-color: rgba(255,255,255,0.12);
+    color: var(--white);
+    border-left: 3px solid var(--green);
+    font-weight: 600;
+}
+
+.tab-item i {
+    width: 18px;
+    text-align: center;
+    font-size: 15px;
+}
+
+/* ── PROFILE CARD IN SIDEBAR ─────────────────── */
+
+.profile-card {
+    padding: 24px 16px 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+}
+
+.profile-photo-wrapper {
+    position: relative;
+    width: 80px;
+    height: 80px;
+    margin-bottom: 14px;
+}
+
+.profile-photo {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 3px solid var(--green);
+}
+
+.photo-overlay {
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    width: 26px;
+    height: 26px;
+    background-color: var(--green);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--white);
+    border: 2px solid var(--navy);
+    transition: background-color 0.2s ease;
+}
+
+.photo-overlay:hover {
+    background-color: var(--blue);
+}
+
+.profile-info {
+    width: 100%;
+}
+
+.profile-name {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--white);
+    margin-bottom: 4px;
+}
+
+.profile-designation {
+    font-size: 11px;
+    color: var(--green);
+    font-weight: 600;
+    margin-bottom: 6px;
+    letter-spacing: 0.3px;
+}
+
+.profile-mobile {
+    font-size: 11px;
+    color: rgba(255,255,255,0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+}
+
+.sidebar-divider {
+    height: 1px;
+    background-color: rgba(255,255,255,0.1);
+    margin: 0 16px 8px;
+}
+
+/* ── ADMIN PROFILE PREVIEW ───────────────────── */
+
+.form-note {
+    background-color: #e8f0fe;
+    color: var(--navy);
+    font-size: 13px;
+    padding: 12px 16px;
+    border-radius: 6px;
+    margin-bottom: 24px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.profile-preview-admin {
+    margin-top: 28px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+}
+
+.preview-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--navy);
+    margin-bottom: 16px;
+}
+
+.preview-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+}
+
+.preview-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.preview-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: #999;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.preview-value {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--navy);
+}
+
+/* ── CONTENT AREA ────────────────────────────── */
+
+.content {
+    flex: 1;
+    padding: 32px;
+    background-color: var(--light);
+    overflow-y: auto;
+}
+
+/* Tab panels — hidden by default */
+.tab-panel {
+    display: none;
+}
+
+.tab-panel.active {
+    display: block;
+}
+
+.page-title {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--navy);
+    margin-bottom: 24px;
+    padding-bottom: 12px;
+    border-bottom: 2px solid var(--border);
+}
+
+/* ── DASHBOARD ───────────────────────────────── */
 
 .section-title {
     font-size: 18px;
     font-weight: 600;
-    color: var(--white);
+    color: var(--navy);
     margin-bottom: 20px;
 }
 
@@ -119,13 +326,11 @@ body {
 
 /* ── FORM ────────────────────────────────────── */
 
-.form-section {
-    padding: 40px 0;
-    background-color: var(--light);
-}
-
-.form-section .section-title {
-    color: var(--navy);
+.form-card {
+    background-color: var(--white);
+    border-radius: 10px;
+    padding: 28px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.06);
 }
 
 .form-row {
@@ -182,16 +387,25 @@ select:focus {
     background-color: var(--blue);
 }
 
+.btn-cancel {
+    background-color: transparent;
+    color: #999;
+    border: 1px solid #ccc;
+    padding: 12px 20px;
+    font-family: 'Poppins', sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-cancel:hover {
+    background-color: #f5f5f5;
+    color: var(--text);
+}
+
 /* ── TABLE ───────────────────────────────────── */
-
-.table-section {
-    padding: 40px 0 60px;
-    background-color: var(--light);
-}
-
-.table-section .section-title {
-    color: var(--navy);
-}
 
 .table-wrapper {
     overflow-x: auto;
@@ -387,15 +601,6 @@ tbody td:last-child {
 
 /* ── INSIGHTS SECTION ────────────────────────── */
 
-.insights-section {
-    padding: 40px 0;
-    background-color: var(--white);
-}
-
-.insights-section .section-title {
-    color: var(--navy);
-}
-
 /* Smart text insight cards */
 .insight-cards {
     display: grid;
@@ -457,4 +662,54 @@ tbody td:last-child {
 .chart-title {
     font-size: 15px;
     font-weight: 600;
-    color: var
+    color: var(--navy);
+    margin-bottom: 20px;
+}
+
+.chart-container {
+    position: relative;
+    height: 280px;
+}
+
+/* ── MOBILE RESPONSIVE ───────────────────────── */
+
+@media (max-width: 768px) {
+
+    .app-layout {
+        flex-direction: column;
+    }
+
+    .sidebar {
+        width: 100%;
+        min-width: unset;
+        padding: 0;
+    }
+
+    .sidebar-menu {
+        display: flex;
+        overflow-x: auto;
+    }
+
+    .tab-item {
+        flex-direction: column;
+        gap: 4px;
+        padding: 12px 16px;
+        font-size: 11px;
+        border-left: none;
+        border-bottom: 3px solid transparent;
+        white-space: nowrap;
+    }
+
+    .tab-item.active {
+        border-left: none;
+        border-bottom: 3px solid var(--green);
+    }
+
+    .content {
+        padding: 20px 16px;
+    }
+
+    .charts-row {
+        grid-template-columns: 1fr;
+    }
+}

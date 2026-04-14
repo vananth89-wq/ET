@@ -6,22 +6,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Prowess Expense Tracker</title>
 
-    <!-- Google Fonts: Poppins (Prowess brand font) -->
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet" />
-
-    <!-- Font Awesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
-
-    <!-- Our stylesheet -->
     <link rel="stylesheet" href="style.css" />
-
-    <!-- Chart.js for smart insights -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 </head>
 
 <body>
 
-    <!-- HEADER -->
+    <!-- ── HEADER ───────────────────────────────── -->
     <header class="header">
         <div class="header-content">
             <img src="logo.png" alt="Prowess Logo" class="logo" />
@@ -32,158 +25,201 @@
         </a>
     </header>
 
-    <!-- DASHBOARD -->
-    <section class="dashboard">
-        <div class="container">
-            <h2 class="section-title">Expense Summary</h2>
-            <div class="cards">
-                <div class="card total-card">
-                    <p class="card-label">Total Expenses</p>
-                    <p class="card-amount" id="total-amount">₹0</p>
-                </div>
-                <div class="card">
-                    <p class="card-label">🚕 Cab</p>
-                    <p class="card-amount" id="cat-Cab">₹0</p>
-                </div>
-                <div class="card">
-                    <p class="card-label">📱 Mobile</p>
-                    <p class="card-amount" id="cat-Mobile">₹0</p>
-                </div>
-                <div class="card">
-                    <p class="card-label">✈️ Flight</p>
-                    <p class="card-amount" id="cat-Flight">₹0</p>
-                </div>
-                <div class="card">
-                    <p class="card-label">🌐 Internet</p>
-                    <p class="card-amount" id="cat-Internet">₹0</p>
-                </div>
-                <div class="card">
-                    <p class="card-label">📦 Miscellaneous</p>
-                    <p class="card-amount" id="cat-Miscellaneous">₹0</p>
-                </div>
-            </div>
-        </div>
-    </section>
+    <!-- ── APP LAYOUT: Sidebar + Content ────────── -->
+    <div class="app-layout">
 
-    <!-- SMART INSIGHTS -->
-    <section class="insights-section">
-        <div class="container">
-            <h2 class="section-title">Smart Insights</h2>
+        <!-- SIDEBAR NAV -->
+        <nav class="sidebar">
 
-            <!-- Text insight cards -->
-            <div class="insight-cards" id="insight-cards">
-                <!-- Populated by JavaScript -->
-            </div>
-
-            <!-- Charts row -->
-            <div class="charts-row">
-                <div class="chart-card">
-                    <h3 class="chart-title">Spending by Category</h3>
-                    <div class="chart-container">
-                        <canvas id="donut-chart"></canvas>
+            <!-- EMPLOYEE PROFILE CARD -->
+            <div class="profile-card">
+                <div class="profile-photo-wrapper">
+                    <img id="profile-photo" src="https://ui-avatars.com/api/?name=Employee&background=2F77B5&color=fff&size=80" alt="Profile Photo" class="profile-photo" />
+                    <!-- Hidden file input -->
+                    <input type="file" id="photo-upload" accept="image/*" style="display:none;" />
+                    <div class="photo-overlay" id="photo-overlay" title="Change photo">
+                        <i class="fa-solid fa-camera"></i>
                     </div>
                 </div>
-                <div class="chart-card">
-                    <h3 class="chart-title">Monthly Trend</h3>
-                    <div class="chart-container">
-                        <canvas id="bar-chart"></canvas>
-                    </div>
+                <div class="profile-info">
+                    <p class="profile-name" id="profile-name">Employee</p>
+                    <p class="profile-designation" id="profile-designation">—</p>
+                    <p class="profile-mobile" id="profile-mobile">
+                        <i class="fa-solid fa-phone"></i> —
+                    </p>
                 </div>
             </div>
 
-        </div>
-    </section>
+            <div class="sidebar-divider"></div>
 
-    <!-- EXPENSE FORM -->
-    <section class="form-section">
-        <div class="container">
-            <h2 class="section-title">Add New Expense</h2>
-            <form id="expense-form">
-                <div class="form-row">
+            <ul class="sidebar-menu">
+                <li class="tab-item active" data-tab="dashboard">
+                    <i class="fa-solid fa-chart-pie"></i>
+                    <span>Dashboard</span>
+                </li>
+                <li class="tab-item" data-tab="insights">
+                    <i class="fa-solid fa-lightbulb"></i>
+                    <span>Insights</span>
+                </li>
+                <li class="tab-item" data-tab="add-expense">
+                    <i class="fa-solid fa-plus"></i>
+                    <span>Add Expense</span>
+                </li>
+                <li class="tab-item" data-tab="my-expenses">
+                    <i class="fa-solid fa-table-list"></i>
+                    <span>My Expenses</span>
+                </li>
+            </ul>
+        </nav>
 
-                    <div class="form-group">
-                        <label for="category">Category</label>
-                        <select id="category" required>
-                            <option value="">-- Select --</option>
-                            <option value="Cab">🚕 Cab</option>
-                            <option value="Mobile">📱 Mobile</option>
-                            <option value="Flight">✈️ Flight</option>
-                            <option value="Internet">🌐 Internet</option>
-                            <option value="Miscellaneous">📦 Miscellaneous</option>
+        <!-- CONTENT AREA -->
+        <main class="content">
+
+            <!-- ── TAB 1: DASHBOARD ──────────────── -->
+            <section id="tab-dashboard" class="tab-panel active">
+                <h2 class="page-title">Expense Summary</h2>
+                <div class="cards">
+                    <div class="card total-card">
+                        <p class="card-label">Total Expenses</p>
+                        <p class="card-amount" id="total-amount">₹0</p>
+                    </div>
+                    <div class="card">
+                        <p class="card-label">🚕 Cab</p>
+                        <p class="card-amount" id="cat-Cab">₹0</p>
+                    </div>
+                    <div class="card">
+                        <p class="card-label">📱 Mobile</p>
+                        <p class="card-amount" id="cat-Mobile">₹0</p>
+                    </div>
+                    <div class="card">
+                        <p class="card-label">✈️ Flight</p>
+                        <p class="card-amount" id="cat-Flight">₹0</p>
+                    </div>
+                    <div class="card">
+                        <p class="card-label">🌐 Internet</p>
+                        <p class="card-amount" id="cat-Internet">₹0</p>
+                    </div>
+                    <div class="card">
+                        <p class="card-label">📦 Miscellaneous</p>
+                        <p class="card-amount" id="cat-Miscellaneous">₹0</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ── TAB 2: INSIGHTS ───────────────── -->
+            <section id="tab-insights" class="tab-panel">
+                <h2 class="page-title">Smart Insights</h2>
+
+                <div class="insight-cards" id="insight-cards">
+                    <!-- Populated by JavaScript -->
+                </div>
+
+                <div class="charts-row">
+                    <div class="chart-card">
+                        <h3 class="chart-title">Spending by Category</h3>
+                        <div class="chart-container">
+                            <canvas id="donut-chart"></canvas>
+                        </div>
+                    </div>
+                    <div class="chart-card">
+                        <h3 class="chart-title">Monthly Trend</h3>
+                        <div class="chart-container">
+                            <canvas id="bar-chart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ── TAB 3: ADD EXPENSE ────────────── -->
+            <section id="tab-add-expense" class="tab-panel">
+                <h2 class="page-title">Add New Expense</h2>
+                <div class="form-card">
+                    <form id="expense-form">
+                        <div class="form-row">
+
+                            <div class="form-group">
+                                <label for="category">Category</label>
+                                <select id="category" required>
+                                    <option value="">-- Select --</option>
+                                    <option value="Cab">🚕 Cab</option>
+                                    <option value="Mobile">📱 Mobile</option>
+                                    <option value="Flight">✈️ Flight</option>
+                                    <option value="Internet">🌐 Internet</option>
+                                    <option value="Miscellaneous">📦 Miscellaneous</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="date">Date</label>
+                                <input type="date" id="date" required />
+                            </div>
+
+                            <div class="form-group">
+                                <label for="project">Project</label>
+                                <select id="project" required>
+                                    <option value="">-- Select Date First --</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="amount">Amount (₹)</label>
+                                <input type="number" id="amount" placeholder="e.g. 500" min="1" required />
+                            </div>
+
+                            <div class="form-group">
+                                <label for="note">Note</label>
+                                <input type="text" id="note" placeholder="Optional note" />
+                            </div>
+
+                        </div>
+                        <button type="submit" class="btn-add">+ Add Expense</button>
+                    </form>
+                </div>
+            </section>
+
+            <!-- ── TAB 4: MY EXPENSES ────────────── -->
+            <section id="tab-my-expenses" class="tab-panel">
+                <h2 class="page-title">My Expenses</h2>
+
+                <!-- DUAL FILTER -->
+                <div class="filter-bar">
+                    <div class="filter-group">
+                        <label for="month-filter">Month:</label>
+                        <select id="month-filter">
+                            <option value="all">All Months</option>
                         </select>
                     </div>
-
-                    <div class="form-group">
-                        <label for="date">Date</label>
-                        <input type="date" id="date" required />
-                    </div>
-
-                    <div class="form-group">
-                        <label for="project">Project</label>
-                        <select id="project" required>
-                            <option value="">-- Select Date First --</option>
+                    <div class="filter-group">
+                        <label for="project-filter">Project:</label>
+                        <select id="project-filter">
+                            <option value="all">All Projects</option>
                         </select>
                     </div>
-
-                    <div class="form-group">
-                        <label for="amount">Amount (₹)</label>
-                        <input type="number" id="amount" placeholder="e.g. 500" min="1" required />
-                    </div>
-
-                    <div class="form-group">
-                        <label for="note">Note</label>
-                        <input type="text" id="note" placeholder="Optional note" />
-                    </div>
-
                 </div>
-                <button type="submit" class="btn-add">+ Add Expense</button>
-            </form>
-        </div>
-    </section>
 
-    <!-- EXPENSE TABLE -->
-    <section class="table-section">
-        <div class="container">
-            <h2 class="section-title">My Expenses</h2>
-
-            <!-- DUAL FILTER: Month + Project -->
-            <div class="filter-bar">
-                <div class="filter-group">
-                    <label for="month-filter">Month:</label>
-                    <select id="month-filter">
-                        <option value="all">All Months</option>
-                    </select>
+                <div class="table-wrapper">
+                    <table id="expense-table">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Category</th>
+                                <th>Date</th>
+                                <th>Project</th>
+                                <th>Amount (₹)</th>
+                                <th>Note</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="expense-body">
+                            <!-- Rows added by JavaScript -->
+                        </tbody>
+                    </table>
                 </div>
-                <div class="filter-group">
-                    <label for="project-filter">Project:</label>
-                    <select id="project-filter">
-                        <option value="all">All Projects</option>
-                    </select>
-                </div>
-            </div>
+            </section>
 
-            <div class="table-wrapper">
-                <table id="expense-table">
-                    <thead>
-                        <tr>
-                            <th>#</th>
-                            <th>Category</th>
-                            <th>Date</th>
-                            <th>Project</th>
-                            <th>Amount (₹)</th>
-                            <th>Note</th>
-                            <th>Action</th>
-                        </tr>
-                    </thead>
-                    <tbody id="expense-body">
-                        <!-- Rows will be added here by JavaScript -->
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </section>
+        </main>
+    </div>
 
-    <!-- JS loaded last, before body closes -->
     <script src="script.js"></script>
 </body>
 
