@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Prowess Admin - Project Management</title>
+
+    <!-- Google Fonts: Poppins -->
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet" />
+
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+
+    <!-- Shared stylesheet -->
+    <link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+
+    <!-- HEADER -->
+    <header class="header">
+        <div class="header-content">
+            <img src="logo.png" alt="Prowess Logo" class="logo" />
+            <p class="tagline">Admin — Project Management</p>
+        </div>
+        <a href="index.html" class="admin-link">
+            <i class="fa-solid fa-arrow-left"></i> Employee View
+        </a>
+    </header>
+
+    <!-- ADD PROJECT FORM -->
+    <section class="form-section">
+        <div class="container">
+            <h2 class="section-title">Add New Project</h2>
+            <form id="project-form">
+                <div class="form-row">
+
+                    <div class="form-group">
+                        <label for="project-name">Project Name</label>
+                        <input type="text" id="project-name" placeholder="e.g. AMTPJ" required />
+                    </div>
+
+                    <div class="form-group">
+                        <label for="start-date">Start Date</label>
+                        <input type="date" id="start-date" required />
+                    </div>
+
+                    <div class="form-group">
+                        <label for="end-date">End Date</label>
+                        <input type="date" id="end-date" required />
+                    </div>
+
+                </div>
+                <button type="submit" class="btn-add">+ Add Project</button>
+            </form>
+        </div>
+    </section>
+
+    <!-- PROJECTS TABLE -->
+    <section class="table-section">
+        <div class="container">
+            <h2 class="section-title">All Projects</h2>
+            <div class="table-wrapper">
+                <table id="project-table">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Project Name</th>
+                            <th>Start Date</th>
+                            <th>End Date</th>
+                            <th>Status</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="project-body">
+                        <!-- Rows added by JavaScript -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <script src="admin.js"></script>
+</body>
+
+</html>

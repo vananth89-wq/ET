@@ -3,15 +3,18 @@
 const form = document.getElementById('expense-form');
 const categoryInput = document.getElementById('category');
 const dateInput = document.getElementById('date');
+const projectInput = document.getElementById('project');
 const amountInput = document.getElementById('amount');
 const noteInput = document.getElementById('note');
 const expenseBody = document.getElementById('expense-body');
+const monthFilter = document.getElementById('month-filter');
+const projectFilter = document.getElementById('project-filter');
 
-// ── STEP 2: Load expenses from localStorage ────
+// ── STEP 2: Load data from localStorage ────────
 
-// If expenses exist in browser storage, load them.
-// If not, start with an empty array.
 let expenses = JSON.parse(localStorage.getItem('prowess-expenses')) || [];
+let projects = JSON.parse(localStorage.getItem('prowess-projects')) || [];
+let editingId = null; // tracks which expense is being edited
 
 // ── STEP 3: Handle form submission ─────────────
 
@@ -26,6 +29,7 @@ form.addEventListener('submit', function (event) {
                     ...e,
                     category: categoryInput.value,
                     date: dateInput.value,
+                    project: projectInput.value,
                     amount: parseFloat(amountInput.value),
                     note: noteInput.value.trim() || '—'
                 };
@@ -43,6 +47,7 @@ form.addEventListener('submit', function (event) {
             id: Date.now(),
             category: categoryInput.value,
             date: dateInput.value,
+            project: projectInput.value,
             amount: parseFloat(amountInput.value),
             note: noteInput.value.trim() || '—'
         };
@@ -52,53 +57,96 @@ form.addEventListener('submit', function (event) {
     // Save, reset and re-render (runs for both add and edit)
     localStorage.setItem('prowess-expenses', JSON.stringify(expenses));
     form.reset();
+    projectInput.innerHTML = '<option value="">-- Select Date First --</option>';
     renderTable();
     renderDashboard();
+    populateMonthFilter();
+    populateProjectFilter();
 });
 
-// ── STEP 4: Render the expenses table ──────────
+// ── STEP 4: Populate project dropdown by date ──
+// When employee picks a date, only show projects
+// that are active on that date
+
+dateInput.addEventListener('change', function () {
+    const selectedDate = dateInput.value;
+    populateProjectDropdown(selectedDate);
+});
+
+function populateProjectDropdown(selectedDate) {
+    projectInput.innerHTML = '<option value="">-- Select Project --</option>';
+
+    if (!selectedDate) {
+        projectInput.innerHTML = '<option value="">-- Select Date First --</option>';
+        return;
+    }
+
+    // Filter projects active on the selected date
+    const activeProjects = projects.filter(function (p) {
+        return selectedDate >= p.startDate && selectedDate <= p.endDate;
+    });
+
+    if (activeProjects.length === 0) {
+        projectInput.innerHTML = '<option value="">-- No Active Projects --</option>';
+        return;
+    }
+
+    activeProjects.forEach(function (p) {
+        const option = document.createElement('option');
+        option.value = p.name;
+        option.textContent = p.name;
+        projectInput.appendChild(option);
+    });
+}
+
+// ── STEP 5: Render the expenses table ──────────
 
 function renderTable() {
 
     // Clear existing rows first
     expenseBody.innerHTML = '';
 
+    const filtered = getFilteredExpenses();
+
     // If no expenses yet, show a friendly message
-    if (expenses.length === 0) {
-        expenseBody.innerHTML = '<tr><td colspan="5" class="no-data">No expenses added yet.</td></tr>';
+    if (filtered.length === 0) {
+        expenseBody.innerHTML = '<tr><td colspan="7" class="no-data">No expenses added yet.</td></tr>';
         return;
     }
 
     // Loop through each expense and create a table row
-    expenses.forEach(function (expense, index) {
+    filtered.forEach(function (expense, index) {
         const row = document.createElement('tr');
 
         row.innerHTML = `
-      <td>${index + 1}</td>
-      <td>${expense.category}</td>
-      <td>${expense.date}</td>
-      <td>₹${expense.amount.toLocaleString('en-IN')}</td>
-      <td>${expense.note}</td>
-      <td>
-        <button class="btn-edit" data-id="${expense.id}">
-            <i class="fa-solid fa-pen-to-square" data-id="${expense.id}"></i>
-        </button>
-        <button class="btn-delete" data-id="${expense.id}">
-            <i class="fa-solid fa-trash" data-id="${expense.id}"></i>
-        </button>
-      </td>
-    `;
+            <td>${index + 1}</td>
+            <td>${expense.category}</td>
+            <td>${expense.date}</td>
+            <td><span class="project-badge">${expense.project || '—'}</span></td>
+            <td>₹${expense.amount.toLocaleString('en-IN')}</td>
+            <td>${expense.note}</td>
+            <td>
+                <button class="btn-edit" data-id="${expense.id}">
+                    <i class="fa-solid fa-pen-to-square" data-id="${expense.id}"></i>
+                </button>
+                <button class="btn-delete" data-id="${expense.id}">
+                    <i class="fa-solid fa-trash" data-id="${expense.id}"></i>
+                </button>
+            </td>
+        `;
 
         expenseBody.appendChild(row);
     });
 }
 
-// ── STEP 5: Render the dashboard ───────────────
+// ── STEP 6: Render the dashboard ───────────────
 
 function renderDashboard() {
 
+    const filtered = getFilteredExpenses();
+
     // Calculate grand total
-    const total = expenses.reduce((sum, e) => sum + e.amount, 0);
+    const total = filtered.reduce((sum, e) => sum + e.amount, 0);
     document.getElementById('total-amount').textContent = '₹' + total.toLocaleString('en-IN');
 
     // Categories to calculate
@@ -106,7 +154,7 @@ function renderDashboard() {
 
     // For each category, filter and sum its expenses
     categories.forEach(function (cat) {
-        const catTotal = expenses
+        const catTotal = filtered
             .filter(e => e.category === cat)
             .reduce((sum, e) => sum + e.amount, 0);
 
@@ -114,18 +162,85 @@ function renderDashboard() {
     });
 }
 
-// ── STEP 6: Initialize on page load ────────────
+// ── STEP 7: Populate month filter dropdown ──────
 
-renderTable();
-renderDashboard();
+function populateMonthFilter() {
 
-// ── STEP 7: Handle delete button click ─────────
+    // Get unique months from expenses
+    const months = [...new Set(expenses.map(e => e.date.substring(0, 7)))].sort();
+
+    // Remember current selection
+    const current = monthFilter.value;
+
+    // Reset dropdown keeping "All" option
+    monthFilter.innerHTML = '<option value="all">All Months</option>';
+
+    // Add one option per unique month
+    months.forEach(function (month) {
+        const [year, m] = month.split('-');
+        const label = new Date(year, m - 1).toLocaleString('default', { month: 'long', year: 'numeric' });
+        const option = document.createElement('option');
+        option.value = month;
+        option.textContent = label;
+        monthFilter.appendChild(option);
+    });
+
+    // Restore previous selection
+    monthFilter.value = months.includes(current) ? current : 'all';
+}
+
+// ── STEP 8: Populate project filter dropdown ────
+
+function populateProjectFilter() {
+
+    // Get unique projects used in expenses
+    const usedProjects = [...new Set(expenses.map(e => e.project).filter(Boolean))].sort();
+
+    // Remember current selection
+    const current = projectFilter.value;
+
+    // Reset dropdown keeping "All" option
+    projectFilter.innerHTML = '<option value="all">All Projects</option>';
+
+    usedProjects.forEach(function (name) {
+        const option = document.createElement('option');
+        option.value = name;
+        option.textContent = name;
+        projectFilter.appendChild(option);
+    });
+
+    // Restore previous selection
+    projectFilter.value = usedProjects.includes(current) ? current : 'all';
+}
+
+// ── STEP 9: Get filtered expenses (month + project)
+
+function getFilteredExpenses() {
+    let filtered = expenses;
+
+    // Filter by month
+    const selectedMonth = monthFilter.value;
+    if (selectedMonth !== 'all') {
+        filtered = filtered.filter(e => e.date.startsWith(selectedMonth));
+    }
+
+    // Filter by project
+    const selectedProject = projectFilter.value;
+    if (selectedProject !== 'all') {
+        filtered = filtered.filter(e => e.project === selectedProject);
+    }
+
+    return filtered;
+}
+
+// ── STEP 10: Handle delete button click ────────
 
 expenseBody.addEventListener('click', function (event) {
     const deleteBtn = event.target.closest('.btn-delete');
     if (deleteBtn) {
         const confirmed = confirm('Are you sure you want to delete this expense?');
         if (!confirmed) return;
+
         const id = Number(deleteBtn.getAttribute('data-id'));
 
         // Remove the expense with that id from the array
@@ -134,13 +249,15 @@ expenseBody.addEventListener('click', function (event) {
         // Save updated array to localStorage
         localStorage.setItem('prowess-expenses', JSON.stringify(expenses));
 
-        // Re-render table and dashboard
+        // Re-render table, dashboard and filters
         renderTable();
         renderDashboard();
+        populateMonthFilter();
+        populateProjectFilter();
     }
 });
 
-// ── STEP 8: Handle edit button click ───────────
+// ── STEP 11: Handle edit button click ──────────
 
 expenseBody.addEventListener('click', function (event) {
     const editBtn = event.target.closest('.btn-edit');
@@ -158,6 +275,10 @@ expenseBody.addEventListener('click', function (event) {
         amountInput.value = expense.amount;
         noteInput.value = expense.note === '—' ? '' : expense.note;
 
+        // Populate project dropdown for that date then set value
+        populateProjectDropdown(expense.date);
+        projectInput.value = expense.project;
+
         // Remember which expense we're editing
         editingId = id;
 
@@ -168,3 +289,22 @@ expenseBody.addEventListener('click', function (event) {
         document.querySelector('.form-section').scrollIntoView({ behavior: 'smooth' });
     }
 });
+
+// ── STEP 12: Re-render when filters change ─────
+
+monthFilter.addEventListener('change', function () {
+    renderTable();
+    renderDashboard();
+});
+
+projectFilter.addEventListener('change', function () {
+    renderTable();
+    renderDashboard();
+});
+
+// ── STEP 13: Initialize on page load ───────────
+
+renderTable();
+renderDashboard();
+populateMonthFilter();
+populateProjectFilter();

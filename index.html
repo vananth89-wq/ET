@@ -18,14 +18,17 @@
 
 <body>
 
-    <!-- Everything visible goes here -->
     <!-- HEADER -->
     <header class="header">
         <div class="header-content">
-            <img src="logo.png" alt="Prowess Logo" class="logo-img" />
+            <img src="logo.png" alt="Prowess Logo" class="logo" />
             <p class="tagline">Employee Expense Tracker</p>
         </div>
+        <a href="admin.html" class="admin-link">
+            <i class="fa-solid fa-gear"></i> Admin
+        </a>
     </header>
+
     <!-- DASHBOARD -->
     <section class="dashboard">
         <div class="container">
@@ -58,6 +61,7 @@
             </div>
         </div>
     </section>
+
     <!-- EXPENSE FORM -->
     <section class="form-section">
         <div class="container">
@@ -83,6 +87,13 @@
                     </div>
 
                     <div class="form-group">
+                        <label for="project">Project</label>
+                        <select id="project" required>
+                            <option value="">-- Select Date First --</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
                         <label for="amount">Amount (₹)</label>
                         <input type="number" id="amount" placeholder="e.g. 500" min="1" required />
                     </div>
@@ -97,10 +108,28 @@
             </form>
         </div>
     </section>
+
     <!-- EXPENSE TABLE -->
     <section class="table-section">
         <div class="container">
             <h2 class="section-title">My Expenses</h2>
+
+            <!-- DUAL FILTER: Month + Project -->
+            <div class="filter-bar">
+                <div class="filter-group">
+                    <label for="month-filter">Month:</label>
+                    <select id="month-filter">
+                        <option value="all">All Months</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="project-filter">Project:</label>
+                    <select id="project-filter">
+                        <option value="all">All Projects</option>
+                    </select>
+                </div>
+            </div>
+
             <div class="table-wrapper">
                 <table id="expense-table">
                     <thead>
@@ -108,6 +137,7 @@
                             <th>#</th>
                             <th>Category</th>
                             <th>Date</th>
+                            <th>Project</th>
                             <th>Amount (₹)</th>
                             <th>Note</th>
                             <th>Action</th>
@@ -120,6 +150,7 @@
             </div>
         </div>
     </section>
+
     <!-- JS loaded last, before body closes -->
     <script src="script.js"></script>
 </body>

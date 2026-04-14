@@ -278,20 +278,109 @@ tbody td:last-child {
 /* ── EDIT BUTTON ─────────────────────────────── */
 
 .btn-edit {
-  background-color: transparent;
-  color: var(--blue);
-  border: 1px solid var(--blue);
-  padding: 5px 12px;
-  border-radius: 4px;
-  font-family: 'Poppins', sans-serif;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  margin-right: 6px;
+    background-color: transparent;
+    color: var(--blue);
+    border: 1px solid var(--blue);
+    padding: 5px 12px;
+    border-radius: 4px;
+    font-family: 'Poppins', sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    margin-right: 6px;
 }
 
 .btn-edit:hover {
-  background-color: var(--blue);
-  color: var(--white);
+    background-color: var(--blue);
+    color: var(--white);
+}
+
+/* ── ADMIN LINK IN HEADER ────────────────────── */
+
+.header {
+    position: relative;
+}
+
+.admin-link {
+    position: absolute;
+    right: 24px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--navy);
+    text-decoration: none;
+    border: 1px solid var(--navy);
+    padding: 6px 14px;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+}
+
+.admin-link:hover {
+    background-color: var(--navy);
+    color: var(--white);
+}
+
+/* ── FILTER BAR ──────────────────────────────── */
+
+.filter-bar {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.filter-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.filter-group label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--navy);
+    white-space: nowrap;
+}
+
+.filter-group select {
+    padding: 8px 12px;
+    min-width: 160px;
+}
+
+/* ── PROJECT BADGE IN TABLE ──────────────────── */
+
+.project-badge {
+    background-color: #e8f0fe;
+    color: var(--navy);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 20px;
+}
+
+/* ── STATUS BADGES (Admin Page) ──────────────── */
+
+.badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 20px;
+}
+
+.badge-active {
+    background-color: #e6f9ec;
+    color: #2e7d32;
+}
+
+.badge-upcoming {
+    background-color: #fff8e1;
+    color: #f57f17;
+}
+
+.badge-closed {
+    background-color: #fce4e4;
+    color: #c62828;
 }
