@@ -713,17 +713,16 @@ tbody td:last-child {
     position: relative;
 }
 
-/* Vertical stem: parent node → top of child row
-   Rides inside the 20px margin-bottom that every .org-node carries */
+/* Vertical stem: parent node → top of child row */
 .org-tree li > ul::before {
     content: '';
     position: absolute;
     top: -20px;
     left: 50%;
     transform: translateX(-50%);
-    width: 2px;
+    width: 1px;
     height: 20px;
-    background: #b0bec5;
+    background: #aaaaaa;
 }
 
 /* Each child <li> — 40px top-padding creates room for connector lines */
@@ -735,15 +734,15 @@ tbody td:last-child {
     position: relative;
 }
 
-/* Horizontal bar — left half (runs from li's left edge to its centre) */
+/* Horizontal bar — left half */
 .org-tree li > ul > li::before {
     content: '';
     position: absolute;
-    top: 20px;   /* midpoint of the 40px padding */
+    top: 20px;
     left: 0;
     width: 50%;
-    height: 2px;
-    background: #b0bec5;
+    height: 1px;
+    background: #aaaaaa;
 }
 
 /* Horizontal bar — right half */
@@ -753,17 +752,15 @@ tbody td:last-child {
     top: 20px;
     left: 50%;
     width: 50%;
-    height: 2px;
-    background: #b0bec5;
+    height: 1px;
+    background: #aaaaaa;
 }
 
 /* First child has no left bar; last child has no right bar */
 .org-tree li > ul > li:first-child::before { display: none; }
 .org-tree li > ul > li:last-child::after   { display: none; }
 
-/* Vertical drop: horizontal-bar level → top of child org-node
-   top: -40px from the org-node = li's top (0), height: 40px brings us back
-   to the node — passes through the horizontal bar at 20px creating a T-junction */
+/* Vertical drop: from horizontal-bar level down to the child node */
 .org-tree li > ul > li > .org-node {
     position: relative;
 }
@@ -774,9 +771,9 @@ tbody td:last-child {
     top: -40px;
     left: 50%;
     transform: translateX(-50%);
-    width: 2px;
+    width: 1px;
     height: 40px;
-    background: #b0bec5;
+    background: #aaaaaa;
 }
 
 /* ── ORG NODE CARD ────────────────────────────── */

@@ -150,6 +150,9 @@ profileForm.addEventListener('submit', function (event) {
 
     if (editingEmpId !== null) {
         // ── EDIT MODE ──
+        const oldEmp       = employees.find(e => e.id === editingEmpId);
+        const oldManagerId = oldEmp ? oldEmp.managerId : null;
+
         employees = employees.map(function (emp) {
             if (emp.id === editingEmpId) {
                 return { ...emp, name, employeeId, designation, mobile, departmentId, managerId, role };
@@ -157,8 +160,11 @@ profileForm.addEventListener('submit', function (event) {
             return emp;
         });
 
-        // Update manager's role if they were just assigned
+        // Promote new manager
         if (managerId) updateManagerRole(managerId);
+
+        // If manager was removed or changed, re-evaluate the old manager's role
+        if (oldManagerId && oldManagerId !== managerId) reEvaluateRole(oldManagerId);
 
         // Update active profile if this is the current employee
         syncProfile(editingEmpId);
@@ -207,6 +213,23 @@ function updateManagerRole(managerId) {
     });
 }
 
+// ── Re-evaluate role when someone loses a report or is unassigned as manager
+
+function reEvaluateRole(empId) {
+    if (!empId) return;
+    const depts = JSON.parse(localStorage.getItem('prowess-departments')) || [];
+    const isDeptHead   = depts.some(d => d.headId === empId);
+    const stillManages = employees.some(e => e.managerId === empId);
+    employees = employees.map(function (emp) {
+        if (emp.employeeId === empId) {
+            if (isDeptHead)    return { ...emp, role: 'Dept Head' };
+            if (stillManages)  return { ...emp, role: 'Manager' };
+            return { ...emp, role: 'Employee' };
+        }
+        return emp;
+    });
+}
+
 // ── Sync active profile with updated employee data
 
 function syncProfile(empId) {
@@ -235,7 +258,6 @@ employeeBody.addEventListener('click', function (event) {
         populateEmployeeFormDropdowns();
         document.getElementById('emp-department').value  = emp.departmentId || '';
         document.getElementById('emp-manager-id').value  = emp.managerId || '';
-        document.getElementById('emp-role').value        = emp.role || 'Employee';
 
         editingEmpId = id;
         empSubmitBtn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Update Employee';
@@ -247,8 +269,13 @@ employeeBody.addEventListener('click', function (event) {
     const deleteBtn = event.target.closest('.btn-delete');
     if (deleteBtn) {
         if (!confirm('Are you sure you want to delete this employee?')) return;
-        const id = Number(deleteBtn.getAttribute('data-id'));
+        const id         = Number(deleteBtn.getAttribute('data-id'));
+        const deletedEmp = employees.find(e => e.id === id);
         employees = employees.filter(e => e.id !== id);
+
+        // If the deleted employee had a manager, re-evaluate that manager's role
+        if (deletedEmp && deletedEmp.managerId) reEvaluateRole(deletedEmp.managerId);
+
         localStorage.setItem('prowess-employees', JSON.stringify(employees));
 
         // Reassign active profile if needed
