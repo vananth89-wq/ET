@@ -384,3 +384,77 @@ tbody td:last-child {
     background-color: #fce4e4;
     color: #c62828;
 }
+
+/* ── INSIGHTS SECTION ────────────────────────── */
+
+.insights-section {
+    padding: 40px 0;
+    background-color: var(--white);
+}
+
+.insights-section .section-title {
+    color: var(--navy);
+}
+
+/* Smart text insight cards */
+.insight-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 16px;
+    margin-bottom: 30px;
+}
+
+.insight-card {
+    background-color: var(--light);
+    border-left: 4px solid var(--blue);
+    border-radius: 8px;
+    padding: 16px 20px;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+.insight-card.highlight {
+    border-left-color: var(--green);
+}
+
+.insight-card.warning {
+    border-left-color: #f57f17;
+}
+
+.insight-icon {
+    font-size: 22px;
+    margin-top: 2px;
+}
+
+.insight-text {
+    font-size: 13px;
+    color: var(--text);
+    line-height: 1.6;
+}
+
+.insight-text strong {
+    color: var(--navy);
+    display: block;
+    font-size: 14px;
+    margin-bottom: 2px;
+}
+
+/* Charts row */
+.charts-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+}
+
+.chart-card {
+    background-color: var(--light);
+    border-radius: 10px;
+    padding: 24px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+}
+
+.chart-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var

@@ -60,6 +60,7 @@ form.addEventListener('submit', function (event) {
     projectInput.innerHTML = '<option value="">-- Select Date First --</option>';
     renderTable();
     renderDashboard();
+    renderInsights();
     populateMonthFilter();
     populateProjectFilter();
 });
@@ -162,6 +163,221 @@ function renderDashboard() {
     });
 }
 
+// ── SMART INSIGHTS ──────────────────────────────
+
+// Chart instances — stored so we can destroy and
+// redraw them when data changes (Chart.js requirement)
+let donutChart = null;
+let barChart = null;
+
+function renderInsights() {
+    const filtered = getFilteredExpenses();
+    const insightCards = document.getElementById('insight-cards');
+
+    // ── BLOCK 1: Smart Text Insights ─────────────
+
+    if (filtered.length === 0) {
+        insightCards.innerHTML = `
+            <div class="insight-card">
+                <span class="insight-icon">💡</span>
+                <div class="insight-text">
+                    <strong>No Data Yet</strong>
+                    Add your first expense to see smart insights.
+                </div>
+            </div>`;
+        renderDonutChart([]);
+        renderBarChart([]);
+        return;
+    }
+
+    const insights = [];
+
+    // Insight 1: Highest spending category
+    const categories = ['Cab', 'Mobile', 'Flight', 'Internet', 'Miscellaneous'];
+    const categoryTotals = categories.map(cat => ({
+        name: cat,
+        total: filtered
+            .filter(e => e.category === cat)
+            .reduce((sum, e) => sum + e.amount, 0)
+    }));
+    const topCategory = categoryTotals.reduce((a, b) => a.total > b.total ? a : b);
+
+    if (topCategory.total > 0) {
+        insights.push({
+            icon: '📊',
+            type: 'highlight',
+            title: 'Top Spending Category',
+            text: `Your highest expense is <strong>${topCategory.name}</strong> at ₹${topCategory.total.toLocaleString('en-IN')}`
+        });
+    }
+
+    // Insight 2: Month-over-month comparison
+    const months = [...new Set(expenses.map(e => e.date.substring(0, 7)))].sort();
+    if (months.length >= 2) {
+        const lastMonth = months[months.length - 1];
+        const prevMonth = months[months.length - 2];
+        const lastTotal = expenses
+            .filter(e => e.date.startsWith(lastMonth))
+            .reduce((sum, e) => sum + e.amount, 0);
+        const prevTotal = expenses
+            .filter(e => e.date.startsWith(prevMonth))
+            .reduce((sum, e) => sum + e.amount, 0);
+        const diff = lastTotal - prevTotal;
+        const pct = prevTotal > 0 ? Math.abs(Math.round((diff / prevTotal) * 100)) : 0;
+
+        if (diff > 0) {
+            insights.push({
+                icon: '📈',
+                type: 'warning',
+                title: 'Month-over-Month',
+                text: `Spending is up <strong>₹${Math.abs(diff).toLocaleString('en-IN')} (${pct}%)</strong> compared to last month`
+            });
+        } else {
+            insights.push({
+                icon: '📉',
+                type: 'highlight',
+                title: 'Month-over-Month',
+                text: `Great! Spending is down <strong>₹${Math.abs(diff).toLocaleString('en-IN')} (${pct}%)</strong> compared to last month`
+            });
+        }
+    }
+
+    // Insight 3: Average expense + total count
+    const avg = filtered.reduce((sum, e) => sum + e.amount, 0) / filtered.length;
+    insights.push({
+        icon: '🧾',
+        type: '',
+        title: 'Expense Summary',
+        text: `<strong>${filtered.length} expenses</strong> submitted · Average amount ₹${Math.round(avg).toLocaleString('en-IN')}`
+    });
+
+    // Render insight cards
+    insightCards.innerHTML = insights.map(i => `
+        <div class="insight-card ${i.type}">
+            <span class="insight-icon">${i.icon}</span>
+            <div class="insight-text">
+                <strong>${i.title}</strong>
+                ${i.text}
+            </div>
+        </div>
+    `).join('');
+
+    // ── BLOCK 2: Donut Chart ──────────────────────
+    renderDonutChart(categoryTotals);
+
+    // ── BLOCK 3: Bar Chart ────────────────────────
+    renderBarChart(months);
+}
+
+// ── Donut Chart: Category Breakdown ────────────
+
+function renderDonutChart(categoryTotals) {
+
+    // Destroy previous chart if exists
+    if (donutChart) donutChart.destroy();
+
+    const canvas = document.getElementById('donut-chart');
+    const data = categoryTotals.filter(c => c.total > 0);
+
+    if (data.length === 0) {
+        canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+        return;
+    }
+
+    donutChart = new Chart(canvas, {
+        type: 'doughnut',
+        data: {
+            labels: data.map(c => c.name),
+            datasets: [{
+                data: data.map(c => c.total),
+                backgroundColor: ['#2F77B5', '#61CE70', '#18345B', '#f57f17', '#e53935'],
+                borderWidth: 2,
+                borderColor: '#ffffff'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: {
+                        font: { family: 'Poppins', size: 12 },
+                        padding: 16
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: ctx => ` ₹${ctx.raw.toLocaleString('en-IN')}`
+                    }
+                }
+            }
+        }
+    });
+}
+
+// ── Bar Chart: Monthly Trend ────────────────────
+
+function renderBarChart(months) {
+
+    // Destroy previous chart if exists
+    if (barChart) barChart.destroy();
+
+    const canvas = document.getElementById('bar-chart');
+
+    if (months.length === 0) {
+        canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+        return;
+    }
+
+    const monthTotals = months.map(month => ({
+        label: new Date(month + '-01').toLocaleString('default', { month: 'short', year: '2-digit' }),
+        total: expenses
+            .filter(e => e.date.startsWith(month))
+            .reduce((sum, e) => sum + e.amount, 0)
+    }));
+
+    barChart = new Chart(canvas, {
+        type: 'bar',
+        data: {
+            labels: monthTotals.map(m => m.label),
+            datasets: [{
+                label: 'Total Expenses (₹)',
+                data: monthTotals.map(m => m.total),
+                backgroundColor: '#2F77B5',
+                borderRadius: 6,
+                borderSkipped: false
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: ctx => ` ₹${ctx.raw.toLocaleString('en-IN')}`
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        font: { family: 'Poppins', size: 11 },
+                        callback: val => '₹' + val.toLocaleString('en-IN')
+                    },
+                    grid: { color: '#f0f0f0' }
+                },
+                x: {
+                    ticks: { font: { family: 'Poppins', size: 11 } },
+                    grid: { display: false }
+                }
+            }
+        }
+    });
+}
+
 // ── STEP 7: Populate month filter dropdown ──────
 
 function populateMonthFilter() {
@@ -252,6 +468,7 @@ expenseBody.addEventListener('click', function (event) {
         // Re-render table, dashboard and filters
         renderTable();
         renderDashboard();
+        renderInsights();
         populateMonthFilter();
         populateProjectFilter();
     }
@@ -295,16 +512,19 @@ expenseBody.addEventListener('click', function (event) {
 monthFilter.addEventListener('change', function () {
     renderTable();
     renderDashboard();
+    renderInsights();
 });
 
 projectFilter.addEventListener('change', function () {
     renderTable();
     renderDashboard();
+    renderInsights();
 });
 
 // ── STEP 13: Initialize on page load ───────────
 
 renderTable();
 renderDashboard();
+renderInsights();
 populateMonthFilter();
 populateProjectFilter();
