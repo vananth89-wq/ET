@@ -244,3 +244,33 @@ tbody tr:last-child {
     font-size: 14px;
     padding: 40px !important;
 }
+
+/* ── DELETE BUTTON ───────────────────────────── */
+
+.btn-delete {
+    background-color: transparent;
+    color: #e53935;
+    border: 1px solid #e53935;
+    padding: 5px 12px;
+    border-radius: 4px;
+    font-family: 'Poppins', sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-delete:hover {
+    background-color: #e53935;
+    color: var(--white);
+}
+
+/* ── ACTION COLUMN ALIGNMENT ─────────────────── */
+
+thead th:last-child {
+    text-align: center;
+}
+
+tbody td:last-child {
+    text-align: center;
+}

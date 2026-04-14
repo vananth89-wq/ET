@@ -67,6 +67,11 @@ function renderTable() {
       <td>${expense.date}</td>
       <td>₹${expense.amount.toLocaleString('en-IN')}</td>
       <td>${expense.note}</td>
+      <td>
+         <button class="btn-delete" data-id="${expense.id}">
+            <i class="fa-solid fa-trash" data-id="${expense.id}"></i>
+        </button>
+      </td>
     `;
 
         expenseBody.appendChild(row);
@@ -98,3 +103,24 @@ function renderDashboard() {
 
 renderTable();
 renderDashboard();
+
+// ── STEP 7: Handle delete button click ─────────
+
+expenseBody.addEventListener('click', function(event) {
+  const deleteBtn = event.target.closest('.btn-delete');
+  if (deleteBtn) {
+    const confirmed = confirm('Are you sure you want to delete this expense?');
+    if (!confirmed) return;
+    const id = Number(deleteBtn.getAttribute('data-id'));
+
+        // Remove the expense with that id from the array
+        expenses = expenses.filter(e => e.id !== id);
+
+        // Save updated array to localStorage
+        localStorage.setItem('prowess-expenses', JSON.stringify(expenses));
+
+        // Re-render table and dashboard
+        renderTable();
+        renderDashboard();
+    }
+});
