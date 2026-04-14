@@ -15,6 +15,7 @@ tabItems.forEach(function (item) {
         if (tab === 'employees')      populateEmployeeFormDropdowns();
         if (tab === 'departments')    { populateDeptFormDropdowns(); renderOrgChart(); }
         if (tab === 'workflow-roles') { populateWfEmpGrid(); renderWfRoles(); }
+        if (tab === 'reference-data') { renderDesignations(); renderNationalities(); renderMaritalStatuses(); }
     });
 });
 
@@ -33,6 +34,10 @@ let editingEmpId = null;
 // ── Populate dept + manager dropdowns in employee form
 
 function populateEmployeeFormDropdowns() {
+    populateDesignationDropdown();
+    populateNationalityDropdown();
+    populateMaritalStatusDropdown();
+    populateEmpFilters();
     const departments = JSON.parse(localStorage.getItem('prowess-departments')) || [];
 
     // Department dropdown
@@ -76,19 +81,105 @@ function deriveRole(empId) {
     return 'Employee';
 }
 
+// ── Employee status helper ──────────────────────
+
+function getEmpStatus(emp) {
+    const today   = new Date().toISOString().split('T')[0];
+    const endDate = emp.endDate || '9999-12-31';
+    const hire    = emp.hireDate || '0000-01-01';
+    if (hire > today) return 'Upcoming';
+    if (endDate < today) return 'Inactive';
+    return 'Active';
+}
+
+function getEmpStatusBadge(status) {
+    const map = {
+        'Active':   'badge-active',
+        'Inactive': 'badge-expired',
+        'Upcoming': 'badge-upcoming'
+    };
+    return `<span class="badge ${map[status] || 'badge-active'}">${status}</span>`;
+}
+
+// ── Populate filter dropdowns ───────────────────
+
+function populateEmpFilters() {
+    const departments = JSON.parse(localStorage.getItem('prowess-departments')) || [];
+
+    // Designation filter
+    const desgItems = JSON.parse(localStorage.getItem('prowess-designations')) || [];
+    const desgSel   = document.getElementById('filter-designation');
+    const curDesg   = desgSel.value;
+    desgSel.innerHTML = '<option value="">All Designations</option>';
+    [...desgItems].sort((a, b) => a.value.localeCompare(b.value)).forEach(function (d) {
+        const o = document.createElement('option');
+        o.value = d.value; o.textContent = d.value;
+        desgSel.appendChild(o);
+    });
+    desgSel.value = curDesg;
+
+    // Department filter
+    const deptSel = document.getElementById('filter-department');
+    const curDept = deptSel.value;
+    deptSel.innerHTML = '<option value="">All Departments</option>';
+    departments.forEach(function (d) {
+        const o = document.createElement('option');
+        o.value = d.deptId; o.textContent = d.name;
+        deptSel.appendChild(o);
+    });
+    deptSel.value = curDept;
+}
+
 // ── Render employees table ──────────────────────
 
 function renderEmployees() {
+    const departments = JSON.parse(localStorage.getItem('prowess-departments')) || [];
+
+    // Read active filters
+    const filterName   = (document.getElementById('filter-emp-name')?.value   || '').trim().toLowerCase();
+    const filterId     = (document.getElementById('filter-emp-id')?.value     || '').trim().toLowerCase();
+    const filterDesg   = (document.getElementById('filter-designation')?.value || '');
+    const filterDept   = (document.getElementById('filter-department')?.value  || '');
+    const filterStatus = (document.getElementById('filter-status')?.value      || '');
+
+    const hasFilter = filterName || filterId || filterDesg || filterDept || filterStatus;
+    const clearBtn  = document.getElementById('emp-filter-clear');
+    if (clearBtn) clearBtn.style.display = hasFilter ? 'inline-flex' : 'none';
+
+    // Apply filters
+    let list = employees.filter(function (emp) {
+        if (filterName && !emp.name.toLowerCase().includes(filterName))         return false;
+        if (filterId   && !emp.employeeId.toLowerCase().includes(filterId))     return false;
+        if (filterDesg && emp.designation !== filterDesg)                       return false;
+        if (filterDept && emp.departmentId !== filterDept)                      return false;
+        if (filterStatus && getEmpStatus(emp) !== filterStatus)                 return false;
+        return true;
+    });
+
+    // Update count badge
+    const countEl = document.getElementById('emp-filter-count');
+    if (countEl) {
+        countEl.textContent = hasFilter
+            ? `${list.length} of ${employees.length} shown`
+            : `${employees.length} employee${employees.length !== 1 ? 's' : ''}`;
+    }
+
     employeeBody.innerHTML = '';
 
     if (employees.length === 0) {
-        employeeBody.innerHTML = '<tr><td colspan="8" class="no-data">No employees added yet.</td></tr>';
+        employeeBody.innerHTML = '<tr><td colspan="9" class="no-data">No employees added yet.</td></tr>';
         return;
     }
 
-    employees.forEach(function (emp, index) {
-        const roleBadge  = getRoleBadge(emp.role || 'Employee');
-        const deptName   = emp.departmentId
+    if (list.length === 0) {
+        employeeBody.innerHTML = '<tr><td colspan="9" class="no-data">No employees match the current filters.</td></tr>';
+        return;
+    }
+
+    list.forEach(function (emp, index) {
+        const roleBadge   = getRoleBadge(emp.role || 'Employee');
+        const statusBadge = getEmpStatusBadge(getEmpStatus(emp));
+        const deptName    = emp.departmentId
             ? (departments.find(d => d.deptId === emp.departmentId)?.name || emp.departmentId)
             : '—';
         const managerName = emp.managerId
@@ -99,10 +190,11 @@ function renderEmployees() {
             <td>${index + 1}</td>
             <td><strong>${emp.employeeId}</strong></td>
             <td>${emp.name}</td>
-            <td>${emp.designation}</td>
+            <td>${emp.designation || '—'}</td>
             <td>${deptName}</td>
             <td>${managerName}</td>
             <td>${roleBadge}</td>
+            <td>${statusBadge}</td>
             <td>
                 <button class="btn-edit" data-id="${emp.id}">
                     <i class="fa-solid fa-pen-to-square" data-id="${emp.id}"></i>
@@ -132,12 +224,28 @@ function getRoleBadge(role) {
 profileForm.addEventListener('submit', function (event) {
     event.preventDefault();
 
-    const name         = document.getElementById('emp-name').value.trim();
-    const employeeId   = document.getElementById('emp-id').value.trim().toUpperCase();
-    const designation  = document.getElementById('emp-designation').value.trim();
-    const mobile       = document.getElementById('emp-mobile').value.trim();
-    const departmentId = document.getElementById('emp-department').value;
-    const managerId    = document.getElementById('emp-manager-id').value;
+    const name          = document.getElementById('emp-name').value.trim();
+    const employeeId    = document.getElementById('emp-id').value.trim().toUpperCase();
+    const designation   = document.getElementById('emp-designation').value.trim();
+    const countryCode   = document.getElementById('emp-country-code').value;
+    const phoneRaw      = document.getElementById('emp-phone').value.trim();
+    const departmentId  = document.getElementById('emp-department').value;
+    const managerId     = document.getElementById('emp-manager-id').value;
+    const hireDate      = document.getElementById('emp-hire-date').value;
+    const endDate       = document.getElementById('emp-end-date').value || '9999-12-31';
+    const nationality   = document.getElementById('emp-nationality').value.trim();
+    const maritalStatus = document.getElementById('emp-marital-status').value;
+
+    // ── Phone validation: digits only, 7–15 chars ──
+    const phoneDigits = phoneRaw.replace(/[\s\-().]/g, '');
+    const phoneError  = document.getElementById('emp-phone-error');
+    if (!/^\d{7,15}$/.test(phoneDigits)) {
+        phoneError.style.display = 'block';
+        document.getElementById('emp-phone').focus();
+        return;
+    }
+    phoneError.style.display = 'none';
+    const mobile = countryCode + ' ' + phoneRaw;
 
     // ── Validation: employee cannot be their own manager ──
     if (managerId && managerId === employeeId) {
@@ -155,7 +263,8 @@ profileForm.addEventListener('submit', function (event) {
 
         employees = employees.map(function (emp) {
             if (emp.id === editingEmpId) {
-                return { ...emp, name, employeeId, designation, mobile, departmentId, managerId, role };
+                return { ...emp, name, employeeId, designation, mobile, countryCode, phone: phoneRaw,
+                         departmentId, managerId, role, hireDate, endDate, nationality, maritalStatus };
             }
             return emp;
         });
@@ -180,8 +289,8 @@ profileForm.addEventListener('submit', function (event) {
 
         const newEmployee = {
             id: Date.now(),
-            name, employeeId, designation, mobile,
-            departmentId, managerId, role, photo: null
+            name, employeeId, designation, mobile, countryCode, phone: phoneRaw,
+            departmentId, managerId, role, hireDate, endDate, nationality, maritalStatus, photo: null
         };
         employees.push(newEmployee);
 
@@ -194,6 +303,8 @@ profileForm.addEventListener('submit', function (event) {
         }
 
         profileForm.reset();
+        // Re-apply end date default after reset
+        document.getElementById('emp-end-date').value = '9999-12-31';
     }
 
     localStorage.setItem('prowess-employees', JSON.stringify(employees));
@@ -251,17 +362,24 @@ employeeBody.addEventListener('click', function (event) {
 
         document.getElementById('emp-name').value        = emp.name;
         document.getElementById('emp-id').value          = emp.employeeId;
-        document.getElementById('emp-designation').value = emp.designation;
-        document.getElementById('emp-mobile').value      = emp.mobile;
+        document.getElementById('emp-country-code').value    = emp.countryCode || '+91';
+        document.getElementById('emp-phone').value           = emp.phone || '';
+        document.getElementById('emp-hire-date').value       = emp.hireDate || '';
+        document.getElementById('emp-end-date').value        = emp.endDate || '9999-12-31';
+        document.getElementById('emp-phone-error').style.display = 'none';
 
-        // Populate dropdowns first then set values
-        populateEmployeeFormDropdowns();
-        document.getElementById('emp-department').value  = emp.departmentId || '';
-        document.getElementById('emp-manager-id').value  = emp.managerId || '';
-
+        // Populate all dropdowns first, then restore saved values
         editingEmpId = id;
+        populateEmployeeFormDropdowns();
+        document.getElementById('emp-designation').value     = emp.designation || '';
+        document.getElementById('emp-nationality').value     = emp.nationality || '';
+        document.getElementById('emp-marital-status').value  = emp.maritalStatus || '';
+        document.getElementById('emp-department').value      = emp.departmentId || '';
+        document.getElementById('emp-manager-id').value      = emp.managerId || '';
+
         empSubmitBtn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Update Employee';
-        empCancelBtn.style.display = 'inline-block';
+        empCancelBtn.style.display = 'inline-flex';
+        document.getElementById('emp-form-title').textContent = 'Edit Employee — ' + emp.name;
         profileForm.scrollIntoView({ behavior: 'smooth' });
         return;
     }
@@ -291,9 +409,33 @@ employeeBody.addEventListener('click', function (event) {
 
 empCancelBtn.addEventListener('click', resetEmpForm);
 
+// Set defaults on page load
+document.getElementById('emp-end-date').value = '9999-12-31';
+
+// ── Filter listeners ────────────────────────────
+
+['filter-emp-name', 'filter-emp-id', 'filter-designation', 'filter-department', 'filter-status'].forEach(function (id) {
+    document.getElementById(id).addEventListener('input', renderEmployees);
+    document.getElementById(id).addEventListener('change', renderEmployees);
+});
+
+document.getElementById('emp-filter-clear').addEventListener('click', function () {
+    document.getElementById('filter-emp-name').value     = '';
+    document.getElementById('filter-emp-id').value       = '';
+    document.getElementById('filter-designation').value  = '';
+    document.getElementById('filter-department').value   = '';
+    document.getElementById('filter-status').value       = '';
+    renderEmployees();
+});
+
 function resetEmpForm() {
     profileForm.reset();
     editingEmpId = null;
+    // Re-apply defaults that reset() clears
+    document.getElementById('emp-end-date').value = '9999-12-31';
+    document.getElementById('emp-country-code').value = '+91';
+    document.getElementById('emp-phone-error').style.display = 'none';
+    document.getElementById('emp-form-title').textContent = 'New Employee';
     empSubmitBtn.innerHTML = '<i class="fa-solid fa-plus"></i> Add Employee';
     empCancelBtn.style.display = 'none';
 }
@@ -1029,8 +1171,512 @@ function resetWfForm() {
     populateWfEmpGrid();
 }
 
+// ═══════════════════════════════════════════════
+// ── SECTION 5: REFERENCE DATA ───────────────────
+// ═══════════════════════════════════════════════
+
+const DEFAULT_DESIGNATIONS = [
+    'Analyst','Associate','Business Analyst','Chief Executive Officer',
+    'Chief Financial Officer','Chief Operating Officer','Chief Technology Officer',
+    'Consultant','Data Engineer','Data Scientist','DevOps Engineer',
+    'Director','Engineering Manager','Executive Assistant','Finance Manager',
+    'Frontend Developer','Full Stack Developer','HR Business Partner',
+    'HR Manager','Infrastructure Engineer','IT Manager','Junior Developer',
+    'Lead Developer','Marketing Manager','Mobile Developer','Operations Manager',
+    'Principal Engineer','Product Manager','Product Owner','Program Manager',
+    'Project Manager','QA Engineer','Sales Manager','Scrum Master',
+    'Senior Analyst','Senior Consultant','Senior Developer','Senior Engineer',
+    'Senior Manager','Software Architect','Software Engineer','Solution Architect',
+    'Support Engineer','Systems Administrator','Technical Lead','Test Engineer',
+    'UI/UX Designer','Vice President'
+];
+
+const DEFAULT_NATIONALITIES = [
+    'Afghan','Albanian','Algerian','American','Angolan','Argentine','Armenian',
+    'Australian','Austrian','Azerbaijani','Bahraini','Bangladeshi','Belgian',
+    'Bolivian','Brazilian','British','Bulgarian','Cambodian','Cameroonian',
+    'Canadian','Chilean','Chinese','Colombian','Congolese','Costa Rican',
+    'Croatian','Cuban','Czech','Danish','Dutch','Ecuadorian','Egyptian',
+    'Emirati','Estonian','Ethiopian','Finnish','French','Georgian','German',
+    'Ghanaian','Greek','Guatemalan','Hungarian','Icelandic','Indian',
+    'Indonesian','Iranian','Iraqi','Irish','Israeli','Italian','Ivorian',
+    'Jamaican','Japanese','Jordanian','Kazakhstani','Kenyan','Korean',
+    'Kuwaiti','Latvian','Lebanese','Libyan','Lithuanian','Malaysian',
+    'Maldivian','Maltese','Mauritian','Mexican','Mongolian','Moroccan',
+    'Mozambican','Namibian','Nepalese','New Zealander','Nigerian','Norwegian',
+    'Omani','Pakistani','Palestinian','Panamanian','Peruvian','Philippine',
+    'Polish','Portuguese','Qatari','Romanian','Russian','Rwandan','Saudi',
+    'Senegalese','Serbian','Singaporean','Slovak','Slovenian','Somali',
+    'South African','Spanish','Sri Lankan','Sudanese','Swedish','Swiss',
+    'Syrian','Taiwanese','Tanzanian','Thai','Trinidadian','Tunisian',
+    'Turkish','Ugandan','Ukrainian','Uruguayan','Venezuelan','Vietnamese',
+    'Yemeni','Zambian','Zimbabwean'
+];
+
+const DEFAULT_MARITAL_STATUSES = [
+    'Single','Married','Divorced','Widowed','Separated'
+];
+
+function initReferenceData() {
+    if (!localStorage.getItem('prowess-designations')) {
+        const seeded = DEFAULT_DESIGNATIONS.map((v, i) => ({ id: i + 1, value: v }));
+        localStorage.setItem('prowess-designations', JSON.stringify(seeded));
+    }
+    if (!localStorage.getItem('prowess-nationalities')) {
+        const seeded = DEFAULT_NATIONALITIES.map((v, i) => ({ id: i + 1, value: v }));
+        localStorage.setItem('prowess-nationalities', JSON.stringify(seeded));
+    }
+    if (!localStorage.getItem('prowess-marital-statuses')) {
+        const seeded = DEFAULT_MARITAL_STATUSES.map((v, i) => ({ id: i + 1, value: v }));
+        localStorage.setItem('prowess-marital-statuses', JSON.stringify(seeded));
+    }
+}
+
+// ── Populate dropdowns in employee form ──────────
+
+function populateDesignationDropdown() {
+    const items = JSON.parse(localStorage.getItem('prowess-designations')) || [];
+    const sel   = document.getElementById('emp-designation');
+    const cur   = sel.value;
+    sel.innerHTML = '<option value="">-- Select Designation --</option>';
+    items.sort((a, b) => a.value.localeCompare(b.value)).forEach(function (item) {
+        const opt = document.createElement('option');
+        opt.value = item.value;
+        opt.textContent = item.value;
+        sel.appendChild(opt);
+    });
+    sel.value = cur;
+}
+
+function populateNationalityDropdown() {
+    const items = JSON.parse(localStorage.getItem('prowess-nationalities')) || [];
+    const sel   = document.getElementById('emp-nationality');
+    const cur   = sel.value;
+    sel.innerHTML = '<option value="">-- Select Nationality --</option>';
+    items.sort((a, b) => a.value.localeCompare(b.value)).forEach(function (item) {
+        const opt = document.createElement('option');
+        opt.value = item.value;
+        opt.textContent = item.value;
+        sel.appendChild(opt);
+    });
+    sel.value = cur;
+}
+
+function populateMaritalStatusDropdown() {
+    const items = JSON.parse(localStorage.getItem('prowess-marital-statuses')) || [];
+    const sel   = document.getElementById('emp-marital-status');
+    const cur   = sel.value;
+    sel.innerHTML = '<option value="">-- Select --</option>';
+    items.forEach(function (item) {
+        const opt = document.createElement('option');
+        opt.value = item.value;
+        opt.textContent = item.value;
+        sel.appendChild(opt);
+    });
+    sel.value = cur;
+}
+
+// ── Render reference lists ────────────────────────
+
+function renderDesignations() {
+    const items = JSON.parse(localStorage.getItem('prowess-designations')) || [];
+    const list  = document.getElementById('designation-list');
+    list.innerHTML = '';
+    if (items.length === 0) {
+        list.innerHTML = '<li class="ref-empty">No designations added yet.</li>';
+        return;
+    }
+    [...items].sort((a, b) => a.value.localeCompare(b.value)).forEach(function (item) {
+        const li = document.createElement('li');
+        li.className = 'ref-value-item';
+        li.innerHTML = `
+            <span class="ref-value-text">${item.value}</span>
+            <span class="ref-value-actions">
+                <button class="ref-btn-edit" data-type="designation" data-id="${item.id}" title="Edit">
+                    <i class="fa-solid fa-pen-to-square"></i>
+                </button>
+                <button class="ref-btn-delete" data-type="designation" data-id="${item.id}" title="Delete">
+                    <i class="fa-solid fa-trash"></i>
+                </button>
+            </span>`;
+        list.appendChild(li);
+    });
+}
+
+function renderNationalities() {
+    const items = JSON.parse(localStorage.getItem('prowess-nationalities')) || [];
+    const list  = document.getElementById('nationality-list');
+    list.innerHTML = '';
+    if (items.length === 0) {
+        list.innerHTML = '<li class="ref-empty">No nationalities added yet.</li>';
+        return;
+    }
+    [...items].sort((a, b) => a.value.localeCompare(b.value)).forEach(function (item) {
+        const li = document.createElement('li');
+        li.className = 'ref-value-item';
+        li.innerHTML = `
+            <span class="ref-value-text">${item.value}</span>
+            <span class="ref-value-actions">
+                <button class="ref-btn-edit" data-type="nationality" data-id="${item.id}" title="Edit">
+                    <i class="fa-solid fa-pen-to-square"></i>
+                </button>
+                <button class="ref-btn-delete" data-type="nationality" data-id="${item.id}" title="Delete">
+                    <i class="fa-solid fa-trash"></i>
+                </button>
+            </span>`;
+        list.appendChild(li);
+    });
+}
+
+function renderMaritalStatuses() {
+    const items = JSON.parse(localStorage.getItem('prowess-marital-statuses')) || [];
+    const list  = document.getElementById('marital-list');
+    list.innerHTML = '';
+    if (items.length === 0) {
+        list.innerHTML = '<li class="ref-empty">No marital statuses added yet.</li>';
+        return;
+    }
+    items.forEach(function (item) {
+        const li = document.createElement('li');
+        li.className = 'ref-value-item';
+        li.innerHTML = `
+            <span class="ref-value-text">${item.value}</span>
+            <span class="ref-value-actions">
+                <button class="ref-btn-edit" data-type="marital" data-id="${item.id}" title="Edit">
+                    <i class="fa-solid fa-pen-to-square"></i>
+                </button>
+                <button class="ref-btn-delete" data-type="marital" data-id="${item.id}" title="Delete">
+                    <i class="fa-solid fa-trash"></i>
+                </button>
+            </span>`;
+        list.appendChild(li);
+    });
+}
+
+// ── Designation CRUD ─────────────────────────────
+
+const designationForm      = document.getElementById('designation-form');
+const designationInput     = document.getElementById('designation-input');
+const designationSubmitBtn = document.getElementById('designation-submit-btn');
+const designationCancelBtn = document.getElementById('designation-cancel-btn');
+
+designationForm.addEventListener('submit', function (e) {
+    e.preventDefault();
+    const value = designationInput.value.trim();
+    if (!value) return;
+
+    const items  = JSON.parse(localStorage.getItem('prowess-designations')) || [];
+    const editId = Number(document.getElementById('designation-edit-id').value);
+
+    if (editId) {
+        const updated = items.map(i => i.id === editId ? { ...i, value } : i);
+        localStorage.setItem('prowess-designations', JSON.stringify(updated));
+    } else {
+        const exists = items.some(i => i.value.toLowerCase() === value.toLowerCase());
+        if (exists) { alert('This designation already exists.'); return; }
+        const newId = items.length ? Math.max(...items.map(i => i.id)) + 1 : 1;
+        items.push({ id: newId, value });
+        localStorage.setItem('prowess-designations', JSON.stringify(items));
+    }
+
+    resetDesignationForm();
+    renderDesignations();
+    populateDesignationDropdown();
+});
+
+document.getElementById('designation-list').addEventListener('click', function (e) {
+    const editBtn   = e.target.closest('.ref-btn-edit[data-type="designation"]');
+    const deleteBtn = e.target.closest('.ref-btn-delete[data-type="designation"]');
+
+    if (editBtn) {
+        const id    = Number(editBtn.getAttribute('data-id'));
+        const items = JSON.parse(localStorage.getItem('prowess-designations')) || [];
+        const item  = items.find(i => i.id === id);
+        if (!item) return;
+        designationInput.value = item.value;
+        document.getElementById('designation-edit-id').value = id;
+        designationSubmitBtn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Update';
+        designationCancelBtn.style.display = 'inline-block';
+        designationInput.focus();
+    }
+
+    if (deleteBtn) {
+        if (!confirm('Delete this designation?')) return;
+        const id      = Number(deleteBtn.getAttribute('data-id'));
+        const items   = JSON.parse(localStorage.getItem('prowess-designations')) || [];
+        const updated = items.filter(i => i.id !== id);
+        localStorage.setItem('prowess-designations', JSON.stringify(updated));
+        renderDesignations();
+        populateDesignationDropdown();
+    }
+});
+
+designationCancelBtn.addEventListener('click', resetDesignationForm);
+
+function resetDesignationForm() {
+    designationForm.reset();
+    document.getElementById('designation-edit-id').value = '';
+    designationSubmitBtn.innerHTML = '<i class="fa-solid fa-plus"></i> Add';
+    designationCancelBtn.style.display = 'none';
+}
+
+// ── Nationality CRUD ──────────────────────────────
+
+const nationalityForm      = document.getElementById('nationality-form');
+const nationalityInput     = document.getElementById('nationality-input');
+const nationalitySubmitBtn = document.getElementById('nationality-submit-btn');
+const nationalityCancelBtn = document.getElementById('nationality-cancel-btn');
+
+nationalityForm.addEventListener('submit', function (e) {
+    e.preventDefault();
+    const value = nationalityInput.value.trim();
+    if (!value) return;
+
+    const items  = JSON.parse(localStorage.getItem('prowess-nationalities')) || [];
+    const editId = Number(document.getElementById('nationality-edit-id').value);
+
+    if (editId) {
+        const updated = items.map(i => i.id === editId ? { ...i, value } : i);
+        localStorage.setItem('prowess-nationalities', JSON.stringify(updated));
+    } else {
+        const exists = items.some(i => i.value.toLowerCase() === value.toLowerCase());
+        if (exists) { alert('This nationality already exists.'); return; }
+        const newId = items.length ? Math.max(...items.map(i => i.id)) + 1 : 1;
+        items.push({ id: newId, value });
+        localStorage.setItem('prowess-nationalities', JSON.stringify(items));
+    }
+
+    resetNationalityForm();
+    renderNationalities();
+    populateNationalityDropdown();
+});
+
+document.getElementById('nationality-list').addEventListener('click', function (e) {
+    const editBtn   = e.target.closest('.ref-btn-edit[data-type="nationality"]');
+    const deleteBtn = e.target.closest('.ref-btn-delete[data-type="nationality"]');
+
+    if (editBtn) {
+        const id    = Number(editBtn.getAttribute('data-id'));
+        const items = JSON.parse(localStorage.getItem('prowess-nationalities')) || [];
+        const item  = items.find(i => i.id === id);
+        if (!item) return;
+        nationalityInput.value = item.value;
+        document.getElementById('nationality-edit-id').value = id;
+        nationalitySubmitBtn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Update';
+        nationalityCancelBtn.style.display = 'inline-block';
+        nationalityInput.focus();
+    }
+
+    if (deleteBtn) {
+        if (!confirm('Delete this nationality?')) return;
+        const id      = Number(deleteBtn.getAttribute('data-id'));
+        const items   = JSON.parse(localStorage.getItem('prowess-nationalities')) || [];
+        const updated = items.filter(i => i.id !== id);
+        localStorage.setItem('prowess-nationalities', JSON.stringify(updated));
+        renderNationalities();
+        populateNationalityDropdown();
+    }
+});
+
+nationalityCancelBtn.addEventListener('click', resetNationalityForm);
+
+function resetNationalityForm() {
+    nationalityForm.reset();
+    document.getElementById('nationality-edit-id').value = '';
+    nationalitySubmitBtn.innerHTML = '<i class="fa-solid fa-plus"></i> Add';
+    nationalityCancelBtn.style.display = 'none';
+}
+
+// ── Marital Status CRUD ───────────────────────────
+
+const maritalForm      = document.getElementById('marital-form');
+const maritalInput     = document.getElementById('marital-input');
+const maritalSubmitBtn = document.getElementById('marital-submit-btn');
+const maritalCancelBtn = document.getElementById('marital-cancel-btn');
+
+maritalForm.addEventListener('submit', function (e) {
+    e.preventDefault();
+    const value = maritalInput.value.trim();
+    if (!value) return;
+
+    const items  = JSON.parse(localStorage.getItem('prowess-marital-statuses')) || [];
+    const editId = Number(document.getElementById('marital-edit-id').value);
+
+    if (editId) {
+        const updated = items.map(i => i.id === editId ? { ...i, value } : i);
+        localStorage.setItem('prowess-marital-statuses', JSON.stringify(updated));
+    } else {
+        const exists = items.some(i => i.value.toLowerCase() === value.toLowerCase());
+        if (exists) { alert('This marital status already exists.'); return; }
+        const newId = items.length ? Math.max(...items.map(i => i.id)) + 1 : 1;
+        items.push({ id: newId, value });
+        localStorage.setItem('prowess-marital-statuses', JSON.stringify(items));
+    }
+
+    resetMaritalForm();
+    renderMaritalStatuses();
+    populateMaritalStatusDropdown();
+});
+
+document.getElementById('marital-list').addEventListener('click', function (e) {
+    const editBtn   = e.target.closest('.ref-btn-edit[data-type="marital"]');
+    const deleteBtn = e.target.closest('.ref-btn-delete[data-type="marital"]');
+
+    if (editBtn) {
+        const id    = Number(editBtn.getAttribute('data-id'));
+        const items = JSON.parse(localStorage.getItem('prowess-marital-statuses')) || [];
+        const item  = items.find(i => i.id === id);
+        if (!item) return;
+        maritalInput.value = item.value;
+        document.getElementById('marital-edit-id').value = id;
+        maritalSubmitBtn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Update';
+        maritalCancelBtn.style.display = 'inline-block';
+        maritalInput.focus();
+    }
+
+    if (deleteBtn) {
+        if (!confirm('Delete this marital status?')) return;
+        const id      = Number(deleteBtn.getAttribute('data-id'));
+        const items   = JSON.parse(localStorage.getItem('prowess-marital-statuses')) || [];
+        const updated = items.filter(i => i.id !== id);
+        localStorage.setItem('prowess-marital-statuses', JSON.stringify(updated));
+        renderMaritalStatuses();
+        populateMaritalStatusDropdown();
+    }
+});
+
+maritalCancelBtn.addEventListener('click', resetMaritalForm);
+
+function resetMaritalForm() {
+    maritalForm.reset();
+    document.getElementById('marital-edit-id').value = '';
+    maritalSubmitBtn.innerHTML = '<i class="fa-solid fa-plus"></i> Add';
+    maritalCancelBtn.style.display = 'none';
+}
+
+// ═══════════════════════════════════════════════
+// ── SECTION 6: EXCEL EXPORT ─────────────────────
+// ═══════════════════════════════════════════════
+
+function formatDateDisplay(val) {
+    if (!val) return '';
+    if (val === '9999-12-31') return 'Open-ended';
+    return val;
+}
+
+// ── Export Employees ─────────────────────────────
+
+function exportEmployees() {
+    const departments = JSON.parse(localStorage.getItem('prowess-departments')) || [];
+
+    // Use currently filtered list
+    const filterName   = (document.getElementById('filter-emp-name')?.value   || '').trim().toLowerCase();
+    const filterId     = (document.getElementById('filter-emp-id')?.value     || '').trim().toLowerCase();
+    const filterDesg   = (document.getElementById('filter-designation')?.value || '');
+    const filterDept   = (document.getElementById('filter-department')?.value  || '');
+    const filterStatus = (document.getElementById('filter-status')?.value      || '');
+
+    const list = employees.filter(function (emp) {
+        if (filterName   && !emp.name.toLowerCase().includes(filterName))       return false;
+        if (filterId     && !emp.employeeId.toLowerCase().includes(filterId))   return false;
+        if (filterDesg   && emp.designation !== filterDesg)                     return false;
+        if (filterDept   && emp.departmentId !== filterDept)                    return false;
+        if (filterStatus && getEmpStatus(emp) !== filterStatus)                 return false;
+        return true;
+    });
+
+    if (list.length === 0) { alert('No data to export.'); return; }
+
+    const rows = list.map(function (emp, i) {
+        const deptName    = emp.departmentId
+            ? (departments.find(d => d.deptId === emp.departmentId)?.name || emp.departmentId)
+            : '';
+        const managerName = emp.managerId
+            ? (employees.find(e => e.employeeId === emp.managerId)?.name || emp.managerId)
+            : '';
+        return {
+            '#':               i + 1,
+            'Employee ID':     emp.employeeId,
+            'Full Name':       emp.name,
+            'Designation':     emp.designation     || '',
+            'Department':      deptName,
+            'Manager':         managerName,
+            'Mobile':          emp.mobile          || '',
+            'Nationality':     emp.nationality     || '',
+            'Marital Status':  emp.maritalStatus   || '',
+            'Hire Date':       formatDateDisplay(emp.hireDate),
+            'End Date':        formatDateDisplay(emp.endDate),
+            'Role':            emp.role            || 'Employee',
+            'Status':          getEmpStatus(emp)
+        };
+    });
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+
+    // Column widths
+    ws['!cols'] = [
+        {wch:4},{wch:12},{wch:22},{wch:22},{wch:20},{wch:20},
+        {wch:18},{wch:14},{wch:14},{wch:12},{wch:12},{wch:12},{wch:10}
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Employees');
+
+    const today = new Date().toISOString().split('T')[0];
+    XLSX.writeFile(wb, `Prowess_Employees_${today}.xlsx`);
+}
+
+// ── Export Departments ───────────────────────────
+
+function exportDepartments() {
+    const departments = JSON.parse(localStorage.getItem('prowess-departments')) || [];
+
+    if (departments.length === 0) { alert('No data to export.'); return; }
+
+    const rows = departments.map(function (dept, i) {
+        const headName = dept.headId
+            ? (employees.find(e => e.employeeId === dept.headId)?.name || dept.headId)
+            : '';
+        const parentName = dept.parentId
+            ? (departments.find(d => d.deptId === dept.parentId)?.name || dept.parentId)
+            : '';
+        const status = dept.endDate && dept.endDate < new Date().toISOString().split('T')[0]
+            ? 'Expired'
+            : dept.startDate > new Date().toISOString().split('T')[0]
+                ? 'Upcoming'
+                : 'Active';
+        return {
+            '#':                 i + 1,
+            'Dept ID':           dept.deptId,
+            'Department Name':   dept.name,
+            'Department Head':   headName,
+            'Parent Department': parentName,
+            'Start Date':        formatDateDisplay(dept.startDate),
+            'End Date':          formatDateDisplay(dept.endDate),
+            'Status':            status
+        };
+    });
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [
+        {wch:4},{wch:10},{wch:24},{wch:22},{wch:22},{wch:12},{wch:12},{wch:10}
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Departments');
+
+    const today = new Date().toISOString().split('T')[0];
+    XLSX.writeFile(wb, `Prowess_Departments_${today}.xlsx`);
+}
+
+// ── Wire export buttons ──────────────────────────
+
+document.getElementById('btn-export-employees').addEventListener('click', exportEmployees);
+document.getElementById('btn-export-departments').addEventListener('click', exportDepartments);
+
 // ── INITIALIZE ──────────────────────────────────
 
+initReferenceData();
 populateEmployeeFormDropdowns();
 populateDeptFormDropdowns();
 renderEmployees();

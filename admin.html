@@ -9,6 +9,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
     <link rel="stylesheet" href="style.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 
 <body>
@@ -46,6 +47,10 @@
                     <i class="fa-solid fa-shield-halved"></i>
                     <span>Workflow Roles</span>
                 </li>
+                <li class="tab-item" data-tab="reference-data">
+                    <i class="fa-solid fa-list"></i>
+                    <span>Reference Data</span>
+                </li>
             </ul>
         </nav>
 
@@ -56,51 +61,210 @@
             <section id="tab-employees" class="tab-panel active">
                 <h2 class="page-title">Employee Management</h2>
 
-                <div class="form-card" style="margin-bottom: 24px;">
-                    <p class="form-note">
-                        <i class="fa-solid fa-circle-info"></i>
-                        Employee information is read-only for employees. Role is auto-derived from org structure.
-                    </p>
+                <!-- ── EMPLOYEE FORM ── -->
+                <div class="emp-form-card" style="margin-bottom: 24px;">
+
+                    <!-- Form header -->
+                    <div class="emp-form-header">
+                        <div class="emp-form-avatar" id="emp-avatar-preview">
+                            <i class="fa-solid fa-user"></i>
+                        </div>
+                        <div class="emp-form-header-text">
+                            <h3 id="emp-form-title">New Employee</h3>
+                            <p>Fill in the details below. Role is auto-derived from org structure.</p>
+                        </div>
+                    </div>
+
                     <form id="profile-form">
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label for="emp-name">Full Name</label>
-                                <input type="text" id="emp-name" placeholder="e.g. Vijey Ananthan" required />
+
+                        <!-- ── SECTION 1: Personal Information ── -->
+                        <div class="emp-section">
+                            <div class="emp-section-label">
+                                <i class="fa-solid fa-circle-user"></i> Personal Information
                             </div>
-                            <div class="form-group">
-                                <label for="emp-id">Employee ID</label>
-                                <input type="text" id="emp-id" placeholder="e.g. EMP001" required />
-                            </div>
-                            <div class="form-group">
-                                <label for="emp-designation">Designation</label>
-                                <input type="text" id="emp-designation" placeholder="e.g. Senior Developer" required />
-                            </div>
-                            <div class="form-group">
-                                <label for="emp-mobile">Mobile No</label>
-                                <input type="tel" id="emp-mobile" placeholder="e.g. +91 98765 43210" required />
-                            </div>
-                            <div class="form-group">
-                                <label for="emp-department">Department</label>
-                                <select id="emp-department">
-                                    <option value="">-- Select Department --</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label for="emp-manager-id">Manager</label>
-                                <select id="emp-manager-id">
-                                    <option value="">-- No Manager --</option>
-                                </select>
+                            <div class="emp-field-grid emp-grid-4">
+                                <div class="form-group">
+                                    <label for="emp-name">
+                                        <i class="fa-solid fa-user fa-fw"></i> Full Name
+                                    </label>
+                                    <input type="text" id="emp-name" placeholder="e.g. Vijey Ananthan" required />
+                                </div>
+                                <div class="form-group">
+                                    <label for="emp-id">
+                                        <i class="fa-solid fa-id-card fa-fw"></i> Employee ID
+                                    </label>
+                                    <input type="text" id="emp-id" placeholder="e.g. EMP001" required />
+                                </div>
+                                <div class="form-group">
+                                    <label for="emp-nationality">
+                                        <i class="fa-solid fa-flag fa-fw"></i> Nationality
+                                    </label>
+                                    <select id="emp-nationality" required>
+                                        <option value="">-- Select --</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="emp-marital-status">
+                                        <i class="fa-solid fa-heart fa-fw"></i> Marital Status
+                                    </label>
+                                    <select id="emp-marital-status" required>
+                                        <option value="">-- Select --</option>
+                                    </select>
+                                </div>
                             </div>
                         </div>
-                        <div style="display:flex; gap:12px; align-items:center;">
-                            <button type="submit" class="btn-add" id="emp-submit-btn">
+
+                        <!-- ── SECTION 2: Contact ── -->
+                        <div class="emp-section">
+                            <div class="emp-section-label">
+                                <i class="fa-solid fa-phone"></i> Contact Details
+                            </div>
+                            <div class="emp-field-grid emp-grid-2">
+                                <div class="form-group phone-group">
+                                    <label>
+                                        <i class="fa-solid fa-mobile-screen fa-fw"></i> Mobile No
+                                    </label>
+                                    <div class="phone-row">
+                                        <select id="emp-country-code" class="country-code-select">
+                                            <option value="+1">🇺🇸 +1</option>
+                                            <option value="+7">🇷🇺 +7</option>
+                                            <option value="+27">🇿🇦 +27</option>
+                                            <option value="+33">🇫🇷 +33</option>
+                                            <option value="+34">🇪🇸 +34</option>
+                                            <option value="+39">🇮🇹 +39</option>
+                                            <option value="+44">🇬🇧 +44</option>
+                                            <option value="+49">🇩🇪 +49</option>
+                                            <option value="+52">🇲🇽 +52</option>
+                                            <option value="+55">🇧🇷 +55</option>
+                                            <option value="+60">🇲🇾 +60</option>
+                                            <option value="+61">🇦🇺 +61</option>
+                                            <option value="+62">🇮🇩 +62</option>
+                                            <option value="+63">🇵🇭 +63</option>
+                                            <option value="+64">🇳🇿 +64</option>
+                                            <option value="+65">🇸🇬 +65</option>
+                                            <option value="+66">🇹🇭 +66</option>
+                                            <option value="+81">🇯🇵 +81</option>
+                                            <option value="+82">🇰🇷 +82</option>
+                                            <option value="+84">🇻🇳 +84</option>
+                                            <option value="+86">🇨🇳 +86</option>
+                                            <option value="+91" selected>🇮🇳 +91</option>
+                                            <option value="+92">🇵🇰 +92</option>
+                                            <option value="+94">🇱🇰 +94</option>
+                                            <option value="+966">🇸🇦 +966</option>
+                                            <option value="+971">🇦🇪 +971</option>
+                                            <option value="+977">🇳🇵 +977</option>
+                                            <option value="+880">🇧🇩 +880</option>
+                                        </select>
+                                        <input type="tel" id="emp-phone" placeholder="e.g. 9876543210" required />
+                                    </div>
+                                    <small id="emp-phone-error" class="field-error" style="display:none;">
+                                        <i class="fa-solid fa-circle-exclamation"></i> Enter 7–15 digits only.
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ── SECTION 3: Employment ── -->
+                        <div class="emp-section">
+                            <div class="emp-section-label">
+                                <i class="fa-solid fa-briefcase"></i> Employment Details
+                            </div>
+                            <div class="emp-field-grid emp-grid-3">
+                                <div class="form-group">
+                                    <label for="emp-designation">
+                                        <i class="fa-solid fa-id-badge fa-fw"></i> Designation
+                                    </label>
+                                    <select id="emp-designation" required>
+                                        <option value="">-- Select Designation --</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="emp-department">
+                                        <i class="fa-solid fa-sitemap fa-fw"></i> Department
+                                    </label>
+                                    <select id="emp-department" required>
+                                        <option value="">-- Select Department --</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="emp-manager-id">
+                                        <i class="fa-solid fa-user-tie fa-fw"></i> Manager
+                                    </label>
+                                    <select id="emp-manager-id">
+                                        <option value="">-- No Manager --</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="emp-hire-date">
+                                        <i class="fa-solid fa-calendar-check fa-fw"></i> Hire Date
+                                    </label>
+                                    <input type="date" id="emp-hire-date" required />
+                                </div>
+                                <div class="form-group">
+                                    <label for="emp-end-date">
+                                        <i class="fa-solid fa-calendar-xmark fa-fw"></i> End Date
+                                    </label>
+                                    <input type="date" id="emp-end-date" required />
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ── ACTION FOOTER ── -->
+                        <div class="emp-form-footer">
+                            <button type="submit" class="emp-btn-primary" id="emp-submit-btn">
                                 <i class="fa-solid fa-plus"></i> Add Employee
                             </button>
-                            <button type="button" class="btn-cancel" id="emp-cancel-btn" style="display:none;">
-                                Cancel
+                            <button type="button" class="emp-btn-ghost" id="emp-cancel-btn" style="display:none;">
+                                <i class="fa-solid fa-xmark"></i> Cancel
                             </button>
                         </div>
+
                     </form>
+                </div>
+
+                <!-- EMPLOYEES FILTER BAR -->
+                <div class="emp-filter-bar">
+                    <div class="emp-filter-left">
+                        <i class="fa-solid fa-filter emp-filter-icon"></i>
+                        <span class="emp-filter-title">Filter</span>
+                        <div class="emp-filter-field">
+                            <i class="fa-solid fa-magnifying-glass"></i>
+                            <input type="text" id="filter-emp-name" placeholder="Name" />
+                        </div>
+                        <div class="emp-filter-field">
+                            <i class="fa-solid fa-hashtag"></i>
+                            <input type="text" id="filter-emp-id" placeholder="Employee ID" />
+                        </div>
+                        <div class="emp-filter-field">
+                            <i class="fa-solid fa-id-badge"></i>
+                            <select id="filter-designation">
+                                <option value="">All Designations</option>
+                            </select>
+                        </div>
+                        <div class="emp-filter-field">
+                            <i class="fa-solid fa-sitemap"></i>
+                            <select id="filter-department">
+                                <option value="">All Departments</option>
+                            </select>
+                        </div>
+                        <div class="emp-filter-field">
+                            <i class="fa-solid fa-circle-half-stroke"></i>
+                            <select id="filter-status">
+                                <option value="">All Status</option>
+                                <option value="Active">Active</option>
+                                <option value="Inactive">Inactive</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="emp-filter-right">
+                        <span class="emp-filter-count" id="emp-filter-count"></span>
+                        <button type="button" class="emp-filter-clear" id="emp-filter-clear" style="display:none;">
+                            <i class="fa-solid fa-xmark"></i> Clear
+                        </button>
+                        <button type="button" class="btn-export" id="btn-export-employees">
+                            <i class="fa-solid fa-file-excel"></i> Export
+                        </button>
+                    </div>
                 </div>
 
                 <!-- EMPLOYEES TABLE -->
@@ -115,6 +279,7 @@
                                 <th>Department</th>
                                 <th>Manager</th>
                                 <th>Role</th>
+                                <th>Status</th>
                                 <th>Action</th>
                             </tr>
                         </thead>
@@ -193,6 +358,14 @@
                 </div>
 
                 <!-- DEPARTMENTS TABLE -->
+                <div class="table-export-bar">
+                    <span class="table-export-label">
+                        <i class="fa-solid fa-table"></i> Departments
+                    </span>
+                    <button type="button" class="btn-export" id="btn-export-departments">
+                        <i class="fa-solid fa-file-excel"></i> Export
+                    </button>
+                </div>
                 <div class="table-wrapper">
                     <table>
                         <thead>
@@ -296,6 +469,63 @@
                 <!-- ROLE CARDS -->
                 <div id="wf-roles-container"></div>
 
+            </section>
+
+            <!-- ── TAB 5: REFERENCE DATA ─────────── -->
+            <section id="tab-reference-data" class="tab-panel">
+                <h2 class="page-title">Reference Data</h2>
+
+                <div class="ref-data-grid">
+
+                    <!-- DESIGNATIONS -->
+                    <div class="ref-card">
+                        <h3 class="ref-card-title">
+                            <i class="fa-solid fa-id-badge"></i> Designations
+                        </h3>
+                        <form id="designation-form" class="ref-inline-form">
+                            <input type="hidden" id="designation-edit-id" />
+                            <input type="text" id="designation-input" placeholder="e.g. Senior Developer" required />
+                            <button type="submit" class="btn-add" id="designation-submit-btn">
+                                <i class="fa-solid fa-plus"></i> Add
+                            </button>
+                            <button type="button" class="btn-cancel" id="designation-cancel-btn" style="display:none;">Cancel</button>
+                        </form>
+                        <ul class="ref-value-list" id="designation-list"></ul>
+                    </div>
+
+                    <!-- NATIONALITIES -->
+                    <div class="ref-card">
+                        <h3 class="ref-card-title">
+                            <i class="fa-solid fa-flag"></i> Nationalities
+                        </h3>
+                        <form id="nationality-form" class="ref-inline-form">
+                            <input type="hidden" id="nationality-edit-id" />
+                            <input type="text" id="nationality-input" placeholder="e.g. Indian" required />
+                            <button type="submit" class="btn-add" id="nationality-submit-btn">
+                                <i class="fa-solid fa-plus"></i> Add
+                            </button>
+                            <button type="button" class="btn-cancel" id="nationality-cancel-btn" style="display:none;">Cancel</button>
+                        </form>
+                        <ul class="ref-value-list" id="nationality-list"></ul>
+                    </div>
+
+                    <!-- MARITAL STATUSES -->
+                    <div class="ref-card">
+                        <h3 class="ref-card-title">
+                            <i class="fa-solid fa-heart"></i> Marital Statuses
+                        </h3>
+                        <form id="marital-form" class="ref-inline-form">
+                            <input type="hidden" id="marital-edit-id" />
+                            <input type="text" id="marital-input" placeholder="e.g. Married" required />
+                            <button type="submit" class="btn-add" id="marital-submit-btn">
+                                <i class="fa-solid fa-plus"></i> Add
+                            </button>
+                            <button type="button" class="btn-cancel" id="marital-cancel-btn" style="display:none;">Cancel</button>
+                        </form>
+                        <ul class="ref-value-list" id="marital-list"></ul>
+                    </div>
+
+                </div>
             </section>
 
         </main>

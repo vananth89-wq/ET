@@ -352,6 +352,15 @@ label {
     color: var(--navy);
 }
 
+/* Mandatory field asterisk — auto-applied via :has(), no HTML changes needed */
+.form-group:has(input[required]) > label::after,
+.form-group:has(select[required]) > label::after {
+    content: ' *';
+    color: #e53935;
+    font-weight: 700;
+    font-size: 13px;
+}
+
 input,
 select {
     padding: 10px 14px;
@@ -594,7 +603,8 @@ tbody td:last-child {
     color: #f57f17;
 }
 
-.badge-closed {
+.badge-closed,
+.badge-expired {
     background-color: #fce4e4;
     color: #c62828;
 }
@@ -633,6 +643,41 @@ tbody td:last-child {
 .field-hint i {
     font-size: 12px;
     color: #f57f17;
+}
+
+/* ── PHONE FIELD ─────────────────────────────── */
+
+.phone-group .phone-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.country-code-select {
+    flex: 0 0 110px;
+    min-width: 0;
+}
+
+.phone-group #emp-phone {
+    flex: 1;
+    min-width: 0;
+}
+
+.field-error {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #c62828;
+    background: #fdecea;
+    border-radius: 4px;
+    padding: 5px 10px;
+    margin-top: 4px;
+}
+
+.field-error i {
+    font-size: 12px;
+    color: #c62828;
 }
 
 /* ── DEPT DATE CONTROLLER ────────────────────── */
@@ -703,17 +748,18 @@ tbody td:last-child {
     position: relative;
 }
 
-/* Child <ul> — horizontal row of children, relative so ::before can anchor */
+/* Child <ul> — equal-width flex row so bar segments tile seamlessly */
 .org-tree li > ul {
     display: flex;
     justify-content: center;
     list-style: none;
     padding: 0;
     margin: 0;
+    margin-top: 20px;   /* gap = parent stem length */
     position: relative;
 }
 
-/* Vertical stem: parent node → top of child row */
+/* Parent stem: 20px drop from parent node bottom to the horizontal bar */
 .org-tree li > ul::before {
     content: '';
     position: absolute;
@@ -722,59 +768,47 @@ tbody td:last-child {
     transform: translateX(-50%);
     width: 1px;
     height: 20px;
-    background: #aaaaaa;
+    background: #4a90d9;
 }
 
-/* Each child <li> — 40px top-padding creates room for connector lines */
+/* Each child <li> — equal flex share ensures bar segments line up */
 .org-tree li > ul > li {
+    flex: 1;
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 40px 20px 0;
+    padding: 20px 16px 0;
     position: relative;
 }
 
-/* Horizontal bar — left half */
+/* Horizontal bar segment: each li draws its full-width section.
+   First child trims its left half; last child trims its right half. */
 .org-tree li > ul > li::before {
     content: '';
     position: absolute;
-    top: 20px;
+    top: 0;
     left: 0;
-    width: 50%;
+    right: 0;
     height: 1px;
-    background: #aaaaaa;
+    background: #4a90d9;
 }
+.org-tree li > ul > li:first-child::before { left:  50%; }
+.org-tree li > ul > li:last-child::before  { right: 50%; }
 
-/* Horizontal bar — right half */
+/* Vertical drop: from the bar down to the child node */
 .org-tree li > ul > li::after {
     content: '';
     position: absolute;
-    top: 20px;
-    left: 50%;
-    width: 50%;
-    height: 1px;
-    background: #aaaaaa;
-}
-
-/* First child has no left bar; last child has no right bar */
-.org-tree li > ul > li:first-child::before { display: none; }
-.org-tree li > ul > li:last-child::after   { display: none; }
-
-/* Vertical drop: from horizontal-bar level down to the child node */
-.org-tree li > ul > li > .org-node {
-    position: relative;
-}
-
-.org-tree li > ul > li > .org-node::before {
-    content: '';
-    position: absolute;
-    top: -40px;
+    top: 0;
     left: 50%;
     transform: translateX(-50%);
     width: 1px;
-    height: 40px;
-    background: #aaaaaa;
+    height: 20px;
+    background: #4a90d9;
 }
+
+/* Single child: hide the bar segment entirely, keep only the drop */
+.org-tree li > ul > li:only-child::before { display: none; }
 
 /* ── ORG NODE CARD ────────────────────────────── */
 
@@ -788,7 +822,7 @@ tbody td:last-child {
     padding: 12px 16px;
     min-width: 180px;
     max-width: 220px;
-    margin-bottom: 20px;   /* space used by ul::before stem */
+    margin-bottom: 0;
     box-shadow: 0 2px 8px rgba(0,0,0,0.08);
     transition: box-shadow 0.2s ease;
     text-align: left;
@@ -1160,4 +1194,509 @@ tbody td:last-child {
     .charts-row {
         grid-template-columns: 1fr;
     }
+}
+
+
+/* ── REFERENCE DATA TAB ──────────────────────── */
+
+.ref-data-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 24px;
+    align-items: start;
+}
+
+.ref-card {
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 20px 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+
+.ref-card-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--navy);
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.ref-card-title i {
+    color: var(--blue);
+    font-size: 14px;
+}
+
+.ref-inline-form {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+}
+
+.ref-inline-form input[type="text"] {
+    flex: 1;
+    min-width: 120px;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.ref-inline-form input[type="text"]:focus {
+    border-color: var(--blue);
+}
+
+.ref-value-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    max-height: 380px;
+    overflow-y: auto;
+    border-top: 1px solid var(--border);
+}
+
+.ref-value-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 9px 4px;
+    border-bottom: 1px solid #f0f0f0;
+    font-size: 13px;
+    color: var(--text);
+    transition: background 0.15s;
+}
+
+.ref-value-item:hover {
+    background: #f8fafc;
+}
+
+.ref-value-text {
+    flex: 1;
+}
+
+.ref-value-actions {
+    display: flex;
+    gap: 6px;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.ref-value-item:hover .ref-value-actions {
+    opacity: 1;
+}
+
+.ref-btn-edit,
+.ref-btn-delete {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px 6px;
+    border-radius: 4px;
+    font-size: 13px;
+    transition: background 0.15s;
+}
+
+.ref-btn-edit  { color: var(--blue); }
+.ref-btn-delete { color: #d32f2f; }
+
+.ref-btn-edit:hover  { background: #e8f0fe; }
+.ref-btn-delete:hover { background: #fdecea; }
+
+.ref-empty {
+    font-size: 13px;
+    color: #aaa;
+    padding: 14px 0;
+    text-align: center;
+}
+
+@media (max-width: 1024px) {
+    .ref-data-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+@media (max-width: 600px) {
+    .ref-data-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ═══════════════════════════════════════════════
+   EMPLOYEE FORM — REDESIGN
+   ═══════════════════════════════════════════════ */
+
+.emp-form-card {
+    background: var(--white);
+    border-radius: 12px;
+    box-shadow: 0 4px 20px rgba(24, 52, 91, 0.10);
+    overflow: hidden;
+    border: 1px solid #dce8f4;
+}
+
+/* ── Form header ─────────────────────────────── */
+
+.emp-form-header {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 20px 28px;
+    background: linear-gradient(135deg, var(--navy) 0%, #2a5298 100%);
+    color: var(--white);
+}
+
+.emp-form-avatar {
+    width: 54px;
+    height: 54px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.15);
+    border: 2px solid rgba(255,255,255,0.35);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    color: rgba(255,255,255,0.85);
+    flex-shrink: 0;
+}
+
+.emp-form-header-text h3 {
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 3px;
+    letter-spacing: 0.2px;
+}
+
+.emp-form-header-text p {
+    font-size: 12px;
+    color: rgba(255,255,255,0.65);
+    margin: 0;
+}
+
+/* ── Sections ────────────────────────────────── */
+
+.emp-section {
+    padding: 20px 28px 8px;
+    border-bottom: 1px solid #f0f4fa;
+}
+
+.emp-section:last-of-type {
+    border-bottom: none;
+}
+
+.emp-section-label {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--blue);
+    text-transform: uppercase;
+    letter-spacing: 0.9px;
+    margin-bottom: 14px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #eef2f8;
+}
+
+.emp-section-label i {
+    font-size: 12px;
+}
+
+/* ── Field grid ──────────────────────────────── */
+
+.emp-field-grid {
+    display: grid;
+    gap: 16px;
+    margin-bottom: 12px;
+}
+
+.emp-grid-2 { grid-template-columns: repeat(2, 1fr); }
+.emp-grid-3 { grid-template-columns: repeat(3, 1fr); }
+.emp-grid-4 { grid-template-columns: repeat(4, 1fr); }
+
+/* ── Label icons ─────────────────────────────── */
+
+.emp-form-card label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #4a5568;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-bottom: 5px;
+}
+
+.emp-form-card label i.fa-fw {
+    color: var(--blue);
+    font-size: 11px;
+    opacity: 0.8;
+}
+
+/* ── Input styling ───────────────────────────── */
+
+.emp-form-card input,
+.emp-form-card select {
+    padding: 9px 13px;
+    border: 1.5px solid #d8e3ef;
+    border-radius: 7px;
+    font-size: 13.5px;
+    background: #fafcff;
+    transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+}
+
+.emp-form-card input:focus,
+.emp-form-card select:focus {
+    border-color: var(--blue);
+    background: var(--white);
+    box-shadow: 0 0 0 3px rgba(47, 119, 181, 0.13);
+    outline: none;
+}
+
+.emp-form-card input:hover,
+.emp-form-card select:hover {
+    border-color: #9db8d8;
+}
+
+/* ── Action footer ───────────────────────────── */
+
+.emp-form-footer {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    padding: 16px 28px 20px;
+    background: #f7fafd;
+    border-top: 1px solid #edf2f9;
+}
+
+.emp-btn-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: linear-gradient(135deg, var(--navy) 0%, #2a5298 100%);
+    color: var(--white);
+    border: none;
+    padding: 11px 28px;
+    border-radius: 8px;
+    font-family: 'Poppins', sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    letter-spacing: 0.2px;
+    transition: opacity 0.2s, transform 0.15s, box-shadow 0.2s;
+    box-shadow: 0 3px 10px rgba(24, 52, 91, 0.25);
+}
+
+.emp-btn-primary:hover {
+    opacity: 0.9;
+    transform: translateY(-1px);
+    box-shadow: 0 5px 14px rgba(24, 52, 91, 0.30);
+}
+
+.emp-btn-primary:active {
+    transform: translateY(0);
+}
+
+.emp-btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    background: transparent;
+    color: #6b7280;
+    border: 1.5px solid #d1d5db;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-family: 'Poppins', sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.emp-btn-ghost:hover {
+    border-color: #9ca3af;
+    color: var(--text);
+    background: #f9fafb;
+}
+
+@media (max-width: 1024px) {
+    .emp-grid-4 { grid-template-columns: repeat(2, 1fr); }
+    .emp-grid-3 { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 600px) {
+    .emp-grid-4,
+    .emp-grid-3,
+    .emp-grid-2 { grid-template-columns: 1fr; }
+    .emp-form-header { padding: 16px 20px; }
+    .emp-section    { padding: 16px 20px 4px; }
+    .emp-form-footer { padding: 14px 20px 16px; }
+}
+
+/* ═══════════════════════════════════════════════
+   EMPLOYEE TABLE FILTER BAR
+   ═══════════════════════════════════════════════ */
+
+.emp-filter-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 18px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+}
+
+.emp-filter-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    flex: 1;
+}
+
+.emp-filter-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+}
+
+.emp-filter-icon {
+    color: var(--blue);
+    font-size: 13px;
+}
+
+.emp-filter-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--navy);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    white-space: nowrap;
+    padding-right: 4px;
+    border-right: 1px solid var(--border);
+}
+
+.emp-filter-field {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    background: #f4f7fb;
+    border: 1px solid #dce8f4;
+    border-radius: 7px;
+    padding: 6px 11px;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.emp-filter-field:focus-within {
+    border-color: var(--blue);
+    box-shadow: 0 0 0 3px rgba(47, 119, 181, 0.10);
+    background: var(--white);
+}
+
+.emp-filter-field i {
+    color: #9aafca;
+    font-size: 12px;
+    flex-shrink: 0;
+}
+
+.emp-filter-field input,
+.emp-filter-field select {
+    border: none;
+    background: transparent;
+    padding: 0;
+    font-size: 13px;
+    color: var(--text);
+    outline: none;
+    min-width: 120px;
+    box-shadow: none;
+}
+
+.emp-filter-field select {
+    min-width: 140px;
+    cursor: pointer;
+}
+
+.emp-filter-count {
+    font-size: 12px;
+    color: #7a8fa6;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.emp-filter-clear {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: #fff0f0;
+    color: #c62828;
+    border: 1px solid #ffcdd2;
+    border-radius: 6px;
+    padding: 5px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    font-family: 'Poppins', sans-serif;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.emp-filter-clear:hover {
+    background: #ffcdd2;
+}
+
+@media (max-width: 768px) {
+    .emp-filter-bar {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    .emp-filter-field input,
+    .emp-filter-field select {
+        min-width: 100px;
+    }
+}
+
+/* ── EXPORT BUTTONS ───────────────────────────── */
+
+.btn-export {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: linear-gradient(135deg, #1d7a45 0%, #27a85e 100%);
+    color: #ffffff;
+    border: none;
+    border-radius: 6px;
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    font-family: 'Poppins', sans-serif;
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(29, 122, 69, 0.30);
+    transition: transform 0.15s, box-shadow 0.15s;
+    white-space: nowrap;
+}
+
+.btn-export:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px rgba(29, 122, 69, 0.40);
+}
+
+.btn-export:active {
+    transform: translateY(0);
+    box-shadow: 0 1px 4px rgba(29, 122, 69, 0.25);
+}
+
+/* Export bar above department table */
+.table-export-bar {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    margin-bottom: 10px;
 }
