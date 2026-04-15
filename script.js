@@ -1437,14 +1437,14 @@ function eocRenderOrgChart() {
 // when available) and renders the full employee detail inline.
 // ═══════════════════════════════════════════════════════════════════
 
-var MP_TABS = [
-    { id: 'personal',       label: 'Personal',          icon: 'fa-circle-user'    },
-    { id: 'contact',        label: 'Contact',            icon: 'fa-phone'          },
-    { id: 'address',        label: 'Address',            icon: 'fa-location-dot'   },
-    { id: 'passport',       label: 'Passport',           icon: 'fa-passport'       },
-    { id: 'identification', label: 'Identification',     icon: 'fa-id-card-clip'   },
-    { id: 'emergency',      label: 'Emergency Contact',  icon: 'fa-phone-volume'   },
-    { id: 'employment',     label: 'Employment',         icon: 'fa-briefcase'      },
+var MP_SECTIONS = [
+    { id: 'personal',       label: 'Personal',          icon: 'fa-circle-user',   fn: function(e,el){ mpTabPersonal(e,el);       } },
+    { id: 'contact',        label: 'Contact',            icon: 'fa-phone',         fn: function(e,el){ mpTabContact(e,el);        } },
+    { id: 'address',        label: 'Address',            icon: 'fa-location-dot',  fn: function(e,el){ mpTabAddress(e,el);        } },
+    { id: 'passport',       label: 'Passport',           icon: 'fa-passport',      fn: function(e,el){ mpTabPassport(e,el);       } },
+    { id: 'identification', label: 'Identification',     icon: 'fa-id-card-clip',  fn: function(e,el){ mpTabIdentification(e,el); } },
+    { id: 'emergency',      label: 'Emergency Contact',  icon: 'fa-phone-volume',  fn: function(e,el){ mpTabEmergency(e,el);      } },
+    { id: 'employment',     label: 'Employment',         icon: 'fa-briefcase',     fn: function(e,el){ mpTabEmployment(e,el);     } },
 ];
 
 // ── Find the employee record that belongs to the current portal user ──
@@ -1462,7 +1462,7 @@ function mpGetCurrentEmployee() {
     }) || null;
 }
 
-// ── Main render entry-point (called when tab is activated) ────────────
+// ── Main render entry-point — one-pager with sticky scrollspy nav ─────
 
 function renderMyProfile() {
     var wrapper = document.getElementById('mp-wrapper');
@@ -1479,59 +1479,76 @@ function renderMyProfile() {
         return;
     }
 
+    // Build sticky nav + all sections in one page
+    var navBtns = MP_SECTIONS.map(function (s, i) {
+        return '<button class="mp-nav-btn' + (i === 0 ? ' mp-nav-active' : '') + '" ' +
+               'data-target="mp-s-' + s.id + '">' +
+               '<i class="fa-solid ' + s.icon + '"></i>' + s.label +
+               '</button>';
+    }).join('');
+
+    var sectionsHtml = MP_SECTIONS.map(function (s) {
+        return '<section id="mp-s-' + s.id + '" class="mp-section"></section>';
+    }).join('');
+
     wrapper.innerHTML =
-        '<div class="mp-tabs-wrap">' +
-            '<div class="ev-tabs" id="mp-tab-nav"></div>' +
-            '<div class="ev-content" id="mp-tab-content"></div>' +
+        '<div class="mp-page">' +
+            '<nav class="mp-sticky-nav" id="mp-nav">' + navBtns + '</nav>' +
+            '<div class="mp-sections">' + sectionsHtml + '</div>' +
         '</div>';
 
-    // Build tab nav
-    mpRenderTabNav();
-    mpSwitchTab('personal');
-}
-
-// ── Render the horizontal sub-tab nav buttons ─────────────────────────
-
-function mpRenderTabNav() {
-    var nav = document.getElementById('mp-tab-nav');
-    if (!nav) return;
-    nav.innerHTML = '';
-    MP_TABS.forEach(function (tab) {
-        var btn = document.createElement('button');
-        btn.className   = 'ev-tab';
-        btn.dataset.tab = tab.id;
-        btn.innerHTML   = '<i class="fa-solid ' + tab.icon + '"></i>' + tab.label;
-        btn.addEventListener('click', function () { mpSwitchTab(tab.id); });
-        nav.appendChild(btn);
+    // Render each section's content
+    MP_SECTIONS.forEach(function (s) {
+        var el = document.getElementById('mp-s-' + s.id);
+        if (el) s.fn(emp, el);
     });
+
+    // Wire nav-button clicks → smooth scroll with sticky-nav offset
+    var navEl      = document.getElementById('mp-nav');
+    var contentEl  = document.querySelector('.content');
+    document.querySelectorAll('.mp-nav-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var target = document.getElementById(btn.getAttribute('data-target'));
+            if (!target || !contentEl) return;
+            var navH   = navEl ? navEl.offsetHeight : 0;
+            var offset = target.getBoundingClientRect().top
+                         - contentEl.getBoundingClientRect().top
+                         + contentEl.scrollTop
+                         - navH - 12;
+            contentEl.scrollTo({ top: offset, behavior: 'smooth' });
+        });
+    });
+
+    // Scrollspy — highlight nav button for the section currently in view
+    mpInitScrollSpy();
 }
 
-// ── Activate a sub-tab, highlight button, render content ─────────────
+// ── IntersectionObserver scrollspy ───────────────────────────────────
 
-function mpSwitchTab(tabId) {
-    // Highlight button
-    var nav = document.getElementById('mp-tab-nav');
-    if (nav) {
-        nav.querySelectorAll('.ev-tab').forEach(function (btn) {
-            btn.classList.toggle('ev-tab-active', btn.dataset.tab === tabId);
+function mpInitScrollSpy() {
+    var contentEl = document.querySelector('.content');
+    if (!contentEl) return;
+
+    var sections = document.querySelectorAll('.mp-section');
+    var navBtns  = document.querySelectorAll('.mp-nav-btn');
+
+    var observer = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+            if (entry.isIntersecting) {
+                var id = entry.target.id;
+                navBtns.forEach(function (btn) {
+                    btn.classList.toggle('mp-nav-active',
+                        btn.getAttribute('data-target') === id);
+                });
+            }
         });
-    }
-    // Render content
-    var content = document.getElementById('mp-tab-content');
-    if (!content) return;
-    var emp = mpGetCurrentEmployee();
-    if (!emp) return;
+    }, {
+        root:       contentEl,
+        rootMargin: '-10% 0px -60% 0px',
+        threshold:  0
+    });
 
-    var renderMap = {
-        personal:       mpTabPersonal,
-        contact:        mpTabContact,
-        address:        mpTabAddress,
-        passport:       mpTabPassport,
-        identification: mpTabIdentification,
-        emergency:      mpTabEmergency,
-        employment:     mpTabEmployment,
-    };
-    if (renderMap[tabId]) renderMap[tabId](emp, content);
+    sections.forEach(function (s) { observer.observe(s); });
 }
 
 // ── Shared helpers ────────────────────────────────────────────────────
