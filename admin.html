@@ -290,12 +290,10 @@
 
                 <!-- EMPLOYEES FILTER BAR -->
                 <div class="emp-filter-bar">
-                    <div class="emp-filter-left">
-                        <i class="fa-solid fa-filter emp-filter-icon"></i>
-                        <span class="emp-filter-title">Filter</span>
+                    <div class="emp-filter-fields">
                         <div class="emp-filter-field">
                             <i class="fa-solid fa-magnifying-glass"></i>
-                            <input type="text" id="filter-emp-name" placeholder="Name" />
+                            <input type="text" id="filter-emp-name" placeholder="Search name…" />
                         </div>
                         <div class="emp-filter-field">
                             <i class="fa-solid fa-hashtag"></i>
@@ -322,25 +320,24 @@
                             </select>
                         </div>
                     </div>
-                    <div class="emp-filter-right">
+                    <div class="emp-filter-actions">
                         <span class="emp-filter-count" id="emp-filter-count"></span>
                         <button type="button" class="emp-filter-clear" id="emp-filter-clear" style="display:none;">
-                            <i class="fa-solid fa-xmark"></i> Clear
+                            <i class="fa-solid fa-xmark"></i> Clear filters
                         </button>
                         <button type="button" class="btn-export" id="btn-export-employees">
-                            <i class="fa-solid fa-file-excel"></i> Export
+                            <i class="fa-solid fa-file-excel"></i> Export to Excel
                         </button>
                     </div>
                 </div>
 
                 <!-- EMPLOYEES TABLE -->
                 <div class="table-wrapper">
-                    <table>
+                    <table class="emp-table">
                         <thead>
                             <tr>
-                                <th>#</th>
-                                <th>Emp ID</th>
-                                <th>Full Name</th>
+                                <th class="emp-th-num">#</th>
+                                <th>Employee</th>
                                 <th>Designation</th>
                                 <th>Department</th>
                                 <th>Manager</th>

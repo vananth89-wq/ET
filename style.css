@@ -1540,60 +1540,35 @@ tbody td:last-child {
    EMPLOYEE TABLE FILTER BAR
    ═══════════════════════════════════════════════ */
 
+/* ── EMPLOYEE FILTER BAR ─────────────────────── */
+
 .emp-filter-bar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
     background: var(--white);
     border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 12px 18px;
-    margin-bottom: 12px;
-    flex-wrap: wrap;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+    border-radius: 12px;
+    padding: 14px 18px 12px;
+    margin-bottom: 14px;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.05);
 }
 
-.emp-filter-left {
+/* Row 1: all five filter fields, equal width */
+.emp-filter-fields {
     display: flex;
     align-items: center;
     gap: 10px;
-    flex-wrap: wrap;
-    flex: 1;
-}
-
-.emp-filter-right {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-shrink: 0;
-}
-
-.emp-filter-icon {
-    color: var(--blue);
-    font-size: 13px;
-}
-
-.emp-filter-title {
-    font-size: 12px;
-    font-weight: 700;
-    color: var(--navy);
-    text-transform: uppercase;
-    letter-spacing: 0.6px;
-    white-space: nowrap;
-    padding-right: 4px;
-    border-right: 1px solid var(--border);
 }
 
 .emp-filter-field {
+    flex: 1;
+    min-width: 0;
     display: flex;
     align-items: center;
     gap: 7px;
     background: #f4f7fb;
-    border: 1px solid #dce8f4;
-    border-radius: 7px;
-    padding: 6px 11px;
-    transition: border-color 0.2s, box-shadow 0.2s;
+    border: 1.5px solid #dce8f4;
+    border-radius: 8px;
+    padding: 7px 12px;
+    transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
 }
 
 .emp-filter-field:focus-within {
@@ -1616,19 +1591,30 @@ tbody td:last-child {
     font-size: 13px;
     color: var(--text);
     outline: none;
-    min-width: 120px;
+    width: 100%;
+    min-width: 0;
     box-shadow: none;
+    font-family: 'Poppins', sans-serif;
 }
 
-.emp-filter-field select {
-    min-width: 140px;
-    cursor: pointer;
+.emp-filter-field select { cursor: pointer; }
+
+/* Row 2: count on left, actions on right */
+.emp-filter-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid #f0f4fa;
 }
 
 .emp-filter-count {
     font-size: 12px;
     color: #7a8fa6;
-    font-weight: 500;
+    font-weight: 600;
+    margin-right: auto;
     white-space: nowrap;
 }
 
@@ -1639,8 +1625,8 @@ tbody td:last-child {
     background: #fff0f0;
     color: #c62828;
     border: 1px solid #ffcdd2;
-    border-radius: 6px;
-    padding: 5px 12px;
+    border-radius: 7px;
+    padding: 6px 14px;
     font-size: 12px;
     font-weight: 600;
     font-family: 'Poppins', sans-serif;
@@ -1648,19 +1634,194 @@ tbody td:last-child {
     transition: background 0.15s;
 }
 
-.emp-filter-clear:hover {
-    background: #ffcdd2;
+.emp-filter-clear:hover { background: #ffcdd2; }
+
+@media (max-width: 900px) {
+    .emp-filter-fields { flex-wrap: wrap; }
+    .emp-filter-field  { flex: 1 1 160px; }
 }
 
-@media (max-width: 768px) {
-    .emp-filter-bar {
-        flex-direction: column;
-        align-items: flex-start;
-    }
-    .emp-filter-field input,
-    .emp-filter-field select {
-        min-width: 100px;
-    }
+/* ── EMPLOYEE TABLE ───────────────────────────── */
+
+.emp-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    background: var(--white);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 2px 16px rgba(24,52,91,0.08);
+}
+
+/* Header */
+.emp-table thead {
+    background: linear-gradient(135deg, var(--navy) 0%, #243f6e 100%);
+}
+
+.emp-table thead th {
+    padding: 13px 16px;
+    text-align: left;
+    font-size: 11px;
+    font-weight: 700;
+    color: rgba(255,255,255,0.85);
+    letter-spacing: 0.7px;
+    text-transform: uppercase;
+    border-bottom: none;
+}
+
+.emp-th-num { width: 42px; text-align: center !important; }
+
+/* Body rows */
+.emp-table tbody tr {
+    border-bottom: 1px solid #f0f4fa;
+    transition: background 0.15s, transform 0.1s;
+    position: relative;
+}
+
+.emp-table tbody tr:last-child { border-bottom: none; }
+
+/* Alternating subtle tint */
+.emp-table tbody tr:nth-child(even) { background: #fafcff; }
+
+/* Hover: left accent + lift */
+.emp-table tbody tr:hover {
+    background: #eef4ff !important;
+    box-shadow: inset 3px 0 0 var(--blue);
+}
+
+.emp-table tbody td {
+    padding: 11px 16px;
+    font-size: 13px;
+    color: var(--text);
+    vertical-align: middle;
+}
+
+/* Row number column */
+.emp-td-num {
+    text-align: center;
+    font-size: 11px;
+    color: #aab8cc;
+    font-weight: 600;
+    width: 42px;
+}
+
+/* Employee name cell */
+.emp-name-cell {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+}
+
+.emp-avatar-sm {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    color: #fff;
+    font-size: 14px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    letter-spacing: 0;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+}
+
+.emp-name-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.emp-name-primary {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--navy);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.emp-name-id {
+    font-size: 11px;
+    color: #8fa3bc;
+    font-weight: 500;
+    letter-spacing: 0.3px;
+}
+
+/* Designation cell — slightly muted */
+.emp-td-desg {
+    color: #4a6080;
+    font-size: 12.5px;
+}
+
+/* Manager tag */
+.emp-manager-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: #3a5270;
+}
+
+.emp-dash { color: #c0cad8; }
+
+/* Passport alert icon inline with name */
+.emp-passport-icon {
+    font-size: 11px;
+    vertical-align: middle;
+}
+.emp-passport-expired  { color: #c62828; }
+.emp-passport-critical { color: #e65100; }
+.emp-passport-warning  { color: #f59e0b; }
+
+/* Action buttons — icon-only, grouped */
+.emp-action-btns {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    justify-content: center;
+}
+
+.emp-table .btn-edit,
+.emp-table .btn-delete {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    border: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 13px;
+    transition: background 0.15s, transform 0.1s;
+    padding: 0;
+}
+
+.emp-table .btn-edit {
+    background: #e8f0fe;
+    color: var(--blue);
+}
+
+.emp-table .btn-edit:hover {
+    background: var(--blue);
+    color: #fff;
+    transform: translateY(-1px);
+}
+
+.emp-table .btn-delete {
+    background: #fde8e8;
+    color: #c62828;
+}
+
+.emp-table .btn-delete:hover {
+    background: #c62828;
+    color: #fff;
+    transform: translateY(-1px);
 }
 
 /* ── EXPORT BUTTONS ───────────────────────────── */

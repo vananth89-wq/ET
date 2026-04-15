@@ -289,45 +289,73 @@ function renderEmployees() {
     employeeBody.innerHTML = '';
 
     if (employees.length === 0) {
-        employeeBody.innerHTML = '<tr><td colspan="9" class="no-data">No employees added yet.</td></tr>';
+        employeeBody.innerHTML = '<tr><td colspan="8" class="no-data">No employees added yet.</td></tr>';
         return;
     }
 
     if (list.length === 0) {
-        employeeBody.innerHTML = '<tr><td colspan="9" class="no-data">No employees match the current filters.</td></tr>';
+        employeeBody.innerHTML = '<tr><td colspan="8" class="no-data">No employees match the current filters.</td></tr>';
         return;
     }
 
     list.forEach(function (emp, index) {
-        const roleBadge   = getRoleBadge(emp.role || 'Employee');
-        const statusBadge = getEmpStatusBadge(getEmpStatus(emp));
-        const deptName    = emp.departmentId
+        const roleBadge    = getRoleBadge(emp.role || 'Employee');
+        const statusBadge  = getEmpStatusBadge(getEmpStatus(emp));
+        const deptName     = emp.departmentId
             ? (departments.find(d => d.deptId === emp.departmentId)?.name || emp.departmentId)
             : '—';
-        const managerName = emp.managerId
+        const managerName  = emp.managerId
             ? (employees.find(e => e.employeeId === emp.managerId)?.name || emp.managerId)
             : '—';
+        const initial      = (emp.name || '?').charAt(0).toUpperCase();
+        const avatarColor  = getAvatarColor(emp.name);
+        const passportAlert = emp.passportExpiryDate
+            ? getPassportAlertLevel(emp.passportExpiryDate)
+            : null;
+        const passportIcon  = passportAlert
+            ? `<i class="fa-solid fa-passport emp-passport-icon emp-passport-${passportAlert.level}" title="Passport ${passportAlert.level === 'expired' ? 'expired' : 'expiring in ' + passportAlert.days + 'd'}"></i>`
+            : '';
+
         const row = document.createElement('tr');
         row.innerHTML = `
-            <td>${index + 1}</td>
-            <td><strong>${emp.employeeId}</strong></td>
-            <td>${emp.name}</td>
-            <td>${emp.designation || '—'}</td>
+            <td class="emp-td-num">${index + 1}</td>
+            <td>
+                <div class="emp-name-cell">
+                    <div class="emp-avatar-sm" style="background:${avatarColor};">${initial}</div>
+                    <div class="emp-name-info">
+                        <span class="emp-name-primary">${emp.name}${passportIcon}</span>
+                        <span class="emp-name-id">${emp.employeeId}</span>
+                    </div>
+                </div>
+            </td>
+            <td class="emp-td-desg">${emp.designation || '—'}</td>
             <td>${deptName}</td>
-            <td>${managerName}</td>
+            <td class="emp-td-mgr">${managerName !== '—' ? `<span class="emp-manager-tag">${managerName}</span>` : '<span class="emp-dash">—</span>'}</td>
             <td>${roleBadge}</td>
             <td>${statusBadge}</td>
             <td>
-                <button class="btn-edit" data-id="${emp.id}">
-                    <i class="fa-solid fa-pen-to-square" data-id="${emp.id}"></i>
-                </button>
-                <button class="btn-delete" data-id="${emp.id}">
-                    <i class="fa-solid fa-trash" data-id="${emp.id}"></i>
-                </button>
+                <div class="emp-action-btns">
+                    <button class="btn-edit" data-id="${emp.id}" title="Edit employee">
+                        <i class="fa-solid fa-pen-to-square" data-id="${emp.id}"></i>
+                    </button>
+                    <button class="btn-delete" data-id="${emp.id}" title="Delete employee">
+                        <i class="fa-solid fa-trash" data-id="${emp.id}"></i>
+                    </button>
+                </div>
             </td>
         `;
         employeeBody.appendChild(row);
     });
+}
+
+// ── Employee avatar color (consistent per first letter) ────
+const EMP_AVATAR_PALETTE = [
+    '#3b5fc0','#0f9d8a','#c0392b','#7b4fa6','#e07b00',
+    '#1a7a4a','#b03060','#2980b9','#6d4c00','#336b4a'
+];
+function getAvatarColor(name) {
+    const code = (name || 'A').toUpperCase().charCodeAt(0) - 65;
+    return EMP_AVATAR_PALETTE[Math.abs(code) % EMP_AVATAR_PALETTE.length];
 }
 
 function getRoleBadge(role) {
