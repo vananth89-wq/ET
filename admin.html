@@ -567,29 +567,62 @@
                     </form>
                 </div>
 
-                <!-- DEPARTMENTS TABLE -->
-                <div class="table-section-header">
-                    <div class="table-section-title">
-                        <i class="fa-solid fa-sitemap fa-fw"></i>
-                        Department List
-                        <span class="table-section-count" id="dept-table-count"></span>
+                <!-- DEPARTMENTS FILTER BAR -->
+                <div class="emp-filter-bar">
+                    <div class="emp-filter-fields">
+                        <div class="emp-filter-field">
+                            <i class="fa-solid fa-magnifying-glass"></i>
+                            <input type="text" id="filter-dept-name" placeholder="Search name…" />
+                        </div>
+                        <div class="emp-filter-field">
+                            <i class="fa-solid fa-hashtag"></i>
+                            <input type="text" id="filter-dept-id" placeholder="Dept ID" />
+                        </div>
+                        <div class="emp-filter-field">
+                            <i class="fa-solid fa-user-tie"></i>
+                            <select id="filter-dept-head">
+                                <option value="">All Heads</option>
+                            </select>
+                        </div>
+                        <div class="emp-filter-field">
+                            <i class="fa-solid fa-sitemap"></i>
+                            <select id="filter-dept-parent">
+                                <option value="">All Parents</option>
+                            </select>
+                        </div>
+                        <div class="emp-filter-field">
+                            <i class="fa-solid fa-circle-half-stroke"></i>
+                            <select id="filter-dept-status">
+                                <option value="">All Status</option>
+                                <option value="Active">Active</option>
+                                <option value="Upcoming">Upcoming</option>
+                                <option value="Expired">Expired</option>
+                            </select>
+                        </div>
                     </div>
-                    <button type="button" class="btn-export" id="btn-export-departments" title="Download department list as Excel spreadsheet">
-                        <i class="fa-solid fa-file-excel"></i>
-                        <span class="btn-export-inner">
-                            <span class="btn-export-main" id="export-dept-main">Export Departments</span>
-                            <span class="btn-export-sub" id="export-dept-sub"></span>
-                        </span>
-                        <i class="fa-solid fa-download btn-export-dl"></i>
-                    </button>
+                    <div class="emp-filter-actions">
+                        <span class="emp-filter-count" id="dept-filter-count"></span>
+                        <button type="button" class="emp-filter-clear" id="dept-filter-clear" style="display:none;">
+                            <i class="fa-solid fa-xmark"></i> Clear filters
+                        </button>
+                        <button type="button" class="btn-export" id="btn-export-departments" title="Download department list as Excel spreadsheet">
+                            <i class="fa-solid fa-file-excel"></i>
+                            <span class="btn-export-inner">
+                                <span class="btn-export-main" id="export-dept-main">Export Departments</span>
+                                <span class="btn-export-sub" id="export-dept-sub"></span>
+                            </span>
+                            <i class="fa-solid fa-download btn-export-dl"></i>
+                        </button>
+                    </div>
                 </div>
+
+                <!-- DEPARTMENTS TABLE -->
                 <div class="table-wrapper">
-                    <table>
+                    <table class="emp-table dept-table">
                         <thead>
                             <tr>
-                                <th>#</th>
-                                <th>Dept ID</th>
-                                <th>Department Name</th>
+                                <th class="emp-th-num">#</th>
+                                <th>Department</th>
                                 <th>Department Head</th>
                                 <th>Parent Department</th>
                                 <th>Start Date</th>

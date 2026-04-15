@@ -740,6 +740,28 @@ document.getElementById('emp-filter-clear').addEventListener('click', function (
     renderEmployees();
 });
 
+// ── Dept filter listeners ───────────────────────
+
+['filter-dept-name', 'filter-dept-id', 'filter-dept-head', 'filter-dept-parent', 'filter-dept-status'].forEach(function (id) {
+    const el = document.getElementById(id);
+    if (el) {
+        el.addEventListener('input', renderDepartments);
+        el.addEventListener('change', renderDepartments);
+    }
+});
+
+const deptFilterClearBtn = document.getElementById('dept-filter-clear');
+if (deptFilterClearBtn) {
+    deptFilterClearBtn.addEventListener('click', function () {
+        const n = document.getElementById('filter-dept-name');   if (n) n.value = '';
+        const i = document.getElementById('filter-dept-id');     if (i) i.value = '';
+        const h = document.getElementById('filter-dept-head');   if (h) h.value = '';
+        const p = document.getElementById('filter-dept-parent'); if (p) p.value = '';
+        const s = document.getElementById('filter-dept-status'); if (s) s.value = '';
+        renderDepartments();
+    });
+}
+
 // ── Dynamically require issue/expiry dates when passport number is filled ──
 
 function updatePassportDateRequired() {
@@ -1038,19 +1060,70 @@ function populateDeptFormDropdowns() {
 // ── Render departments table ────────────────────
 
 function renderDepartments() {
-    updateDeptExportLabel();
-    deptBody.innerHTML = '';
-
-    if (departments.length === 0) {
-        deptBody.innerHTML = '<tr><td colspan="9" class="no-data">No departments added yet.</td></tr>';
-        return;
+    // ── Populate Head dropdown ──────────────────
+    const headSelect   = document.getElementById('filter-dept-head');
+    const parentSelect = document.getElementById('filter-dept-parent');
+    if (headSelect) {
+        const currentHead = headSelect.value;
+        headSelect.innerHTML = '<option value="">All Heads</option>';
+        const heads = employees.filter(e => departments.some(d => d.headId === e.employeeId));
+        heads.sort((a, b) => a.name.localeCompare(b.name)).forEach(function (e) {
+            const opt = document.createElement('option');
+            opt.value = e.employeeId;
+            opt.textContent = e.name;
+            if (e.employeeId === currentHead) opt.selected = true;
+            headSelect.appendChild(opt);
+        });
+    }
+    if (parentSelect) {
+        const currentParent = parentSelect.value;
+        parentSelect.innerHTML = '<option value="">All Parents</option>';
+        departments.slice().sort((a, b) => a.name.localeCompare(b.name)).forEach(function (d) {
+            const opt = document.createElement('option');
+            opt.value = d.deptId;
+            opt.textContent = d.name;
+            if (d.deptId === currentParent) opt.selected = true;
+            parentSelect.appendChild(opt);
+        });
     }
 
+    // ── Read active filters ─────────────────────
+    const filterName   = (document.getElementById('filter-dept-name')?.value   || '').trim().toLowerCase();
+    const filterId     = (document.getElementById('filter-dept-id')?.value     || '').trim().toLowerCase();
+    const filterHead   = (document.getElementById('filter-dept-head')?.value   || '');
+    const filterParent = (document.getElementById('filter-dept-parent')?.value || '');
+    const filterStatus = (document.getElementById('filter-dept-status')?.value || '');
+
+    const hasFilter = filterName || filterId || filterHead || filterParent || filterStatus;
+    const clearBtn  = document.getElementById('dept-filter-clear');
+    if (clearBtn) clearBtn.style.display = hasFilter ? 'inline-flex' : 'none';
+
+    // ── Apply filters ───────────────────────────
+    let list = departments.filter(function (dept) {
+        if (filterName   && !dept.name.toLowerCase().includes(filterName))    return false;
+        if (filterId     && !dept.deptId.toLowerCase().includes(filterId))    return false;
+        if (filterHead   && dept.headId !== filterHead)                       return false;
+        if (filterParent && dept.parentDeptId !== filterParent)               return false;
+        if (filterStatus && getDeptStatus(dept) !== filterStatus)             return false;
+        return true;
+    });
+
     // Sort: Active → Upcoming → Expired
-    const sorted = [...departments].sort((a, b) => {
+    list = list.sort((a, b) => {
         const order = { Active: 0, Upcoming: 1, Expired: 2 };
         return order[getDeptStatus(a)] - order[getDeptStatus(b)];
     });
+
+    // ── Update count badge ──────────────────────
+    const countEl = document.getElementById('dept-filter-count');
+    if (countEl) {
+        countEl.textContent = hasFilter
+            ? `${list.length} of ${departments.length} shown`
+            : `${departments.length} department${departments.length !== 1 ? 's' : ''}`;
+    }
+
+    // Update export button label
+    updateDeptExportLabel(list.length, departments.length);
 
     const fmtDate = val => {
         if (!val) return '—';
@@ -1064,7 +1137,19 @@ function renderDepartments() {
         return `<span class="badge ${cls}">${s}</span>`;
     };
 
-    sorted.forEach(function (dept, index) {
+    deptBody.innerHTML = '';
+
+    if (departments.length === 0) {
+        deptBody.innerHTML = '<tr><td colspan="8" class="no-data">No departments added yet.</td></tr>';
+        return;
+    }
+
+    if (list.length === 0) {
+        deptBody.innerHTML = '<tr><td colspan="8" class="no-data">No departments match the current filters.</td></tr>';
+        return;
+    }
+
+    list.forEach(function (dept, index) {
         const headName   = dept.headId
             ? (employees.find(e => e.employeeId === dept.headId)?.name || dept.headId)
             : '—';
@@ -1072,23 +1157,35 @@ function renderDepartments() {
             ? (departments.find(d => d.deptId === dept.parentDeptId)?.name || dept.parentDeptId)
             : '—';
 
+        const initial     = (dept.name || '?').charAt(0).toUpperCase();
+        const avatarColor = getAvatarColor(dept.name);
+
         const row = document.createElement('tr');
         row.innerHTML = `
-            <td>${index + 1}</td>
-            <td><strong>${dept.deptId}</strong></td>
-            <td>${dept.name}</td>
-            <td>${headName}</td>
-            <td>${parentName}</td>
+            <td class="emp-td-num">${index + 1}</td>
+            <td>
+                <div class="emp-name-cell">
+                    <div class="emp-avatar-sm" style="background:${avatarColor};">${initial}</div>
+                    <div class="emp-name-info">
+                        <span class="emp-name-primary">${escHtml(dept.name)}</span>
+                        <span class="emp-name-id">${escHtml(dept.deptId)}</span>
+                    </div>
+                </div>
+            </td>
+            <td>${escHtml(headName)}</td>
+            <td>${escHtml(parentName)}</td>
             <td>${fmtDate(dept.startDate)}</td>
             <td>${fmtDate(dept.endDate)}</td>
             <td>${statusBadge(dept)}</td>
             <td>
-                <button class="btn-edit" data-id="${dept.id}">
-                    <i class="fa-solid fa-pen-to-square" data-id="${dept.id}"></i>
-                </button>
-                <button class="btn-delete" data-id="${dept.id}">
-                    <i class="fa-solid fa-trash" data-id="${dept.id}"></i>
-                </button>
+                <div class="emp-action-btns">
+                    <button class="btn-edit" data-id="${dept.id}" title="Edit department">
+                        <i class="fa-solid fa-pen-to-square" data-id="${dept.id}"></i>
+                    </button>
+                    <button class="btn-delete" data-id="${dept.id}" title="Delete department">
+                        <i class="fa-solid fa-trash" data-id="${dept.id}"></i>
+                    </button>
+                </div>
             </td>
         `;
         deptBody.appendChild(row);
@@ -2212,15 +2309,19 @@ function updateEmpExportLabel(visibleCount, totalCount) {
     subEl.textContent  = isFiltered ? 'filtered view' : 'all records · Excel';
 }
 
-function updateDeptExportLabel() {
-    const departments = JSON.parse(localStorage.getItem('prowess-departments')) || [];
-    const n = departments.length;
+function updateDeptExportLabel(visibleCount, totalCount) {
+    const allDepts = JSON.parse(localStorage.getItem('prowess-departments')) || [];
+    const total = totalCount !== undefined ? totalCount : allDepts.length;
+    const visible = visibleCount !== undefined ? visibleCount : total;
     const mainEl  = document.getElementById('export-dept-main');
     const subEl   = document.getElementById('export-dept-sub');
     const countEl = document.getElementById('dept-table-count');
-    if (mainEl) mainEl.textContent = `Export ${n} Department${n !== 1 ? 's' : ''}`;
-    if (subEl)  subEl.textContent  = 'all records · Excel';
-    if (countEl) countEl.textContent = n > 0 ? `${n} record${n !== 1 ? 's' : ''}` : '';
+    const isFiltered = visible < total;
+    if (mainEl) mainEl.textContent = isFiltered
+        ? `Export ${visible} of ${total} Departments`
+        : `Export ${total} Department${total !== 1 ? 's' : ''}`;
+    if (subEl)  subEl.textContent  = isFiltered ? 'filtered view' : 'all records · Excel';
+    if (countEl) countEl.textContent = total > 0 ? `${total} record${total !== 1 ? 's' : ''}` : '';
 }
 
 // ── Wire export buttons ──────────────────────────
