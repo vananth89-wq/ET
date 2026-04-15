@@ -663,9 +663,9 @@ function eocEscHtml(str) {
 }
 
 // ── State ──────────────────────────────────────────────────────────
-var eocMap       = {};
-var eocRoots     = [];
-var eocCollapsed = new Set();
+var eocMap        = {};
+var eocRoots      = [];
+var eocCollapsed  = new Set();
 var eocSelectedId = null;
 var eocFocusId    = null;
 var eocZoom       = 1;
@@ -673,6 +673,9 @@ var eocPanX       = 0;
 var eocPanY       = 0;
 var eocDragging   = false;
 var eocDragStart  = { x: 0, y: 0, px: 0, py: 0 };
+
+// Date filter — defaults to today (ISO yyyy-mm-dd)
+var eocSelectedDate = new Date().toISOString().split('T')[0];
 
 // ── Colour palette ─────────────────────────────────────────────────
 const EOC_PALETTE = [
@@ -705,6 +708,49 @@ function eocColor(deptId) {
         ? eocDeptColorMap[deptId]
         : EOC_PALETTE.length - 1;
     return EOC_PALETTE[slot];
+}
+
+// ── Date-filter helpers ────────────────────────────────────────────
+
+/**
+ * Returns true if the employee was active on the given ISO date string.
+ * Active means: hireDate <= date AND endDate >= date.
+ */
+function eocIsActiveOnDate(emp, dateStr) {
+    var hire = emp.hireDate || '0000-01-01';
+    var end  = emp.endDate  || '9999-12-31';
+    return hire <= dateStr && end >= dateStr;
+}
+
+/**
+ * Resolves the nearest active manager for an employee on a given date.
+ * Traverses the full hierarchy (allEmpMap) upward from emp.managerId.
+ * The resolved manager must be present in activeSet.
+ * Returns the employeeId of the resolved manager, or null (→ root node).
+ * Uses managerCache to avoid repeated traversal.
+ */
+function eocResolveManager(emp, allEmpMap, activeSet, managerCache) {
+    var cacheKey = emp.employeeId;
+    if (managerCache[cacheKey] !== undefined) return managerCache[cacheKey];
+
+    var visited   = new Set([emp.employeeId]); // prevent circular reference
+    var managerId = emp.managerId;
+
+    while (managerId) {
+        if (visited.has(managerId)) { managerCache[cacheKey] = null; return null; }
+        visited.add(managerId);
+
+        // Found a manager that is active and in the current filtered set
+        if (activeSet.has(managerId)) { managerCache[cacheKey] = managerId; return managerId; }
+
+        // Manager not active — climb to their manager using the full org map
+        var mgr = allEmpMap[managerId];
+        if (!mgr) break;
+        managerId = mgr.managerId;
+    }
+
+    managerCache[cacheKey] = null;
+    return null; // no active manager found → employee becomes a root node
 }
 
 // ── Tree builders ──────────────────────────────────────────────────
@@ -1136,61 +1182,112 @@ function eocRenderOrgChart() {
     var root = document.getElementById('oc-tree-root');
     if (!root) return;
 
-    // Load employees from localStorage (shared with admin)
-    var eocEmployees = JSON.parse(localStorage.getItem('prowess-employees') || '[]');
+    // ── Load data ────────────────────────────────────────────────────
+    var allEmployees = JSON.parse(localStorage.getItem('prowess-employees') || '[]');
 
-    // Identify logged-in profile
+    // Identify logged-in profile (for "You" badge)
     var profile   = JSON.parse(localStorage.getItem('prowess-profile') || '{}');
     var profileId = null;
-    if (profile.name && eocEmployees.length > 0) {
-        var me = eocEmployees.find(function(e) {
+    if (profile.name && allEmployees.length > 0) {
+        var me = allEmployees.find(function(e) {
             return e.name && e.name.trim().toLowerCase() === profile.name.trim().toLowerCase();
         });
         if (me) profileId = me.employeeId;
     }
 
-    var filterDept = (document.getElementById('oc-dept-filter')?.value || '');
-    var empList    = eocEmployees;
+    // Full lookup map (used for manager traversal across the entire org)
+    var allEmpMap = {};
+    allEmployees.forEach(function(e) { allEmpMap[e.employeeId] = e; });
 
-    if (filterDept) {
-        // Build unfiltered tree first to get ancestor chains
-        eocBuildTree(eocEmployees);
-        var inDept = new Set(
-            eocEmployees
-                .filter(function(e){ return e.departmentId === filterDept; })
-                .map(function(e){ return e.employeeId; })
-        );
-        inDept.forEach(function(id) {
-            eocReportingChain(id).forEach(function(aid) { inDept.add(aid); });
-        });
-        empList = eocEmployees.filter(function(e){ return inDept.has(e.employeeId); });
+    // ── Update date picker and viewing label ─────────────────────────
+    var datePicker = document.getElementById('oc-date-filter');
+    if (datePicker && !datePicker.value) datePicker.value = eocSelectedDate;
+    var viewingEl = document.getElementById('oc-date-viewing');
+    if (viewingEl) {
+        var today = new Date().toISOString().split('T')[0];
+        var d     = new Date(eocSelectedDate + 'T00:00:00');
+        var fmt   = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+        viewingEl.textContent = 'Viewing organisation as of ' +
+            (eocSelectedDate === today ? 'Today (' + fmt + ')' : fmt);
     }
 
-    eocBuildTree(empList);
+    // ── STEP 1: Department filter ────────────────────────────────────
+    // Include dept members + all their ancestors from the full org map
+    var filterDept = (document.getElementById('oc-dept-filter')?.value || '');
+    var step1List  = allEmployees;
+
+    if (filterDept) {
+        var inDept = new Set(
+            allEmployees
+                .filter(function(e) { return e.departmentId === filterDept; })
+                .map(function(e) { return e.employeeId; })
+        );
+        // Walk up each member's chain and include ancestors
+        inDept.forEach(function(id) {
+            var cur = allEmpMap[id];
+            var visited = new Set([id]);
+            while (cur && cur.managerId) {
+                if (visited.has(cur.managerId)) break; // circular guard
+                visited.add(cur.managerId);
+                inDept.add(cur.managerId);
+                cur = allEmpMap[cur.managerId];
+            }
+        });
+        step1List = allEmployees.filter(function(e) { return inDept.has(e.employeeId); });
+    }
+
+    // ── STEP 2: Date filter ──────────────────────────────────────────
+    // Keep only employees who were active on the selected date
+    var step2List = step1List.filter(function(emp) {
+        return eocIsActiveOnDate(emp, eocSelectedDate);
+    });
+
+    // Active set — used for fast manager resolution lookup
+    var activeSet = new Set(step2List.map(function(e) { return e.employeeId; }));
+
+    // ── STEP 3: Resolve effective manager for each employee ──────────
+    // If an employee's direct manager is not in the active set, traverse
+    // upward through the full org until an active manager is found.
+    // Results are cached to avoid repeated traversal (O(n) total).
+    var managerCache = {};
+    var resolvedList = step2List.map(function(emp) {
+        var effectiveMgr = eocResolveManager(emp, allEmpMap, activeSet, managerCache);
+        return Object.assign({}, emp, { managerId: effectiveMgr });
+    });
+
+    // ── STEP 4: Build and render the tree ───────────────────────────
+    eocBuildTree(resolvedList);
     eocBuildColorMap();
     eocRenderLegend();
     eocPopulateDeptFilter();
 
     root.innerHTML = '';
 
-    if (eocRoots.length === 0) {
+    if (allEmployees.length === 0) {
         root.innerHTML = '<p style="padding:40px;color:#aaa;text-align:center;">No employee records found.<br>Ask your admin to add employees.</p>';
+        return;
+    }
+
+    if (eocRoots.length === 0) {
+        var d2 = new Date(eocSelectedDate + 'T00:00:00');
+        var fmt2 = d2.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+        root.innerHTML = '<p style="padding:40px;color:#aaa;text-align:center;">' +
+            'No employees were active on <strong>' + fmt2 + '</strong>.<br>' +
+            'Try selecting a different date.</p>';
         return;
     }
 
     var rootRow = document.createElement('div');
     rootRow.className = 'eoc-roots-row';
-
-    eocRoots.forEach(function (node) {
+    eocRoots.forEach(function(node) {
         var wrap = document.createElement('div');
         wrap.className = 'eoc-root-wrap';
         wrap.appendChild(eocRenderNode(node, 0, profileId));
         rootRow.appendChild(wrap);
     });
-
     root.appendChild(rootRow);
 
-    requestAnimationFrame(function () {
+    requestAnimationFrame(function() {
         eocDrawLines();
         eocApplyHighlight();
     });
@@ -1199,12 +1296,26 @@ function eocRenderOrgChart() {
 // ── Event wiring ────────────────────────────────────────────────────
 (function eocSetupEvents() {
 
+    // Initialise date picker to today
+    var datePicker = document.getElementById('oc-date-filter');
+    if (datePicker) {
+        datePicker.value = eocSelectedDate;
+        datePicker.addEventListener('change', function () {
+            eocSelectedDate = this.value || new Date().toISOString().split('T')[0];
+            eocRenderOrgChart();
+            setTimeout(eocResetView, 100);
+        });
+    }
+
     // Tab activation → render
     document.querySelectorAll('.tab-item[data-tab="org-chart"]').forEach(function (item) {
         item.addEventListener('click', function () {
             eocZoom = 1; eocPanX = 0; eocPanY = 0;
             eocFocusId    = null;
             eocSelectedId = null;
+            // Ensure date picker reflects current state
+            var dp = document.getElementById('oc-date-filter');
+            if (dp) dp.value = eocSelectedDate;
             eocRenderOrgChart();
             eocSetupZoomPan();
             eocCenterOnMe(); // pan to the logged-in employee's card on open

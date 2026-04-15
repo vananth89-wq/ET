@@ -3468,3 +3468,48 @@ tbody td:last-child {
     object-fit: cover;
     border-radius: 50%;
 }
+
+/* ── Org chart – date filter bar ────────────────── */
+.oc-date-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 14px;
+    background: #f0f7ff;
+    border: 1px solid #cce0ff;
+    border-radius: 8px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+}
+.oc-date-bar > i {
+    color: var(--blue);
+    font-size: 14px;
+    flex-shrink: 0;
+}
+.oc-date-bar label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--navy);
+    white-space: nowrap;
+    margin: 0;
+    cursor: default;
+}
+.oc-date-input {
+    padding: 5px 10px;
+    border: 1px solid #b3d0f5;
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: inherit;
+    color: var(--navy);
+    background: #fff;
+    cursor: pointer;
+    outline: none;
+    transition: border-color .15s;
+}
+.oc-date-input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(59,130,246,.15); }
+.oc-date-viewing {
+    font-size: 12px;
+    color: #5a7fa8;
+    font-style: italic;
+    margin-left: 4px;
+}
