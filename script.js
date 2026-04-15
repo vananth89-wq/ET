@@ -1479,34 +1479,7 @@ function renderMyProfile() {
         return;
     }
 
-    // ── Profile header card ──
-    var photoSrc = emp.photo ||
-        'https://ui-avatars.com/api/?name=' + encodeURIComponent(emp.name || 'E') +
-        '&background=2F77B5&color=fff&size=84';
-
-    var deptName = mpDeptName(emp.departmentId);
-    var deptMeta = deptName && deptName !== '—'
-        ? '<span><i class="fa-solid fa-building"></i>' + mpEsc(deptName) + '</span>' : '';
-
-    var idMeta = emp.employeeId
-        ? '<span><i class="fa-solid fa-fingerprint"></i>' + mpEsc(emp.employeeId) + '</span>' : '';
-
-    var emailMeta = emp.businessEmail
-        ? '<span><i class="fa-solid fa-envelope"></i>' + mpEsc(emp.businessEmail) + '</span>' : '';
-
     wrapper.innerHTML =
-        '<div class="mp-header">' +
-            '<div class="mp-header-photo">' +
-                '<img src="' + mpEsc(photoSrc) + '" alt="Photo" />' +
-            '</div>' +
-            '<div class="mp-header-info">' +
-                '<p class="mp-header-name">' + mpEsc(emp.name || '—') + '</p>' +
-                '<div class="mp-header-meta">' +
-                    (emp.designation ? '<span><i class="fa-solid fa-id-card"></i>' + mpEsc(emp.designation) + '</span>' : '') +
-                    idMeta + deptMeta + emailMeta +
-                '</div>' +
-            '</div>' +
-        '</div>' +
         '<div class="mp-tabs-wrap">' +
             '<div class="ev-tabs" id="mp-tab-nav"></div>' +
             '<div class="ev-content" id="mp-tab-content"></div>' +
