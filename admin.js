@@ -365,6 +365,9 @@ function renderEmployees() {
             <td>${statusBadge}</td>
             <td>
                 <div class="emp-action-btns">
+                    <button class="btn-view" data-id="${emp.id}" title="View employee details">
+                        <i class="fa-solid fa-eye" data-id="${emp.id}"></i>
+                    </button>
                     <button class="btn-edit" data-id="${emp.id}" title="Edit employee">
                         <i class="fa-solid fa-pen-to-square" data-id="${emp.id}"></i>
                     </button>
@@ -700,6 +703,14 @@ function syncProfile(empId) {
 // ── Handle edit / delete clicks ─────────────────
 
 employeeBody.addEventListener('click', function (event) {
+
+    // View employee details panel
+    const viewBtn = event.target.closest('.btn-view');
+    if (viewBtn) {
+        const id = Number(viewBtn.getAttribute('data-id'));
+        openEmpView(id);
+        return;
+    }
 
     const editBtn = event.target.closest('.btn-edit');
     if (editBtn) {
@@ -4066,3 +4077,382 @@ function docRenderOrgChart() {
     });
 
 })();
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ── EMPLOYEE VIEW PANEL ──────────────────────────────────────────────────
+//
+//  Architecture:
+//  • EV_TABS array drives tab order — add a new entry to add a new tab,
+//    no other code changes required.
+//  • switchEmpViewTab(id) dispatches to a render function map; each render
+//    function receives only the employee object and the content container.
+//  • All data is read directly from the employee object and existing
+//    localStorage keys — no new data models.
+//  • Passport tab displays emp.passportCountry / passportNumber / etc.
+//    (dedicated fields), reusing getPassportAlertLevel() from the existing
+//    passport-alert system.
+//  • Identification tab resolves countryId → name and idTypeId → name via
+//    prowess-id-countries and prowess-id-types, the same keys used by the
+//    employee form.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── Tab registry — extend here to add new tabs ──────────────────────────────
+var EV_TABS = [
+    { id: 'personal',       label: 'Personal',        icon: 'fa-circle-user'    },
+    { id: 'contact',        label: 'Contact',          icon: 'fa-phone'          },
+    { id: 'address',        label: 'Address',          icon: 'fa-location-dot'   },
+    { id: 'passport',       label: 'Passport',         icon: 'fa-passport'       },
+    { id: 'identification', label: 'Identification',   icon: 'fa-id-card-clip'   },
+    { id: 'emergency',      label: 'Emergency Contact', icon: 'fa-phone-volume'  },
+    { id: 'employment',     label: 'Employment',       icon: 'fa-briefcase'      },
+];
+
+var evCurrentEmp = null;
+var evCurrentTab = 'personal';
+
+// ── Open / close ─────────────────────────────────────────────────────────────
+
+function openEmpView(empId) {
+    var emp = employees.find(function(e) { return e.id === empId; });
+    if (!emp) return;
+    evCurrentEmp = emp;
+    evCurrentTab = 'personal';
+
+    evRenderHeader(emp);
+    evRenderTabNav();
+    switchEmpViewTab('personal');
+
+    document.getElementById('ev-overlay').classList.add('ev-open');
+    document.body.style.overflow = 'hidden';
+}
+
+function closeEmpView() {
+    document.getElementById('ev-overlay').classList.remove('ev-open');
+    document.body.style.overflow = '';
+    evCurrentEmp = null;
+}
+
+// ── Header ───────────────────────────────────────────────────────────────────
+
+function evRenderHeader(emp) {
+    var photoEl = document.getElementById('ev-header-photo');
+    var nameEl  = document.getElementById('ev-header-name');
+    var metaEl  = document.getElementById('ev-header-meta');
+
+    // Photo or initial
+    if (emp.photo) {
+        photoEl.innerHTML = '<img src="' + emp.photo + '" alt="' + (emp.name || '') + '" />';
+    } else {
+        var initial = emp.name ? emp.name.charAt(0).toUpperCase() : '?';
+        photoEl.innerHTML = '<span style="font-size:22px;color:rgba(255,255,255,0.9);">' + initial + '</span>';
+    }
+
+    nameEl.textContent = emp.name || '—';
+
+    metaEl.innerHTML =
+        '<span><i class="fa-solid fa-id-card fa-fw"></i>' + (emp.employeeId || '—') + '</span>' +
+        '<span><i class="fa-solid fa-id-badge fa-fw"></i>' + (emp.designation || '—') + '</span>' +
+        '<span><i class="fa-solid fa-sitemap fa-fw"></i>' + evDeptName(emp.departmentId) + '</span>';
+}
+
+// ── Tab navigation ───────────────────────────────────────────────────────────
+
+function evRenderTabNav() {
+    var nav = document.getElementById('ev-tab-nav');
+    nav.innerHTML = '';
+    EV_TABS.forEach(function(tab) {
+        var btn = document.createElement('button');
+        btn.className = 'ev-tab' + (tab.id === evCurrentTab ? ' ev-tab-active' : '');
+        btn.setAttribute('role', 'tab');
+        btn.dataset.tab = tab.id;
+        btn.innerHTML = '<i class="fa-solid ' + tab.icon + ' fa-fw"></i>' + tab.label;
+        btn.addEventListener('click', function() { switchEmpViewTab(tab.id); });
+        nav.appendChild(btn);
+    });
+}
+
+// switchEmpViewTab — update active tab indicator and render content
+function switchEmpViewTab(tabId) {
+    evCurrentTab = tabId;
+
+    // Highlight correct tab button
+    document.querySelectorAll('#ev-tab-nav .ev-tab').forEach(function(btn) {
+        btn.classList.toggle('ev-tab-active', btn.dataset.tab === tabId);
+    });
+
+    // Dispatch to render function
+    var renderMap = {
+        personal:       evTabPersonal,
+        contact:        evTabContact,
+        address:        evTabAddress,
+        passport:       evTabPassport,
+        identification: evTabIdentification,
+        emergency:      evTabEmergency,
+        employment:     evTabEmployment,
+    };
+
+    var content = document.getElementById('ev-content');
+    content.innerHTML = '';
+    var fn = renderMap[tabId];
+    if (fn && evCurrentEmp) fn(evCurrentEmp, content);
+    content.scrollTop = 0;
+}
+
+// ── Shared helpers ───────────────────────────────────────────────────────────
+
+// Render a labelled field; shows italic placeholder if value is absent
+function evField(label, value) {
+    var displayVal = (value !== null && value !== undefined && value !== '' && value !== '—')
+        ? '<span class="ev-field-value">' + value + '</span>'
+        : '<span class="ev-field-value ev-empty">Not provided</span>';
+    return '<div class="ev-field"><div class="ev-field-label">' + label + '</div>' + displayVal + '</div>';
+}
+
+function evSectionTitle(icon, text) {
+    return '<div class="ev-section-title"><i class="fa-solid ' + icon + '"></i>' + text + '</div>';
+}
+
+// Resolve department name from ID using existing prowess-departments key
+function evDeptName(deptId) {
+    if (!deptId) return '—';
+    var depts = JSON.parse(localStorage.getItem('prowess-departments')) || [];
+    var dept  = depts.find(function(d) { return d.deptId === deptId; });
+    return dept ? dept.name : deptId;
+}
+
+// Resolve manager display name from managerId (matches employeeId or id)
+function evManagerName(managerId) {
+    if (!managerId) return '—';
+    var mgr = employees.find(function(e) {
+        return e.employeeId === managerId || String(e.id) === String(managerId);
+    });
+    return mgr ? mgr.name + ' (' + mgr.employeeId + ')' : managerId;
+}
+
+// Format ISO date string to readable display
+function evFmtDate(dateStr) {
+    if (!dateStr) return null;
+    if (dateStr === '9999-12-31') return 'Open-ended';
+    var d = new Date(dateStr + 'T00:00:00');
+    if (isNaN(d.getTime())) return dateStr;
+    return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+// ── Tab 1 — Personal Information ────────────────────────────────────────────
+// Displays: name, employeeId, nationality, maritalStatus
+// Data source: emp object (stored by employee form Section 1)
+
+function evTabPersonal(emp, el) {
+    el.innerHTML =
+        evSectionTitle('fa-circle-user', 'Personal Information') +
+        '<div class="ev-field-grid ev-grid-2">' +
+            evField('Full Name',      emp.name) +
+            evField('Employee ID',    emp.employeeId) +
+            evField('Nationality',    emp.nationality) +
+            evField('Marital Status', emp.maritalStatus) +
+        '</div>';
+}
+
+// ── Tab 2 — Contact Information ──────────────────────────────────────────────
+// Displays: mobile (pre-formatted with country code), businessEmail, personalEmail
+// Data source: emp.mobile (combined), emp.businessEmail, emp.personalEmail
+
+function evTabContact(emp, el) {
+    el.innerHTML =
+        evSectionTitle('fa-phone', 'Contact Information') +
+        '<div class="ev-field-grid ev-grid-2">' +
+            evField('Mobile No.',       emp.mobile) +
+            evField('Business Email',   emp.businessEmail) +
+            evField('Personal Email',   emp.personalEmail) +
+        '</div>';
+}
+
+// ── Tab 3 — Address Information ──────────────────────────────────────────────
+// Displays all address fields from Section 6 of employee form
+// Data source: emp.addrLine1 … emp.addrCountry
+
+function evTabAddress(emp, el) {
+    el.innerHTML =
+        evSectionTitle('fa-location-dot', 'Address Information') +
+        '<div class="ev-field-grid ev-grid-2">' +
+            evField('Address Line 1',   emp.addrLine1) +
+            evField('Address Line 2',   emp.addrLine2) +
+            evField('Landmark',         emp.addrLandmark) +
+            evField('City',             emp.addrCity) +
+            evField('District',         emp.addrDistrict) +
+            evField('State',            emp.addrState) +
+            evField('PIN / ZIP Code',   emp.addrPin) +
+            evField('Country',          emp.addrCountry) +
+        '</div>';
+}
+
+// ── Tab 4 — Passport Information ────────────────────────────────────────────
+// Passport data is stored as dedicated fields on the employee object
+// (passportCountry, passportNumber, passportIssueDate, passportExpiryDate).
+// Reuses getPassportAlertLevel() for expiry warnings, consistent with the
+// passport alert system already in place on the employee list.
+
+function evTabPassport(emp, el) {
+    var hasPassport = emp.passportNumber || emp.passportCountry;
+
+    if (!hasPassport) {
+        el.innerHTML =
+            evSectionTitle('fa-passport', 'Passport Information') +
+            '<div class="ev-empty-state">' +
+            '<i class="fa-solid fa-passport"></i>' +
+            '<p>No passport information on record.</p></div>';
+        return;
+    }
+
+    // Reuse existing alert logic
+    var alertHtml = '';
+    if (emp.passportExpiryDate) {
+        var alert = getPassportAlertLevel(emp.passportExpiryDate);
+        if (alert) {
+            var msg = alert.level === 'expired'
+                ? '<i class="fa-solid fa-triangle-exclamation"></i> Passport expired ' + alert.days + ' day' + (alert.days !== 1 ? 's' : '') + ' ago'
+                : '<i class="fa-solid fa-triangle-exclamation"></i> Expires in ' + alert.days + ' day' + (alert.days !== 1 ? 's' : '');
+            alertHtml = '<div class="ev-passport-alert ' + alert.level + '">' + msg + '</div>';
+        }
+    }
+
+    el.innerHTML =
+        evSectionTitle('fa-passport', 'Passport Information') +
+        alertHtml +
+        '<div class="ev-field-grid ev-grid-2">' +
+            evField('Issue Country',  emp.passportCountry) +
+            evField('Passport No.',   emp.passportNumber) +
+            evField('Issue Date',     evFmtDate(emp.passportIssueDate)) +
+            evField('Expiry Date',    evFmtDate(emp.passportExpiryDate)) +
+        '</div>';
+}
+
+// ── Tab 5 — Identification Details ──────────────────────────────────────────
+// Reads emp.identifications[] and resolves countryId / idTypeId to display
+// names using prowess-id-countries and prowess-id-types — the same
+// localStorage keys used by the employee form identification sub-section.
+
+function evTabIdentification(emp, el) {
+    var ids      = emp.identifications || [];
+    var countries = JSON.parse(localStorage.getItem('prowess-id-countries')) || [];
+    var types     = JSON.parse(localStorage.getItem('prowess-id-types'))     || [];
+
+    if (ids.length === 0) {
+        el.innerHTML =
+            evSectionTitle('fa-id-card-clip', 'Identification Details') +
+            '<div class="ev-empty-state">' +
+            '<i class="fa-solid fa-id-card-clip"></i>' +
+            '<p>No identification records on file.</p></div>';
+        return;
+    }
+
+    var rows = ids.map(function(rec) {
+        var cName  = (countries.find(function(c) { return String(c.id) === String(rec.countryId); }) || {}).name || '—';
+        var tName  = (types.find(function(t)     { return String(t.id) === String(rec.idTypeId);  }) || {}).name || '—';
+        var expiry = evFmtDate(rec.expiryDate) || '—';
+        var status = rec.isPrimary === 'primary'
+            ? '<span class="ev-badge ev-badge-primary">⭐ Primary</span>'
+            : '<span style="color:#8a9ab0;font-size:12px;">Secondary</span>';
+        return '<tr>' +
+            '<td>' + cName + '</td>' +
+            '<td>' + tName + '</td>' +
+            '<td class="ev-mono">' + (rec.idNumber || '—') + '</td>' +
+            '<td>' + expiry + '</td>' +
+            '<td>' + status + '</td>' +
+        '</tr>';
+    }).join('');
+
+    el.innerHTML =
+        evSectionTitle('fa-id-card-clip', 'Identification Details') +
+        '<table class="ev-id-table">' +
+            '<thead><tr>' +
+                '<th>Country</th><th>ID Type</th>' +
+                '<th>ID Number</th><th>Expiry</th><th>Status</th>' +
+            '</tr></thead>' +
+            '<tbody>' + rows + '</tbody>' +
+        '</table>';
+}
+
+// ── Tab 6 — Emergency Contact Information ────────────────────────────────────
+// Data source: emp.ecName, ecRelationship, ecPhone, ecAltPhone, ecEmail
+
+function evTabEmergency(emp, el) {
+    if (!emp.ecName && !emp.ecPhone) {
+        el.innerHTML =
+            evSectionTitle('fa-phone-volume', 'Emergency Contact Information') +
+            '<div class="ev-empty-state">' +
+            '<i class="fa-solid fa-phone-volume"></i>' +
+            '<p>No emergency contact on record.</p></div>';
+        return;
+    }
+
+    el.innerHTML =
+        evSectionTitle('fa-phone-volume', 'Emergency Contact Information') +
+        '<div class="ev-field-grid ev-grid-2">' +
+            evField('Contact Name',    emp.ecName) +
+            evField('Relationship',    emp.ecRelationship) +
+            evField('Phone Number',    emp.ecPhone) +
+            evField('Alternate Phone', emp.ecAltPhone) +
+            evField('Email',           emp.ecEmail) +
+        '</div>';
+}
+
+// ── Tab 7 — Employment Information ──────────────────────────────────────────
+// Resolves departmentId → name (prowess-departments) and managerId → name
+// from the in-memory employees array — same resolution used by renderEmployees()
+
+function evTabEmployment(emp, el) {
+    var today    = new Date(); today.setHours(0,0,0,0);
+    var endDate  = emp.endDate ? new Date(emp.endDate) : null;
+    var isActive = !endDate || emp.endDate === '9999-12-31' || endDate >= today;
+
+    var statusBadge = isActive
+        ? '<span class="ev-badge ev-badge-active"><i class="fa-solid fa-circle-dot"></i> Active</span>'
+        : '<span class="ev-badge ev-badge-inactive"><i class="fa-solid fa-circle-dot"></i> Inactive</span>';
+
+    var roleBadge =
+        emp.role === 'admin'   ? '<span class="ev-badge" style="background:#f3e5f5;color:#7b1fa2;">Admin</span>' :
+        emp.role === 'manager' ? '<span class="ev-badge" style="background:#e3f2fd;color:#1565c0;">Manager</span>' :
+                                 '<span class="ev-badge" style="background:#f0f4fa;color:#546e7a;">Employee</span>';
+
+    el.innerHTML =
+        evSectionTitle('fa-briefcase', 'Employment Information') +
+        '<div class="ev-field-grid ev-grid-2">' +
+            '<div class="ev-field"><div class="ev-field-label">Status</div>'      + statusBadge + '</div>' +
+            '<div class="ev-field"><div class="ev-field-label">Role</div>'        + roleBadge   + '</div>' +
+            evField('Designation',  emp.designation) +
+            evField('Department',   evDeptName(emp.departmentId)) +
+            evField('Manager',      evManagerName(emp.managerId)) +
+            evField('Hire Date',    evFmtDate(emp.hireDate)) +
+            evField('End Date',     evFmtDate(emp.endDate)) +
+        '</div>';
+}
+
+// ── Event wiring ─────────────────────────────────────────────────────────────
+
+// Close: backdrop click
+document.getElementById('ev-overlay').addEventListener('click', function(e) {
+    if (e.target === this) closeEmpView();
+});
+
+// Close: X button
+document.getElementById('ev-close-btn').addEventListener('click', closeEmpView);
+
+// Edit: open the employee's edit form and close the panel
+document.getElementById('ev-edit-btn').addEventListener('click', function() {
+    if (!evCurrentEmp) return;
+    var id = evCurrentEmp.id;
+    closeEmpView();
+    // Small delay so the overlay transition completes before scrolling the form
+    setTimeout(function() {
+        var editBtn = document.querySelector('.btn-edit[data-id="' + id + '"]');
+        if (editBtn) editBtn.click();
+    }, 200);
+});
+
+// Close: Escape key
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && document.getElementById('ev-overlay').classList.contains('ev-open')) {
+        closeEmpView();
+    }
+});

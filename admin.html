@@ -1030,6 +1030,38 @@
     </div>
     <div id="doc-emp-popover-backdrop" class="doc-emp-popover-backdrop" style="display:none;"></div>
 
+    <!-- ══════════════════════════════════════════════════════
+         EMPLOYEE VIEW PANEL
+         Full-screen slide-in overlay showing read-only employee
+         data across 7 tabs. Populated by JS (openEmpView).
+         ══════════════════════════════════════════════════════ -->
+    <div id="ev-overlay" class="ev-overlay" role="dialog" aria-modal="true" aria-label="Employee details">
+        <div class="ev-panel">
+
+            <!-- Sticky header: photo · name · ID · designation -->
+            <div class="ev-header">
+                <div class="ev-header-photo" id="ev-header-photo"></div>
+                <div class="ev-header-info">
+                    <div class="ev-header-name" id="ev-header-name"></div>
+                    <div class="ev-header-meta" id="ev-header-meta"></div>
+                </div>
+                <button class="ev-edit-btn" id="ev-edit-btn" title="Open edit form">
+                    <i class="fa-solid fa-pen-to-square"></i> Edit
+                </button>
+                <button class="ev-close" id="ev-close-btn" title="Close panel" aria-label="Close">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <!-- Tab navigation bar (populated by JS) -->
+            <div class="ev-tabs" id="ev-tab-nav" role="tablist"></div>
+
+            <!-- Tab content area (rendered by JS per active tab) -->
+            <div class="ev-content" id="ev-content" role="tabpanel"></div>
+
+        </div>
+    </div>
+
     <script src="admin.js"></script>
 </body>
 
