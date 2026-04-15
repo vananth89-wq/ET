@@ -356,6 +356,92 @@
                             </div>
                         </div>
 
+                        <!-- ── SECTION 6: Address Information ── -->
+                        <div class="emp-section">
+                            <div class="emp-section-label">
+                                <i class="fa-solid fa-location-dot"></i> Address Information
+                            </div>
+
+                            <!-- Row 1: Address Line 1 + Address Line 2 -->
+                            <div class="emp-field-grid emp-grid-2">
+                                <div class="form-group">
+                                    <label for="emp-addr-line1">
+                                        <i class="fa-solid fa-house fa-fw"></i> Address Line 1
+                                        <span class="field-required">*</span>
+                                    </label>
+                                    <input type="text" id="emp-addr-line1"
+                                           placeholder="House / Flat / Building No." required />
+                                </div>
+                                <div class="form-group">
+                                    <label for="emp-addr-line2">
+                                        <i class="fa-solid fa-road fa-fw"></i> Address Line 2
+                                        <span class="field-required">*</span>
+                                    </label>
+                                    <input type="text" id="emp-addr-line2"
+                                           placeholder="Street / Area / Locality" required />
+                                </div>
+                            </div>
+
+                            <!-- Row 2: Landmark + City -->
+                            <div class="emp-field-grid emp-grid-2">
+                                <div class="form-group">
+                                    <label for="emp-addr-landmark">
+                                        <i class="fa-solid fa-map-pin fa-fw"></i> Landmark
+                                        <span class="section-optional-tag">Optional</span>
+                                    </label>
+                                    <input type="text" id="emp-addr-landmark"
+                                           placeholder="e.g. Near City Mall" />
+                                </div>
+                                <div class="form-group">
+                                    <label for="emp-addr-city">
+                                        <i class="fa-solid fa-city fa-fw"></i> City
+                                        <span class="field-required">*</span>
+                                    </label>
+                                    <input type="text" id="emp-addr-city"
+                                           placeholder="e.g. Chennai" required />
+                                </div>
+                            </div>
+
+                            <!-- Row 3: District + State -->
+                            <div class="emp-field-grid emp-grid-2">
+                                <div class="form-group">
+                                    <label for="emp-addr-district">
+                                        <i class="fa-solid fa-map fa-fw"></i> District
+                                        <span class="field-required">*</span>
+                                    </label>
+                                    <input type="text" id="emp-addr-district"
+                                           placeholder="e.g. Chennai District" required />
+                                </div>
+                                <div class="form-group">
+                                    <label for="emp-addr-state">
+                                        <i class="fa-solid fa-flag fa-fw"></i> State
+                                    </label>
+                                    <input type="text" id="emp-addr-state"
+                                           placeholder="e.g. Tamil Nadu" />
+                                </div>
+                            </div>
+
+                            <!-- Row 4: PIN Code + Country -->
+                            <div class="emp-field-grid emp-grid-2">
+                                <div class="form-group">
+                                    <label for="emp-addr-pin">
+                                        <i class="fa-solid fa-hashtag fa-fw"></i> PIN / ZIP Code
+                                    </label>
+                                    <input type="text" id="emp-addr-pin"
+                                           placeholder="e.g. 600001" />
+                                </div>
+                                <div class="form-group">
+                                    <label for="emp-addr-country">
+                                        <i class="fa-solid fa-earth-asia fa-fw"></i> Country
+                                        <span class="field-required">*</span>
+                                    </label>
+                                    <select id="emp-addr-country" required>
+                                        <option value="">-- Select Country --</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- ── ACTION FOOTER ── -->
                         <div class="emp-form-footer">
                             <button type="submit" class="emp-btn-primary" id="emp-submit-btn">

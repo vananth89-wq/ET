@@ -116,6 +116,21 @@ function populatePassportCountryDropdown() {
     sel.value = cur;
 }
 
+// ── Address country dropdown (all countries, by code) ──────────────
+function populateAddressCountryDropdown() {
+    const sel = document.getElementById('emp-addr-country');
+    if (!sel) return;
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">-- Select Country --</option>';
+    COUNTRIES.forEach(function (c) {
+        const opt = document.createElement('option');
+        opt.value = c.code;
+        opt.textContent = c.flag + '  ' + c.name;
+        sel.appendChild(opt);
+    });
+    sel.value = cur;
+}
+
 // ── TAB NAVIGATION ─────────────────────────────
 
 const tabItems  = document.querySelectorAll('.tab-item');
@@ -160,6 +175,7 @@ function populateEmployeeFormDropdowns() {
     populateNationalityDropdown();
     populateMaritalStatusDropdown();
     populatePassportCountryDropdown();
+    populateAddressCountryDropdown();
     populateEmpFilters();
     const departments = JSON.parse(localStorage.getItem('prowess-departments')) || [];
 
@@ -471,6 +487,16 @@ profileForm.addEventListener('submit', function (event) {
     const businessEmail = document.getElementById('emp-business-email').value.trim().toLowerCase();
     const personalEmail = document.getElementById('emp-personal-email').value.trim().toLowerCase();
 
+    // ── Address fields ──────────────────────────────────────────────
+    const addrLine1    = document.getElementById('emp-addr-line1').value.trim();
+    const addrLine2    = document.getElementById('emp-addr-line2').value.trim();
+    const addrLandmark = document.getElementById('emp-addr-landmark').value.trim();
+    const addrCity     = document.getElementById('emp-addr-city').value.trim();
+    const addrDistrict = document.getElementById('emp-addr-district').value.trim();
+    const addrState    = document.getElementById('emp-addr-state').value.trim();
+    const addrPin      = document.getElementById('emp-addr-pin').value.trim();
+    const addrCountry  = document.getElementById('emp-addr-country').value;
+
     // ── Phone validation: digits only, 7–15 chars ──
     const phoneDigits = phoneRaw.replace(/[\s\-().]/g, '');
     const phoneError  = document.getElementById('emp-phone-error');
@@ -561,7 +587,10 @@ profileForm.addEventListener('submit', function (event) {
                          businessEmail, personalEmail,
                          passportCountry, passportNumber, passportIssueDate, passportExpiryDate,
                          identifications: [...tempEmpIds],
-                         photo: emp.photo || null };
+                         photo: emp.photo || null,
+                         // Address
+                         addrLine1, addrLine2, addrLandmark, addrCity,
+                         addrDistrict, addrState, addrPin, addrCountry };
             }
             return emp;
         });
@@ -590,7 +619,10 @@ profileForm.addEventListener('submit', function (event) {
             departmentId, managerId, role, hireDate, endDate, nationality, maritalStatus,
             businessEmail, personalEmail,
             passportCountry, passportNumber, passportIssueDate, passportExpiryDate,
-            identifications: [...tempEmpIds], photo: null
+            identifications: [...tempEmpIds], photo: null,
+            // Address
+            addrLine1, addrLine2, addrLandmark, addrCity,
+            addrDistrict, addrState, addrPin, addrCountry
         };
         employees.push(newEmployee);
 
@@ -689,6 +721,16 @@ employeeBody.addEventListener('click', function (event) {
         tempEmpIds = emp.identifications ? JSON.parse(JSON.stringify(emp.identifications)) : [];
         resetIdAddForm();
         renderEmpIdList();
+
+        // Restore address fields
+        document.getElementById('emp-addr-line1').value    = emp.addrLine1    || '';
+        document.getElementById('emp-addr-line2').value    = emp.addrLine2    || '';
+        document.getElementById('emp-addr-landmark').value = emp.addrLandmark || '';
+        document.getElementById('emp-addr-city').value     = emp.addrCity     || '';
+        document.getElementById('emp-addr-district').value = emp.addrDistrict || '';
+        document.getElementById('emp-addr-state').value    = emp.addrState    || '';
+        document.getElementById('emp-addr-pin').value      = emp.addrPin      || '';
+        document.getElementById('emp-addr-country').value  = emp.addrCountry  || '';
 
         // Restore photo preview
         empSetAvatarPreview(emp.photo || null);
