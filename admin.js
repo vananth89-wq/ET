@@ -561,7 +561,7 @@ profileForm.addEventListener('submit', function (event) {
                          businessEmail, personalEmail,
                          passportCountry, passportNumber, passportIssueDate, passportExpiryDate,
                          identifications: [...tempEmpIds],
-                         photo: empCurrentPhoto !== undefined ? empCurrentPhoto : (emp.photo || null) };
+                         photo: emp.photo || null };
             }
             return emp;
         });
@@ -590,7 +590,7 @@ profileForm.addEventListener('submit', function (event) {
             departmentId, managerId, role, hireDate, endDate, nationality, maritalStatus,
             businessEmail, personalEmail,
             passportCountry, passportNumber, passportIssueDate, passportExpiryDate,
-            identifications: [...tempEmpIds], photo: empCurrentPhoto || null
+            identifications: [...tempEmpIds], photo: null
         };
         employees.push(newEmployee);
 
@@ -728,9 +728,9 @@ empCancelBtn.addEventListener('click', resetEmpForm);
 // Set defaults on page load
 document.getElementById('emp-end-date').value = '9999-12-31';
 
-// ── Employee photo upload ────────────────────────
+// ── Employee avatar preview (read-only, photo set by employee via portal) ──
 
-let empCurrentPhoto = null; // base64 string or null
+let empCurrentPhoto = null;
 
 function empSetAvatarPreview(photoSrc) {
     empCurrentPhoto = photoSrc || null;
@@ -747,20 +747,6 @@ function empSetAvatarPreview(photoSrc) {
         icon.style.display = '';
     }
 }
-
-document.getElementById('emp-avatar-wrap').addEventListener('click', function () {
-    document.getElementById('emp-photo-upload').click();
-});
-
-document.getElementById('emp-photo-upload').addEventListener('change', function (e) {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = function (ev) { empSetAvatarPreview(ev.target.result); };
-    reader.readAsDataURL(file);
-    // Reset so same file can be re-selected
-    e.target.value = '';
-});
 
 // ── Filter listeners ────────────────────────────
 

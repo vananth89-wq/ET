@@ -601,6 +601,18 @@ document.getElementById('photo-upload').addEventListener('change', function (eve
         profile.photo = base64Photo;
         localStorage.setItem('prowess-profile', JSON.stringify(profile));
 
+        // Sync photo back to the matching employee record in prowess-employees
+        const empList = JSON.parse(localStorage.getItem('prowess-employees') || '[]');
+        const matched = empList.findIndex(function (emp) {
+            return emp.employeeId && profile.employeeId
+                ? emp.employeeId === profile.employeeId
+                : emp.name && profile.name && emp.name.trim().toLowerCase() === profile.name.trim().toLowerCase();
+        });
+        if (matched !== -1) {
+            empList[matched].photo = base64Photo;
+            localStorage.setItem('prowess-employees', JSON.stringify(empList));
+        }
+
         // Update displayed photo immediately
         document.getElementById('profile-photo').src = base64Photo;
     };
