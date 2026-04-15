@@ -2950,3 +2950,710 @@ renderProjects();
 renderWfRoles();
 renderIdCountries();
 renderIdTypes();
+
+// ═══════════════════════════════════════════════════════════════════
+// ── EMPLOYEE ORG CHART (tab-emp-org-chart) ─────────────────────────
+// ═══════════════════════════════════════════════════════════════════
+//
+// HOW THE HIERARCHY IS DERIVED
+// Each employee object carries a `managerId` (= another employee's
+// `employeeId`). buildEocTree() does one pass over the flat array to
+// build a map (employeeId → node) and a second pass to wire children,
+// yielding an array of root nodes (employees with no/unknown manager).
+//
+// HOW RECURSIVE RENDERING WORKS
+// renderEocNode(node) creates a card div, then iterates node.children,
+// calling itself for each child and appending the result. A depth-first
+// walk produces the complete DOM subtree. After mounting, drawEocLines()
+// measures card positions via getBoundingClientRect() and overlays an
+// SVG with T-junction connectors.
+//
+// SCALING FOR LARGE ORGS
+// Nodes default to collapsed beyond depth 2.  The SVG is redrawn only
+// on structural changes (expand/collapse) and on zoom/pan end.
+// ───────────────────────────────────────────────────────────────────
+
+// ── State ──────────────────────────────────────
+let eocMap      = {};         // employeeId → enriched node (with children[])
+let eocRoots    = [];         // top-level nodes (no manager)
+let eocCollapsed = new Set(); // employeeIds whose subtrees are hidden
+let eocSelectedId = null;     // currently selected employee
+let eocFocusId    = null;     // employee in focus mode
+let eocZoom  = 1;
+let eocPanX  = 0;
+let eocPanY  = 0;
+let eocDragging  = false;
+let eocDragStart = { x: 0, y: 0, px: 0, py: 0 };
+
+// Department → colour slot (assigned dynamically)
+const EOC_PALETTE = [
+    { bg: '#EBF4FF', border: '#3B82F6', avatar: '#1D4ED8' },
+    { bg: '#F0FDF4', border: '#22C55E', avatar: '#15803D' },
+    { bg: '#FFF7ED', border: '#F97316', avatar: '#C2410C' },
+    { bg: '#FDF4FF', border: '#A855F7', avatar: '#7E22CE' },
+    { bg: '#FFF1F2', border: '#F43F5E', avatar: '#BE123C' },
+    { bg: '#F0FDFA', border: '#14B8A6', avatar: '#0F766E' },
+    { bg: '#FFFBEB', border: '#EAB308', avatar: '#A16207' },
+    { bg: '#F5F3FF', border: '#8B5CF6', avatar: '#6D28D9' },
+    { bg: '#ECFEFF', border: '#06B6D4', avatar: '#0E7490' },
+    { bg: '#FFF0F0', border: '#EF4444', avatar: '#B91C1C' },
+];
+let eocDeptColorMap = {}; // deptId → palette index
+
+// ── Tree builders ───────────────────────────────
+
+/** Build node map + root list from the flat employees array. */
+function buildEocTree(empList) {
+    eocMap   = {};
+    eocRoots = [];
+
+    // Pass 1 — create node shells
+    empList.forEach(function (emp) {
+        eocMap[emp.employeeId] = Object.assign({}, emp, { children: [] });
+    });
+
+    // Pass 2 — wire parent → child
+    empList.forEach(function (emp) {
+        if (emp.managerId && eocMap[emp.managerId]) {
+            eocMap[emp.managerId].children.push(eocMap[emp.employeeId]);
+        } else {
+            eocRoots.push(eocMap[emp.employeeId]);
+        }
+    });
+
+    // Sort children alphabetically for a stable layout
+    function sortChildren(node) {
+        node.children.sort(function (a, b) { return a.name.localeCompare(b.name); });
+        node.children.forEach(sortChildren);
+    }
+    eocRoots.forEach(sortChildren);
+}
+
+/** Count all descendants (direct + indirect). */
+function eocTeamSize(employeeId) {
+    var node = eocMap[employeeId];
+    if (!node) return 0;
+    var count = node.children.length;
+    node.children.forEach(function (c) { count += eocTeamSize(c.employeeId); });
+    return count;
+}
+
+/** Return ordered array of employeeIds from root → target. */
+function eocReportingChain(employeeId) {
+    var chain = [];
+    var cur   = eocMap[employeeId];
+    while (cur) {
+        chain.unshift(cur.employeeId);
+        cur = cur.managerId ? eocMap[cur.managerId] : null;
+    }
+    return chain;
+}
+
+/** Return flat array of all descendant employeeIds. */
+function eocAllSubordinates(employeeId) {
+    var result = [];
+    var node   = eocMap[employeeId];
+    if (!node) return result;
+    node.children.forEach(function (c) {
+        result.push(c.employeeId);
+        result.push.apply(result, eocAllSubordinates(c.employeeId));
+    });
+    return result;
+}
+
+// ── Colour helpers ──────────────────────────────
+
+function buildEocColorMap() {
+    eocDeptColorMap = {};
+    var idx = 0;
+    var depts = JSON.parse(localStorage.getItem('prowess-departments') || '[]');
+    depts.forEach(function (d) {
+        if (eocDeptColorMap[d.deptId] === undefined) {
+            eocDeptColorMap[d.deptId] = idx % EOC_PALETTE.length;
+            idx++;
+        }
+    });
+}
+
+function eocColor(deptId) {
+    var slot = (eocDeptColorMap[deptId] !== undefined) ? eocDeptColorMap[deptId] : (EOC_PALETTE.length - 1);
+    return EOC_PALETTE[slot];
+}
+
+// ── Card renderer (recursive) ───────────────────
+
+/**
+ * Render a single node and its subtree.
+ * Returns a <div class="eoc-node-wrap"> element.
+ * Recursion stops when the node is in eocCollapsed or has no children.
+ */
+function renderEocNode(node, depth, profileId) {
+    depth = depth || 0;
+
+    var teamSize    = eocTeamSize(node.employeeId);
+    var hasChildren = node.children.length > 0;
+    var collapsed   = eocCollapsed.has(node.employeeId);
+    var isYou       = (node.employeeId === profileId);
+    var color       = eocColor(node.departmentId);
+    var initial     = (node.name || '?').charAt(0).toUpperCase();
+    var avatarBg    = getAvatarColor(node.name);
+    var depts       = JSON.parse(localStorage.getItem('prowess-departments') || '[]');
+    var deptName    = node.departmentId
+        ? (depts.find(function(d){ return d.deptId === node.departmentId; })?.name || node.departmentId)
+        : '—';
+
+    // Wrapper
+    var wrap = document.createElement('div');
+    wrap.className = 'eoc-node-wrap';
+    wrap.dataset.empId = node.employeeId;
+
+    // Card
+    var card = document.createElement('div');
+    card.className = 'eoc-card';
+    card.dataset.empId = node.employeeId;
+    card.style.setProperty('--eoc-border', color.border);
+    card.style.setProperty('--eoc-bg',     color.bg);
+    card.title = node.name + ' — click for details, double-click to focus';
+
+    card.innerHTML =
+        '<div class="eoc-avatar" style="background:' + avatarBg + ';">' + initial + '</div>' +
+        '<div class="eoc-card-body">' +
+            '<div class="eoc-card-name">' + escHtml(node.name) +
+                (isYou ? ' <span class="eoc-you-badge">You</span>' : '') +
+            '</div>' +
+            '<div class="eoc-card-desg">' + escHtml(node.designation || '—') + '</div>' +
+            '<div class="eoc-card-dept">' + escHtml(deptName) + '</div>' +
+            '<div class="eoc-card-id">' + escHtml(node.employeeId) + '</div>' +
+        '</div>' +
+        (hasChildren
+            ? '<div class="eoc-team-badge" title="' + teamSize + ' total report' + (teamSize !== 1 ? 's' : '') + '">' +
+              '<i class="fa-solid fa-users"></i> ' + teamSize + '</div>'
+            : '');
+
+    wrap.appendChild(card);
+
+    // Toggle button
+    if (hasChildren) {
+        var toggle = document.createElement('button');
+        toggle.className = 'eoc-toggle-btn';
+        toggle.dataset.empId = node.employeeId;
+        toggle.title = collapsed ? 'Expand' : 'Collapse';
+        toggle.innerHTML = collapsed
+            ? '<i class="fa-solid fa-plus"></i>'
+            : '<i class="fa-solid fa-minus"></i>';
+        wrap.appendChild(toggle);
+    }
+
+    // Children row
+    if (hasChildren && !collapsed) {
+        var childRow = document.createElement('div');
+        childRow.className = 'eoc-children-row';
+        childRow.dataset.parentId = node.employeeId;
+
+        node.children.forEach(function (child) {
+            var cWrap = document.createElement('div');
+            cWrap.className = 'eoc-child-wrap';
+            cWrap.appendChild(renderEocNode(child, depth + 1, profileId));
+            childRow.appendChild(cWrap);
+        });
+
+        wrap.appendChild(childRow);
+    }
+
+    return wrap;
+}
+
+// Lightweight HTML escaper
+function escHtml(str) {
+    return String(str || '')
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── SVG connector lines ─────────────────────────
+
+/**
+ * After cards are rendered, measure their positions and draw SVG
+ * T-junction connectors (parent ↓ bar ↓ children).
+ * The SVG sits as a sibling of oc-canvas at z-index 0 so cards sit
+ * above the lines.
+ */
+function drawEocLines() {
+    var canvas    = document.getElementById('oc-canvas');
+    if (!canvas) return;
+
+    // Remove old overlay
+    var old = document.getElementById('eoc-svg');
+    if (old) old.remove();
+
+    var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.id = 'eoc-svg';
+    svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    svg.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible;z-index:0;';
+
+    var canvasRect = canvas.getBoundingClientRect();
+
+    document.querySelectorAll('.eoc-children-row[data-parent-id]').forEach(function (row) {
+        var parentId   = row.dataset.parentId;
+        var parentCard = canvas.querySelector('.eoc-card[data-emp-id="' + parentId + '"]');
+        if (!parentCard) return;
+
+        var childCards = Array.from(
+            row.querySelectorAll(':scope > .eoc-child-wrap > .eoc-node-wrap > .eoc-card')
+        );
+        if (!childCards.length) return;
+
+        var pr  = parentCard.getBoundingClientRect();
+        var px  = pr.left + pr.width / 2  - canvasRect.left;
+        var py  = pr.bottom                - canvasRect.top;
+        var gap = 24; // vertical gap between parent bottom and H-bar
+
+        var pts = childCards.map(function (c) {
+            var r = c.getBoundingClientRect();
+            return { x: r.left + r.width / 2 - canvasRect.left, y: r.top - canvasRect.top };
+        });
+
+        // Highlight colour when this node is on the chain/focus path
+        var onChain = parentCard.classList.contains('eoc-card--chain') ||
+                      parentCard.classList.contains('eoc-card--selected');
+        var lineCol  = onChain ? '#3B82F6' : '#C8D8EA';
+        var lineW    = onChain ? '2.5'     : '1.5';
+
+        function line(x1,y1,x2,y2) {
+            var el = document.createElementNS('http://www.w3.org/2000/svg','line');
+            el.setAttribute('x1',x1); el.setAttribute('y1',y1);
+            el.setAttribute('x2',x2); el.setAttribute('y2',y2);
+            el.setAttribute('stroke',   lineCol);
+            el.setAttribute('stroke-width', lineW);
+            el.setAttribute('stroke-linecap', 'round');
+            svg.appendChild(el);
+        }
+
+        var barY = py + gap;
+
+        if (pts.length === 1) {
+            // Single child — straight vertical
+            line(px, py, pts[0].x, pts[0].y);
+        } else {
+            // Down from parent to H-bar
+            line(px, py, px, barY);
+            // Horizontal bar
+            var minX = Math.min.apply(null, pts.map(function(p){return p.x;}));
+            var maxX = Math.max.apply(null, pts.map(function(p){return p.x;}));
+            line(minX, barY, maxX, barY);
+            // Down from H-bar to each child
+            pts.forEach(function (p) { line(p.x, barY, p.x, p.y); });
+        }
+    });
+
+    canvas.insertBefore(svg, canvas.firstChild);
+}
+
+// ── Apply visual state (focus / highlight / dimmed) ─
+
+function applyEocHighlight() {
+    var cards = document.querySelectorAll('.eoc-card');
+    cards.forEach(function (c) {
+        c.classList.remove('eoc-card--selected','eoc-card--chain','eoc-card--sub','eoc-card--dimmed');
+    });
+
+    if (!eocFocusId && !eocSelectedId) return;
+
+    var focusId  = eocFocusId || eocSelectedId;
+    var chain    = eocReportingChain(focusId);
+    var subs     = eocAllSubordinates(focusId);
+    var relevant = new Set(chain.concat(subs));
+
+    cards.forEach(function (c) {
+        var id = c.dataset.empId;
+        if (id === focusId) {
+            c.classList.add('eoc-card--selected');
+        } else if (chain.indexOf(id) !== -1) {
+            c.classList.add('eoc-card--chain');
+        } else if (subs.indexOf(id) !== -1) {
+            c.classList.add('eoc-card--sub');
+        } else {
+            c.classList.add('eoc-card--dimmed');
+        }
+    });
+
+    drawEocLines();
+}
+
+// ── Zoom / pan ──────────────────────────────────
+
+function applyEocTransform() {
+    var canvas = document.getElementById('oc-canvas');
+    if (canvas) {
+        canvas.style.transform       = 'translate(' + eocPanX + 'px,' + eocPanY + 'px) scale(' + eocZoom + ')';
+        canvas.style.transformOrigin = '0 0';
+    }
+    var lbl = document.getElementById('oc-zoom-level');
+    if (lbl) lbl.textContent = Math.round(eocZoom * 100) + '%';
+}
+
+function eocResetView() {
+    // Center the tree in the viewport after a short layout delay
+    setTimeout(function () {
+        var viewport = document.getElementById('oc-viewport');
+        var canvas   = document.getElementById('oc-canvas');
+        if (!viewport || !canvas) return;
+        var vw = viewport.clientWidth;
+        var ch = canvas.scrollWidth;
+        eocZoom  = 1;
+        eocPanX  = Math.max(0, (vw - ch) / 2);
+        eocPanY  = 40;
+        applyEocTransform();
+    }, 80);
+}
+
+function setupEocZoomPan() {
+    var viewport = document.getElementById('oc-viewport');
+    if (!viewport || viewport._eocReady) return;
+    viewport._eocReady = true;
+
+    // Mouse-wheel zoom centred on cursor
+    viewport.addEventListener('wheel', function (e) {
+        e.preventDefault();
+        var factor  = e.deltaY > 0 ? 0.9 : 1.1;
+        var newZoom = Math.max(0.25, Math.min(2.5, eocZoom * factor));
+        var rect    = viewport.getBoundingClientRect();
+        var mx = e.clientX - rect.left;
+        var my = e.clientY - rect.top;
+        eocPanX = mx - (mx - eocPanX) * (newZoom / eocZoom);
+        eocPanY = my - (my - eocPanY) * (newZoom / eocZoom);
+        eocZoom = newZoom;
+        applyEocTransform();
+    }, { passive: false });
+
+    // Drag pan (only when not clicking a card)
+    viewport.addEventListener('mousedown', function (e) {
+        if (e.target.closest('.eoc-card') || e.target.closest('.eoc-toggle-btn')) return;
+        eocDragging  = true;
+        eocDragStart = { x: e.clientX, y: e.clientY, px: eocPanX, py: eocPanY };
+        viewport.style.cursor = 'grabbing';
+        e.preventDefault();
+    });
+    document.addEventListener('mousemove', function (e) {
+        if (!eocDragging) return;
+        eocPanX = eocDragStart.px + (e.clientX - eocDragStart.x);
+        eocPanY = eocDragStart.py + (e.clientY - eocDragStart.y);
+        applyEocTransform();
+    });
+    document.addEventListener('mouseup', function () {
+        if (!eocDragging) return;
+        eocDragging = false;
+        var vp = document.getElementById('oc-viewport');
+        if (vp) vp.style.cursor = 'grab';
+    });
+}
+
+// ── Details panel ───────────────────────────────
+
+function showEocDetails(empId) {
+    var emp   = eocMap[empId];
+    if (!emp) return;
+    eocSelectedId = empId;
+
+    var panel = document.getElementById('oc-details-panel');
+    var body  = document.getElementById('oc-details-body');
+    if (!panel || !body) return;
+
+    var depts    = JSON.parse(localStorage.getItem('prowess-departments') || '[]');
+    var deptName = emp.departmentId
+        ? (depts.find(function(d){return d.deptId===emp.departmentId;})?.name || emp.departmentId)
+        : '—';
+    var manager  = emp.managerId && eocMap[emp.managerId] ? eocMap[emp.managerId].name : '—';
+    var teamSz   = eocTeamSize(empId);
+    var chain    = eocReportingChain(empId);
+    var color    = eocColor(emp.departmentId);
+    var initial  = (emp.name || '?').charAt(0).toUpperCase();
+    var avatarBg = getAvatarColor(emp.name);
+
+    var chainHtml = chain.map(function(id){
+        var n = eocMap[id];
+        return n ? '<span class="eoc-chain-pill">' + escHtml(n.name) + '</span>' : '';
+    }).join('<i class="fa-solid fa-angle-right eoc-chain-arrow"></i>');
+
+    body.innerHTML =
+        '<div class="eoc-det-hero">' +
+            '<div class="eoc-det-avatar" style="background:' + avatarBg + ';">' + initial + '</div>' +
+            '<div>' +
+                '<div class="eoc-det-name">' + escHtml(emp.name) + '</div>' +
+                '<div class="eoc-det-desg">' + escHtml(emp.designation || '—') + '</div>' +
+                '<div class="eoc-det-id">' + escHtml(emp.employeeId) + '</div>' +
+            '</div>' +
+        '</div>' +
+        '<div class="eoc-det-grid">' +
+            eocDetRow('fa-sitemap',        'Department',   deptName) +
+            eocDetRow('fa-user-tie',       'Manager',      manager) +
+            eocDetRow('fa-users',          'Team Size',    teamSz + ' direct report' + (teamSz !== 1 ? 's' : '')) +
+            eocDetRow('fa-briefcase',      'Role',         emp.role || 'Employee') +
+            eocDetRow('fa-circle-half-stroke','Status',    getEmpStatus(emp)) +
+            eocDetRow('fa-calendar-check', 'Hire Date',    formatDateDisplay(emp.hireDate)) +
+            eocDetRow('fa-envelope',       'Business Email', emp.businessEmail || '—') +
+            eocDetRow('fa-phone',          'Mobile',       emp.mobile || '—') +
+        '</div>' +
+        (chain.length > 1
+            ? '<div class="eoc-det-section"><div class="eoc-det-section-title"><i class="fa-solid fa-route"></i> Reporting Chain</div>' +
+              '<div class="eoc-chain-row">' + chainHtml + '</div></div>'
+            : '') +
+        '<div class="eoc-det-actions">' +
+            '<button class="oc-btn oc-btn-primary" onclick="eocFocusOn(\'' + empId + '\')"><i class="fa-solid fa-crosshairs"></i> Focus on this person</button>' +
+        '</div>';
+
+    panel.classList.add('eoc-details-panel--open');
+    applyEocHighlight();
+}
+
+function eocDetRow(icon, label, value) {
+    return '<div class="eoc-det-row">' +
+        '<i class="fa-solid fa-' + icon + ' eoc-det-icon"></i>' +
+        '<div class="eoc-det-label">' + label + '</div>' +
+        '<div class="eoc-det-value">' + escHtml(String(value)) + '</div>' +
+    '</div>';
+}
+
+// ── Focus mode ──────────────────────────────────
+
+function eocFocusOn(empId) {
+    eocFocusId = empId;
+    var emp = eocMap[empId];
+    if (!emp) return;
+
+    var bar      = document.getElementById('oc-focus-bar');
+    var nameEl   = document.getElementById('oc-focus-name');
+    if (bar)    bar.style.display    = 'flex';
+    if (nameEl) nameEl.textContent   = emp.name;
+
+    // Ensure the path to root is expanded
+    eocReportingChain(empId).forEach(function (id) { eocCollapsed.delete(id); });
+    // Ensure all subordinates are expanded
+    eocAllSubordinates(empId).forEach(function (id) { eocCollapsed.delete(id); });
+
+    renderEmpOrgChart();
+    applyEocHighlight();
+
+    // Scroll card into view
+    setTimeout(function () {
+        var card = document.querySelector('.eoc-card[data-emp-id="' + empId + '"]');
+        if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+    }, 150);
+}
+
+function eocClearFocus() {
+    eocFocusId = null;
+    eocSelectedId = null;
+    var bar = document.getElementById('oc-focus-bar');
+    if (bar) bar.style.display = 'none';
+    var panel = document.getElementById('oc-details-panel');
+    if (panel) panel.classList.remove('eoc-details-panel--open');
+    applyEocHighlight();
+    drawEocLines();
+}
+
+// ── Legend ──────────────────────────────────────
+
+function renderEocLegend() {
+    var depts  = JSON.parse(localStorage.getItem('prowess-departments') || '[]');
+    var el     = document.getElementById('oc-legend');
+    if (!el) return;
+    var html = '';
+    depts.forEach(function (d) {
+        var c = eocColor(d.deptId);
+        html += '<span class="eoc-legend-item" style="border-color:' + c.border + ';background:' + c.bg + ';">' +
+                '<span class="eoc-legend-dot" style="background:' + c.border + ';"></span>' +
+                escHtml(d.name) + '</span>';
+    });
+    el.innerHTML = html;
+}
+
+// ── Department filter dropdown ───────────────────
+
+function populateEocDeptFilter() {
+    var sel   = document.getElementById('oc-dept-filter');
+    if (!sel) return;
+    var depts = JSON.parse(localStorage.getItem('prowess-departments') || '[]');
+    var cur   = sel.value;
+    sel.innerHTML = '<option value="">All Departments</option>';
+    depts.forEach(function (d) {
+        var o = document.createElement('option');
+        o.value = d.deptId; o.textContent = d.name;
+        sel.appendChild(o);
+    });
+    sel.value = cur;
+}
+
+// ── Main render ─────────────────────────────────
+
+function renderEmpOrgChart() {
+    var root     = document.getElementById('oc-tree-root');
+    if (!root) return;
+
+    var profile  = JSON.parse(localStorage.getItem('prowess-profile') || '{}');
+    var profileId = profile.employeeId || null;
+
+    var filterDept = (document.getElementById('oc-dept-filter')?.value || '');
+
+    // Apply department filter by rebuilding a filtered employee list
+    var empList = employees;
+    if (filterDept) {
+        // Include employee + all their ancestors so the tree makes sense
+        var inDept = new Set(employees.filter(function(e){ return e.departmentId === filterDept; })
+                                      .map(function(e){ return e.employeeId; }));
+        // Add ancestors
+        inDept.forEach(function(id) {
+            eocReportingChain(id).forEach(function(aid) { inDept.add(aid); });
+        });
+        empList = employees.filter(function(e){ return inDept.has(e.employeeId); });
+    }
+
+    buildEocTree(empList);
+    buildEocColorMap();
+    renderEocLegend();
+    populateEocDeptFilter();
+
+    root.innerHTML = '';
+
+    if (eocRoots.length === 0) {
+        root.innerHTML = '<p class="no-data" style="padding:40px;">No employees to display.</p>';
+        return;
+    }
+
+    // Wrap all roots in a flex row so multiple roots sit side-by-side
+    var rootRow = document.createElement('div');
+    rootRow.className = 'eoc-roots-row';
+
+    eocRoots.forEach(function (node) {
+        var wrap = document.createElement('div');
+        wrap.className = 'eoc-root-wrap';
+        wrap.appendChild(renderEocNode(node, 0, profileId));
+        rootRow.appendChild(wrap);
+    });
+
+    root.appendChild(rootRow);
+
+    // Draw SVG connectors after layout
+    requestAnimationFrame(function () {
+        drawEocLines();
+        applyEocHighlight();
+    });
+}
+
+// ── Event wiring ────────────────────────────────
+
+(function setupEocEvents() {
+
+    // Tab activation → render
+    document.querySelectorAll('.tab-item[data-tab="emp-org-chart"]').forEach(function (item) {
+        item.addEventListener('click', function () {
+            eocZoom = 1; eocPanX = 0; eocPanY = 0;
+            renderEmpOrgChart();
+            setupEocZoomPan();
+            setTimeout(eocResetView, 100);
+        });
+    });
+
+    // Card: single-click → details; double-click → focus
+    document.addEventListener('click', function (e) {
+        var card = e.target.closest('.eoc-card');
+        if (card) { showEocDetails(card.dataset.empId); return; }
+
+        var toggle = e.target.closest('.eoc-toggle-btn');
+        if (toggle) {
+            var id = toggle.dataset.empId;
+            if (eocCollapsed.has(id)) eocCollapsed.delete(id);
+            else eocCollapsed.add(id);
+            renderEmpOrgChart();
+            return;
+        }
+
+        var detClose = e.target.closest('#oc-details-close');
+        if (detClose) {
+            document.getElementById('oc-details-panel').classList.remove('eoc-details-panel--open');
+            eocSelectedId = null;
+            applyEocHighlight();
+            drawEocLines();
+        }
+    });
+
+    document.addEventListener('dblclick', function (e) {
+        var card = e.target.closest('.eoc-card');
+        if (card) eocFocusOn(card.dataset.empId);
+    });
+
+    // Expand / Collapse All
+    document.getElementById('oc-expand-all')?.addEventListener('click', function () {
+        eocCollapsed.clear();
+        renderEmpOrgChart();
+    });
+    document.getElementById('oc-collapse-all')?.addEventListener('click', function () {
+        Object.keys(eocMap).forEach(function (id) {
+            if (eocMap[id].children.length > 0) eocCollapsed.add(id);
+        });
+        renderEmpOrgChart();
+    });
+
+    // Zoom buttons
+    document.getElementById('oc-zoom-in')?.addEventListener('click', function () {
+        eocZoom = Math.min(2.5, eocZoom * 1.2);
+        applyEocTransform();
+    });
+    document.getElementById('oc-zoom-out')?.addEventListener('click', function () {
+        eocZoom = Math.max(0.25, eocZoom / 1.2);
+        applyEocTransform();
+    });
+    document.getElementById('oc-zoom-reset')?.addEventListener('click', function () {
+        eocZoom = 1; eocPanX = 0; eocPanY = 0;
+        applyEocTransform();
+        eocResetView();
+    });
+
+    // Search
+    var searchEl = document.getElementById('oc-search');
+    var clearEl  = document.getElementById('oc-search-clear');
+    if (searchEl) {
+        searchEl.addEventListener('input', function () {
+            var q = this.value.trim().toLowerCase();
+            if (clearEl) clearEl.style.display = q ? 'flex' : 'none';
+
+            if (!q) { eocClearFocus(); return; }
+
+            // Find first matching employee
+            var match = employees.find(function (emp) {
+                return emp.name.toLowerCase().includes(q) ||
+                       emp.employeeId.toLowerCase().includes(q);
+            });
+            if (match) eocFocusOn(match.employeeId);
+        });
+    }
+    if (clearEl) {
+        clearEl.addEventListener('click', function () {
+            if (searchEl) searchEl.value = '';
+            this.style.display = 'none';
+            eocClearFocus();
+        });
+    }
+
+    // Department filter
+    document.getElementById('oc-dept-filter')?.addEventListener('change', function () {
+        renderEmpOrgChart();
+        setTimeout(eocResetView, 100);
+    });
+
+    // Focus bar — clear focus
+    document.getElementById('oc-focus-clear')?.addEventListener('click', function () {
+        if (searchEl) searchEl.value = '';
+        if (clearEl)  clearEl.style.display = 'none';
+        eocClearFocus();
+        renderEmpOrgChart();
+    });
+
+    // Re-draw lines on window resize
+    window.addEventListener('resize', function () {
+        if (document.getElementById('tab-emp-org-chart')?.classList.contains('active')) {
+            drawEocLines();
+        }
+    });
+
+})();

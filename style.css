@@ -2354,3 +2354,685 @@ tbody td:last-child {
     flex: 1;
     min-width: 120px;
 }
+
+
+/* ═══════════════════════════════════════════════
+   ORG CHART  (tab: emp-org-chart)
+   ═══════════════════════════════════════════════ */
+
+/* ── Toolbar ──────────────────────────────────── */
+.oc-toolbar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 14px 18px;
+    background: var(--white);
+    border-bottom: 1px solid var(--border);
+    border-radius: 10px 10px 0 0;
+}
+
+.oc-toolbar-left  { display: flex; align-items: center; gap: 8px; flex: 1; flex-wrap: wrap; }
+.oc-toolbar-right { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+.oc-search-wrap {
+    position: relative;
+    min-width: 200px;
+}
+
+.oc-search-wrap input {
+    width: 100%;
+    padding: 7px 32px 7px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: 'Poppins', sans-serif;
+    outline: none;
+    transition: border-color .2s;
+    background: var(--light);
+}
+.oc-search-wrap input:focus { border-color: var(--blue); background: var(--white); }
+
+.oc-search-clear {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: #999;
+    font-size: 13px;
+    padding: 0;
+    line-height: 1;
+    display: none;
+}
+.oc-search-clear.visible { display: block; }
+
+.oc-filter-select {
+    padding: 7px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: 'Poppins', sans-serif;
+    background: var(--light);
+    outline: none;
+    cursor: pointer;
+    transition: border-color .2s;
+    min-width: 150px;
+}
+.oc-filter-select:focus { border-color: var(--blue); background: var(--white); }
+
+/* Generic toolbar buttons */
+.oc-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 7px 13px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-family: 'Poppins', sans-serif;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    transition: background .18s, border-color .18s, color .18s;
+    white-space: nowrap;
+}
+.oc-btn-ghost {
+    background: var(--white);
+    color: var(--navy);
+}
+.oc-btn-ghost:hover { background: var(--light); border-color: var(--blue); color: var(--blue); }
+
+.oc-btn-primary {
+    background: var(--blue);
+    color: var(--white);
+    border-color: var(--blue);
+}
+.oc-btn-primary:hover { background: var(--navy); border-color: var(--navy); }
+
+/* Zoom controls */
+.oc-zoom-group {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    background: var(--light);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 2px 4px;
+}
+
+.oc-zoom-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--navy);
+    font-size: 14px;
+    padding: 4px 6px;
+    border-radius: 4px;
+    line-height: 1;
+    transition: background .15s;
+}
+.oc-zoom-btn:hover { background: var(--white); color: var(--blue); }
+
+.oc-zoom-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--navy);
+    min-width: 38px;
+    text-align: center;
+}
+
+/* Focus bar */
+.oc-focus-bar {
+    display: none;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 18px;
+    background: #e8f4ff;
+    border-bottom: 1px solid #b3d9ff;
+    font-size: 13px;
+    color: var(--navy);
+    font-weight: 500;
+}
+.oc-focus-bar.visible { display: flex; }
+.oc-focus-bar i { color: var(--blue); }
+.oc-focus-bar strong { color: var(--blue); }
+
+.oc-focus-clear {
+    margin-left: auto;
+    background: none;
+    border: 1px solid var(--blue);
+    color: var(--blue);
+    border-radius: 5px;
+    padding: 4px 10px;
+    font-size: 12px;
+    font-family: 'Poppins', sans-serif;
+    cursor: pointer;
+    font-weight: 600;
+    transition: background .15s, color .15s;
+}
+.oc-focus-clear:hover { background: var(--blue); color: var(--white); }
+
+/* ── Legend ───────────────────────────────────── */
+.oc-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 18px;
+    padding: 10px 18px;
+    background: var(--white);
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+}
+
+.eoc-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: #555;
+    font-weight: 500;
+}
+
+.eoc-legend-dot {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+/* ── Viewport & Canvas ────────────────────────── */
+.oc-viewport {
+    position: relative;
+    overflow: hidden;
+    background: #f0f4fa;
+    min-height: 520px;
+    cursor: grab;
+    border-radius: 0 0 10px 10px;
+    border: 1px solid var(--border);
+    border-top: none;
+    /* subtle dot-grid background */
+    background-image: radial-gradient(circle, #c5cfe0 1px, transparent 1px);
+    background-size: 28px 28px;
+}
+.oc-viewport:active { cursor: grabbing; }
+
+.oc-canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform-origin: 0 0;
+    padding: 48px 48px 80px;
+    /* wide enough for large trees; shrinks to content */
+    min-width: max-content;
+}
+
+/* SVG connector overlay */
+.oc-canvas svg.eoc-svg-lines {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    overflow: visible;
+}
+.oc-canvas svg.eoc-svg-lines line,
+.oc-canvas svg.eoc-svg-lines path {
+    stroke: #b0c4de;
+    stroke-width: 1.8;
+    fill: none;
+    transition: stroke .2s;
+}
+
+/* ── Root row ─────────────────────────────────── */
+.eoc-roots-row {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 40px;
+    justify-content: center;
+    align-items: flex-start;
+    position: relative;
+}
+
+/* Each root tree (column) */
+.eoc-root-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+}
+
+/* ── Node wrapper ─────────────────────────────── */
+.eoc-node-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+}
+
+/* ── Card ─────────────────────────────────────── */
+.eoc-card {
+    position: relative;
+    background: var(--white);
+    border: 2px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px 12px;
+    width: 180px;
+    cursor: pointer;
+    transition: border-color .2s, box-shadow .2s, transform .15s, opacity .2s;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+    user-select: none;
+    text-align: center;
+}
+.eoc-card:hover {
+    border-color: var(--blue);
+    box-shadow: 0 4px 16px rgba(47,119,181,0.18);
+    transform: translateY(-2px);
+}
+
+/* Selected card */
+.eoc-card--selected {
+    border-color: var(--blue) !important;
+    box-shadow: 0 0 0 3px rgba(47,119,181,0.22), 0 4px 16px rgba(47,119,181,0.2) !important;
+    background: #f0f7ff !important;
+}
+
+/* Ancestor/descendant chain highlight */
+.eoc-card--chain {
+    border-color: #ff9800 !important;
+    box-shadow: 0 0 0 3px rgba(255,152,0,0.22) !important;
+    background: #fff8f0 !important;
+}
+
+/* Subordinates highlight */
+.eoc-card--sub {
+    border-color: var(--green) !important;
+    box-shadow: 0 0 0 2px rgba(97,206,112,0.22) !important;
+    background: #f4fff5 !important;
+}
+
+/* Dimmed nodes */
+.eoc-card--dimmed {
+    opacity: 0.28;
+    filter: grayscale(60%);
+    pointer-events: none;
+}
+
+/* Avatar */
+.eoc-avatar {
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
+    margin: 0 auto 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--white);
+    letter-spacing: 0.5px;
+    flex-shrink: 0;
+    border: 2px solid rgba(255,255,255,0.5);
+}
+
+/* Card body text */
+.eoc-card-body { text-align: center; }
+
+.eoc-card-name {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--navy);
+    margin-bottom: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 148px;
+}
+.eoc-card-desg {
+    font-size: 11px;
+    color: var(--blue);
+    font-weight: 600;
+    margin-bottom: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 148px;
+}
+.eoc-card-dept {
+    font-size: 10px;
+    color: #888;
+    margin-bottom: 3px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 148px;
+}
+.eoc-card-id {
+    font-size: 10px;
+    color: #aaa;
+    font-family: monospace;
+}
+
+/* Team size badge */
+.eoc-team-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    margin-top: 6px;
+    background: var(--light);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 2px 8px;
+    font-size: 10px;
+    color: #555;
+    font-weight: 600;
+}
+.eoc-team-badge i { font-size: 9px; color: var(--blue); }
+
+/* "You" badge */
+.eoc-you-badge {
+    position: absolute;
+    top: -8px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--green);
+    color: var(--white);
+    font-size: 9px;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 10px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+/* Expand/collapse toggle button */
+.eoc-toggle-btn {
+    position: absolute;
+    bottom: -14px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--white);
+    border: 2px solid var(--blue);
+    color: var(--blue);
+    font-size: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background .15s, color .15s;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+}
+.eoc-toggle-btn:hover { background: var(--blue); color: var(--white); }
+
+/* ── Children row ─────────────────────────────── */
+.eoc-children-row {
+    display: flex;
+    gap: 24px;
+    justify-content: center;
+    align-items: flex-start;
+    margin-top: 36px;
+    position: relative;
+}
+
+/* Individual child column */
+.eoc-child-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+}
+
+/* ── Details Panel ────────────────────────────── */
+.oc-details-panel {
+    position: fixed;
+    top: 0;
+    right: -420px;
+    width: 400px;
+    height: 100vh;
+    background: var(--white);
+    box-shadow: -4px 0 24px rgba(0,0,0,0.13);
+    z-index: 1200;
+    display: flex;
+    flex-direction: column;
+    transition: right .3s cubic-bezier(0.4, 0, 0.2, 1);
+    border-left: 3px solid var(--blue);
+    overflow: hidden;
+}
+.eoc-details-panel--open { right: 0 !important; }
+
+.oc-details-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--light);
+    flex-shrink: 0;
+}
+
+.oc-details-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--navy);
+}
+
+.oc-details-close {
+    background: none;
+    border: none;
+    font-size: 18px;
+    color: #888;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    transition: background .15s, color .15s;
+    line-height: 1;
+}
+.oc-details-close:hover { background: #f0f0f0; color: var(--navy); }
+
+.oc-details-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+}
+
+/* Hero section at top of details */
+.eoc-det-hero {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 20px 0 18px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 18px;
+    text-align: center;
+}
+
+.eoc-det-avatar {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--white);
+    border: 3px solid rgba(255,255,255,0.4);
+    box-shadow: 0 3px 12px rgba(0,0,0,0.15);
+}
+
+.eoc-det-name {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--navy);
+    margin: 0;
+}
+
+.eoc-det-desg {
+    font-size: 13px;
+    color: var(--blue);
+    font-weight: 600;
+}
+
+.eoc-det-id {
+    font-size: 11px;
+    color: #aaa;
+    font-family: monospace;
+}
+
+/* Details grid rows */
+.eoc-det-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.eoc-det-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid #f0f0f0;
+}
+.eoc-det-row:last-child { border-bottom: none; }
+
+.eoc-det-icon {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    background: var(--light);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    color: var(--blue);
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+
+.eoc-det-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #999;
+    font-weight: 600;
+    margin-bottom: 1px;
+}
+
+.eoc-det-value {
+    font-size: 13px;
+    color: var(--navy);
+    font-weight: 500;
+}
+
+/* Section heading inside details */
+.eoc-det-section {
+    margin-top: 18px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+}
+
+.eoc-det-section-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: #888;
+    margin-bottom: 10px;
+}
+
+/* Reporting chain pills */
+.eoc-chain-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+}
+
+.eoc-chain-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 10px;
+    background: var(--light);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--navy);
+    cursor: pointer;
+    transition: background .15s, border-color .15s;
+}
+.eoc-chain-pill:hover { background: #e8f4ff; border-color: var(--blue); color: var(--blue); }
+.eoc-chain-pill span.eoc-cp-dot {
+    width: 9px; height: 9px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.eoc-chain-arrow {
+    font-size: 12px;
+    color: #bbb;
+}
+
+/* Action buttons at bottom of details */
+.eoc-det-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 22px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+}
+.eoc-det-actions button {
+    flex: 1;
+    padding: 9px 0;
+    border-radius: 7px;
+    font-size: 12px;
+    font-family: 'Poppins', sans-serif;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    transition: background .15s, color .15s, border-color .15s;
+}
+.eoc-det-actions .btn-focus-mode {
+    background: var(--navy);
+    color: var(--white);
+    border-color: var(--navy);
+}
+.eoc-det-actions .btn-focus-mode:hover { background: var(--blue); border-color: var(--blue); }
+.eoc-det-actions .btn-close-details {
+    background: var(--white);
+    color: #666;
+}
+.eoc-det-actions .btn-close-details:hover { background: var(--light); border-color: #aaa; }
+
+/* ── Empty state ──────────────────────────────── */
+.eoc-empty {
+    text-align: center;
+    padding: 60px 20px;
+    color: #aaa;
+}
+.eoc-empty i {
+    font-size: 48px;
+    margin-bottom: 14px;
+    display: block;
+    opacity: 0.35;
+}
+.eoc-empty p {
+    font-size: 14px;
+    color: #999;
+}
+
+/* ── Responsive tweaks ────────────────────────── */
+@media (max-width: 640px) {
+    .oc-toolbar { flex-direction: column; align-items: stretch; }
+    .oc-toolbar-left,
+    .oc-toolbar-right { flex-wrap: wrap; }
+    .oc-details-panel { width: 100%; right: -100%; border-left: none; border-top: 3px solid var(--blue); }
+    .eoc-card { width: 148px; }
+    .eoc-card-name, .eoc-card-desg, .eoc-card-dept { max-width: 120px; }
+}
+
