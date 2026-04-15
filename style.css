@@ -4299,11 +4299,19 @@ tbody td:last-child {
 }
 
 .mp-section {
-    padding: 26px 28px 22px;
+    padding: 26px 28px 28px;
     border-bottom: 1px solid #f0f4fa;
     scroll-margin-top: 52px;   /* offset for sticky nav height */
 }
 .mp-section:last-child { border-bottom: none; }
+
+/* My Expense sections need a bit more breathing room for cards/forms/tables */
+#me-s-dashboard.mp-section,
+#me-s-insights.mp-section,
+#me-s-add-expense.mp-section,
+#me-s-my-expenses.mp-section {
+    padding-bottom: 36px;
+}
 
 @media (max-width: 640px) {
     .mp-header      { flex-direction: column; align-items: flex-start; gap: 14px; }

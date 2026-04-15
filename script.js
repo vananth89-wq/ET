@@ -524,6 +524,145 @@ projectFilter.addEventListener('change', function () {
 
 // ── TAB NAVIGATION ─────────────────────────────
 
+// ═══════════════════════════════════════════════════════════════════
+// ── MY EXPENSE  (unified one-pager with sticky scrollspy nav) ───────
+// Mirrors the My Profile pattern: sticky horizontal nav bar at the top
+// of a self-contained scroll container; all 4 sections stacked below.
+// ═══════════════════════════════════════════════════════════════════
+
+var ME_SECTIONS = [
+    { id: 'dashboard',   label: 'Dashboard',   icon: 'fa-chart-pie'  },
+    { id: 'insights',    label: 'Insights',    icon: 'fa-lightbulb'  },
+    { id: 'add-expense', label: 'Add Expense', icon: 'fa-plus'       },
+    { id: 'my-expenses', label: 'My Expenses', icon: 'fa-table-list' },
+];
+
+var meInitialized = false;
+
+// ── Called each time the My Expense panel is activated ────────────────
+function renderMyExpense() {
+    if (!meInitialized) {
+        buildMeNav();
+        meSetScrollHeight();
+        meInitScrollSpy();
+        window.addEventListener('resize', meSetScrollHeight);
+        meInitialized = true;
+    }
+    // Refresh data every time the panel is shown
+    renderDashboard();
+    renderTable();
+    populateMonthFilter();
+    populateProjectFilter();
+    // Charts must render after panel is fully painted
+    requestAnimationFrame(function () { renderInsights(); });
+}
+
+// ── Build and inject the sticky nav bar ──────────────────────────────
+function buildMeNav() {
+    var placeholder = document.getElementById('me-nav-placeholder');
+    if (!placeholder) return;
+
+    var navBtns = ME_SECTIONS.map(function (s, i) {
+        return '<button class="mp-nav-btn' + (i === 0 ? ' mp-nav-active' : '') + '" ' +
+               'data-target="me-s-' + s.id + '">' +
+               '<i class="fa-solid ' + s.icon + '"></i>' + s.label + '</button>';
+    }).join('');
+
+    placeholder.innerHTML =
+        '<nav class="mp-sticky-nav" id="me-nav">' + navBtns + '</nav>';
+
+    // Wire nav-button clicks
+    var scrollBox = document.getElementById('me-scroll-container');
+    var navEl     = document.getElementById('me-nav');
+    document.querySelectorAll('#me-nav .mp-nav-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var targetEl = document.getElementById(btn.getAttribute('data-target'));
+            if (!targetEl || !scrollBox) return;
+            var navH   = navEl ? navEl.offsetHeight : 0;
+            var offset = targetEl.getBoundingClientRect().top
+                         - scrollBox.getBoundingClientRect().top
+                         + scrollBox.scrollTop
+                         - navH - 8;
+            scrollBox.scrollTo({ top: offset, behavior: 'smooth' });
+        });
+    });
+}
+
+// ── Set scroll container height to fill remaining viewport ────────────
+function meSetScrollHeight() {
+    var container = document.getElementById('me-scroll-container');
+    if (!container) return;
+    var rect   = container.getBoundingClientRect();
+    var availH = window.innerHeight - rect.top - 16;
+    container.style.height = Math.max(200, availH) + 'px';
+}
+
+// ── IntersectionObserver scrollspy ────────────────────────────────────
+function meInitScrollSpy() {
+    var scrollBox = document.getElementById('me-scroll-container');
+    if (!scrollBox) return;
+
+    var observer = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+            if (!entry.isIntersecting) return;
+            var sectionId = entry.target.id;
+
+            // Highlight sticky nav button
+            document.querySelectorAll('#me-nav .mp-nav-btn').forEach(function (btn) {
+                btn.classList.toggle('mp-nav-active',
+                    btn.getAttribute('data-target') === sectionId);
+            });
+
+            // Mirror active state on the sidebar child item
+            meSyncSidebarActive(sectionId);
+        });
+    }, {
+        root:       scrollBox,
+        rootMargin: '-10% 0px -55% 0px',
+        threshold:  0
+    });
+
+    scrollBox.querySelectorAll('.mp-section').forEach(function (s) {
+        observer.observe(s);
+    });
+}
+
+// ── Keep sidebar child item highlight in sync with visible section ────
+function meSyncSidebarActive(sectionId) {
+    var tabId = sectionId.replace('me-s-', '');
+    document.querySelectorAll('.tab-item').forEach(function (t) {
+        t.classList.toggle('active', t.getAttribute('data-tab') === tabId);
+    });
+    syncGroupState(tabId);
+}
+
+// ── Smooth-scroll to the section that matches a sidebar tab ID ────────
+function meScrollToSection(tabId) {
+    var sectionEl = document.getElementById('me-s-' + tabId);
+    var scrollBox = document.getElementById('me-scroll-container');
+    var navEl     = document.getElementById('me-nav');
+    if (!sectionEl || !scrollBox) return;
+
+    // If nav isn't built yet (first activation), scroll after a paint
+    if (!navEl) {
+        requestAnimationFrame(function () { meScrollToSection(tabId); });
+        return;
+    }
+    var navH   = navEl.offsetHeight;
+    var offset = sectionEl.getBoundingClientRect().top
+                 - scrollBox.getBoundingClientRect().top
+                 + scrollBox.scrollTop
+                 - navH - 8;
+    scrollBox.scrollTo({ top: offset, behavior: 'smooth' });
+
+    // Immediately update sticky nav highlight
+    document.querySelectorAll('#me-nav .mp-nav-btn').forEach(function (btn) {
+        btn.classList.toggle('mp-nav-active',
+            btn.getAttribute('data-target') === 'me-s-' + tabId);
+    });
+}
+
+// ── TAB NAVIGATION ──────────────────────────────────────────────────
 const tabItems = document.querySelectorAll('.tab-item');
 const tabPanels = document.querySelectorAll('.tab-panel');
 
@@ -574,16 +713,18 @@ tabItems.forEach(function (item) {
         // Activate clicked tab
         item.classList.add('active');
         const targetTab = item.getAttribute('data-tab');
-        document.getElementById('tab-' + targetTab).classList.add('active');
+
+        // Children of My Expense group → activate the unified panel + scroll
+        if (MENU_GROUPS['my-expense'] && MENU_GROUPS['my-expense'].includes(targetTab)) {
+            document.getElementById('tab-my-expense').classList.add('active');
+            renderMyExpense();
+            meScrollToSection(targetTab);
+        } else {
+            document.getElementById('tab-' + targetTab).classList.add('active');
+        }
 
         // Keep group header in sync
         syncGroupState(targetTab);
-
-        // Redraw charts when Insights tab is opened
-        // (charts don't render correctly when panel is hidden)
-        if (targetTab === 'insights') {
-            renderInsights();
-        }
 
         // Render My Profile when that tab is opened
         if (targetTab === 'my-profile') {
@@ -595,13 +736,15 @@ tabItems.forEach(function (item) {
     });
 });
 
-// When edit is clicked, switch to Add Expense tab
+// When edit is clicked, jump to Add Expense section inside My Expense panel
 function switchToAddTab() {
     tabItems.forEach(t => t.classList.remove('active'));
     tabPanels.forEach(p => p.classList.remove('active'));
     document.querySelector('[data-tab="add-expense"]').classList.add('active');
-    document.getElementById('tab-add-expense').classList.add('active');
+    document.getElementById('tab-my-expense').classList.add('active');
     syncGroupState('add-expense');
+    renderMyExpense();
+    setTimeout(function () { meScrollToSection('add-expense'); }, 60);
 }
 
 // Initialise menu groups after DOM is ready
@@ -687,11 +830,7 @@ document.getElementById('photo-upload').addEventListener('change', function (eve
 // ── STEP 13: Initialize on page load ───────────
 
 loadProfile();
-renderTable();
-renderDashboard();
-renderInsights();
-populateMonthFilter();
-populateProjectFilter();
+renderMyExpense();   // initialises the unified My Expense panel on page load
 
 // ══════════════════════════════════════════════
 
