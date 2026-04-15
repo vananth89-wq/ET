@@ -73,6 +73,7 @@
                     <i class="fa-solid fa-diagram-project"></i>
                     <span>Org Chart</span>
                 </li>
+
             </ul>
         </nav>
 
@@ -223,10 +224,69 @@
 
             <!-- ── TAB 5: ORG CHART ──────────────── -->
             <section id="tab-org-chart" class="tab-panel">
-                <h2 class="page-title">My Organisation</h2>
-                <div id="poc-container" class="poc-container">
-                    <!-- Populated by JavaScript -->
+                <h2 class="page-title">Employee Organisation Chart</h2>
+
+                <!-- Toolbar -->
+                <div class="oc-toolbar">
+                    <div class="oc-toolbar-left">
+                        <div class="oc-search-wrap">
+                            <i class="fa-solid fa-magnifying-glass"></i>
+                            <input type="text" id="oc-search" placeholder="Search employee…" autocomplete="off" />
+                            <button class="oc-search-clear" id="oc-search-clear" style="display:none;" title="Clear search">
+                                <i class="fa-solid fa-xmark"></i>
+                            </button>
+                        </div>
+                        <select id="oc-dept-filter" class="oc-filter-select">
+                            <option value="">All Departments</option>
+                        </select>
+                    </div>
+                    <div class="oc-toolbar-right">
+                        <button class="oc-btn oc-btn-ghost" id="oc-expand-all" title="Expand all nodes">
+                            <i class="fa-solid fa-expand"></i> Expand All
+                        </button>
+                        <button class="oc-btn oc-btn-ghost" id="oc-collapse-all" title="Collapse all nodes">
+                            <i class="fa-solid fa-compress"></i> Collapse All
+                        </button>
+                        <div class="oc-zoom-group">
+                            <button class="oc-zoom-btn" id="oc-zoom-out" title="Zoom out">−</button>
+                            <span class="oc-zoom-label" id="oc-zoom-level">100%</span>
+                            <button class="oc-zoom-btn" id="oc-zoom-in" title="Zoom in">+</button>
+                            <button class="oc-btn oc-btn-ghost oc-zoom-reset" id="oc-zoom-reset" title="Reset view">
+                                <i class="fa-solid fa-arrows-to-dot"></i>
+                            </button>
+                        </div>
+                    </div>
                 </div>
+
+                <!-- Focus-mode banner -->
+                <div class="oc-focus-bar" id="oc-focus-bar" style="display:none;">
+                    <i class="fa-solid fa-crosshairs"></i>
+                    <span>Focused on <strong id="oc-focus-name"></strong></span>
+                    <button class="oc-btn oc-btn-ghost oc-focus-clear" id="oc-focus-clear">
+                        <i class="fa-solid fa-xmark"></i> Clear Focus
+                    </button>
+                </div>
+
+                <!-- Legend -->
+                <div class="oc-legend" id="oc-legend"></div>
+
+                <!-- Chart viewport (pannable / zoomable) -->
+                <div class="oc-viewport" id="oc-viewport">
+                    <div class="oc-canvas" id="oc-canvas">
+                        <div id="oc-tree-root"></div>
+                    </div>
+                </div>
+
+                <!-- Details slide-panel -->
+                <aside class="oc-details-panel" id="oc-details-panel">
+                    <div class="oc-details-header">
+                        <span class="oc-details-title">Employee Details</span>
+                        <button class="oc-details-close" id="oc-details-close">
+                            <i class="fa-solid fa-xmark"></i>
+                        </button>
+                    </div>
+                    <div class="oc-details-body" id="oc-details-body"></div>
+                </aside>
             </section>
 
         </main>

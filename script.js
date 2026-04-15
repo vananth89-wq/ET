@@ -617,239 +617,652 @@ populateMonthFilter();
 populateProjectFilter();
 
 // ══════════════════════════════════════════════
-//  EMPLOYEE ORG CHART  (tab: org-chart)
-// ══════════════════════════════════════════════
 
-let pocFocusId = null;  // currently focused employee
-let pocMeId    = null;  // logged-in employee's ID
+// ═══════════════════════════════════════════════════════════════════
+// ── EMPLOYEE ORG CHART  (tab: org-chart) ───────────────────────────
+// ═══════════════════════════════════════════════════════════════════
 
-const POC_COLORS = [
-    '#2F77B5','#61CE70','#e53935','#f57f17','#8e24aa',
-    '#00897b','#f4511e','#1e88e5','#6d4c41','#546e7a'
+// ── Avatar colour palette & helpers ────────────────────────────────
+const EOC_AVATAR_PALETTE = [
+    '#3b5fc0','#0f9d8a','#c0392b','#7b4fa6','#e07b00',
+    '#1a7a4a','#b03060','#2980b9','#6d4c00','#336b4a'
 ];
-
-function pocColor(deptId) {
-    if (!deptId) return '#2F77B5';
-    const n = String(deptId).split('').reduce((a, c) => a + c.charCodeAt(0), 0);
-    return POC_COLORS[Math.abs(n) % POC_COLORS.length];
+function eocGetAvatarColor(name) {
+    var code = (name || 'A').toUpperCase().charCodeAt(0) - 65;
+    return EOC_AVATAR_PALETTE[Math.abs(code) % EOC_AVATAR_PALETTE.length];
+}
+function eocGetStatus(emp) {
+    var today   = new Date().toISOString().split('T')[0];
+    var endDate = emp.endDate  || '9999-12-31';
+    var hire    = emp.hireDate || '0000-01-01';
+    if (hire > today)    return 'Upcoming';
+    if (endDate < today) return 'Inactive';
+    return 'Active';
+}
+function eocFmtDate(val) {
+    if (!val) return '—';
+    if (val === '9999-12-31') return 'Open-ended';
+    return val;
+}
+function eocEscHtml(str) {
+    return String(str || '')
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-function pocInitials(name) {
-    if (!name) return '?';
-    return name.trim().split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2);
+// ── State ──────────────────────────────────────────────────────────
+var eocMap       = {};
+var eocRoots     = [];
+var eocCollapsed = new Set();
+var eocSelectedId = null;
+var eocFocusId    = null;
+var eocZoom       = 1;
+var eocPanX       = 0;
+var eocPanY       = 0;
+var eocDragging   = false;
+var eocDragStart  = { x: 0, y: 0, px: 0, py: 0 };
+
+// ── Colour palette ─────────────────────────────────────────────────
+const EOC_PALETTE = [
+    { bg: '#EBF4FF', border: '#3B82F6', avatar: '#1D4ED8' },
+    { bg: '#F0FDF4', border: '#22C55E', avatar: '#15803D' },
+    { bg: '#FFF7ED', border: '#F97316', avatar: '#C2410C' },
+    { bg: '#FDF4FF', border: '#A855F7', avatar: '#7E22CE' },
+    { bg: '#FFF1F2', border: '#F43F5E', avatar: '#BE123C' },
+    { bg: '#F0FDFA', border: '#14B8A6', avatar: '#0F766E' },
+    { bg: '#FFFBEB', border: '#EAB308', avatar: '#A16207' },
+    { bg: '#F5F3FF', border: '#8B5CF6', avatar: '#6D28D9' },
+    { bg: '#ECFEFF', border: '#06B6D4', avatar: '#0E7490' },
+    { bg: '#FFF0F0', border: '#EF4444', avatar: '#B91C1C' },
+];
+var eocDeptColorMap = {};
+
+function eocBuildColorMap() {
+    eocDeptColorMap = {};
+    var idx   = 0;
+    var depts = JSON.parse(localStorage.getItem('prowess-departments') || '[]');
+    depts.forEach(function (d) {
+        if (eocDeptColorMap[d.deptId] === undefined) {
+            eocDeptColorMap[d.deptId] = idx % EOC_PALETTE.length;
+            idx++;
+        }
+    });
+}
+function eocColor(deptId) {
+    var slot = (eocDeptColorMap[deptId] !== undefined)
+        ? eocDeptColorMap[deptId]
+        : EOC_PALETTE.length - 1;
+    return EOC_PALETTE[slot];
 }
 
-function pocDeptName(deptId, departments) {
-    const d = departments.find(d => String(d.id) === String(deptId));
-    return d ? d.name : '—';
+// ── Tree builders ──────────────────────────────────────────────────
+function eocBuildTree(empList) {
+    eocMap   = {};
+    eocRoots = [];
+    empList.forEach(function (emp) {
+        eocMap[emp.employeeId] = Object.assign({}, emp, { children: [] });
+    });
+    empList.forEach(function (emp) {
+        if (emp.managerId && eocMap[emp.managerId]) {
+            eocMap[emp.managerId].children.push(eocMap[emp.employeeId]);
+        } else {
+            eocRoots.push(eocMap[emp.employeeId]);
+        }
+    });
+    function sortChildren(node) {
+        node.children.sort(function (a, b) { return a.name.localeCompare(b.name); });
+        node.children.forEach(sortChildren);
+    }
+    eocRoots.forEach(sortChildren);
 }
 
-function pocAncestors(empId, empMap) {
-    const chain = [];
-    let cur = empMap[empId];
-    while (cur && cur.managerId && empMap[cur.managerId]) {
-        cur = empMap[cur.managerId];
-        chain.unshift(cur);
-        if (chain.length > 20) break; // safety guard
+function eocTeamSize(employeeId) {
+    var node = eocMap[employeeId];
+    if (!node) return 0;
+    var count = node.children.length;
+    node.children.forEach(function (c) { count += eocTeamSize(c.employeeId); });
+    return count;
+}
+
+function eocReportingChain(employeeId) {
+    var chain = [];
+    var cur   = eocMap[employeeId];
+    while (cur) {
+        chain.unshift(cur.employeeId);
+        cur = cur.managerId ? eocMap[cur.managerId] : null;
     }
     return chain;
 }
 
-function pocMakeCard(emp, departments, isMe, isFocus, onClick) {
-    const color = pocColor(emp.departmentId);
-    const card  = document.createElement('div');
-    card.className = 'eoc-card' + (isFocus ? ' poc-focus-card eoc-card--selected' : '');
-
-    card.innerHTML = `
-        ${isMe ? '<span class="eoc-you-badge">You</span>' : ''}
-        <div class="eoc-avatar" style="background:${color};width:${isFocus ? 52 : 42}px;height:${isFocus ? 52 : 42}px;font-size:${isFocus ? 19 : 15}px">${pocInitials(emp.name)}</div>
-        <div class="eoc-card-body">
-            <div class="eoc-card-name">${emp.name || '—'}</div>
-            <div class="eoc-card-desg">${emp.designation || '—'}</div>
-            <div class="eoc-card-dept">${pocDeptName(emp.departmentId, departments)}</div>
-            <div class="eoc-card-id">#${emp.employeeId || ''}</div>
-        </div>
-    `;
-
-    if (onClick) {
-        card.style.cursor = 'pointer';
-        card.addEventListener('click', onClick);
-    }
-    return card;
+function eocAllSubordinates(employeeId) {
+    var result = [];
+    var node   = eocMap[employeeId];
+    if (!node) return result;
+    node.children.forEach(function (c) {
+        result.push(c.employeeId);
+        result.push.apply(result, eocAllSubordinates(c.employeeId));
+    });
+    return result;
 }
 
-function renderEmpOrgChartView() {
-    const container = document.getElementById('poc-container');
-    if (!container) return;
-    container.innerHTML = '';
+// ── Card renderer (recursive) ──────────────────────────────────────
+function eocRenderNode(node, depth, profileId) {
+    depth = depth || 0;
+    var teamSize    = eocTeamSize(node.employeeId);
+    var hasChildren = node.children.length > 0;
+    var collapsed   = eocCollapsed.has(node.employeeId);
+    var isYou       = (node.employeeId === profileId);
+    var depts       = JSON.parse(localStorage.getItem('prowess-departments') || '[]');
+    var deptName    = node.departmentId
+        ? (depts.find(function(d){ return d.deptId === node.departmentId; })?.name || node.departmentId)
+        : '—';
+    var initial  = (node.name || '?').charAt(0).toUpperCase();
+    var avatarBg = eocGetAvatarColor(node.name);
 
-    const employees   = JSON.parse(localStorage.getItem('prowess-employees')   || '[]');
-    const departments = JSON.parse(localStorage.getItem('prowess-departments')  || '[]');
+    var wrap = document.createElement('div');
+    wrap.className    = 'eoc-node-wrap';
+    wrap.dataset.empId = node.employeeId;
 
-    // ── Empty state ──────────────────────────────
-    if (employees.length === 0) {
-        container.innerHTML = `
-            <div class="poc-empty">
-                <i class="fa-solid fa-diagram-project"></i>
-                <p>Org chart data isn't available yet.<br>Ask your admin to add employee records.</p>
-            </div>`;
-        return;
+    var card = document.createElement('div');
+    card.className    = 'eoc-card';
+    card.dataset.empId = node.employeeId;
+    card.title = node.name + ' — click for details, double-click to focus';
+
+    card.innerHTML =
+        '<div class="eoc-avatar" style="background:' + avatarBg + ';">' + initial + '</div>' +
+        '<div class="eoc-card-body">' +
+            '<div class="eoc-card-name">' + eocEscHtml(node.name) +
+                (isYou ? ' <span class="eoc-you-badge">You</span>' : '') +
+            '</div>' +
+            '<div class="eoc-card-desg">' + eocEscHtml(node.designation || '—') + '</div>' +
+            '<div class="eoc-card-dept">' + eocEscHtml(deptName) + '</div>' +
+            '<div class="eoc-card-id">' + eocEscHtml(node.employeeId) + '</div>' +
+        '</div>' +
+        (hasChildren
+            ? '<div class="eoc-team-badge" title="' + teamSize + ' total report' + (teamSize !== 1 ? 's' : '') + '">' +
+              '<i class="fa-solid fa-users"></i> ' + teamSize + '</div>'
+            : '');
+
+    wrap.appendChild(card);
+
+    if (hasChildren) {
+        var toggle = document.createElement('button');
+        toggle.className    = 'eoc-toggle-btn';
+        toggle.dataset.empId = node.employeeId;
+        toggle.title   = collapsed ? 'Expand' : 'Collapse';
+        toggle.innerHTML = collapsed
+            ? '<i class="fa-solid fa-plus"></i>'
+            : '<i class="fa-solid fa-minus"></i>';
+        wrap.appendChild(toggle);
     }
 
-    // ── Build id → employee map ──────────────────
-    const empMap = {};
-    employees.forEach(e => { empMap[e.employeeId] = e; });
+    if (hasChildren && !collapsed) {
+        var childRow = document.createElement('div');
+        childRow.className       = 'eoc-children-row';
+        childRow.dataset.parentId = node.employeeId;
+        node.children.forEach(function (child) {
+            var cWrap = document.createElement('div');
+            cWrap.className = 'eoc-child-wrap';
+            cWrap.appendChild(eocRenderNode(child, depth + 1, profileId));
+            childRow.appendChild(cWrap);
+        });
+        wrap.appendChild(childRow);
+    }
 
-    // ── Identify logged-in user (match by name) ──
-    if (!pocMeId) {
-        const profile = JSON.parse(localStorage.getItem('prowess-profile') || '{}');
-        const me = employees.find(e =>
-            e.name && profile.name &&
-            e.name.trim().toLowerCase() === profile.name.trim().toLowerCase()
+    return wrap;
+}
+
+// ── SVG connector lines ────────────────────────────────────────────
+function eocDrawLines() {
+    var canvas = document.getElementById('oc-canvas');
+    if (!canvas) return;
+    var old = document.getElementById('eoc-svg');
+    if (old) old.remove();
+
+    var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.id = 'eoc-svg';
+    svg.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible;z-index:0;';
+
+    var canvasRect = canvas.getBoundingClientRect();
+
+    document.querySelectorAll('.eoc-children-row[data-parent-id]').forEach(function (row) {
+        var parentId   = row.dataset.parentId;
+        var parentCard = canvas.querySelector('.eoc-card[data-emp-id="' + parentId + '"]');
+        if (!parentCard) return;
+        var childCards = Array.from(
+            row.querySelectorAll(':scope > .eoc-child-wrap > .eoc-node-wrap > .eoc-card')
         );
-        pocMeId = me ? me.employeeId : (employees[0]?.employeeId || null);
+        if (!childCards.length) return;
+
+        var pr  = parentCard.getBoundingClientRect();
+        var px  = pr.left + pr.width / 2 - canvasRect.left;
+        var py  = pr.bottom               - canvasRect.top;
+        var gap = 24;
+
+        var pts = childCards.map(function (c) {
+            var r = c.getBoundingClientRect();
+            return { x: r.left + r.width / 2 - canvasRect.left, y: r.top - canvasRect.top };
+        });
+
+        var onChain = parentCard.classList.contains('eoc-card--chain') ||
+                      parentCard.classList.contains('eoc-card--selected');
+        var lineCol = onChain ? '#3B82F6' : '#C8D8EA';
+        var lineW   = onChain ? '2.5'     : '1.5';
+
+        function mkLine(x1, y1, x2, y2) {
+            var el = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            el.setAttribute('x1', x1); el.setAttribute('y1', y1);
+            el.setAttribute('x2', x2); el.setAttribute('y2', y2);
+            el.setAttribute('stroke', lineCol);
+            el.setAttribute('stroke-width', lineW);
+            el.setAttribute('stroke-linecap', 'round');
+            svg.appendChild(el);
+        }
+
+        var barY = py + gap;
+        if (pts.length === 1) {
+            mkLine(px, py, pts[0].x, pts[0].y);
+        } else {
+            mkLine(px, py, px, barY);
+            var minX = Math.min.apply(null, pts.map(function(p){ return p.x; }));
+            var maxX = Math.max.apply(null, pts.map(function(p){ return p.x; }));
+            mkLine(minX, barY, maxX, barY);
+            pts.forEach(function (p) { mkLine(p.x, barY, p.x, p.y); });
+        }
+    });
+
+    canvas.insertBefore(svg, canvas.firstChild);
+}
+
+// ── Highlight (focus / chain / sub / dimmed) ───────────────────────
+function eocApplyHighlight() {
+    var cards = document.querySelectorAll('.eoc-card');
+    cards.forEach(function (c) {
+        c.classList.remove('eoc-card--selected','eoc-card--chain','eoc-card--sub','eoc-card--dimmed');
+    });
+    if (!eocFocusId && !eocSelectedId) return;
+
+    var focusId  = eocFocusId || eocSelectedId;
+    var chain    = eocReportingChain(focusId);
+    var subs     = eocAllSubordinates(focusId);
+
+    cards.forEach(function (c) {
+        var id = c.dataset.empId;
+        if (id === focusId)               c.classList.add('eoc-card--selected');
+        else if (chain.indexOf(id) !== -1) c.classList.add('eoc-card--chain');
+        else if (subs.indexOf(id) !== -1)  c.classList.add('eoc-card--sub');
+        else                               c.classList.add('eoc-card--dimmed');
+    });
+
+    eocDrawLines();
+}
+
+// ── Zoom / pan ─────────────────────────────────────────────────────
+function eocApplyTransform() {
+    var canvas = document.getElementById('oc-canvas');
+    if (canvas) {
+        canvas.style.transform       = 'translate(' + eocPanX + 'px,' + eocPanY + 'px) scale(' + eocZoom + ')';
+        canvas.style.transformOrigin = '0 0';
+    }
+    var lbl = document.getElementById('oc-zoom-level');
+    if (lbl) lbl.textContent = Math.round(eocZoom * 100) + '%';
+}
+
+function eocResetView() {
+    setTimeout(function () {
+        var viewport = document.getElementById('oc-viewport');
+        var canvas   = document.getElementById('oc-canvas');
+        if (!viewport || !canvas) return;
+        var vw = viewport.clientWidth;
+        var ch = canvas.scrollWidth;
+        eocZoom = 1;
+        eocPanX = Math.max(0, (vw - ch) / 2);
+        eocPanY = 40;
+        eocApplyTransform();
+    }, 80);
+}
+
+function eocSetupZoomPan() {
+    var viewport = document.getElementById('oc-viewport');
+    if (!viewport || viewport._eocReady) return;
+    viewport._eocReady = true;
+
+    viewport.addEventListener('wheel', function (e) {
+        e.preventDefault();
+        var factor  = e.deltaY > 0 ? 0.9 : 1.1;
+        var newZoom = Math.max(0.25, Math.min(2.5, eocZoom * factor));
+        var rect    = viewport.getBoundingClientRect();
+        var mx = e.clientX - rect.left;
+        var my = e.clientY - rect.top;
+        eocPanX = mx - (mx - eocPanX) * (newZoom / eocZoom);
+        eocPanY = my - (my - eocPanY) * (newZoom / eocZoom);
+        eocZoom = newZoom;
+        eocApplyTransform();
+    }, { passive: false });
+
+    viewport.addEventListener('mousedown', function (e) {
+        if (e.target.closest('.eoc-card') || e.target.closest('.eoc-toggle-btn')) return;
+        eocDragging  = true;
+        eocDragStart = { x: e.clientX, y: e.clientY, px: eocPanX, py: eocPanY };
+        viewport.style.cursor = 'grabbing';
+        e.preventDefault();
+    });
+    document.addEventListener('mousemove', function (e) {
+        if (!eocDragging) return;
+        eocPanX = eocDragStart.px + (e.clientX - eocDragStart.x);
+        eocPanY = eocDragStart.py + (e.clientY - eocDragStart.y);
+        eocApplyTransform();
+    });
+    document.addEventListener('mouseup', function () {
+        if (!eocDragging) return;
+        eocDragging = false;
+        var vp = document.getElementById('oc-viewport');
+        if (vp) vp.style.cursor = 'grab';
+    });
+}
+
+// ── Details panel ──────────────────────────────────────────────────
+function eocShowDetails(empId) {
+    var emp   = eocMap[empId];
+    if (!emp) return;
+    eocSelectedId = empId;
+
+    var panel = document.getElementById('oc-details-panel');
+    var body  = document.getElementById('oc-details-body');
+    if (!panel || !body) return;
+
+    var depts    = JSON.parse(localStorage.getItem('prowess-departments') || '[]');
+    var deptName = emp.departmentId
+        ? (depts.find(function(d){ return d.deptId === emp.departmentId; })?.name || emp.departmentId)
+        : '—';
+    var manager  = emp.managerId && eocMap[emp.managerId] ? eocMap[emp.managerId].name : '—';
+    var teamSz   = eocTeamSize(empId);
+    var chain    = eocReportingChain(empId);
+    var initial  = (emp.name || '?').charAt(0).toUpperCase();
+    var avatarBg = eocGetAvatarColor(emp.name);
+
+    var chainHtml = chain.map(function(id) {
+        var n = eocMap[id];
+        return n ? '<span class="eoc-chain-pill">' + eocEscHtml(n.name) + '</span>' : '';
+    }).join('<i class="fa-solid fa-angle-right eoc-chain-arrow"></i>');
+
+    function detRow(icon, label, value) {
+        return '<div class="eoc-det-row">' +
+            '<div class="eoc-det-icon"><i class="fa-solid fa-' + icon + '"></i></div>' +
+            '<div><div class="eoc-det-label">' + label + '</div>' +
+            '<div class="eoc-det-value">' + eocEscHtml(String(value)) + '</div></div>' +
+            '</div>';
     }
 
-    // ── Default focus = "me" ────────────────────
-    if (!pocFocusId || !empMap[pocFocusId]) {
-        pocFocusId = pocMeId;
+    body.innerHTML =
+        '<div class="eoc-det-hero">' +
+            '<div class="eoc-det-avatar" style="background:' + avatarBg + ';">' + initial + '</div>' +
+            '<div class="eoc-det-name">'  + eocEscHtml(emp.name)                + '</div>' +
+            '<div class="eoc-det-desg">'  + eocEscHtml(emp.designation || '—') + '</div>' +
+            '<div class="eoc-det-id">'    + eocEscHtml(emp.employeeId)          + '</div>' +
+        '</div>' +
+        '<div class="eoc-det-grid">' +
+            detRow('sitemap',             'Department',  deptName) +
+            detRow('user-tie',            'Manager',     manager) +
+            detRow('users',               'Team Size',   teamSz + ' direct report' + (teamSz !== 1 ? 's' : '')) +
+            detRow('briefcase',           'Role',        emp.role || 'Employee') +
+            detRow('circle-half-stroke',  'Status',      eocGetStatus(emp)) +
+            detRow('calendar-check',      'Hire Date',   eocFmtDate(emp.hireDate)) +
+            detRow('envelope',            'Business Email', emp.businessEmail || '—') +
+            detRow('phone',               'Mobile',      emp.mobile || '—') +
+        '</div>' +
+        (chain.length > 1
+            ? '<div class="eoc-det-section"><div class="eoc-det-section-title"><i class="fa-solid fa-route"></i> Reporting Chain</div>' +
+              '<div class="eoc-chain-row">' + chainHtml + '</div></div>'
+            : '') +
+        '<div class="eoc-det-actions">' +
+            '<button class="oc-btn oc-btn-primary btn-focus-mode" onclick="eocFocusOn(\'' + empId + '\')"><i class="fa-solid fa-crosshairs"></i> Focus on this person</button>' +
+        '</div>';
+
+    panel.classList.add('eoc-details-panel--open');
+    eocApplyHighlight();
+}
+
+// ── Focus mode ─────────────────────────────────────────────────────
+function eocFocusOn(empId) {
+    eocFocusId = empId;
+    var emp    = eocMap[empId];
+    if (!emp) return;
+
+    var bar    = document.getElementById('oc-focus-bar');
+    var nameEl = document.getElementById('oc-focus-name');
+    if (bar)    bar.style.display  = 'flex';
+    if (nameEl) nameEl.textContent = emp.name;
+
+    eocReportingChain(empId).forEach(function (id) { eocCollapsed.delete(id); });
+    eocAllSubordinates(empId).forEach(function (id) { eocCollapsed.delete(id); });
+
+    eocRenderOrgChart();
+    eocApplyHighlight();
+
+    setTimeout(function () {
+        var card = document.querySelector('.eoc-card[data-emp-id="' + empId + '"]');
+        if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+    }, 150);
+}
+
+function eocClearFocus() {
+    eocFocusId    = null;
+    eocSelectedId = null;
+    var bar = document.getElementById('oc-focus-bar');
+    if (bar) bar.style.display = 'none';
+    var panel = document.getElementById('oc-details-panel');
+    if (panel) panel.classList.remove('eoc-details-panel--open');
+    eocApplyHighlight();
+    eocDrawLines();
+}
+
+// ── Legend ─────────────────────────────────────────────────────────
+function eocRenderLegend() {
+    var depts = JSON.parse(localStorage.getItem('prowess-departments') || '[]');
+    var el    = document.getElementById('oc-legend');
+    if (!el) return;
+    var html = '';
+    depts.forEach(function (d) {
+        var c = eocColor(d.deptId);
+        html += '<span class="eoc-legend-item" style="border-color:' + c.border + ';background:' + c.bg + ';">' +
+                '<span class="eoc-legend-dot" style="background:' + c.border + ';"></span>' +
+                eocEscHtml(d.name) + '</span>';
+    });
+    el.innerHTML = html;
+}
+
+// ── Department filter dropdown ──────────────────────────────────────
+function eocPopulateDeptFilter() {
+    var sel   = document.getElementById('oc-dept-filter');
+    if (!sel) return;
+    var depts = JSON.parse(localStorage.getItem('prowess-departments') || '[]');
+    var cur   = sel.value;
+    sel.innerHTML = '<option value="">All Departments</option>';
+    depts.forEach(function (d) {
+        var o = document.createElement('option');
+        o.value = d.deptId; o.textContent = d.name;
+        sel.appendChild(o);
+    });
+    sel.value = cur;
+}
+
+// ── Main render ─────────────────────────────────────────────────────
+function eocRenderOrgChart() {
+    var root = document.getElementById('oc-tree-root');
+    if (!root) return;
+
+    // Load employees from localStorage (shared with admin)
+    var eocEmployees = JSON.parse(localStorage.getItem('prowess-employees') || '[]');
+
+    // Identify logged-in profile
+    var profile   = JSON.parse(localStorage.getItem('prowess-profile') || '{}');
+    var profileId = null;
+    if (profile.name && eocEmployees.length > 0) {
+        var me = eocEmployees.find(function(e) {
+            return e.name && e.name.trim().toLowerCase() === profile.name.trim().toLowerCase();
+        });
+        if (me) profileId = me.employeeId;
     }
 
-    const focusEmp = empMap[pocFocusId];
-    if (!focusEmp) {
-        container.innerHTML = `
-            <div class="poc-empty">
-                <i class="fa-solid fa-user-slash"></i>
-                <p>Your employee profile couldn't be linked.<br>Ask your admin to check your record.</p>
-            </div>`;
+    var filterDept = (document.getElementById('oc-dept-filter')?.value || '');
+    var empList    = eocEmployees;
+
+    if (filterDept) {
+        // Build unfiltered tree first to get ancestor chains
+        eocBuildTree(eocEmployees);
+        var inDept = new Set(
+            eocEmployees
+                .filter(function(e){ return e.departmentId === filterDept; })
+                .map(function(e){ return e.employeeId; })
+        );
+        inDept.forEach(function(id) {
+            eocReportingChain(id).forEach(function(aid) { inDept.add(aid); });
+        });
+        empList = eocEmployees.filter(function(e){ return inDept.has(e.employeeId); });
+    }
+
+    eocBuildTree(empList);
+    eocBuildColorMap();
+    eocRenderLegend();
+    eocPopulateDeptFilter();
+
+    root.innerHTML = '';
+
+    if (eocRoots.length === 0) {
+        root.innerHTML = '<p style="padding:40px;color:#aaa;text-align:center;">No employee records found.<br>Ask your admin to add employees.</p>';
         return;
     }
 
-    // ── 1. Ancestor breadcrumb chain ─────────────
-    const ancestors = pocAncestors(pocFocusId, empMap);
-    if (ancestors.length > 0) {
-        const chain = document.createElement('div');
-        chain.className = 'poc-chain';
+    var rootRow = document.createElement('div');
+    rootRow.className = 'eoc-roots-row';
 
-        ancestors.forEach((anc, i) => {
-            if (i > 0) {
-                const arr = document.createElement('span');
-                arr.className = 'poc-chain-arrow';
-                arr.textContent = '›';
-                chain.appendChild(arr);
-            }
-            const pill = document.createElement('span');
-            pill.className = 'poc-chain-pill';
-            pill.innerHTML = `<span class="poc-cp-dot" style="background:${pocColor(anc.departmentId)}"></span>${anc.name}`;
-            pill.title = `Go to ${anc.name}`;
-            pill.addEventListener('click', () => { pocFocusId = anc.employeeId; renderEmpOrgChartView(); });
-            chain.appendChild(pill);
-        });
+    eocRoots.forEach(function (node) {
+        var wrap = document.createElement('div');
+        wrap.className = 'eoc-root-wrap';
+        wrap.appendChild(eocRenderNode(node, 0, profileId));
+        rootRow.appendChild(wrap);
+    });
 
-        // separator + current person
-        const arr2 = document.createElement('span');
-        arr2.className = 'poc-chain-arrow';
-        arr2.textContent = '›';
-        chain.appendChild(arr2);
+    root.appendChild(rootRow);
 
-        const active = document.createElement('span');
-        active.className = 'poc-chain-pill poc-chain-pill--active';
-        active.innerHTML = `<span class="poc-cp-dot" style="background:${pocColor(focusEmp.departmentId)}"></span>${focusEmp.name}`;
-        chain.appendChild(active);
-
-        container.appendChild(chain);
-    }
-
-    // ── 2. Manager card (one level up) ───────────
-    const mgr = focusEmp.managerId ? empMap[focusEmp.managerId] : null;
-    if (mgr) {
-        const mgrSection = document.createElement('div');
-        mgrSection.className = 'poc-manager-row';
-
-        const lbl = document.createElement('div');
-        lbl.className = 'poc-section-label';
-        lbl.innerHTML = '<i class="fa-solid fa-arrow-up"></i> Reports To';
-        mgrSection.appendChild(lbl);
-
-        const mgrCard = pocMakeCard(mgr, departments, mgr.employeeId === pocMeId, false, () => {
-            pocFocusId = mgr.employeeId;
-            renderEmpOrgChartView();
-        });
-        mgrCard.classList.add('poc-mgr-card');
-        mgrSection.appendChild(mgrCard);
-        container.appendChild(mgrSection);
-
-        // Connector ↓
-        const conn = document.createElement('div');
-        conn.className = 'poc-connector';
-        container.appendChild(conn);
-    }
-
-    // ── 3. Focused (self) card ───────────────────
-    const selfSection = document.createElement('div');
-    selfSection.className = 'poc-self-section';
-    selfSection.appendChild(pocMakeCard(focusEmp, departments, focusEmp.employeeId === pocMeId, true, null));
-    container.appendChild(selfSection);
-
-    // ── 4. Direct reports ────────────────────────
-    const reports = employees.filter(e => String(e.managerId) === String(pocFocusId));
-    if (reports.length > 0) {
-        // Connector ↓
-        const conn2 = document.createElement('div');
-        conn2.className = 'poc-connector';
-        container.appendChild(conn2);
-
-        const repSection = document.createElement('div');
-        repSection.className = 'poc-reports-section';
-
-        const lbl2 = document.createElement('div');
-        lbl2.className = 'poc-section-label';
-        lbl2.innerHTML = `<i class="fa-solid fa-users"></i> Direct Reports <span class="poc-count-badge">${reports.length}</span>`;
-        repSection.appendChild(lbl2);
-
-        const row = document.createElement('div');
-        row.className = 'poc-reports-row';
-
-        reports.forEach(rep => {
-            const subCount = employees.filter(e => String(e.managerId) === String(rep.employeeId)).length;
-            const card = pocMakeCard(rep, departments, rep.employeeId === pocMeId, false, () => {
-                pocFocusId = rep.employeeId;
-                renderEmpOrgChartView();
-            });
-            if (subCount > 0) {
-                const badge = document.createElement('div');
-                badge.className = 'eoc-team-badge';
-                badge.innerHTML = `<i class="fa-solid fa-users"></i> ${subCount} report${subCount > 1 ? 's' : ''}`;
-                card.appendChild(badge);
-            }
-            row.appendChild(card);
-        });
-
-        repSection.appendChild(row);
-        container.appendChild(repSection);
-    } else {
-        const noRep = document.createElement('div');
-        noRep.className = 'poc-no-reports';
-        noRep.innerHTML = '<i class="fa-solid fa-user-check"></i> No direct reports';
-        container.appendChild(noRep);
-    }
-
-    // ── 5. "Back to Me" button ───────────────────
-    if (pocFocusId !== pocMeId && pocMeId) {
-        const backBtn = document.createElement('button');
-        backBtn.className = 'poc-back-btn';
-        backBtn.innerHTML = '<i class="fa-solid fa-location-crosshairs"></i> Back to My Position';
-        backBtn.addEventListener('click', () => {
-            pocFocusId = pocMeId;
-            renderEmpOrgChartView();
-        });
-        container.appendChild(backBtn);
-    }
+    requestAnimationFrame(function () {
+        eocDrawLines();
+        eocApplyHighlight();
+    });
 }
 
-// ── Wire tab click → render org chart ──────────
-document.querySelector('[data-tab="org-chart"]').addEventListener('click', function () {
-    pocFocusId = null; // reset to "me" on each tab open
-    pocMeId    = null; // re-derive from profile in case it changed
-    renderEmpOrgChartView();
-});
+// ── Event wiring ────────────────────────────────────────────────────
+(function eocSetupEvents() {
+
+    // Tab activation → render
+    document.querySelectorAll('.tab-item[data-tab="org-chart"]').forEach(function (item) {
+        item.addEventListener('click', function () {
+            eocZoom = 1; eocPanX = 0; eocPanY = 0;
+            eocFocusId    = null;
+            eocSelectedId = null;
+            eocRenderOrgChart();
+            eocSetupZoomPan();
+            setTimeout(eocResetView, 100);
+        });
+    });
+
+    // Card: single-click → details; double-click → focus
+    document.addEventListener('click', function (e) {
+        var card = e.target.closest('.eoc-card');
+        if (card) { eocShowDetails(card.dataset.empId); return; }
+
+        var toggle = e.target.closest('.eoc-toggle-btn');
+        if (toggle) {
+            var id = toggle.dataset.empId;
+            if (eocCollapsed.has(id)) eocCollapsed.delete(id);
+            else eocCollapsed.add(id);
+            eocRenderOrgChart();
+            return;
+        }
+
+        var detClose = e.target.closest('#oc-details-close');
+        if (detClose) {
+            document.getElementById('oc-details-panel').classList.remove('eoc-details-panel--open');
+            eocSelectedId = null;
+            eocApplyHighlight();
+            eocDrawLines();
+        }
+    });
+
+    document.addEventListener('dblclick', function (e) {
+        var card = e.target.closest('.eoc-card');
+        if (card) eocFocusOn(card.dataset.empId);
+    });
+
+    // Expand / Collapse All
+    document.getElementById('oc-expand-all')?.addEventListener('click', function () {
+        eocCollapsed.clear();
+        eocRenderOrgChart();
+    });
+    document.getElementById('oc-collapse-all')?.addEventListener('click', function () {
+        Object.keys(eocMap).forEach(function (id) {
+            if (eocMap[id].children.length > 0) eocCollapsed.add(id);
+        });
+        eocRenderOrgChart();
+    });
+
+    // Zoom buttons
+    document.getElementById('oc-zoom-in')?.addEventListener('click', function () {
+        eocZoom = Math.min(2.5, eocZoom * 1.2); eocApplyTransform();
+    });
+    document.getElementById('oc-zoom-out')?.addEventListener('click', function () {
+        eocZoom = Math.max(0.25, eocZoom / 1.2); eocApplyTransform();
+    });
+    document.getElementById('oc-zoom-reset')?.addEventListener('click', function () {
+        eocZoom = 1; eocPanX = 0; eocPanY = 0;
+        eocApplyTransform();
+        eocResetView();
+    });
+
+    // Search
+    var searchEl = document.getElementById('oc-search');
+    var clearEl  = document.getElementById('oc-search-clear');
+    if (searchEl) {
+        searchEl.addEventListener('input', function () {
+            var q = this.value.trim().toLowerCase();
+            if (clearEl) clearEl.style.display = q ? 'flex' : 'none';
+            if (!q) { eocClearFocus(); return; }
+            var empList = JSON.parse(localStorage.getItem('prowess-employees') || '[]');
+            var match   = empList.find(function (emp) {
+                return (emp.name || '').toLowerCase().includes(q) ||
+                       (emp.employeeId || '').toLowerCase().includes(q);
+            });
+            if (match) eocFocusOn(match.employeeId);
+        });
+    }
+    if (clearEl) {
+        clearEl.addEventListener('click', function () {
+            if (searchEl) searchEl.value = '';
+            this.style.display = 'none';
+            eocClearFocus();
+        });
+    }
+
+    // Department filter
+    document.getElementById('oc-dept-filter')?.addEventListener('change', function () {
+        eocRenderOrgChart();
+        setTimeout(eocResetView, 100);
+    });
+
+    // Focus bar — clear focus
+    document.getElementById('oc-focus-clear')?.addEventListener('click', function () {
+        if (searchEl) searchEl.value = '';
+        if (clearEl)  clearEl.style.display = 'none';
+        eocClearFocus();
+        eocRenderOrgChart();
+    });
+
+    // Re-draw lines on window resize
+    window.addEventListener('resize', function () {
+        if (document.getElementById('tab-org-chart')?.classList.contains('active')) {
+            eocDrawLines();
+        }
+    });
+
+})();
