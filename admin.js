@@ -116,9 +116,9 @@ function populatePassportCountryDropdown() {
     sel.value = cur;
 }
 
-// ── Address country dropdown (all countries, by code) ──────────────
-function populateAddressCountryDropdown() {
-    const sel = document.getElementById('emp-addr-country');
+// ── Helper: populate any country dropdown from COUNTRIES list ───────
+function populateCountrySelect(selId) {
+    const sel = document.getElementById(selId);
     if (!sel) return;
     const cur = sel.value;
     sel.innerHTML = '<option value="">-- Select Country --</option>';
@@ -130,6 +130,12 @@ function populateAddressCountryDropdown() {
     });
     sel.value = cur;
 }
+
+// ── Address country dropdown ────────────────────────────────────────
+function populateAddressCountryDropdown()  { populateCountrySelect('emp-addr-country'); }
+
+// ── Emergency contact country dropdown ─────────────────────────────
+function populateEcCountryDropdown()       { populateCountrySelect('ec-addr-country'); }
 
 // ── TAB NAVIGATION ─────────────────────────────
 
@@ -176,6 +182,7 @@ function populateEmployeeFormDropdowns() {
     populateMaritalStatusDropdown();
     populatePassportCountryDropdown();
     populateAddressCountryDropdown();
+    populateEcCountryDropdown();
     populateEmpFilters();
     const departments = JSON.parse(localStorage.getItem('prowess-departments')) || [];
 
@@ -487,6 +494,19 @@ profileForm.addEventListener('submit', function (event) {
     const businessEmail = document.getElementById('emp-business-email').value.trim().toLowerCase();
     const personalEmail = document.getElementById('emp-personal-email').value.trim().toLowerCase();
 
+    // ── Emergency contact fields ────────────────────────────────────
+    const ecName         = document.getElementById('ec-name').value.trim();
+    const ecRelationship = document.getElementById('ec-relationship').value;
+    const ecPhone        = document.getElementById('ec-phone').value.trim();
+    const ecAltPhone     = document.getElementById('ec-alt-phone').value.trim();
+    const ecEmail        = document.getElementById('ec-email').value.trim();
+    const ecSameAddr     = document.getElementById('ec-same-address').checked;
+    const ecAddrLine1    = document.getElementById('ec-addr-line1').value.trim();
+    const ecAddrLine2    = document.getElementById('ec-addr-line2').value.trim();
+    const ecAddrCity     = document.getElementById('ec-addr-city').value.trim();
+    const ecAddrState    = document.getElementById('ec-addr-state').value.trim();
+    const ecAddrCountry  = document.getElementById('ec-addr-country').value;
+
     // ── Address fields ──────────────────────────────────────────────
     const addrLine1    = document.getElementById('emp-addr-line1').value.trim();
     const addrLine2    = document.getElementById('emp-addr-line2').value.trim();
@@ -590,7 +610,11 @@ profileForm.addEventListener('submit', function (event) {
                          photo: emp.photo || null,
                          // Address
                          addrLine1, addrLine2, addrLandmark, addrCity,
-                         addrDistrict, addrState, addrPin, addrCountry };
+                         addrDistrict, addrState, addrPin, addrCountry,
+                         // Emergency contact
+                         ecName, ecRelationship, ecPhone, ecAltPhone, ecEmail,
+                         ecSameAddr, ecAddrLine1, ecAddrLine2,
+                         ecAddrCity, ecAddrState, ecAddrCountry };
             }
             return emp;
         });
@@ -622,7 +646,11 @@ profileForm.addEventListener('submit', function (event) {
             identifications: [...tempEmpIds], photo: null,
             // Address
             addrLine1, addrLine2, addrLandmark, addrCity,
-            addrDistrict, addrState, addrPin, addrCountry
+            addrDistrict, addrState, addrPin, addrCountry,
+            // Emergency contact
+            ecName, ecRelationship, ecPhone, ecAltPhone, ecEmail,
+            ecSameAddr, ecAddrLine1, ecAddrLine2,
+            ecAddrCity, ecAddrState, ecAddrCountry
         };
         employees.push(newEmployee);
 
@@ -721,6 +749,22 @@ employeeBody.addEventListener('click', function (event) {
         tempEmpIds = emp.identifications ? JSON.parse(JSON.stringify(emp.identifications)) : [];
         resetIdAddForm();
         renderEmpIdList();
+
+        // Restore emergency contact fields
+        document.getElementById('ec-name').value         = emp.ecName         || '';
+        document.getElementById('ec-relationship').value = emp.ecRelationship || '';
+        document.getElementById('ec-phone').value        = emp.ecPhone        || '';
+        document.getElementById('ec-alt-phone').value    = emp.ecAltPhone     || '';
+        document.getElementById('ec-email').value        = emp.ecEmail        || '';
+        document.getElementById('ec-addr-line1').value   = emp.ecAddrLine1    || '';
+        document.getElementById('ec-addr-line2').value   = emp.ecAddrLine2    || '';
+        document.getElementById('ec-addr-city').value    = emp.ecAddrCity     || '';
+        document.getElementById('ec-addr-state').value   = emp.ecAddrState    || '';
+        document.getElementById('ec-addr-country').value = emp.ecAddrCountry  || '';
+        // Restore same-address checkbox and lock fields if it was checked
+        const sameAddrCb = document.getElementById('ec-same-address');
+        sameAddrCb.checked = !!emp.ecSameAddr;
+        ecToggleSameAddress(!!emp.ecSameAddr);
 
         // Restore address fields
         document.getElementById('emp-addr-line1').value    = emp.addrLine1    || '';
@@ -847,6 +891,60 @@ function updatePassportDateRequired() {
 document.getElementById('emp-passport-number')
     .addEventListener('input', updatePassportDateRequired);
 
+// ── Emergency Contact — same-address logic ──────
+
+function ecToggleSameAddress(checked) {
+    const fields = document.querySelectorAll('#ec-address-fields input, #ec-address-fields select');
+    if (checked) {
+        // Copy current employee address values → EC address fields
+        var mapping = [
+            ['emp-addr-line1',  'ec-addr-line1'],
+            ['emp-addr-line2',  'ec-addr-line2'],
+            ['emp-addr-city',   'ec-addr-city'],
+            ['emp-addr-state',  'ec-addr-state'],
+            ['emp-addr-country','ec-addr-country']
+        ];
+        mapping.forEach(function(pair) {
+            var src = document.getElementById(pair[0]);
+            var dst = document.getElementById(pair[1]);
+            if (src && dst) dst.value = src.value;
+        });
+        // Lock EC address fields
+        fields.forEach(function(f) { f.disabled = true; });
+    } else {
+        // Unlock EC address fields
+        fields.forEach(function(f) { f.disabled = false; });
+    }
+}
+
+// Checkbox toggle
+document.getElementById('ec-same-address').addEventListener('change', function() {
+    ecToggleSameAddress(this.checked);
+});
+
+// Live sync: when checkbox is checked, mirror employee address changes to EC fields in real time
+var ecAddrSyncFields = [
+    ['emp-addr-line1',  'ec-addr-line1'],
+    ['emp-addr-line2',  'ec-addr-line2'],
+    ['emp-addr-city',   'ec-addr-city'],
+    ['emp-addr-state',  'ec-addr-state'],
+    ['emp-addr-country','ec-addr-country']
+];
+ecAddrSyncFields.forEach(function(pair) {
+    var srcEl = document.getElementById(pair[0]);
+    var dstId = pair[1];
+    if (!srcEl) return;
+    var evts = srcEl.tagName === 'SELECT' ? ['change'] : ['input', 'change'];
+    evts.forEach(function(evt) {
+        srcEl.addEventListener(evt, function() {
+            if (document.getElementById('ec-same-address').checked) {
+                var dst = document.getElementById(dstId);
+                if (dst) dst.value = srcEl.value;
+            }
+        });
+    });
+});
+
 function resetEmpForm() {
     profileForm.reset();
     editingEmpId = null;
@@ -866,6 +964,15 @@ function resetEmpForm() {
     empSubmitBtn.innerHTML = '<i class="fa-solid fa-plus"></i> Add Employee';
     empCancelBtn.style.display = 'none';
     empSetAvatarPreview(null);
+    // Reset Emergency Contact fields
+    ['ec-name','ec-relationship','ec-phone','ec-alt-phone','ec-email',
+     'ec-addr-line1','ec-addr-line2','ec-addr-city','ec-addr-state','ec-addr-country']
+        .forEach(function(id) {
+            var el = document.getElementById(id);
+            if (el) el.value = '';
+        });
+    document.getElementById('ec-same-address').checked = false;
+    ecToggleSameAddress(false);
 }
 
 // ═══════════════════════════════════════════════

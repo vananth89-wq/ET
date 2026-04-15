@@ -367,7 +367,6 @@
                                 <div class="form-group">
                                     <label for="emp-addr-line1">
                                         <i class="fa-solid fa-house fa-fw"></i> Address Line 1
-                                        <span class="field-required">*</span>
                                     </label>
                                     <input type="text" id="emp-addr-line1"
                                            placeholder="House / Flat / Building No." required />
@@ -375,7 +374,6 @@
                                 <div class="form-group">
                                     <label for="emp-addr-line2">
                                         <i class="fa-solid fa-road fa-fw"></i> Address Line 2
-                                        <span class="field-required">*</span>
                                     </label>
                                     <input type="text" id="emp-addr-line2"
                                            placeholder="Street / Area / Locality" required />
@@ -395,7 +393,6 @@
                                 <div class="form-group">
                                     <label for="emp-addr-city">
                                         <i class="fa-solid fa-city fa-fw"></i> City
-                                        <span class="field-required">*</span>
                                     </label>
                                     <input type="text" id="emp-addr-city"
                                            placeholder="e.g. Chennai" required />
@@ -407,7 +404,6 @@
                                 <div class="form-group">
                                     <label for="emp-addr-district">
                                         <i class="fa-solid fa-map fa-fw"></i> District
-                                        <span class="field-required">*</span>
                                     </label>
                                     <input type="text" id="emp-addr-district"
                                            placeholder="e.g. Chennai District" required />
@@ -433,11 +429,136 @@
                                 <div class="form-group">
                                     <label for="emp-addr-country">
                                         <i class="fa-solid fa-earth-asia fa-fw"></i> Country
-                                        <span class="field-required">*</span>
                                     </label>
                                     <select id="emp-addr-country" required>
                                         <option value="">-- Select Country --</option>
                                     </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ── SECTION 7: Emergency Contact Information ── -->
+                        <div class="emp-section">
+                            <div class="emp-section-label">
+                                <i class="fa-solid fa-phone-volume"></i> Emergency Contact Information
+                            </div>
+
+                            <!-- Row 1: Contact Name + Relationship -->
+                            <div class="emp-field-grid emp-grid-2">
+                                <div class="form-group">
+                                    <label for="ec-name">
+                                        <i class="fa-solid fa-user fa-fw"></i> Contact Name
+                                    </label>
+                                    <input type="text" id="ec-name"
+                                           placeholder="e.g. Raj Kumar" required />
+                                </div>
+                                <div class="form-group">
+                                    <label for="ec-relationship">
+                                        <i class="fa-solid fa-people-arrows fa-fw"></i> Relationship
+                                    </label>
+                                    <select id="ec-relationship" required>
+                                        <option value="">-- Select --</option>
+                                        <option value="Father">Father</option>
+                                        <option value="Mother">Mother</option>
+                                        <option value="Spouse">Spouse</option>
+                                        <option value="Brother">Brother</option>
+                                        <option value="Sister">Sister</option>
+                                        <option value="Friend">Friend</option>
+                                        <option value="Other">Other</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <!-- Row 2: Phone + Alternate Phone -->
+                            <div class="emp-field-grid emp-grid-2">
+                                <div class="form-group">
+                                    <label for="ec-phone">
+                                        <i class="fa-solid fa-phone fa-fw"></i> Phone Number
+                                    </label>
+                                    <input type="text" id="ec-phone"
+                                           placeholder="e.g. +91 98765 43210" required />
+                                </div>
+                                <div class="form-group">
+                                    <label for="ec-alt-phone">
+                                        <i class="fa-solid fa-mobile-screen fa-fw"></i> Alternate Phone
+                                        <span class="section-optional-tag">Optional</span>
+                                    </label>
+                                    <input type="text" id="ec-alt-phone"
+                                           placeholder="e.g. +91 91234 56789" />
+                                </div>
+                            </div>
+
+                            <!-- Row 3: Email -->
+                            <div class="emp-field-grid emp-grid-2">
+                                <div class="form-group">
+                                    <label for="ec-email">
+                                        <i class="fa-solid fa-envelope fa-fw"></i> Email
+                                        <span class="section-optional-tag">Optional</span>
+                                    </label>
+                                    <input type="email" id="ec-email"
+                                           placeholder="e.g. raj@example.com" />
+                                </div>
+                            </div>
+
+                            <!-- "Same as Employee Address" checkbox -->
+                            <div class="ec-same-address-wrap">
+                                <label class="ec-same-address-label">
+                                    <input type="checkbox" id="ec-same-address" />
+                                    <span>Same as Employee Address</span>
+                                </label>
+                                <span class="ec-same-address-hint">
+                                    Auto-fills from the Address section above
+                                </span>
+                            </div>
+
+                            <!-- EC Address fields -->
+                            <div id="ec-address-fields">
+                                <!-- Row 4: Address Line 1 + Address Line 2 -->
+                                <div class="emp-field-grid emp-grid-2">
+                                    <div class="form-group">
+                                        <label for="ec-addr-line1">
+                                            <i class="fa-solid fa-house fa-fw"></i> Address Line 1
+                                        </label>
+                                        <input type="text" id="ec-addr-line1"
+                                               placeholder="House / Flat / Building No." />
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="ec-addr-line2">
+                                            <i class="fa-solid fa-road fa-fw"></i> Address Line 2
+                                        </label>
+                                        <input type="text" id="ec-addr-line2"
+                                               placeholder="Street / Area / Locality" />
+                                    </div>
+                                </div>
+
+                                <!-- Row 5: City + State -->
+                                <div class="emp-field-grid emp-grid-2">
+                                    <div class="form-group">
+                                        <label for="ec-addr-city">
+                                            <i class="fa-solid fa-city fa-fw"></i> City
+                                        </label>
+                                        <input type="text" id="ec-addr-city"
+                                               placeholder="e.g. Chennai" />
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="ec-addr-state">
+                                            <i class="fa-solid fa-flag fa-fw"></i> State
+                                        </label>
+                                        <input type="text" id="ec-addr-state"
+                                               placeholder="e.g. Tamil Nadu" />
+                                    </div>
+                                </div>
+
+                                <!-- Row 6: Country -->
+                                <div class="emp-field-grid emp-grid-2">
+                                    <div class="form-group">
+                                        <label for="ec-addr-country">
+                                            <i class="fa-solid fa-earth-asia fa-fw"></i> Country
+                                        </label>
+                                        <select id="ec-addr-country">
+                                            <option value="">-- Select Country --</option>
+                                        </select>
+                                    </div>
                                 </div>
                             </div>
                         </div>
