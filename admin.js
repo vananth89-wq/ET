@@ -1,3 +1,121 @@
+// ═══════════════════════════════════════════════
+// ── COUNTRIES LIST (ISO 3166-1, with emoji flags)
+// ═══════════════════════════════════════════════
+
+const COUNTRIES = [
+    {code:'AF',flag:'🇦🇫',name:'Afghanistan'},{code:'AL',flag:'🇦🇱',name:'Albania'},
+    {code:'DZ',flag:'🇩🇿',name:'Algeria'},{code:'AD',flag:'🇦🇩',name:'Andorra'},
+    {code:'AO',flag:'🇦🇴',name:'Angola'},{code:'AG',flag:'🇦🇬',name:'Antigua and Barbuda'},
+    {code:'AR',flag:'🇦🇷',name:'Argentina'},{code:'AM',flag:'🇦🇲',name:'Armenia'},
+    {code:'AU',flag:'🇦🇺',name:'Australia'},{code:'AT',flag:'🇦🇹',name:'Austria'},
+    {code:'AZ',flag:'🇦🇿',name:'Azerbaijan'},{code:'BS',flag:'🇧🇸',name:'Bahamas'},
+    {code:'BH',flag:'🇧🇭',name:'Bahrain'},{code:'BD',flag:'🇧🇩',name:'Bangladesh'},
+    {code:'BB',flag:'🇧🇧',name:'Barbados'},{code:'BY',flag:'🇧🇾',name:'Belarus'},
+    {code:'BE',flag:'🇧🇪',name:'Belgium'},{code:'BZ',flag:'🇧🇿',name:'Belize'},
+    {code:'BJ',flag:'🇧🇯',name:'Benin'},{code:'BT',flag:'🇧🇹',name:'Bhutan'},
+    {code:'BO',flag:'🇧🇴',name:'Bolivia'},{code:'BA',flag:'🇧🇦',name:'Bosnia and Herzegovina'},
+    {code:'BW',flag:'🇧🇼',name:'Botswana'},{code:'BR',flag:'🇧🇷',name:'Brazil'},
+    {code:'BN',flag:'🇧🇳',name:'Brunei'},{code:'BG',flag:'🇧🇬',name:'Bulgaria'},
+    {code:'BF',flag:'🇧🇫',name:'Burkina Faso'},{code:'BI',flag:'🇧🇮',name:'Burundi'},
+    {code:'CV',flag:'🇨🇻',name:'Cabo Verde'},{code:'KH',flag:'🇰🇭',name:'Cambodia'},
+    {code:'CM',flag:'🇨🇲',name:'Cameroon'},{code:'CA',flag:'🇨🇦',name:'Canada'},
+    {code:'CF',flag:'🇨🇫',name:'Central African Republic'},{code:'TD',flag:'🇹🇩',name:'Chad'},
+    {code:'CL',flag:'🇨🇱',name:'Chile'},{code:'CN',flag:'🇨🇳',name:'China'},
+    {code:'CO',flag:'🇨🇴',name:'Colombia'},{code:'KM',flag:'🇰🇲',name:'Comoros'},
+    {code:'CG',flag:'🇨🇬',name:'Congo'},{code:'CD',flag:'🇨🇩',name:'Congo (DRC)'},
+    {code:'CR',flag:'🇨🇷',name:'Costa Rica'},{code:'CI',flag:'🇨🇮',name:"Côte d'Ivoire"},
+    {code:'HR',flag:'🇭🇷',name:'Croatia'},{code:'CU',flag:'🇨🇺',name:'Cuba'},
+    {code:'CY',flag:'🇨🇾',name:'Cyprus'},{code:'CZ',flag:'🇨🇿',name:'Czech Republic'},
+    {code:'DK',flag:'🇩🇰',name:'Denmark'},{code:'DJ',flag:'🇩🇯',name:'Djibouti'},
+    {code:'DM',flag:'🇩🇲',name:'Dominica'},{code:'DO',flag:'🇩🇴',name:'Dominican Republic'},
+    {code:'EC',flag:'🇪🇨',name:'Ecuador'},{code:'EG',flag:'🇪🇬',name:'Egypt'},
+    {code:'SV',flag:'🇸🇻',name:'El Salvador'},{code:'GQ',flag:'🇬🇶',name:'Equatorial Guinea'},
+    {code:'ER',flag:'🇪🇷',name:'Eritrea'},{code:'EE',flag:'🇪🇪',name:'Estonia'},
+    {code:'SZ',flag:'🇸🇿',name:'Eswatini'},{code:'ET',flag:'🇪🇹',name:'Ethiopia'},
+    {code:'FJ',flag:'🇫🇯',name:'Fiji'},{code:'FI',flag:'🇫🇮',name:'Finland'},
+    {code:'FR',flag:'🇫🇷',name:'France'},{code:'GA',flag:'🇬🇦',name:'Gabon'},
+    {code:'GM',flag:'🇬🇲',name:'Gambia'},{code:'GE',flag:'🇬🇪',name:'Georgia'},
+    {code:'DE',flag:'🇩🇪',name:'Germany'},{code:'GH',flag:'🇬🇭',name:'Ghana'},
+    {code:'GR',flag:'🇬🇷',name:'Greece'},{code:'GD',flag:'🇬🇩',name:'Grenada'},
+    {code:'GT',flag:'🇬🇹',name:'Guatemala'},{code:'GN',flag:'🇬🇳',name:'Guinea'},
+    {code:'GW',flag:'🇬🇼',name:'Guinea-Bissau'},{code:'GY',flag:'🇬🇾',name:'Guyana'},
+    {code:'HT',flag:'🇭🇹',name:'Haiti'},{code:'HN',flag:'🇭🇳',name:'Honduras'},
+    {code:'HU',flag:'🇭🇺',name:'Hungary'},{code:'IS',flag:'🇮🇸',name:'Iceland'},
+    {code:'IN',flag:'🇮🇳',name:'India'},{code:'ID',flag:'🇮🇩',name:'Indonesia'},
+    {code:'IR',flag:'🇮🇷',name:'Iran'},{code:'IQ',flag:'🇮🇶',name:'Iraq'},
+    {code:'IE',flag:'🇮🇪',name:'Ireland'},{code:'IL',flag:'🇮🇱',name:'Israel'},
+    {code:'IT',flag:'🇮🇹',name:'Italy'},{code:'JM',flag:'🇯🇲',name:'Jamaica'},
+    {code:'JP',flag:'🇯🇵',name:'Japan'},{code:'JO',flag:'🇯🇴',name:'Jordan'},
+    {code:'KZ',flag:'🇰🇿',name:'Kazakhstan'},{code:'KE',flag:'🇰🇪',name:'Kenya'},
+    {code:'KI',flag:'🇰🇮',name:'Kiribati'},{code:'KP',flag:'🇰🇵',name:'Korea (North)'},
+    {code:'KR',flag:'🇰🇷',name:'Korea (South)'},{code:'XK',flag:'🇽🇰',name:'Kosovo'},
+    {code:'KW',flag:'🇰🇼',name:'Kuwait'},{code:'KG',flag:'🇰🇬',name:'Kyrgyzstan'},
+    {code:'LA',flag:'🇱🇦',name:'Laos'},{code:'LV',flag:'🇱🇻',name:'Latvia'},
+    {code:'LB',flag:'🇱🇧',name:'Lebanon'},{code:'LS',flag:'🇱🇸',name:'Lesotho'},
+    {code:'LR',flag:'🇱🇷',name:'Liberia'},{code:'LY',flag:'🇱🇾',name:'Libya'},
+    {code:'LI',flag:'🇱🇮',name:'Liechtenstein'},{code:'LT',flag:'🇱🇹',name:'Lithuania'},
+    {code:'LU',flag:'🇱🇺',name:'Luxembourg'},{code:'MG',flag:'🇲🇬',name:'Madagascar'},
+    {code:'MW',flag:'🇲🇼',name:'Malawi'},{code:'MY',flag:'🇲🇾',name:'Malaysia'},
+    {code:'MV',flag:'🇲🇻',name:'Maldives'},{code:'ML',flag:'🇲🇱',name:'Mali'},
+    {code:'MT',flag:'🇲🇹',name:'Malta'},{code:'MH',flag:'🇲🇭',name:'Marshall Islands'},
+    {code:'MR',flag:'🇲🇷',name:'Mauritania'},{code:'MU',flag:'🇲🇺',name:'Mauritius'},
+    {code:'MX',flag:'🇲🇽',name:'Mexico'},{code:'FM',flag:'🇫🇲',name:'Micronesia'},
+    {code:'MD',flag:'🇲🇩',name:'Moldova'},{code:'MC',flag:'🇲🇨',name:'Monaco'},
+    {code:'MN',flag:'🇲🇳',name:'Mongolia'},{code:'ME',flag:'🇲🇪',name:'Montenegro'},
+    {code:'MA',flag:'🇲🇦',name:'Morocco'},{code:'MZ',flag:'🇲🇿',name:'Mozambique'},
+    {code:'MM',flag:'🇲🇲',name:'Myanmar'},{code:'NA',flag:'🇳🇦',name:'Namibia'},
+    {code:'NR',flag:'🇳🇷',name:'Nauru'},{code:'NP',flag:'🇳🇵',name:'Nepal'},
+    {code:'NL',flag:'🇳🇱',name:'Netherlands'},{code:'NZ',flag:'🇳🇿',name:'New Zealand'},
+    {code:'NI',flag:'🇳🇮',name:'Nicaragua'},{code:'NE',flag:'🇳🇪',name:'Niger'},
+    {code:'NG',flag:'🇳🇬',name:'Nigeria'},{code:'MK',flag:'🇲🇰',name:'North Macedonia'},
+    {code:'NO',flag:'🇳🇴',name:'Norway'},{code:'OM',flag:'🇴🇲',name:'Oman'},
+    {code:'PK',flag:'🇵🇰',name:'Pakistan'},{code:'PW',flag:'🇵🇼',name:'Palau'},
+    {code:'PA',flag:'🇵🇦',name:'Panama'},{code:'PG',flag:'🇵🇬',name:'Papua New Guinea'},
+    {code:'PY',flag:'🇵🇾',name:'Paraguay'},{code:'PE',flag:'🇵🇪',name:'Peru'},
+    {code:'PH',flag:'🇵🇭',name:'Philippines'},{code:'PL',flag:'🇵🇱',name:'Poland'},
+    {code:'PT',flag:'🇵🇹',name:'Portugal'},{code:'QA',flag:'🇶🇦',name:'Qatar'},
+    {code:'RO',flag:'🇷🇴',name:'Romania'},{code:'RU',flag:'🇷🇺',name:'Russia'},
+    {code:'RW',flag:'🇷🇼',name:'Rwanda'},{code:'KN',flag:'🇰🇳',name:'Saint Kitts and Nevis'},
+    {code:'LC',flag:'🇱🇨',name:'Saint Lucia'},{code:'VC',flag:'🇻🇨',name:'Saint Vincent and the Grenadines'},
+    {code:'WS',flag:'🇼🇸',name:'Samoa'},{code:'SM',flag:'🇸🇲',name:'San Marino'},
+    {code:'ST',flag:'🇸🇹',name:'São Tomé and Príncipe'},{code:'SA',flag:'🇸🇦',name:'Saudi Arabia'},
+    {code:'SN',flag:'🇸🇳',name:'Senegal'},{code:'RS',flag:'🇷🇸',name:'Serbia'},
+    {code:'SC',flag:'🇸🇨',name:'Seychelles'},{code:'SL',flag:'🇸🇱',name:'Sierra Leone'},
+    {code:'SG',flag:'🇸🇬',name:'Singapore'},{code:'SK',flag:'🇸🇰',name:'Slovakia'},
+    {code:'SI',flag:'🇸🇮',name:'Slovenia'},{code:'SB',flag:'🇸🇧',name:'Solomon Islands'},
+    {code:'SO',flag:'🇸🇴',name:'Somalia'},{code:'ZA',flag:'🇿🇦',name:'South Africa'},
+    {code:'SS',flag:'🇸🇸',name:'South Sudan'},{code:'ES',flag:'🇪🇸',name:'Spain'},
+    {code:'LK',flag:'🇱🇰',name:'Sri Lanka'},{code:'SD',flag:'🇸🇩',name:'Sudan'},
+    {code:'SR',flag:'🇸🇷',name:'Suriname'},{code:'SE',flag:'🇸🇪',name:'Sweden'},
+    {code:'CH',flag:'🇨🇭',name:'Switzerland'},{code:'SY',flag:'🇸🇾',name:'Syria'},
+    {code:'TW',flag:'🇹🇼',name:'Taiwan'},{code:'TJ',flag:'🇹🇯',name:'Tajikistan'},
+    {code:'TZ',flag:'🇹🇿',name:'Tanzania'},{code:'TH',flag:'🇹🇭',name:'Thailand'},
+    {code:'TL',flag:'🇹🇱',name:'Timor-Leste'},{code:'TG',flag:'🇹🇬',name:'Togo'},
+    {code:'TO',flag:'🇹🇴',name:'Tonga'},{code:'TT',flag:'🇹🇹',name:'Trinidad and Tobago'},
+    {code:'TN',flag:'🇹🇳',name:'Tunisia'},{code:'TR',flag:'🇹🇷',name:'Turkey'},
+    {code:'TM',flag:'🇹🇲',name:'Turkmenistan'},{code:'TV',flag:'🇹🇻',name:'Tuvalu'},
+    {code:'UG',flag:'🇺🇬',name:'Uganda'},{code:'UA',flag:'🇺🇦',name:'Ukraine'},
+    {code:'AE',flag:'🇦🇪',name:'United Arab Emirates'},{code:'GB',flag:'🇬🇧',name:'United Kingdom'},
+    {code:'US',flag:'🇺🇸',name:'United States'},{code:'UY',flag:'🇺🇾',name:'Uruguay'},
+    {code:'UZ',flag:'🇺🇿',name:'Uzbekistan'},{code:'VU',flag:'🇻🇺',name:'Vanuatu'},
+    {code:'VE',flag:'🇻🇪',name:'Venezuela'},{code:'VN',flag:'🇻🇳',name:'Vietnam'},
+    {code:'YE',flag:'🇾🇪',name:'Yemen'},{code:'ZM',flag:'🇿🇲',name:'Zambia'},
+    {code:'ZW',flag:'🇿🇼',name:'Zimbabwe'}
+];
+
+function populatePassportCountryDropdown() {
+    const sel = document.getElementById('emp-passport-country');
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">-- Select Country --</option>';
+    COUNTRIES.forEach(function (c) {
+        const opt = document.createElement('option');
+        opt.value = c.code;
+        opt.textContent = c.flag + '  ' + c.name;
+        sel.appendChild(opt);
+    });
+    sel.value = cur;
+}
+
 // ── TAB NAVIGATION ─────────────────────────────
 
 const tabItems  = document.querySelectorAll('.tab-item');
@@ -37,6 +155,7 @@ function populateEmployeeFormDropdowns() {
     populateDesignationDropdown();
     populateNationalityDropdown();
     populateMaritalStatusDropdown();
+    populatePassportCountryDropdown();
     populateEmpFilters();
     const departments = JSON.parse(localStorage.getItem('prowess-departments')) || [];
 
@@ -164,6 +283,9 @@ function renderEmployees() {
             : `${employees.length} employee${employees.length !== 1 ? 's' : ''}`;
     }
 
+    // Refresh passport alerts panel whenever employees render
+    renderPassportAlerts();
+
     employeeBody.innerHTML = '';
 
     if (employees.length === 0) {
@@ -235,6 +357,23 @@ profileForm.addEventListener('submit', function (event) {
     const endDate       = document.getElementById('emp-end-date').value || '9999-12-31';
     const nationality   = document.getElementById('emp-nationality').value.trim();
     const maritalStatus = document.getElementById('emp-marital-status').value;
+
+    // ── Passport fields (all optional, but if any filled all must be filled) ──
+    const passportCountry    = document.getElementById('emp-passport-country').value;
+    const passportNumber     = document.getElementById('emp-passport-number').value.trim().toUpperCase();
+    const passportIssueDate  = document.getElementById('emp-passport-issue-date').value;
+    const passportExpiryDate = document.getElementById('emp-passport-expiry-date').value;
+
+    const passportFieldsFilled = [passportCountry, passportNumber, passportIssueDate, passportExpiryDate]
+        .filter(Boolean).length;
+    if (passportFieldsFilled > 0 && passportFieldsFilled < 4) {
+        alert('Passport information is optional, but if entered all four fields (Issue Country, Passport Number, Issue Date, Expiry Date) are required.');
+        return;
+    }
+    if (passportIssueDate && passportExpiryDate && passportExpiryDate <= passportIssueDate) {
+        alert('Passport Expiry Date must be after the Issue Date.');
+        return;
+    }
 
     const businessEmail = document.getElementById('emp-business-email').value.trim().toLowerCase();
     const personalEmail = document.getElementById('emp-personal-email').value.trim().toLowerCase();
@@ -326,7 +465,8 @@ profileForm.addEventListener('submit', function (event) {
             if (emp.id === editingEmpId) {
                 return { ...emp, name, employeeId, designation, mobile, countryCode, phone: phoneRaw,
                          departmentId, managerId, role, hireDate, endDate, nationality, maritalStatus,
-                         businessEmail, personalEmail };
+                         businessEmail, personalEmail,
+                         passportCountry, passportNumber, passportIssueDate, passportExpiryDate };
             }
             return emp;
         });
@@ -353,7 +493,8 @@ profileForm.addEventListener('submit', function (event) {
             id: Date.now(),
             name, employeeId, designation, mobile, countryCode, phone: phoneRaw,
             departmentId, managerId, role, hireDate, endDate, nationality, maritalStatus,
-            businessEmail, personalEmail, photo: null
+            businessEmail, personalEmail,
+            passportCountry, passportNumber, passportIssueDate, passportExpiryDate, photo: null
         };
         employees.push(newEmployee);
 
@@ -429,8 +570,11 @@ employeeBody.addEventListener('click', function (event) {
         document.getElementById('emp-phone').value           = emp.phone || '';
         document.getElementById('emp-hire-date').value       = emp.hireDate || '';
         document.getElementById('emp-end-date').value        = emp.endDate || '9999-12-31';
-        document.getElementById('emp-business-email').value  = emp.businessEmail || '';
-        document.getElementById('emp-personal-email').value  = emp.personalEmail || '';
+        document.getElementById('emp-business-email').value       = emp.businessEmail || '';
+        document.getElementById('emp-personal-email').value       = emp.personalEmail || '';
+        document.getElementById('emp-passport-number').value      = emp.passportNumber || '';
+        document.getElementById('emp-passport-issue-date').value  = emp.passportIssueDate || '';
+        document.getElementById('emp-passport-expiry-date').value = emp.passportExpiryDate || '';
         document.getElementById('emp-phone-error').style.display         = 'none';
         document.getElementById('emp-business-email-error').style.display = 'none';
         document.getElementById('emp-personal-email-error').style.display = 'none';
@@ -438,11 +582,12 @@ employeeBody.addEventListener('click', function (event) {
         // Populate all dropdowns first, then restore saved values
         editingEmpId = id;
         populateEmployeeFormDropdowns();
-        document.getElementById('emp-designation').value     = emp.designation || '';
-        document.getElementById('emp-nationality').value     = emp.nationality || '';
-        document.getElementById('emp-marital-status').value  = emp.maritalStatus || '';
-        document.getElementById('emp-department').value      = emp.departmentId || '';
-        document.getElementById('emp-manager-id').value      = emp.managerId || '';
+        document.getElementById('emp-designation').value       = emp.designation || '';
+        document.getElementById('emp-nationality').value       = emp.nationality || '';
+        document.getElementById('emp-marital-status').value    = emp.maritalStatus || '';
+        document.getElementById('emp-department').value        = emp.departmentId || '';
+        document.getElementById('emp-manager-id').value        = emp.managerId || '';
+        document.getElementById('emp-passport-country').value  = emp.passportCountry || '';
 
         empSubmitBtn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Update Employee';
         empCancelBtn.style.display = 'inline-flex';
@@ -507,6 +652,170 @@ function resetEmpForm() {
     document.getElementById('emp-form-title').textContent = 'New Employee';
     empSubmitBtn.innerHTML = '<i class="fa-solid fa-plus"></i> Add Employee';
     empCancelBtn.style.display = 'none';
+}
+
+// ═══════════════════════════════════════════════
+// ── PASSPORT ALERTS ─────────────────────────────
+// ═══════════════════════════════════════════════
+
+// Thresholds (days before expiry)
+const PASSPORT_CRITICAL_DAYS = 30;
+const PASSPORT_WARNING_DAYS  = 90;
+
+function getPassportAlertLevel(expiryDate) {
+    if (!expiryDate) return null;
+    const today     = new Date(); today.setHours(0,0,0,0);
+    const expiry    = new Date(expiryDate);
+    const diffDays  = Math.floor((expiry - today) / 86400000);
+    if (diffDays < 0)                             return { level: 'expired',  days: Math.abs(diffDays) };
+    if (diffDays <= PASSPORT_CRITICAL_DAYS)       return { level: 'critical', days: diffDays };
+    if (diffDays <= PASSPORT_WARNING_DAYS)        return { level: 'warning',  days: diffDays };
+    return null;
+}
+
+function getHrEmails() {
+    const wfRoles = JSON.parse(localStorage.getItem('prowess-wf-roles')) || [];
+    const hrRole  = wfRoles.find(r => r.name.toLowerCase() === 'hr');
+    if (!hrRole || !hrRole.members || hrRole.members.length === 0) return [];
+    return hrRole.members
+        .map(empId => employees.find(e => e.employeeId === empId))
+        .filter(Boolean)
+        .map(e => e.businessEmail)
+        .filter(Boolean);
+}
+
+function buildNotifyMailto(emp, alert) {
+    const countryName = emp.passportCountry
+        ? (COUNTRIES.find(c => c.code === emp.passportCountry)?.name || emp.passportCountry)
+        : '';
+    const hrEmails   = getHrEmails();
+    const toAddress  = emp.businessEmail || emp.personalEmail || '';
+    const ccAddress  = hrEmails.filter(e => e !== toAddress).join(',');
+
+    let subjectVerb, bodyUrgency;
+    if (alert.level === 'expired') {
+        subjectVerb  = 'EXPIRED';
+        bodyUrgency  = `Your passport has EXPIRED ${alert.days} day(s) ago. Immediate renewal is required.`;
+    } else if (alert.level === 'critical') {
+        subjectVerb  = `Expiring in ${alert.days} day(s) — ACTION REQUIRED`;
+        bodyUrgency  = `Your passport is expiring in ${alert.days} day(s). Please initiate renewal immediately.`;
+    } else {
+        subjectVerb  = `Expiring in ${alert.days} days — Reminder`;
+        bodyUrgency  = `Your passport will expire in ${alert.days} days. Please plan for renewal.`;
+    }
+
+    const subject = encodeURIComponent(`Passport ${subjectVerb} — ${emp.name} (${emp.employeeId})`);
+    const body    = encodeURIComponent(
+        `Dear ${emp.name},\n\n` +
+        `${bodyUrgency}\n\n` +
+        `Passport Details:\n` +
+        `  Employee   : ${emp.name} (${emp.employeeId})\n` +
+        `  Country    : ${countryName}\n` +
+        `  Passport # : ${emp.passportNumber || '—'}\n` +
+        `  Issue Date : ${emp.passportIssueDate || '—'}\n` +
+        `  Expiry Date: ${emp.passportExpiryDate || '—'}\n\n` +
+        `Please take the necessary steps at your earliest convenience.\n\n` +
+        `Regards,\nProwess HR Team`
+    );
+
+    let href = `mailto:${toAddress}?subject=${subject}&body=${body}`;
+    if (ccAddress) href += `&cc=${encodeURIComponent(ccAddress)}`;
+    return href;
+}
+
+function renderPassportAlerts() {
+    const panel = document.getElementById('passport-alerts-panel');
+    if (!panel) return;
+
+    // Collect employees with passport alerts
+    const alerts = [];
+    employees.forEach(function (emp) {
+        if (!emp.passportExpiryDate) return;
+        const alert = getPassportAlertLevel(emp.passportExpiryDate);
+        if (alert) alerts.push({ emp, alert });
+    });
+
+    // Update sidebar badge
+    const sidebarItem = document.querySelector('.tab-item[data-tab="employees"]');
+    const existingBadge = sidebarItem ? sidebarItem.querySelector('.passport-alert-badge') : null;
+    if (alerts.length > 0) {
+        if (sidebarItem && !existingBadge) {
+            const badge = document.createElement('span');
+            badge.className = 'passport-alert-badge';
+            badge.title = `${alerts.length} passport alert(s)`;
+            badge.textContent = alerts.length;
+            sidebarItem.appendChild(badge);
+        } else if (existingBadge) {
+            existingBadge.textContent = alerts.length;
+        }
+    } else {
+        if (existingBadge) existingBadge.remove();
+    }
+
+    if (alerts.length === 0) {
+        panel.style.display = 'none';
+        panel.innerHTML = '';
+        return;
+    }
+
+    // Sort: expired first, then critical, then warning
+    const order = { expired: 0, critical: 1, warning: 2 };
+    alerts.sort((a, b) => order[a.alert.level] - order[b.alert.level] || a.alert.days - b.alert.days);
+
+    const expired  = alerts.filter(a => a.alert.level === 'expired');
+    const critical = alerts.filter(a => a.alert.level === 'critical');
+    const warning  = alerts.filter(a => a.alert.level === 'warning');
+
+    function buildRows(items) {
+        return items.map(function ({ emp, alert }) {
+            const countryName = emp.passportCountry
+                ? (COUNTRIES.find(c => c.code === emp.passportCountry)?.name || emp.passportCountry)
+                : '—';
+            const flagEmoji = emp.passportCountry
+                ? (COUNTRIES.find(c => c.code === emp.passportCountry)?.flag || '')
+                : '';
+            let dayLabel;
+            if (alert.level === 'expired')  dayLabel = `Expired ${alert.days}d ago`;
+            else if (alert.level === 'critical') dayLabel = `Expires in ${alert.days}d`;
+            else                            dayLabel = `Expires in ${alert.days}d`;
+
+            const mailtoHref = buildNotifyMailto(emp, alert);
+            return `
+              <div class="pa-row">
+                <div class="pa-emp-info">
+                  <strong>${emp.name}</strong>
+                  <span class="pa-empid">${emp.employeeId}</span>
+                </div>
+                <div class="pa-passport-info">
+                  <span class="pa-flag">${flagEmoji}</span>
+                  <span>${countryName}</span>
+                  <span class="pa-sep">·</span>
+                  <span>${emp.passportNumber || '—'}</span>
+                  <span class="pa-sep">·</span>
+                  <span>${emp.passportExpiryDate || '—'}</span>
+                </div>
+                <div class="pa-days-badge pa-level-${alert.level}">${dayLabel}</div>
+                <a class="pa-notify-btn" href="${mailtoHref}" title="Open email draft for ${emp.name}">
+                  <i class="fa-solid fa-envelope"></i> Notify
+                </a>
+              </div>`;
+        }).join('');
+    }
+
+    let html = `<div class="passport-alerts-card">
+      <div class="pa-header">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+        Passport Expiry Alerts &nbsp;<span class="pa-total-badge">${alerts.length} employee${alerts.length !== 1 ? 's' : ''}</span>
+        <span class="pa-header-hint">Clicking "Notify" opens a pre-filled email draft in your mail client.</span>
+      </div>`;
+
+    if (expired.length)  html += `<div class="pa-section-title pa-title-expired"><i class="fa-solid fa-circle-xmark"></i> Expired (${expired.length})</div>${buildRows(expired)}`;
+    if (critical.length) html += `<div class="pa-section-title pa-title-critical"><i class="fa-solid fa-circle-exclamation"></i> Expiring within 30 days (${critical.length})</div>${buildRows(critical)}`;
+    if (warning.length)  html += `<div class="pa-section-title pa-title-warning"><i class="fa-solid fa-clock"></i> Expiring within 90 days (${warning.length})</div>${buildRows(warning)}`;
+
+    html += `</div>`;
+    panel.innerHTML = html;
+    panel.style.display = 'block';
 }
 
 // ═══════════════════════════════════════════════
@@ -1671,9 +1980,15 @@ function exportEmployees() {
             'Department':       deptName,
             'Manager':          managerName,
             'Mobile':           emp.mobile          || '',
-            'Business Email':   emp.businessEmail   || '',
-            'Personal Email':   emp.personalEmail   || '',
-            'Nationality':      emp.nationality     || '',
+            'Business Email':      emp.businessEmail      || '',
+            'Personal Email':      emp.personalEmail      || '',
+            'Passport Country':    emp.passportCountry
+                ? (COUNTRIES.find(c => c.code === emp.passportCountry)?.name || emp.passportCountry)
+                : '',
+            'Passport Number':     emp.passportNumber     || '',
+            'Passport Issue Date': formatDateDisplay(emp.passportIssueDate),
+            'Passport Expiry':     formatDateDisplay(emp.passportExpiryDate),
+            'Nationality':         emp.nationality        || '',
             'Marital Status':   emp.maritalStatus   || '',
             'Hire Date':        formatDateDisplay(emp.hireDate),
             'End Date':         formatDateDisplay(emp.endDate),
@@ -1687,7 +2002,8 @@ function exportEmployees() {
     // Column widths
     ws['!cols'] = [
         {wch:4},{wch:12},{wch:22},{wch:22},{wch:20},{wch:20},
-        {wch:18},{wch:28},{wch:28},{wch:14},{wch:14},{wch:12},{wch:12},{wch:12},{wch:10}
+        {wch:18},{wch:28},{wch:28},{wch:18},{wch:16},{wch:14},{wch:14},
+        {wch:14},{wch:14},{wch:12},{wch:12},{wch:10}
     ];
 
     const wb = XLSX.utils.book_new();

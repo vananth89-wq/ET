@@ -191,7 +191,43 @@
                             </div>
                         </div>
 
-                        <!-- ── SECTION 4: Employment ── -->
+                        <!-- ── SECTION 4: Passport Information ── -->
+                        <div class="emp-section">
+                            <div class="emp-section-label">
+                                <i class="fa-solid fa-passport"></i> Passport Information
+                                <span class="section-optional-tag">Optional</span>
+                            </div>
+                            <div class="emp-field-grid emp-grid-4">
+                                <div class="form-group">
+                                    <label for="emp-passport-country">
+                                        <i class="fa-solid fa-earth-americas fa-fw"></i> Issue Country
+                                    </label>
+                                    <select id="emp-passport-country">
+                                        <option value="">-- Select Country --</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="emp-passport-number">
+                                        <i class="fa-solid fa-passport fa-fw"></i> Passport Number
+                                    </label>
+                                    <input type="text" id="emp-passport-number" placeholder="e.g. A1234567" />
+                                </div>
+                                <div class="form-group">
+                                    <label for="emp-passport-issue-date">
+                                        <i class="fa-solid fa-calendar-plus fa-fw"></i> Issue Date
+                                    </label>
+                                    <input type="date" id="emp-passport-issue-date" />
+                                </div>
+                                <div class="form-group">
+                                    <label for="emp-passport-expiry-date">
+                                        <i class="fa-solid fa-calendar-xmark fa-fw"></i> Expiry Date
+                                    </label>
+                                    <input type="date" id="emp-passport-expiry-date" />
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ── SECTION 5: Employment ── -->
                         <div class="emp-section">
                             <div class="emp-section-label">
                                 <i class="fa-solid fa-briefcase"></i> Employment Details
@@ -248,6 +284,9 @@
 
                     </form>
                 </div>
+
+                <!-- PASSPORT ALERTS PANEL -->
+                <div id="passport-alerts-panel" style="display:none; margin-bottom:16px;"></div>
 
                 <!-- EMPLOYEES FILTER BAR -->
                 <div class="emp-filter-bar">
