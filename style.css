@@ -4072,3 +4072,120 @@ tbody td:last-child {
     .ev-grid-2         { grid-template-columns: 1fr; }
     .ev-content        { padding: 18px 16px 24px; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   MY PROFILE  –  inline view in employee portal (tab-panel)
+   ═══════════════════════════════════════════════════════════════════ */
+
+.mp-header {
+    background: linear-gradient(135deg, #18345B 0%, #2F77B5 100%);
+    border-radius: 14px;
+    padding: 24px 28px;
+    display: flex;
+    align-items: center;
+    gap: 22px;
+    margin-bottom: 20px;
+    color: #fff;
+    box-shadow: 0 4px 18px rgba(47, 119, 181, 0.25);
+}
+
+.mp-header-photo {
+    width: 84px;
+    height: 84px;
+    border-radius: 50%;
+    border: 3px solid rgba(255, 255, 255, 0.45);
+    overflow: hidden;
+    flex-shrink: 0;
+    background: rgba(255,255,255,0.12);
+}
+
+.mp-header-photo img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.mp-header-info { flex: 1; min-width: 0; }
+
+.mp-header-name {
+    font-size: 21px;
+    font-weight: 700;
+    color: #fff;
+    margin: 0 0 5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.mp-header-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 18px;
+    margin-top: 2px;
+}
+
+.mp-header-meta span {
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.82);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.mp-header-meta i { font-size: 11px; opacity: 0.75; }
+
+/* Not-found / not-linked state */
+.mp-not-found {
+    text-align: center;
+    padding: 60px 20px;
+    color: #8a9ab0;
+}
+
+.mp-not-found i {
+    font-size: 52px;
+    margin-bottom: 16px;
+    display: block;
+    color: #c5d0de;
+}
+
+.mp-not-found h3 {
+    font-size: 17px;
+    color: #546e7a;
+    margin: 0 0 8px;
+}
+
+.mp-not-found p {
+    font-size: 13.5px;
+    max-width: 360px;
+    margin: 0 auto;
+}
+
+/* ── Sub-tab bar (reuses ev-tabs / ev-tab, small overrides) ── */
+.mp-tabs-wrap {
+    background: #fff;
+    border: 1px solid #e8edf4;
+    border-radius: 12px;
+    overflow: hidden;
+    margin-bottom: 18px;
+    box-shadow: 0 2px 8px rgba(30,50,90,0.06);
+}
+
+.mp-tabs-wrap .ev-tabs {
+    border-bottom: 1px solid #e8edf4;
+    border-radius: 0;
+    padding: 0 8px;
+    background: #fafbfd;
+}
+
+.mp-tabs-wrap .ev-content {
+    background: #fff;
+    border-radius: 0;
+    padding: 24px 28px 28px;
+    box-shadow: none;
+}
+
+@media (max-width: 640px) {
+    .mp-header        { flex-direction: column; align-items: flex-start; gap: 14px; }
+    .mp-header-meta   { gap: 4px 12px; }
+    .mp-tabs-wrap .ev-content { padding: 18px 16px 22px; }
+}

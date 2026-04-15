@@ -545,6 +545,11 @@ tabItems.forEach(function (item) {
             renderInsights();
         }
 
+        // Render My Profile when that tab is opened
+        if (targetTab === 'my-profile') {
+            renderMyProfile();
+        }
+
         // Scroll to top of content on tab switch
         document.querySelector('.content').scrollTop = 0;
     });
@@ -1424,3 +1429,363 @@ function eocRenderOrgChart() {
     });
 
 })();
+
+// ═══════════════════════════════════════════════════════════════════
+// ── MY PROFILE  (tab: my-profile) ──────────────────────────────────
+// Read-only 7-tab view of the logged-in employee's own record.
+// Matches prowess-profile → prowess-employees by name (or employeeId
+// when available) and renders the full employee detail inline.
+// ═══════════════════════════════════════════════════════════════════
+
+var MP_TABS = [
+    { id: 'personal',       label: 'Personal',          icon: 'fa-circle-user'    },
+    { id: 'contact',        label: 'Contact',            icon: 'fa-phone'          },
+    { id: 'address',        label: 'Address',            icon: 'fa-location-dot'   },
+    { id: 'passport',       label: 'Passport',           icon: 'fa-passport'       },
+    { id: 'identification', label: 'Identification',     icon: 'fa-id-card-clip'   },
+    { id: 'emergency',      label: 'Emergency Contact',  icon: 'fa-phone-volume'   },
+    { id: 'employment',     label: 'Employment',         icon: 'fa-briefcase'      },
+];
+
+// ── Find the employee record that belongs to the current portal user ──
+
+function mpGetCurrentEmployee() {
+    var profile = JSON.parse(localStorage.getItem('prowess-profile') || 'null');
+    if (!profile) return null;
+    var empList = JSON.parse(localStorage.getItem('prowess-employees') || '[]');
+    return empList.find(function (e) {
+        if (e.employeeId && profile.employeeId) {
+            return String(e.employeeId) === String(profile.employeeId);
+        }
+        return e.name && profile.name &&
+               e.name.trim().toLowerCase() === profile.name.trim().toLowerCase();
+    }) || null;
+}
+
+// ── Main render entry-point (called when tab is activated) ────────────
+
+function renderMyProfile() {
+    var wrapper = document.getElementById('mp-wrapper');
+    var emp     = mpGetCurrentEmployee();
+
+    if (!emp) {
+        wrapper.innerHTML =
+            '<div class="mp-not-found">' +
+                '<i class="fa-solid fa-id-badge"></i>' +
+                '<h3>Profile not linked</h3>' +
+                '<p>Your portal account has not been linked to an employee record yet. ' +
+                   'Please contact your administrator.</p>' +
+            '</div>';
+        return;
+    }
+
+    // ── Profile header card ──
+    var photoSrc = emp.photo ||
+        'https://ui-avatars.com/api/?name=' + encodeURIComponent(emp.name || 'E') +
+        '&background=2F77B5&color=fff&size=84';
+
+    var deptName = mpDeptName(emp.departmentId);
+    var deptMeta = deptName && deptName !== '—'
+        ? '<span><i class="fa-solid fa-building"></i>' + mpEsc(deptName) + '</span>' : '';
+
+    var idMeta = emp.employeeId
+        ? '<span><i class="fa-solid fa-fingerprint"></i>' + mpEsc(emp.employeeId) + '</span>' : '';
+
+    var emailMeta = emp.businessEmail
+        ? '<span><i class="fa-solid fa-envelope"></i>' + mpEsc(emp.businessEmail) + '</span>' : '';
+
+    wrapper.innerHTML =
+        '<div class="mp-header">' +
+            '<div class="mp-header-photo">' +
+                '<img src="' + mpEsc(photoSrc) + '" alt="Photo" />' +
+            '</div>' +
+            '<div class="mp-header-info">' +
+                '<p class="mp-header-name">' + mpEsc(emp.name || '—') + '</p>' +
+                '<div class="mp-header-meta">' +
+                    (emp.designation ? '<span><i class="fa-solid fa-id-card"></i>' + mpEsc(emp.designation) + '</span>' : '') +
+                    idMeta + deptMeta + emailMeta +
+                '</div>' +
+            '</div>' +
+        '</div>' +
+        '<div class="mp-tabs-wrap">' +
+            '<div class="ev-tabs" id="mp-tab-nav"></div>' +
+            '<div class="ev-content" id="mp-tab-content"></div>' +
+        '</div>';
+
+    // Build tab nav
+    mpRenderTabNav();
+    mpSwitchTab('personal');
+}
+
+// ── Render the horizontal sub-tab nav buttons ─────────────────────────
+
+function mpRenderTabNav() {
+    var nav = document.getElementById('mp-tab-nav');
+    if (!nav) return;
+    nav.innerHTML = '';
+    MP_TABS.forEach(function (tab) {
+        var btn = document.createElement('button');
+        btn.className   = 'ev-tab';
+        btn.dataset.tab = tab.id;
+        btn.innerHTML   = '<i class="fa-solid ' + tab.icon + '"></i>' + tab.label;
+        btn.addEventListener('click', function () { mpSwitchTab(tab.id); });
+        nav.appendChild(btn);
+    });
+}
+
+// ── Activate a sub-tab, highlight button, render content ─────────────
+
+function mpSwitchTab(tabId) {
+    // Highlight button
+    var nav = document.getElementById('mp-tab-nav');
+    if (nav) {
+        nav.querySelectorAll('.ev-tab').forEach(function (btn) {
+            btn.classList.toggle('ev-tab-active', btn.dataset.tab === tabId);
+        });
+    }
+    // Render content
+    var content = document.getElementById('mp-tab-content');
+    if (!content) return;
+    var emp = mpGetCurrentEmployee();
+    if (!emp) return;
+
+    var renderMap = {
+        personal:       mpTabPersonal,
+        contact:        mpTabContact,
+        address:        mpTabAddress,
+        passport:       mpTabPassport,
+        identification: mpTabIdentification,
+        emergency:      mpTabEmergency,
+        employment:     mpTabEmployment,
+    };
+    if (renderMap[tabId]) renderMap[tabId](emp, content);
+}
+
+// ── Shared helpers ────────────────────────────────────────────────────
+
+function mpField(label, value) {
+    var isEmpty = (value === null || value === undefined || value === '' || value === '—');
+    var display = isEmpty
+        ? '<span class="ev-field-value ev-empty">Not provided</span>'
+        : '<span class="ev-field-value">' + mpEsc(value) + '</span>';
+    return '<div class="ev-field"><div class="ev-field-label">' + label + '</div>' + display + '</div>';
+}
+
+function mpSectionTitle(icon, text) {
+    return '<div class="ev-section-title"><i class="fa-solid ' + icon + '"></i>' + text + '</div>';
+}
+
+function mpFmtDate(val) {
+    if (!val) return '—';
+    if (val === '9999-12-31') return 'Open-ended';
+    try {
+        return new Date(val + 'T00:00:00').toLocaleDateString('en-IN', {
+            day: '2-digit', month: 'short', year: 'numeric'
+        });
+    } catch (e) { return val; }
+}
+
+function mpDeptName(deptId) {
+    if (!deptId) return '—';
+    var depts = JSON.parse(localStorage.getItem('prowess-departments') || '[]');
+    var d = depts.find(function (d) { return String(d.id) === String(deptId); });
+    return d ? d.name : '—';
+}
+
+function mpManagerName(managerId) {
+    if (!managerId) return '—';
+    var empList = JSON.parse(localStorage.getItem('prowess-employees') || '[]');
+    var m = empList.find(function (e) { return String(e.id) === String(managerId); });
+    return m ? m.name : '—';
+}
+
+function mpEsc(str) {
+    return String(str || '')
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// ── Tab 1 — Personal Information ──────────────────────────────────────
+
+function mpTabPersonal(emp, el) {
+    el.innerHTML =
+        mpSectionTitle('fa-circle-user', 'Personal Information') +
+        '<div class="ev-field-grid ev-grid-2">' +
+            mpField('Full Name',      emp.name) +
+            mpField('Employee ID',    emp.employeeId) +
+            mpField('Nationality',    emp.nationality) +
+            mpField('Marital Status', emp.maritalStatus) +
+        '</div>';
+}
+
+// ── Tab 2 — Contact Information ───────────────────────────────────────
+
+function mpTabContact(emp, el) {
+    var phoneDisplay = emp.countryCode && emp.phone
+        ? emp.countryCode + ' ' + emp.phone
+        : (emp.phone || null);
+
+    el.innerHTML =
+        mpSectionTitle('fa-phone', 'Contact Information') +
+        '<div class="ev-field-grid ev-grid-2">' +
+            mpField('Mobile No.',      emp.mobile) +
+            mpField('Phone No.',       phoneDisplay) +
+            mpField('Business Email',  emp.businessEmail) +
+            mpField('Personal Email',  emp.personalEmail) +
+        '</div>';
+}
+
+// ── Tab 3 — Address Information ───────────────────────────────────────
+
+function mpTabAddress(emp, el) {
+    el.innerHTML =
+        mpSectionTitle('fa-location-dot', 'Address Information') +
+        '<div class="ev-field-grid ev-grid-2">' +
+            mpField('Address Line 1',  emp.addrLine1) +
+            mpField('Address Line 2',  emp.addrLine2) +
+            mpField('Landmark',        emp.addrLandmark) +
+            mpField('City',            emp.addrCity) +
+            mpField('District',        emp.addrDistrict) +
+            mpField('State',           emp.addrState) +
+            mpField('PIN / ZIP Code',  emp.addrPin) +
+            mpField('Country',         emp.addrCountry) +
+        '</div>';
+}
+
+// ── Tab 4 — Passport Information ──────────────────────────────────────
+
+function mpTabPassport(emp, el) {
+    var hasPassport = emp.passportNumber || emp.passportCountry;
+    if (!hasPassport) {
+        el.innerHTML =
+            mpSectionTitle('fa-passport', 'Passport Information') +
+            '<div class="ev-empty-state">' +
+            '<i class="fa-solid fa-passport"></i>' +
+            '<p>No passport details on file.</p></div>';
+        return;
+    }
+
+    // Expiry alert
+    var alertHtml = '';
+    if (emp.passportExpiryDate && emp.passportExpiryDate !== '9999-12-31') {
+        var today   = new Date(); today.setHours(0, 0, 0, 0);
+        var expiry  = new Date(emp.passportExpiryDate + 'T00:00:00');
+        var diffMs  = expiry - today;
+        var diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+        if (diffDays < 0) {
+            alertHtml = '<div class="ev-passport-alert expired">' +
+                '<i class="fa-solid fa-triangle-exclamation"></i> Passport expired ' +
+                Math.abs(diffDays) + ' day(s) ago.</div>';
+        } else if (diffDays <= 90) {
+            var cls = diffDays <= 30 ? 'critical' : 'warning';
+            alertHtml = '<div class="ev-passport-alert ' + cls + '">' +
+                '<i class="fa-solid fa-triangle-exclamation"></i> Passport expires in ' +
+                diffDays + ' day(s).</div>';
+        }
+    }
+
+    el.innerHTML =
+        mpSectionTitle('fa-passport', 'Passport Information') +
+        alertHtml +
+        '<div class="ev-field-grid ev-grid-2">' +
+            mpField('Issue Country',  emp.passportCountry) +
+            mpField('Passport No.',   emp.passportNumber) +
+            mpField('Issue Date',     mpFmtDate(emp.passportIssueDate)) +
+            mpField('Expiry Date',    mpFmtDate(emp.passportExpiryDate)) +
+        '</div>';
+}
+
+// ── Tab 5 — Identification Details ────────────────────────────────────
+
+function mpTabIdentification(emp, el) {
+    var ids       = emp.identifications || [];
+    var countries = JSON.parse(localStorage.getItem('prowess-id-countries') || '[]');
+    var types     = JSON.parse(localStorage.getItem('prowess-id-types')     || '[]');
+
+    if (ids.length === 0) {
+        el.innerHTML =
+            mpSectionTitle('fa-id-card-clip', 'Identification Details') +
+            '<div class="ev-empty-state">' +
+            '<i class="fa-solid fa-id-card-clip"></i>' +
+            '<p>No identification records on file.</p></div>';
+        return;
+    }
+
+    var rows = ids.map(function (rec) {
+        var cName  = (countries.find(function (c) { return String(c.id) === String(rec.countryId); }) || {}).name || '—';
+        var tName  = (types.find(function (t)     { return String(t.id) === String(rec.idTypeId);  }) || {}).name || '—';
+        var expiry = rec.expiryDate ? mpFmtDate(rec.expiryDate) : '—';
+        var status = rec.isPrimary === 'primary'
+            ? '<span class="ev-badge ev-badge-primary">⭐ Primary</span>'
+            : '<span style="color:#8a9ab0;font-size:12px;">Secondary</span>';
+        return '<tr>' +
+            '<td>' + mpEsc(cName) + '</td>' +
+            '<td>' + mpEsc(tName) + '</td>' +
+            '<td class="ev-mono">' + mpEsc(rec.idNumber || '—') + '</td>' +
+            '<td>' + expiry + '</td>' +
+            '<td>' + status + '</td>' +
+        '</tr>';
+    }).join('');
+
+    el.innerHTML =
+        mpSectionTitle('fa-id-card-clip', 'Identification Details') +
+        '<table class="ev-id-table">' +
+            '<thead><tr>' +
+                '<th>Country</th><th>ID Type</th>' +
+                '<th>ID Number</th><th>Expiry</th><th>Status</th>' +
+            '</tr></thead>' +
+            '<tbody>' + rows + '</tbody>' +
+        '</table>';
+}
+
+// ── Tab 6 — Emergency Contact Information ─────────────────────────────
+
+function mpTabEmergency(emp, el) {
+    if (!emp.ecName && !emp.ecPhone) {
+        el.innerHTML =
+            mpSectionTitle('fa-phone-volume', 'Emergency Contact Information') +
+            '<div class="ev-empty-state">' +
+            '<i class="fa-solid fa-phone-volume"></i>' +
+            '<p>No emergency contact on record.</p></div>';
+        return;
+    }
+
+    el.innerHTML =
+        mpSectionTitle('fa-phone-volume', 'Emergency Contact Information') +
+        '<div class="ev-field-grid ev-grid-2">' +
+            mpField('Contact Name',    emp.ecName) +
+            mpField('Relationship',    emp.ecRelationship) +
+            mpField('Phone Number',    emp.ecPhone) +
+            mpField('Alternate Phone', emp.ecAltPhone) +
+            mpField('Email',           emp.ecEmail) +
+        '</div>';
+}
+
+// ── Tab 7 — Employment Information ────────────────────────────────────
+
+function mpTabEmployment(emp, el) {
+    var today   = new Date(); today.setHours(0, 0, 0, 0);
+    var endDate = emp.endDate ? new Date(emp.endDate + 'T00:00:00') : null;
+    var isActive = !endDate || emp.endDate === '9999-12-31' || endDate >= today;
+
+    var statusBadge = isActive
+        ? '<span class="ev-badge ev-badge-active"><i class="fa-solid fa-circle-dot"></i> Active</span>'
+        : '<span class="ev-badge ev-badge-inactive"><i class="fa-solid fa-circle-dot"></i> Inactive</span>';
+
+    var roleBadge =
+        emp.role === 'admin'   ? '<span class="ev-badge" style="background:#f3e5f5;color:#7b1fa2;">Admin</span>'   :
+        emp.role === 'manager' ? '<span class="ev-badge" style="background:#e3f2fd;color:#1565c0;">Manager</span>' :
+                                 '<span class="ev-badge" style="background:#f0f4fa;color:#546e7a;">Employee</span>';
+
+    el.innerHTML =
+        mpSectionTitle('fa-briefcase', 'Employment Information') +
+        '<div class="ev-field-grid ev-grid-2">' +
+            '<div class="ev-field"><div class="ev-field-label">Status</div>' + statusBadge + '</div>' +
+            '<div class="ev-field"><div class="ev-field-label">Role</div>'   + roleBadge   + '</div>' +
+            mpField('Designation', emp.designation) +
+            mpField('Department',  mpDeptName(emp.departmentId)) +
+            mpField('Manager',     mpManagerName(emp.managerId)) +
+            mpField('Hire Date',   mpFmtDate(emp.hireDate)) +
+            mpField('End Date',    mpFmtDate(emp.endDate)) +
+        '</div>';
+}
