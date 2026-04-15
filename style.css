@@ -3304,3 +3304,128 @@ tbody td:last-child {
     white-space: nowrap;
     flex-shrink: 0;
 }
+
+/* ── Employee popover card (dept details panel) ── */
+.doc-emp-popover-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1199;
+    background: transparent;
+}
+.doc-emp-popover {
+    position: fixed;
+    z-index: 1200;
+    width: 300px;
+    background: #fff;
+    border-radius: 14px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.18), 0 2px 8px rgba(0,0,0,0.10);
+    overflow: hidden;
+    animation: docPopoverIn .18s ease;
+}
+@keyframes docPopoverIn {
+    from { opacity: 0; transform: scale(0.93) translateY(6px); }
+    to   { opacity: 1; transform: scale(1)    translateY(0);   }
+}
+.doc-emp-popover-close {
+    position: absolute;
+    top: 10px; right: 10px;
+    width: 28px; height: 28px;
+    border: none;
+    background: rgba(0,0,0,0.07);
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px;
+    color: #555;
+    transition: background .15s;
+    z-index: 1;
+}
+.doc-emp-popover-close:hover { background: rgba(0,0,0,0.15); }
+
+/* Hero strip */
+.dep-pop-hero {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 28px 20px 16px;
+    background: linear-gradient(135deg, var(--navy) 0%, var(--blue) 100%);
+    color: #fff;
+    text-align: center;
+}
+.dep-pop-avatar {
+    width: 60px; height: 60px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 24px; font-weight: 700;
+    color: #fff;
+    border: 3px solid rgba(255,255,255,0.35);
+    margin-bottom: 10px;
+    flex-shrink: 0;
+}
+.dep-pop-name {
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 1.2;
+    margin-bottom: 2px;
+}
+.dep-pop-id {
+    font-size: 12px;
+    opacity: 0.75;
+    margin-bottom: 6px;
+}
+.dep-pop-badges {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+/* Info rows */
+.dep-pop-body {
+    padding: 14px 18px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.dep-pop-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    font-size: 13px;
+}
+.dep-pop-row-icon {
+    width: 28px; height: 28px;
+    border-radius: 7px;
+    background: var(--light);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--blue);
+    font-size: 12px;
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+.dep-pop-row-label {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    color: #aaa;
+    line-height: 1;
+    margin-bottom: 2px;
+}
+.dep-pop-row-value {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--navy);
+    line-height: 1.3;
+}
+
+/* Clickable employee list items */
+.doc-emp-list-item {
+    cursor: pointer;
+    transition: background .15s, border-color .15s, transform .1s;
+}
+.doc-emp-list-item:hover {
+    background: #e8f4ff;
+    border-color: var(--blue);
+    transform: translateX(2px);
+}

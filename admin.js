@@ -3349,7 +3349,7 @@ function docShowDetails(deptId) {
         : '<div class="eoc-det-value">' + empCount + ' member' + (empCount !== 1 ? 's' : '') + '</div>' +
           '<div class="doc-emp-list">' +
           deptEmps.map(e =>
-              '<div class="doc-emp-list-item">' +
+              '<div class="doc-emp-list-item" data-emp-id="' + escHtml(e.employeeId) + '" title="View ' + escHtml(e.name) + '\'s details">' +
                   '<span class="doc-emp-list-name">' + escHtml(e.name) + '</span>' +
                   '<span class="doc-emp-list-id">' + escHtml(e.employeeId) + '</span>' +
               '</div>'
@@ -3390,6 +3390,125 @@ function docShowDetails(deptId) {
     panel.classList.add('eoc-details-panel--open');
     docApplyHighlight();
 }
+
+// ── Employee popover (from dept details panel) ─────────────────────
+
+function docShowEmpPopover(empId, triggerEl) {
+    const emp = employees.find(e => e.employeeId === empId);
+    if (!emp) return;
+
+    const popover  = document.getElementById('doc-emp-popover');
+    const body     = document.getElementById('doc-emp-popover-body');
+    const backdrop = document.getElementById('doc-emp-popover-backdrop');
+    if (!popover || !body || !backdrop) return;
+
+    // ── Gather data ────────────────────────────────
+    const initial     = (emp.name || '?').charAt(0).toUpperCase();
+    const avatarColor = getAvatarColor(emp.name);
+    const deptObj     = emp.departmentId
+        ? (JSON.parse(localStorage.getItem('prowess-departments') || '[]')
+            .find(d => d.deptId === emp.departmentId))
+        : null;
+    const deptName    = deptObj ? deptObj.name : (emp.departmentId || '—');
+    const managerEmp  = emp.managerId
+        ? employees.find(e => e.employeeId === emp.managerId)
+        : null;
+    const managerName = managerEmp ? managerEmp.name : (emp.managerId || '—');
+
+    const statusVal   = getEmpStatus(emp);
+    const statusCls   = statusVal === 'Active' ? 'badge-active' : statusVal === 'Upcoming' ? 'badge-upcoming' : 'badge-closed';
+    const roleCls     = { 'Employee':'badge-active','Manager':'badge-upcoming','Dept Head':'badge-depthead','HR':'badge-hr','Finance':'badge-finance' }[emp.role || 'Employee'] || 'badge-active';
+
+    const fmtDate = val => {
+        if (!val || val === '9999-12-31') return val === '9999-12-31' ? 'Open-ended' : '—';
+        return new Date(val + 'T00:00:00').toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' });
+    };
+
+    function popRow(iconCls, label, value) {
+        return '<div class="dep-pop-row">' +
+            '<div class="dep-pop-row-icon"><i class="fa-solid fa-' + iconCls + '"></i></div>' +
+            '<div><div class="dep-pop-row-label">' + label + '</div>' +
+            '<div class="dep-pop-row-value">' + escHtml(String(value)) + '</div></div>' +
+            '</div>';
+    }
+
+    body.innerHTML =
+        '<div class="dep-pop-hero">' +
+            '<div class="dep-pop-avatar" style="background:' + avatarColor + ';">' + initial + '</div>' +
+            '<div class="dep-pop-name">'  + escHtml(emp.name) + '</div>' +
+            '<div class="dep-pop-id">'    + escHtml(emp.employeeId) + '</div>' +
+            '<div class="dep-pop-badges">' +
+                '<span class="badge ' + roleCls   + '">' + escHtml(emp.role || 'Employee') + '</span>' +
+                '<span class="badge ' + statusCls + '">' + statusVal + '</span>' +
+            '</div>' +
+        '</div>' +
+        '<div class="dep-pop-body">' +
+            (emp.designation ? popRow('id-badge',      'Designation', emp.designation)   : '') +
+            popRow('sitemap',      'Department',  deptName) +
+            (emp.managerId   ? popRow('user-tie',      'Manager',     managerName)        : '') +
+            (emp.mobile      ? popRow('phone',         'Mobile',      emp.mobile)         : '') +
+            (emp.nationality ? popRow('earth-asia',    'Nationality', emp.nationality)    : '') +
+            popRow('calendar-plus', 'Start Date', fmtDate(emp.startDate)) +
+            (emp.endDate && emp.endDate !== '9999-12-31'
+                ? popRow('calendar-xmark', 'End Date', fmtDate(emp.endDate)) : '') +
+        '</div>';
+
+    // ── Position near trigger ──────────────────────
+    popover.style.display = 'block';
+    backdrop.style.display = 'block';
+
+    const tRect  = triggerEl.getBoundingClientRect();
+    const pW     = popover.offsetWidth  || 300;
+    const pH     = popover.offsetHeight || 420;
+    const vw     = window.innerWidth;
+    const vh     = window.innerHeight;
+    const margin = 10;
+
+    // Prefer left of the details panel; fall back to right
+    let left = tRect.left - pW - margin;
+    if (left < margin) left = tRect.right + margin;
+    if (left + pW > vw - margin) left = Math.max(margin, vw - pW - margin);
+
+    let top = tRect.top + tRect.height / 2 - pH / 2;
+    if (top < margin)              top = margin;
+    if (top + pH > vh - margin)    top = vh - pH - margin;
+
+    popover.style.left = left + 'px';
+    popover.style.top  = top  + 'px';
+}
+
+function docCloseEmpPopover() {
+    const popover  = document.getElementById('doc-emp-popover');
+    const backdrop = document.getElementById('doc-emp-popover-backdrop');
+    if (popover)  popover.style.display  = 'none';
+    if (backdrop) backdrop.style.display = 'none';
+}
+
+// Wire up popover events (once)
+(function docSetupEmpPopover() {
+    // Delegate clicks on employee list items inside the dept details panel
+    document.addEventListener('click', function (e) {
+        const item = e.target.closest('.doc-emp-list-item[data-emp-id]');
+        if (item) {
+            e.stopPropagation();
+            docShowEmpPopover(item.dataset.empId, item);
+            return;
+        }
+        // Close button
+        if (e.target.closest('#doc-emp-popover-close')) {
+            docCloseEmpPopover();
+            return;
+        }
+        // Backdrop click closes
+        if (e.target.id === 'doc-emp-popover-backdrop') {
+            docCloseEmpPopover();
+        }
+    });
+    // Escape key closes
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') docCloseEmpPopover();
+    });
+})();
 
 // ── Focus mode ─────────────────────────────────────────────────────
 
