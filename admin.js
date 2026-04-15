@@ -287,6 +287,9 @@ function renderEmployees() {
             : `${employees.length} employee${employees.length !== 1 ? 's' : ''}`;
     }
 
+    // Update export button label to reflect current visible count
+    updateEmpExportLabel(list.length, employees.length);
+
     // Refresh document alert panels whenever employees render
     renderPassportAlerts();
     renderIdAlerts();
@@ -1023,6 +1026,7 @@ function populateDeptFormDropdowns() {
 // ── Render departments table ────────────────────
 
 function renderDepartments() {
+    updateDeptExportLabel();
     deptBody.innerHTML = '';
 
     if (departments.length === 0) {
@@ -2132,7 +2136,9 @@ function exportEmployees() {
     XLSX.utils.book_append_sheet(wb, ws, 'Employees');
 
     const today = new Date().toISOString().split('T')[0];
-    XLSX.writeFile(wb, `Prowess_Employees_${today}.xlsx`);
+    const filename = `Prowess_Employees_${today}.xlsx`;
+    XLSX.writeFile(wb, filename);
+    showExportToast(filename, list.length, list.length === 1 ? 'employee' : 'employees');
 }
 
 // ── Export Departments ───────────────────────────
@@ -2175,7 +2181,46 @@ function exportDepartments() {
     XLSX.utils.book_append_sheet(wb, ws, 'Departments');
 
     const today = new Date().toISOString().split('T')[0];
-    XLSX.writeFile(wb, `Prowess_Departments_${today}.xlsx`);
+    const filename = `Prowess_Departments_${today}.xlsx`;
+    XLSX.writeFile(wb, filename);
+    showExportToast(filename, departments.length, departments.length === 1 ? 'department' : 'departments');
+}
+
+// ── Export toast notification ────────────────────
+
+function showExportToast(filename, count, noun) {
+    const toast = document.getElementById('export-toast');
+    if (!toast) return;
+    toast.innerHTML = `<i class="fa-solid fa-circle-check"></i>&nbsp; <strong>${count} ${noun}</strong> exported &mdash; <em>${filename}</em>`;
+    toast.classList.add('export-toast--show');
+    clearTimeout(toast._hideTimer);
+    toast._hideTimer = setTimeout(function () {
+        toast.classList.remove('export-toast--show');
+    }, 3500);
+}
+
+// ── Dynamic export button label helpers ─────────
+
+function updateEmpExportLabel(visibleCount, totalCount) {
+    const mainEl = document.getElementById('export-emp-main');
+    const subEl  = document.getElementById('export-emp-sub');
+    if (!mainEl || !subEl) return;
+    const isFiltered = visibleCount < totalCount;
+    mainEl.textContent = isFiltered
+        ? `Export ${visibleCount} of ${totalCount} Employees`
+        : `Export ${totalCount} Employee${totalCount !== 1 ? 's' : ''}`;
+    subEl.textContent  = isFiltered ? 'filtered view' : 'all records · Excel';
+}
+
+function updateDeptExportLabel() {
+    const departments = JSON.parse(localStorage.getItem('prowess-departments')) || [];
+    const n = departments.length;
+    const mainEl  = document.getElementById('export-dept-main');
+    const subEl   = document.getElementById('export-dept-sub');
+    const countEl = document.getElementById('dept-table-count');
+    if (mainEl) mainEl.textContent = `Export ${n} Department${n !== 1 ? 's' : ''}`;
+    if (subEl)  subEl.textContent  = 'all records · Excel';
+    if (countEl) countEl.textContent = n > 0 ? `${n} record${n !== 1 ? 's' : ''}` : '';
 }
 
 // ── Wire export buttons ──────────────────────────

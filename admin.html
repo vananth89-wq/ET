@@ -396,8 +396,13 @@
                         <button type="button" class="emp-filter-clear" id="emp-filter-clear" style="display:none;">
                             <i class="fa-solid fa-xmark"></i> Clear filters
                         </button>
-                        <button type="button" class="btn-export" id="btn-export-employees">
-                            <i class="fa-solid fa-file-excel"></i> Export to Excel
+                        <button type="button" class="btn-export" id="btn-export-employees" title="Download employee list as Excel spreadsheet">
+                            <i class="fa-solid fa-file-excel"></i>
+                            <span class="btn-export-inner">
+                                <span class="btn-export-main" id="export-emp-main">Export Employees</span>
+                                <span class="btn-export-sub" id="export-emp-sub"></span>
+                            </span>
+                            <i class="fa-solid fa-download btn-export-dl"></i>
                         </button>
                     </div>
                 </div>
@@ -492,12 +497,19 @@
                 </div>
 
                 <!-- DEPARTMENTS TABLE -->
-                <div class="table-export-bar">
-                    <span class="table-export-label">
-                        <i class="fa-solid fa-table"></i> Departments
-                    </span>
-                    <button type="button" class="btn-export" id="btn-export-departments">
-                        <i class="fa-solid fa-file-excel"></i> Export
+                <div class="table-section-header">
+                    <div class="table-section-title">
+                        <i class="fa-solid fa-sitemap fa-fw"></i>
+                        Department List
+                        <span class="table-section-count" id="dept-table-count"></span>
+                    </div>
+                    <button type="button" class="btn-export" id="btn-export-departments" title="Download department list as Excel spreadsheet">
+                        <i class="fa-solid fa-file-excel"></i>
+                        <span class="btn-export-inner">
+                            <span class="btn-export-main" id="export-dept-main">Export Departments</span>
+                            <span class="btn-export-sub" id="export-dept-sub"></span>
+                        </span>
+                        <i class="fa-solid fa-download btn-export-dl"></i>
                     </button>
                 </div>
                 <div class="table-wrapper">
@@ -700,6 +712,9 @@
 
         </main>
     </div>
+
+    <!-- Export toast notification -->
+    <div id="export-toast" class="export-toast" role="status" aria-live="polite"></div>
 
     <script src="admin.js"></script>
 </body>
