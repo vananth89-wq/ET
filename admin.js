@@ -392,14 +392,29 @@ profileForm.addEventListener('submit', function (event) {
     const passportIssueDate  = document.getElementById('emp-passport-issue-date').value;
     const passportExpiryDate = document.getElementById('emp-passport-expiry-date').value;
 
+    // ── Passport validation ──────────────────────
+    // Rule 1: if passport number is provided, issue date + expiry date are mandatory
+    if (passportNumber && !passportIssueDate) {
+        alert('Passport Issue Date is required when a Passport Number is entered.');
+        document.getElementById('emp-passport-issue-date').focus();
+        return;
+    }
+    if (passportNumber && !passportExpiryDate) {
+        alert('Passport Expiry Date is required when a Passport Number is entered.');
+        document.getElementById('emp-passport-expiry-date').focus();
+        return;
+    }
+    // Rule 2: any partial entry (except number-only handled above) must be complete
     const passportFieldsFilled = [passportCountry, passportNumber, passportIssueDate, passportExpiryDate]
         .filter(Boolean).length;
     if (passportFieldsFilled > 0 && passportFieldsFilled < 4) {
         alert('Passport information is optional, but if entered all four fields (Issue Country, Passport Number, Issue Date, Expiry Date) are required.');
         return;
     }
+    // Rule 3: expiry must be strictly after issue date
     if (passportIssueDate && passportExpiryDate && passportExpiryDate <= passportIssueDate) {
         alert('Passport Expiry Date must be after the Issue Date.');
+        document.getElementById('emp-passport-expiry-date').focus();
         return;
     }
 
@@ -603,6 +618,7 @@ employeeBody.addEventListener('click', function (event) {
         document.getElementById('emp-passport-number').value      = emp.passportNumber || '';
         document.getElementById('emp-passport-issue-date').value  = emp.passportIssueDate || '';
         document.getElementById('emp-passport-expiry-date').value = emp.passportExpiryDate || '';
+        updatePassportDateRequired(); // apply required state based on restored passport number
         document.getElementById('emp-phone-error').style.display         = 'none';
         document.getElementById('emp-business-email-error').style.display = 'none';
         document.getElementById('emp-personal-email-error').style.display = 'none';
@@ -668,6 +684,25 @@ document.getElementById('emp-filter-clear').addEventListener('click', function (
     renderEmployees();
 });
 
+// ── Dynamically require issue/expiry dates when passport number is filled ──
+
+function updatePassportDateRequired() {
+    const hasNumber   = document.getElementById('emp-passport-number').value.trim().length > 0;
+    const issueField  = document.getElementById('emp-passport-issue-date');
+    const expiryField = document.getElementById('emp-passport-expiry-date');
+    if (hasNumber) {
+        issueField.setAttribute('required', '');
+        expiryField.setAttribute('required', '');
+    } else {
+        issueField.removeAttribute('required');
+        expiryField.removeAttribute('required');
+    }
+}
+
+// Live listener — fires as the user types in the passport number field
+document.getElementById('emp-passport-number')
+    .addEventListener('input', updatePassportDateRequired);
+
 function resetEmpForm() {
     profileForm.reset();
     editingEmpId = null;
@@ -677,6 +712,8 @@ function resetEmpForm() {
     document.getElementById('emp-phone-error').style.display          = 'none';
     document.getElementById('emp-business-email-error').style.display = 'none';
     document.getElementById('emp-personal-email-error').style.display = 'none';
+    // Clear dynamic passport date required state
+    updatePassportDateRequired();
     document.getElementById('emp-form-title').textContent = 'New Employee';
     empSubmitBtn.innerHTML = '<i class="fa-solid fa-plus"></i> Add Employee';
     empCancelBtn.style.display = 'none';
