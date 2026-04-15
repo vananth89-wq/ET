@@ -1629,13 +1629,16 @@ function mpTabContact(emp, el) {
         ? emp.countryCode + ' ' + emp.phone
         : (emp.phone || null);
 
+    // Only show Phone No. if it is different from Mobile
+    var showPhone = phoneDisplay && phoneDisplay.trim() !== (emp.mobile || '').trim();
+
     el.innerHTML =
         mpSectionTitle('fa-phone', 'Contact Information') +
         '<div class="ev-field-grid ev-grid-2">' +
-            mpField('Mobile No.',      emp.mobile) +
-            mpField('Phone No.',       phoneDisplay) +
-            mpField('Business Email',  emp.businessEmail) +
-            mpField('Personal Email',  emp.personalEmail) +
+            mpField('Mobile No.',     emp.mobile) +
+            (showPhone ? mpField('Phone No.', phoneDisplay) : '') +
+            mpField('Business Email', emp.businessEmail) +
+            mpField('Personal Email', emp.personalEmail) +
         '</div>';
 }
 
