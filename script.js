@@ -922,6 +922,38 @@ function eocResetView() {
     }, 80);
 }
 
+/** Pan the viewport so the logged-in employee's card is centred on screen. */
+function eocCenterOnMe() {
+    setTimeout(function () {
+        var viewport = document.getElementById('oc-viewport');
+        var canvas   = document.getElementById('oc-canvas');
+        if (!viewport || !canvas) { eocResetView(); return; }
+
+        // Find the "You" badge and walk up to the card
+        var youBadge = canvas.querySelector('.eoc-you-badge');
+        if (!youBadge) { eocResetView(); return; }
+        var card = youBadge.closest('.eoc-card');
+        if (!card) { eocResetView(); return; }
+
+        var vw = viewport.clientWidth;
+        var vh = viewport.clientHeight;
+
+        // At this point eocZoom=1 and pan=0, so getBoundingClientRect positions
+        // are in canvas-space directly.
+        var canvasRect = canvas.getBoundingClientRect();
+        var cardRect   = card.getBoundingClientRect();
+
+        var cardCX = cardRect.left - canvasRect.left + cardRect.width  / 2;
+        var cardCY = cardRect.top  - canvasRect.top  + cardRect.height / 2;
+
+        // Centre the card in the viewport
+        eocPanX = vw / 2 - cardCX;
+        eocPanY = vh / 2 - cardCY;
+
+        eocApplyTransform();
+    }, 150);
+}
+
 function eocSetupZoomPan() {
     var viewport = document.getElementById('oc-viewport');
     if (!viewport || viewport._eocReady) return;
@@ -1163,7 +1195,7 @@ function eocRenderOrgChart() {
             eocSelectedId = null;
             eocRenderOrgChart();
             eocSetupZoomPan();
-            setTimeout(eocResetView, 100);
+            eocCenterOnMe(); // pan to the logged-in employee's card on open
         });
     });
 
