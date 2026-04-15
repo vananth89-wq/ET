@@ -3456,7 +3456,7 @@ function docShowEmpPopover(empId, triggerEl) {
         '<div class="dep-pop-body">' +
             popRow('id-badge',  'Designation', emp.designation || '—') +
             popRow('sitemap',   'Department',  deptName) +
-            popRow('envelope',  'Email',       emp.email  || '—') +
+            popRow('envelope',  'Email',       emp.businessEmail || '—') +
             popRow('phone',     'Mobile No',   emp.mobile || '—') +
         '</div>';
 
