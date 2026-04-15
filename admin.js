@@ -556,9 +556,7 @@ profileForm.addEventListener('submit', function (event) {
             localStorage.setItem('prowess-profile', JSON.stringify(newEmployee));
         }
 
-        profileForm.reset();
-        // Re-apply end date default after reset
-        document.getElementById('emp-end-date').value = '9999-12-31';
+        resetEmpForm();
     }
 
     localStorage.setItem('prowess-employees', JSON.stringify(employees));
@@ -626,11 +624,6 @@ employeeBody.addEventListener('click', function (event) {
         document.getElementById('emp-passport-issue-date').value  = emp.passportIssueDate || '';
         document.getElementById('emp-passport-expiry-date').value = emp.passportExpiryDate || '';
         updatePassportDateRequired(); // apply required state based on restored passport number
-        // Load identification records into temp buffer and render
-        tempEmpIds = emp.identifications ? JSON.parse(JSON.stringify(emp.identifications)) : [];
-        populateIdCountrySelects();
-        resetIdAddForm();
-        renderEmpIdList();
         document.getElementById('emp-phone-error').style.display         = 'none';
         document.getElementById('emp-business-email-error').style.display = 'none';
         document.getElementById('emp-personal-email-error').style.display = 'none';
@@ -638,12 +631,18 @@ employeeBody.addEventListener('click', function (event) {
         // Populate all dropdowns first, then restore saved values
         editingEmpId = id;
         populateEmployeeFormDropdowns();
+        populateIdCountrySelects(); // ensure ID countries are ready before rendering records
         document.getElementById('emp-designation').value       = emp.designation || '';
         document.getElementById('emp-nationality').value       = emp.nationality || '';
         document.getElementById('emp-marital-status').value    = emp.maritalStatus || '';
         document.getElementById('emp-department').value        = emp.departmentId || '';
         document.getElementById('emp-manager-id').value        = emp.managerId || '';
         document.getElementById('emp-passport-country').value  = emp.passportCountry || '';
+
+        // Load identification records AFTER all dropdowns are ready
+        tempEmpIds = emp.identifications ? JSON.parse(JSON.stringify(emp.identifications)) : [];
+        resetIdAddForm();
+        renderEmpIdList();
 
         empSubmitBtn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Update Employee';
         empCancelBtn.style.display = 'inline-flex';
@@ -2089,11 +2088,14 @@ function exportEmployees() {
 
     const ws = XLSX.utils.json_to_sheet(rows);
 
-    // Column widths
+    // Column widths  (#, EmpID, Name, Designation, Dept, Manager,
+    //                  Mobile, BizEmail, PersEmail, PassportCountry, PassportNum,
+    //                  PassportIssue, PassportExpiry, Nationality, MaritalStatus,
+    //                  HireDate, EndDate, Role, Status, IDRecords)
     ws['!cols'] = [
         {wch:4},{wch:12},{wch:22},{wch:22},{wch:20},{wch:20},
         {wch:18},{wch:28},{wch:28},{wch:18},{wch:16},{wch:14},{wch:14},
-        {wch:14},{wch:14},{wch:12},{wch:12},{wch:10}
+        {wch:14},{wch:14},{wch:12},{wch:12},{wch:10},{wch:12},{wch:40}
     ];
 
     const wb = XLSX.utils.book_new();
