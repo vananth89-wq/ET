@@ -615,8 +615,8 @@ function meInitScrollSpy() {
                     btn.getAttribute('data-target') === sectionId);
             });
 
-            // Mirror active state on the sidebar child item
-            meSyncSidebarActive(sectionId);
+            // Keep My Expense sidebar item highlighted while scrolling
+            meSyncSidebarActive();
         });
     }, {
         root:       scrollBox,
@@ -629,13 +629,11 @@ function meInitScrollSpy() {
     });
 }
 
-// ── Keep sidebar child item highlight in sync with visible section ────
-function meSyncSidebarActive(sectionId) {
-    var tabId = sectionId.replace('me-s-', '');
+// ── Keep the My Expense sidebar item active while scrolling ──────────
+function meSyncSidebarActive() {
     document.querySelectorAll('.tab-item').forEach(function (t) {
-        t.classList.toggle('active', t.getAttribute('data-tab') === tabId);
+        t.classList.toggle('active', t.getAttribute('data-tab') === 'my-expense');
     });
-    syncGroupState(tabId);
 }
 
 // ── Smooth-scroll to the section that matches a sidebar tab ID ────────
@@ -668,42 +666,6 @@ function meScrollToSection(tabId) {
 const tabItems = document.querySelectorAll('.tab-item');
 const tabPanels = document.querySelectorAll('.tab-panel');
 
-// ── MENU GROUP: which tab IDs belong to each collapsible group ────────
-const MENU_GROUPS = {
-    'my-expense': ['dashboard', 'insights', 'add-expense', 'my-expenses']
-};
-
-// Update group header highlight to reflect which child (if any) is active
-function syncGroupState(activeTabId) {
-    Object.keys(MENU_GROUPS).forEach(function (groupId) {
-        var groupEl  = document.getElementById('group-' + groupId);
-        var headerEl = document.getElementById('group-' + groupId + '-header');
-        if (!groupEl || !headerEl) return;
-
-        var isChildActive = MENU_GROUPS[groupId].includes(activeTabId);
-        headerEl.classList.toggle('group-active', isChildActive);
-
-        // Auto-open the group when one of its children becomes active
-        if (isChildActive) groupEl.classList.add('open');
-    });
-}
-
-// Wire expand/collapse toggle on each group header
-function initMenuGroups() {
-    Object.keys(MENU_GROUPS).forEach(function (groupId) {
-        var groupEl  = document.getElementById('group-' + groupId);
-        var headerEl = document.getElementById('group-' + groupId + '-header');
-        if (!groupEl || !headerEl) return;
-
-        headerEl.addEventListener('click', function () {
-            groupEl.classList.toggle('open');
-        });
-    });
-
-    // Sync on load for whichever tab starts active
-    var initial = document.querySelector('.tab-item.active');
-    if (initial) syncGroupState(initial.getAttribute('data-tab'));
-}
 
 tabItems.forEach(function (item) {
     item.addEventListener('click', function () {
@@ -712,28 +674,14 @@ tabItems.forEach(function (item) {
         tabItems.forEach(t => t.classList.remove('active'));
         tabPanels.forEach(p => p.classList.remove('active'));
 
-        // Activate clicked tab
+        // Activate clicked tab and its panel
         item.classList.add('active');
         const targetTab = item.getAttribute('data-tab');
+        document.getElementById('tab-' + targetTab).classList.add('active');
 
-        // Children of My Expense group → activate the unified panel + scroll
-        if (MENU_GROUPS['my-expense'] && MENU_GROUPS['my-expense'].includes(targetTab)) {
-            document.getElementById('tab-my-expense').classList.add('active');
-            renderMyExpense();
-            meScrollToSection(targetTab);
-        } else {
-            document.getElementById('tab-' + targetTab).classList.add('active');
-        }
+        if (targetTab === 'my-expense') renderMyExpense();
+        if (targetTab === 'my-profile') renderMyProfile();
 
-        // Keep group header in sync
-        syncGroupState(targetTab);
-
-        // Render My Profile when that tab is opened
-        if (targetTab === 'my-profile') {
-            renderMyProfile();
-        }
-
-        // Scroll to top of content on tab switch
         document.querySelector('.content').scrollTop = 0;
     });
 });
@@ -742,15 +690,11 @@ tabItems.forEach(function (item) {
 function switchToAddTab() {
     tabItems.forEach(t => t.classList.remove('active'));
     tabPanels.forEach(p => p.classList.remove('active'));
-    document.querySelector('[data-tab="add-expense"]').classList.add('active');
+    document.querySelector('[data-tab="my-expense"]').classList.add('active');
     document.getElementById('tab-my-expense').classList.add('active');
-    syncGroupState('add-expense');
     renderMyExpense();
     setTimeout(function () { meScrollToSection('add-expense'); }, 60);
 }
-
-// Initialise menu groups after DOM is ready
-initMenuGroups();
 
 // ── PROFILE: Load and display ──────────────────
 
