@@ -1265,7 +1265,11 @@ function resetDeptForm() {
 // ── ORG CHART ───────────────────────────────────
 
 function renderOrgChart() {
-    docRenderOrgChart();
+    // docRenderOrgChart() is defined later in the file using let/const which
+    // are in TDZ if this is called during page-load initialisation (before
+    // those declarations are reached).  The try-catch lets the early call
+    // fail silently; the chart renders correctly when the tab is opened.
+    try { docRenderOrgChart(); } catch (e) { /* doc module not yet ready */ }
 }
 
 function formatViewDate() {
