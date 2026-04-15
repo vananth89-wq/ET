@@ -2290,6 +2290,18 @@ function populateIdTypeSelect(countryId) {
 // Country selection drives ID Type dropdown
 document.getElementById('emp-id-country').addEventListener('change', function () {
     populateIdTypeSelect(this.value);
+    // Reset ID Number required state when country changes (type will be re-selected)
+    document.getElementById('emp-id-number').removeAttribute('required');
+});
+
+// ID Type selection makes ID Number mandatory
+document.getElementById('emp-id-type').addEventListener('change', function () {
+    const idNumberInput = document.getElementById('emp-id-number');
+    if (this.value) {
+        idNumberInput.setAttribute('required', '');
+    } else {
+        idNumberInput.removeAttribute('required');
+    }
 });
 
 // ── Render ID Countries list (Reference Data tab) ─────────────
@@ -2547,7 +2559,9 @@ function resetIdAddForm() {
     document.getElementById('emp-id-country').value  = '';
     document.getElementById('emp-id-type').innerHTML = '<option value="">-- Select Country first --</option>';
     document.getElementById('emp-id-type').disabled  = true;
-    document.getElementById('emp-id-number').value   = '';
+    const idNumInput = document.getElementById('emp-id-number');
+    idNumInput.value = '';
+    idNumInput.removeAttribute('required');  // clear dynamic required
     document.getElementById('emp-id-expiry').value   = '';
     document.getElementById('emp-id-error').style.display = 'none';
     document.getElementById('emp-id-add-btn').innerHTML = '<i class="fa-solid fa-plus"></i> Add ID';
@@ -2626,9 +2640,12 @@ document.getElementById('emp-id-tbody').addEventListener('click', function (e) {
         // Populate sub-form with record values
         document.getElementById('emp-id-country').value = rec.countryId;
         populateIdTypeSelect(rec.countryId);
-        // Wait for options to render, then set value
+        // Wait for options to render, then set value and mark ID Number required
         setTimeout(function () {
             document.getElementById('emp-id-type').value = rec.idTypeId;
+            if (rec.idTypeId) {
+                document.getElementById('emp-id-number').setAttribute('required', '');
+            }
         }, 0);
         document.getElementById('emp-id-number').value  = rec.idNumber;
         document.getElementById('emp-id-expiry').value  = rec.expiryDate || '';
