@@ -119,6 +119,75 @@ body {
     font-size: 15px;
 }
 
+/* ── SIDEBAR: COLLAPSIBLE MENU GROUP ─────────── */
+
+/* Wrapper <li> — no padding of its own */
+.menu-group { list-style: none; }
+
+/* Clickable group header row */
+.menu-group-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 24px;
+    cursor: pointer;
+    color: rgba(255, 255, 255, 0.65);
+    font-size: 14px;
+    font-weight: 500;
+    border-left: 3px solid transparent;
+    transition: all 0.2s ease;
+    user-select: none;
+}
+
+.menu-group-header:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+    color: var(--white);
+}
+
+/* Active parent — a child inside is currently selected */
+.menu-group-header.group-active {
+    color: var(--white);
+    font-weight: 600;
+    border-left-color: var(--green);
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+/* Rotating chevron */
+.menu-group-chevron {
+    margin-left: auto;
+    font-size: 11px !important;
+    width: auto !important;
+    transition: transform 0.25s ease;
+    opacity: 0.7;
+}
+
+.menu-group.open .menu-group-chevron {
+    transform: rotate(180deg);
+}
+
+/* Children container — animated open/close */
+.menu-group-children {
+    list-style: none;
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.28s ease;
+    background: rgba(0, 0, 0, 0.18);
+}
+
+.menu-group.open .menu-group-children {
+    max-height: 300px;
+}
+
+/* Child tab items — indented */
+.tab-child {
+    padding-left: 48px;
+    font-size: 13.5px;
+}
+
+.tab-child i {
+    font-size: 13px !important;
+}
+
 /* ── PROFILE CARD IN SIDEBAR ─────────────────── */
 
 .profile-card {

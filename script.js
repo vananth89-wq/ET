@@ -527,10 +527,47 @@ projectFilter.addEventListener('change', function () {
 const tabItems = document.querySelectorAll('.tab-item');
 const tabPanels = document.querySelectorAll('.tab-panel');
 
+// ── MENU GROUP: which tab IDs belong to each collapsible group ────────
+const MENU_GROUPS = {
+    'my-expense': ['dashboard', 'insights', 'add-expense', 'my-expenses']
+};
+
+// Update group header highlight to reflect which child (if any) is active
+function syncGroupState(activeTabId) {
+    Object.keys(MENU_GROUPS).forEach(function (groupId) {
+        var groupEl  = document.getElementById('group-' + groupId);
+        var headerEl = document.getElementById('group-' + groupId + '-header');
+        if (!groupEl || !headerEl) return;
+
+        var isChildActive = MENU_GROUPS[groupId].includes(activeTabId);
+        headerEl.classList.toggle('group-active', isChildActive);
+
+        // Auto-open the group when one of its children becomes active
+        if (isChildActive) groupEl.classList.add('open');
+    });
+}
+
+// Wire expand/collapse toggle on each group header
+function initMenuGroups() {
+    Object.keys(MENU_GROUPS).forEach(function (groupId) {
+        var groupEl  = document.getElementById('group-' + groupId);
+        var headerEl = document.getElementById('group-' + groupId + '-header');
+        if (!groupEl || !headerEl) return;
+
+        headerEl.addEventListener('click', function () {
+            groupEl.classList.toggle('open');
+        });
+    });
+
+    // Sync on load for whichever tab starts active
+    var initial = document.querySelector('.tab-item.active');
+    if (initial) syncGroupState(initial.getAttribute('data-tab'));
+}
+
 tabItems.forEach(function (item) {
     item.addEventListener('click', function () {
 
-        // Remove active from all tabs and panels
+        // Remove active from all tab items and panels
         tabItems.forEach(t => t.classList.remove('active'));
         tabPanels.forEach(p => p.classList.remove('active'));
 
@@ -538,6 +575,9 @@ tabItems.forEach(function (item) {
         item.classList.add('active');
         const targetTab = item.getAttribute('data-tab');
         document.getElementById('tab-' + targetTab).classList.add('active');
+
+        // Keep group header in sync
+        syncGroupState(targetTab);
 
         // Redraw charts when Insights tab is opened
         // (charts don't render correctly when panel is hidden)
@@ -561,7 +601,11 @@ function switchToAddTab() {
     tabPanels.forEach(p => p.classList.remove('active'));
     document.querySelector('[data-tab="add-expense"]').classList.add('active');
     document.getElementById('tab-add-expense').classList.add('active');
+    syncGroupState('add-expense');
 }
+
+// Initialise menu groups after DOM is ready
+initMenuGroups();
 
 // ── PROFILE: Load and display ──────────────────
 

@@ -56,29 +56,42 @@
             <div class="sidebar-divider"></div>
 
             <ul class="sidebar-menu">
+
+                <!-- ── Top-level items ── -->
                 <li class="tab-item" data-tab="my-profile">
                     <i class="fa-solid fa-id-badge"></i>
                     <span>My Profile</span>
                 </li>
-                <li class="tab-item active" data-tab="dashboard">
-                    <i class="fa-solid fa-chart-pie"></i>
-                    <span>Dashboard</span>
-                </li>
-                <li class="tab-item" data-tab="insights">
-                    <i class="fa-solid fa-lightbulb"></i>
-                    <span>Insights</span>
-                </li>
-                <li class="tab-item" data-tab="add-expense">
-                    <i class="fa-solid fa-plus"></i>
-                    <span>Add Expense</span>
-                </li>
-                <li class="tab-item" data-tab="my-expenses">
-                    <i class="fa-solid fa-table-list"></i>
-                    <span>My Expenses</span>
-                </li>
                 <li class="tab-item" data-tab="org-chart">
                     <i class="fa-solid fa-diagram-project"></i>
                     <span>Org Chart</span>
+                </li>
+
+                <!-- ── Collapsible group: My Expense ── -->
+                <li class="menu-group open" id="group-my-expense">
+                    <div class="menu-group-header group-active" id="group-my-expense-header">
+                        <i class="fa-solid fa-wallet"></i>
+                        <span>My Expense</span>
+                        <i class="fa-solid fa-chevron-down menu-group-chevron"></i>
+                    </div>
+                    <ul class="menu-group-children">
+                        <li class="tab-item tab-child active" data-tab="dashboard">
+                            <i class="fa-solid fa-chart-pie"></i>
+                            <span>Dashboard</span>
+                        </li>
+                        <li class="tab-item tab-child" data-tab="insights">
+                            <i class="fa-solid fa-lightbulb"></i>
+                            <span>Insights</span>
+                        </li>
+                        <li class="tab-item tab-child" data-tab="add-expense">
+                            <i class="fa-solid fa-plus"></i>
+                            <span>Add Expense</span>
+                        </li>
+                        <li class="tab-item tab-child" data-tab="my-expenses">
+                            <i class="fa-solid fa-table-list"></i>
+                            <span>My Expenses</span>
+                        </li>
+                    </ul>
                 </li>
 
             </ul>
