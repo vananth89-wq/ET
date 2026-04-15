@@ -391,21 +391,33 @@ profileForm.addEventListener('submit', function (event) {
         const pendingNumber  = document.getElementById('emp-id-number').value.trim();
         const pendingExpiry  = document.getElementById('emp-id-expiry').value;
 
+        const pendingIsPrimaryV = document.getElementById('emp-id-is-primary').value;
         if (pendingCountry && pendingType && pendingNumber) {
+            // Record Type must be chosen
+            if (!pendingIsPrimaryV) {
+                alert('Please select a Record Type (Primary or Secondary) for the pending ID record, or clear the ID sub-form.');
+                document.getElementById('emp-id-is-primary').focus();
+                return;
+            }
             // Validate expiry if provided
             if (pendingExpiry) {
                 const today = new Date().toISOString().split('T')[0];
                 if (pendingExpiry <= today) {
                     alert('The pending ID record has a past expiry date. Please correct it or clear the ID sub-form before saving.');
                     document.getElementById('emp-id-expiry').focus();
-                    return; // abort the save
+                    return;
                 }
+            }
+            const pendingIsPrimary = (pendingIsPrimaryV === 'primary');
+            // If new record is primary, demote any existing primary
+            if (pendingIsPrimary) {
+                tempEmpIds = tempEmpIds.map(r => r.isPrimary ? { ...r, isPrimary: false } : r);
             }
             // Add if no duplicate type
             const alreadyExists = tempEmpIds.some(r => String(r.idTypeId) === String(pendingType));
             if (!alreadyExists) {
                 tempEmpIds.push({ id: Date.now(), countryId: pendingCountry, idTypeId: pendingType,
-                                  idNumber: pendingNumber, expiryDate: pendingExpiry });
+                                  isPrimary: pendingIsPrimary, idNumber: pendingNumber, expiryDate: pendingExpiry });
                 resetIdAddForm();
                 renderEmpIdList();
             }
@@ -2086,16 +2098,23 @@ function exportEmployees() {
         const managerName = emp.managerId
             ? (employees.find(e => e.employeeId === emp.managerId)?.name || emp.managerId)
             : '';
+        // Resolve primary ID (explicit primary flag, or fall back to first record)
+        const idCountries = JSON.parse(localStorage.getItem('prowess-id-countries')) || [];
+        const idTypes     = JSON.parse(localStorage.getItem('prowess-id-types'))     || [];
+        const primaryId   = getPrimaryId(emp.identifications);
+        const primCountry = primaryId ? (idCountries.find(c => String(c.id) === String(primaryId.countryId))?.name || '') : '';
+        const primType    = primaryId ? (idTypes.find(t => String(t.id) === String(primaryId.idTypeId))?.name || '')     : '';
+
         return {
-            '#':                i + 1,
-            'Employee ID':      emp.employeeId,
-            'Full Name':        emp.name,
-            'Designation':      emp.designation     || '',
-            'Department':       deptName,
-            'Manager':          managerName,
-            'Mobile':           emp.mobile          || '',
-            'Business Email':      emp.businessEmail      || '',
-            'Personal Email':      emp.personalEmail      || '',
+            '#':                   i + 1,
+            'Employee ID':         emp.employeeId,
+            'Full Name':           emp.name,
+            'Designation':         emp.designation     || '',
+            'Department':          deptName,
+            'Manager':             managerName,
+            'Mobile':              emp.mobile          || '',
+            'Business Email':      emp.businessEmail   || '',
+            'Personal Email':      emp.personalEmail   || '',
             'Passport Country':    emp.passportCountry
                 ? (COUNTRIES.find(c => c.code === emp.passportCountry)?.name || emp.passportCountry)
                 : '',
@@ -2103,37 +2122,71 @@ function exportEmployees() {
             'Passport Issue Date': formatDateDisplay(emp.passportIssueDate),
             'Passport Expiry':     formatDateDisplay(emp.passportExpiryDate),
             'Nationality':         emp.nationality        || '',
-            'Marital Status':   emp.maritalStatus   || '',
-            'Hire Date':        formatDateDisplay(emp.hireDate),
-            'End Date':         formatDateDisplay(emp.endDate),
-            'Role':             emp.role            || 'Employee',
-            'Status':           getEmpStatus(emp),
-            'ID Records':       (function () {
-                const idCountries = JSON.parse(localStorage.getItem('prowess-id-countries')) || [];
-                const idTypes     = JSON.parse(localStorage.getItem('prowess-id-types'))     || [];
-                return (emp.identifications || []).map(function (r) {
-                    const cn = idCountries.find(c => String(c.id) === String(r.countryId))?.name || '?';
-                    const tn = idTypes.find(t => String(t.id) === String(r.idTypeId))?.name      || '?';
-                    return `${cn} / ${tn}: ${r.idNumber}${r.expiryDate ? ' (exp: ' + r.expiryDate + ')' : ''}`;
-                }).join(' | ');
-            })()
+            'Marital Status':      emp.maritalStatus      || '',
+            'Hire Date':           formatDateDisplay(emp.hireDate),
+            'End Date':            formatDateDisplay(emp.endDate),
+            'Role':                emp.role            || 'Employee',
+            'Status':              getEmpStatus(emp),
+            'Primary ID Country':  primCountry,
+            'Primary ID Type':     primType,
+            'Primary ID Number':   primaryId ? primaryId.idNumber   : '',
+            'Primary ID Expiry':   primaryId ? formatDateDisplay(primaryId.expiryDate) : '',
         };
     });
 
-    const ws = XLSX.utils.json_to_sheet(rows);
-
-    // Column widths  (#, EmpID, Name, Designation, Dept, Manager,
-    //                  Mobile, BizEmail, PersEmail, PassportCountry, PassportNum,
-    //                  PassportIssue, PassportExpiry, Nationality, MaritalStatus,
-    //                  HireDate, EndDate, Role, Status, IDRecords)
-    ws['!cols'] = [
-        {wch:4},{wch:12},{wch:22},{wch:22},{wch:20},{wch:20},
+    // ── Sheet 1: Employees ──────────────────────────
+    const ws1 = XLSX.utils.json_to_sheet(rows);
+    // Column widths: #, EmpID, Name, Designation, Dept, Manager,
+    //   Mobile, BizEmail, PersEmail, PassportCountry, PassportNum,
+    //   PassportIssue, PassportExpiry, Nationality, MaritalStatus,
+    //   HireDate, EndDate, Role, Status,
+    //   PrimaryIDCountry, PrimaryIDType, PrimaryIDNumber, PrimaryIDExpiry
+    ws1['!cols'] = [
+        {wch:4},{wch:12},{wch:22},{wch:20},{wch:20},{wch:20},
         {wch:18},{wch:28},{wch:28},{wch:18},{wch:16},{wch:14},{wch:14},
-        {wch:14},{wch:14},{wch:12},{wch:12},{wch:10},{wch:12},{wch:40}
+        {wch:14},{wch:14},{wch:12},{wch:12},{wch:10},{wch:12},
+        {wch:18},{wch:20},{wch:18},{wch:14}
+    ];
+
+    // ── Sheet 2: All ID Records ─────────────────────
+    const idRows = [];
+    list.forEach(function (emp) {
+        (emp.identifications || []).forEach(function (r) {
+            const cn     = idCountries.find(c => String(c.id) === String(r.countryId))?.name || '—';
+            const tn     = idTypes.find(t => String(t.id) === String(r.idTypeId))?.name      || '—';
+            const status = getIdStatus(r);
+            // Determine record type: explicit flag, or first record = Primary as fallback
+            const recType = r.isPrimary
+                ? 'Primary'
+                : (!r.hasOwnProperty('isPrimary') && emp.identifications.indexOf(r) === 0)
+                    ? 'Primary (auto)'
+                    : 'Secondary';
+            idRows.push({
+                'Employee Name':  emp.name,
+                'Employee ID':    emp.employeeId,
+                'Department':     emp.departmentId
+                    ? (JSON.parse(localStorage.getItem('prowess-departments') || '[]')
+                        .find(d => d.deptId === emp.departmentId)?.name || emp.departmentId)
+                    : '',
+                'Country':        cn,
+                'ID Type':        tn,
+                'ID Number':      r.idNumber,
+                'Expiry Date':    r.expiryDate ? formatDateDisplay(r.expiryDate) : '',
+                'Status':         status,
+                'Record Type':    recType,
+            });
+        });
+    });
+    const ws2 = XLSX.utils.json_to_sheet(
+        idRows.length > 0 ? idRows : [{ 'Note': 'No ID records found for exported employees.' }]
+    );
+    ws2['!cols'] = [
+        {wch:22},{wch:12},{wch:20},{wch:16},{wch:22},{wch:18},{wch:14},{wch:14},{wch:14}
     ];
 
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Employees');
+    XLSX.utils.book_append_sheet(wb, ws1, 'Employees');
+    XLSX.utils.book_append_sheet(wb, ws2, 'ID Records');
 
     const today = new Date().toISOString().split('T')[0];
     const filename = `Prowess_Employees_${today}.xlsx`;
@@ -2364,18 +2417,12 @@ function populateIdTypeSelect(countryId) {
     sel.disabled = (filtered.length === 0);
 }
 
-// Country selection drives ID Type dropdown
-document.getElementById('emp-id-country').addEventListener('change', function () {
-    populateIdTypeSelect(this.value);
-    // Reset ID Number required state when country changes (type will be re-selected)
-    document.getElementById('emp-id-number').removeAttribute('required');
-});
-
-// ID Type selection makes ID Number mandatory
+// ID Type selection makes ID Number mandatory and Record Type required
 document.getElementById('emp-id-type').addEventListener('change', function () {
     const idNumberInput = document.getElementById('emp-id-number');
     if (this.value) {
         idNumberInput.setAttribute('required', '');
+        requirePrimaryField();
     } else {
         idNumberInput.removeAttribute('required');
     }
@@ -2590,6 +2637,13 @@ function getIdStatusBadge(status) {
     return `<span class="id-status-badge ${map[status] || 'id-badge-active'}">${status}</span>`;
 }
 
+/** Helper: resolve the primary record for an employee's identifications.
+ *  Falls back to the first record if none is explicitly marked primary. */
+function getPrimaryId(identifications) {
+    if (!identifications || identifications.length === 0) return null;
+    return identifications.find(r => r.isPrimary) || identifications[0];
+}
+
 /** Render the mini ID table inside the employee form */
 function renderEmpIdList() {
     const countries = JSON.parse(localStorage.getItem('prowess-id-countries')) || [];
@@ -2606,12 +2660,16 @@ function renderEmpIdList() {
 
     tbody.innerHTML = '';
     tempEmpIds.forEach(function (rec, idx) {
-        const countryName = countries.find(c => String(c.id) === String(rec.countryId))?.name || '—';
-        const typeName    = types.find(t => String(t.id) === String(rec.idTypeId))?.name      || '—';
-        const status      = getIdStatus(rec);
-        const statusBadge = getIdStatusBadge(status);
+        const countryName  = countries.find(c => String(c.id) === String(rec.countryId))?.name || '—';
+        const typeName     = types.find(t => String(t.id) === String(rec.idTypeId))?.name      || '—';
+        const status       = getIdStatus(rec);
+        const statusBadge  = getIdStatusBadge(status);
+        const primaryBadge = rec.isPrimary
+            ? '<span class="id-primary-badge"><i class="fa-solid fa-star"></i> Primary</span>'
+            : '<span class="id-secondary-badge">Secondary</span>';
         const tr = document.createElement('tr');
         tr.innerHTML = `
+            <td>${primaryBadge}</td>
             <td>${countryName}</td>
             <td>${typeName}</td>
             <td><strong>${rec.idNumber}</strong></td>
@@ -2633,23 +2691,39 @@ function renderEmpIdList() {
 
 /** Reset the ID add/edit sub-form */
 function resetIdAddForm() {
-    document.getElementById('emp-id-country').value  = '';
-    document.getElementById('emp-id-type').innerHTML = '<option value="">-- Select Country first --</option>';
-    document.getElementById('emp-id-type').disabled  = true;
+    document.getElementById('emp-id-country').value    = '';
+    document.getElementById('emp-id-type').innerHTML   = '<option value="">-- Select Country first --</option>';
+    document.getElementById('emp-id-type').disabled    = true;
+    document.getElementById('emp-id-is-primary').value = '';
+    document.getElementById('emp-id-is-primary').removeAttribute('required');
     const idNumInput = document.getElementById('emp-id-number');
     idNumInput.value = '';
-    idNumInput.removeAttribute('required');  // clear dynamic required
-    document.getElementById('emp-id-expiry').value   = '';
-    document.getElementById('emp-id-error').style.display = 'none';
-    document.getElementById('emp-id-add-btn').innerHTML = '<i class="fa-solid fa-plus"></i> Add ID';
+    idNumInput.removeAttribute('required');
+    document.getElementById('emp-id-expiry').value          = '';
+    document.getElementById('emp-id-error').style.display   = 'none';
+    document.getElementById('emp-id-add-btn').innerHTML     = '<i class="fa-solid fa-plus"></i> Add ID';
     document.getElementById('emp-id-cancel-edit-btn').style.display = 'none';
     editingIdIdx = null;
 }
+
+/** Make Record Type required as soon as Country or ID Type is touched */
+function requirePrimaryField() {
+    document.getElementById('emp-id-is-primary').setAttribute('required', '');
+}
+
+// Country change also drives Record Type required
+document.getElementById('emp-id-country').addEventListener('change', function () {
+    populateIdTypeSelect(this.value);
+    document.getElementById('emp-id-number').removeAttribute('required');
+    if (this.value) requirePrimaryField();
+    else document.getElementById('emp-id-is-primary').removeAttribute('required');
+});
 
 /** Add / Update ID record button */
 document.getElementById('emp-id-add-btn').addEventListener('click', function () {
     const countryId  = document.getElementById('emp-id-country').value;
     const idTypeId   = document.getElementById('emp-id-type').value;
+    const isPrimaryV = document.getElementById('emp-id-is-primary').value;   // 'primary' | 'secondary' | ''
     const idNumber   = document.getElementById('emp-id-number').value.trim();
     const expiryDate = document.getElementById('emp-id-expiry').value;
     const errEl      = document.getElementById('emp-id-error');
@@ -2657,29 +2731,35 @@ document.getElementById('emp-id-add-btn').addEventListener('click', function () 
 
     // Validation
     if (!countryId) {
-        errEl.textContent = 'Please select a country.';
-        errEl.style.display = 'inline';
-        return;
+        errEl.textContent = 'Please select a country.'; errEl.style.display = 'inline'; return;
     }
     if (!idTypeId) {
-        errEl.textContent = 'Please select an ID type.';
-        errEl.style.display = 'inline';
-        return;
+        errEl.textContent = 'Please select an ID type.'; errEl.style.display = 'inline'; return;
+    }
+    if (!isPrimaryV) {
+        errEl.textContent = 'Please select a Record Type (Primary or Secondary).'; errEl.style.display = 'inline'; return;
     }
     if (!idNumber) {
-        errEl.textContent = 'ID Number is mandatory.';
-        errEl.style.display = 'inline';
-        return;
+        errEl.textContent = 'ID Number is mandatory.'; errEl.style.display = 'inline'; return;
     }
     if (expiryDate) {
         const today = new Date().toISOString().split('T')[0];
         if (expiryDate <= today) {
-            errEl.textContent = 'Expiry Date must be a future date.';
-            errEl.style.display = 'inline';
-            return;
+            errEl.textContent = 'Expiry Date must be a future date.'; errEl.style.display = 'inline'; return;
         }
     }
-    // Duplicate ID Type check (warn if same type already added, skip for current edit index)
+
+    const isPrimary = (isPrimaryV === 'primary');
+
+    // If marking as primary, demote any existing primary to secondary
+    if (isPrimary) {
+        tempEmpIds = tempEmpIds.map(function (r, i) {
+            if (i === editingIdIdx) return r; // will be replaced below
+            return r.isPrimary ? { ...r, isPrimary: false } : r;
+        });
+    }
+
+    // Duplicate ID Type check
     const dupIdx = tempEmpIds.findIndex(function (r, i) {
         return String(r.idTypeId) === String(idTypeId) && i !== editingIdIdx;
     });
@@ -2688,11 +2768,9 @@ document.getElementById('emp-id-add-btn').addEventListener('click', function () 
     }
 
     if (editingIdIdx !== null) {
-        // Update existing record
-        tempEmpIds[editingIdIdx] = { ...tempEmpIds[editingIdIdx], countryId, idTypeId, idNumber, expiryDate };
+        tempEmpIds[editingIdIdx] = { ...tempEmpIds[editingIdIdx], countryId, idTypeId, isPrimary, idNumber, expiryDate };
     } else {
-        // Add new record
-        tempEmpIds.push({ id: Date.now(), countryId, idTypeId, idNumber, expiryDate });
+        tempEmpIds.push({ id: Date.now(), countryId, idTypeId, isPrimary, idNumber, expiryDate });
     }
     resetIdAddForm();
     renderEmpIdList();
@@ -2714,18 +2792,16 @@ document.getElementById('emp-id-tbody').addEventListener('click', function (e) {
         if (!rec) return;
         editingIdIdx = idx;
 
-        // Populate sub-form with record values
-        document.getElementById('emp-id-country').value = rec.countryId;
+        document.getElementById('emp-id-country').value    = rec.countryId;
+        requirePrimaryField();
         populateIdTypeSelect(rec.countryId);
-        // Wait for options to render, then set value and mark ID Number required
         setTimeout(function () {
-            document.getElementById('emp-id-type').value = rec.idTypeId;
-            if (rec.idTypeId) {
-                document.getElementById('emp-id-number').setAttribute('required', '');
-            }
+            document.getElementById('emp-id-type').value       = rec.idTypeId;
+            document.getElementById('emp-id-is-primary').value = rec.isPrimary ? 'primary' : 'secondary';
+            if (rec.idTypeId) document.getElementById('emp-id-number').setAttribute('required', '');
         }, 0);
-        document.getElementById('emp-id-number').value  = rec.idNumber;
-        document.getElementById('emp-id-expiry').value  = rec.expiryDate || '';
+        document.getElementById('emp-id-number').value = rec.idNumber;
+        document.getElementById('emp-id-expiry').value = rec.expiryDate || '';
         document.getElementById('emp-id-add-btn').innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Update ID';
         document.getElementById('emp-id-cancel-edit-btn').style.display = 'inline-flex';
     }
