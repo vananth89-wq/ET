@@ -816,6 +816,10 @@ function eocRenderNode(node, depth, profileId) {
         : '—';
     var initial  = (node.name || '?').charAt(0).toUpperCase();
     var avatarBg = eocGetAvatarColor(node.name);
+    var avatarHtml = node.photo
+        ? '<div class="eoc-avatar eoc-avatar--photo" style="background:transparent;">' +
+          '<img src="' + node.photo + '" alt="' + eocEscHtml(node.name) + '" /></div>'
+        : '<div class="eoc-avatar" style="background:' + avatarBg + ';">' + initial + '</div>';
 
     var wrap = document.createElement('div');
     wrap.className    = 'eoc-node-wrap';
@@ -826,8 +830,7 @@ function eocRenderNode(node, depth, profileId) {
     card.dataset.empId = node.employeeId;
     card.title = node.name + ' — click for details, double-click to focus';
 
-    card.innerHTML =
-        '<div class="eoc-avatar" style="background:' + avatarBg + ';">' + initial + '</div>' +
+    card.innerHTML = avatarHtml +
         '<div class="eoc-card-body">' +
             '<div class="eoc-card-name">' + eocEscHtml(node.name) +
                 (isYou ? ' <span class="eoc-you-badge">You</span>' : '') +
