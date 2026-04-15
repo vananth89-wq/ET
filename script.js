@@ -574,6 +574,22 @@ function loadProfile() {
         document.getElementById('profile-mobile').innerHTML =
             `<i class="fa-solid fa-phone"></i> ${profile.mobile || '—'}`;
 
+        // Look up business email from the matching employee record
+        const empList = JSON.parse(localStorage.getItem('prowess-employees') || '[]');
+        const emp = empList.find(function (e) {
+            if (e.employeeId && profile.employeeId)
+                return String(e.employeeId) === String(profile.employeeId);
+            return e.name && profile.name &&
+                   e.name.trim().toLowerCase() === profile.name.trim().toLowerCase();
+        });
+        const emailEl = document.getElementById('profile-email');
+        if (emp && emp.businessEmail) {
+            emailEl.innerHTML = `<i class="fa-solid fa-envelope"></i> ${emp.businessEmail}`;
+            emailEl.style.display = '';
+        } else {
+            emailEl.style.display = 'none';
+        }
+
         // Load saved photo if exists
         if (profile.photo) {
             document.getElementById('profile-photo').src = profile.photo;
