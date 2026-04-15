@@ -379,6 +379,36 @@ function getRoleBadge(role) {
 profileForm.addEventListener('submit', function (event) {
     event.preventDefault();
 
+    // ── Auto-save any pending ID sub-form entry ──────────────────────────────
+    // If the user filled in the sub-form but forgot to click "Add ID",
+    // automatically flush it into tempEmpIds so the data is not silently lost.
+    {
+        const pendingCountry = document.getElementById('emp-id-country').value;
+        const pendingType    = document.getElementById('emp-id-type').value;
+        const pendingNumber  = document.getElementById('emp-id-number').value.trim();
+        const pendingExpiry  = document.getElementById('emp-id-expiry').value;
+
+        if (pendingCountry && pendingType && pendingNumber) {
+            // Validate expiry if provided
+            if (pendingExpiry) {
+                const today = new Date().toISOString().split('T')[0];
+                if (pendingExpiry <= today) {
+                    alert('The pending ID record has a past expiry date. Please correct it or clear the ID sub-form before saving.');
+                    document.getElementById('emp-id-expiry').focus();
+                    return; // abort the save
+                }
+            }
+            // Add if no duplicate type
+            const alreadyExists = tempEmpIds.some(r => String(r.idTypeId) === String(pendingType));
+            if (!alreadyExists) {
+                tempEmpIds.push({ id: Date.now(), countryId: pendingCountry, idTypeId: pendingType,
+                                  idNumber: pendingNumber, expiryDate: pendingExpiry });
+                resetIdAddForm();
+                renderEmpIdList();
+            }
+        }
+    }
+
     const name          = document.getElementById('emp-name').value.trim();
     const employeeId    = document.getElementById('emp-id').value.trim().toUpperCase();
     const designation   = document.getElementById('emp-designation').value.trim();
