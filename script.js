@@ -543,7 +543,6 @@ var meInitialized = false;
 function renderMyExpense() {
     if (!meInitialized) {
         buildMeNav();
-        meSetScrollHeight();
         meInitScrollSpy();
         window.addEventListener('resize', meSetScrollHeight);
         meInitialized = true;
@@ -553,8 +552,11 @@ function renderMyExpense() {
     renderTable();
     populateMonthFilter();
     populateProjectFilter();
-    // Charts must render after panel is fully painted
-    requestAnimationFrame(function () { renderInsights(); });
+    // Defer height + chart render until after the browser has painted the panel
+    requestAnimationFrame(function () {
+        meSetScrollHeight();
+        renderInsights();
+    });
 }
 
 // ── Build and inject the sticky nav bar ──────────────────────────────
@@ -831,6 +833,12 @@ document.getElementById('photo-upload').addEventListener('change', function (eve
 
 loadProfile();
 renderMyExpense();   // initialises the unified My Expense panel on page load
+
+// Recalculate scroll-container heights once fonts + images have settled
+window.addEventListener('load', function () {
+    meSetScrollHeight();
+    mpSetScrollHeight();
+});
 
 // ══════════════════════════════════════════════
 

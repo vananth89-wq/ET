@@ -4233,11 +4233,13 @@ tbody td:last-child {
 
 /* ── One-pager layout ─────────────────────────────────────────────── */
 
-/* Self-contained scroll container — sticky works relative to this */
+/* Self-contained scroll container — sticky works relative to this.
+   CSS fallback keeps it scrollable even before JS runs.
+   JS overrides with exact remaining-viewport height after paint. */
 .mp-scroll-container {
     overflow-y: auto;
     border-radius: 12px;
-    /* height set dynamically by JS */
+    height: calc(100vh - 230px);   /* fallback: viewport − header − page-title */
 }
 .mp-scroll-container::-webkit-scrollbar { width: 6px; }
 .mp-scroll-container::-webkit-scrollbar-track { background: #f0f4fa; border-radius: 3px; }
