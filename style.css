@@ -2355,6 +2355,37 @@ tbody td:last-child {
     min-width: 120px;
 }
 
+/* ── Relationship Type active/inactive toggle ───── */
+.ref-btn-toggle {
+    background: none;
+    border: 1.5px solid transparent;
+    cursor: pointer;
+    padding: 2px 9px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.ref-btn-toggle.is-active {
+    background: #e6f7ef;
+    color: #22a06b;
+    border-color: #b7efd8;
+}
+.ref-btn-toggle.is-active:hover {
+    background: #cdf0e0;
+}
+.ref-btn-toggle.is-inactive {
+    background: #f4f5f7;
+    color: #8a9ab0;
+    border-color: #dde2ea;
+}
+.ref-btn-toggle.is-inactive:hover {
+    background: #e8eaee;
+}
+
 
 /* ═══════════════════════════════════════════════
    ORG CHART  (tab: emp-org-chart)

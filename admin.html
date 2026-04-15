@@ -501,13 +501,7 @@
                                     </label>
                                     <select id="ec-relationship" required>
                                         <option value="">-- Select --</option>
-                                        <option value="Father">Father</option>
-                                        <option value="Mother">Mother</option>
-                                        <option value="Spouse">Spouse</option>
-                                        <option value="Brother">Brother</option>
-                                        <option value="Sister">Sister</option>
-                                        <option value="Friend">Friend</option>
-                                        <option value="Other">Other</option>
+                                        <!-- Populated dynamically from Reference Data → Relationship Types -->
                                     </select>
                                 </div>
                             </div>
@@ -999,6 +993,23 @@
                             <button type="button" class="btn-cancel" id="id-type-cancel-btn" style="display:none;">Cancel</button>
                         </form>
                         <ul class="ref-value-list" id="id-type-list"></ul>
+                    </div>
+
+                    <!-- RELATIONSHIP TYPES -->
+                    <div class="ref-card">
+                        <h3 class="ref-card-title">
+                            <i class="fa-solid fa-people-arrows"></i> Relationship Types
+                            <span class="ref-card-hint">for emergency contacts</span>
+                        </h3>
+                        <form id="rel-type-form" class="ref-inline-form">
+                            <input type="hidden" id="rel-type-edit-id" />
+                            <input type="text" id="rel-type-input" placeholder="e.g. Father" required />
+                            <button type="submit" class="btn-add" id="rel-type-submit-btn">
+                                <i class="fa-solid fa-plus"></i> Add
+                            </button>
+                            <button type="button" class="btn-cancel" id="rel-type-cancel-btn" style="display:none;">Cancel</button>
+                        </form>
+                        <ul class="ref-value-list" id="rel-type-list"></ul>
                     </div>
 
                 </div>

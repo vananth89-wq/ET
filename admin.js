@@ -154,6 +154,7 @@ tabItems.forEach(function (item) {
         if (tab === 'workflow-roles') { populateWfEmpGrid(); renderWfRoles(); }
         if (tab === 'reference-data') {
             renderDesignations(); renderNationalities(); renderMaritalStatuses();
+            renderRelationshipTypes();
             renderIdCountries();  renderIdTypes();
             populateIdCountrySelects();
         }
@@ -178,6 +179,7 @@ function populateEmployeeFormDropdowns() {
     populateDesignationDropdown();
     populateNationalityDropdown();
     populateMaritalStatusDropdown();
+    populateRelationshipTypeDropdown();
     populatePassportCountryDropdown();
     populateAddressCountryDropdown();
     populateEmpFilters();
@@ -2007,6 +2009,11 @@ const DEFAULT_MARITAL_STATUSES = [
     'Single','Married','Divorced','Widowed','Separated'
 ];
 
+const DEFAULT_RELATIONSHIP_TYPES = [
+    'Father','Mother','Spouse','Brother','Sister',
+    'Son','Daughter','Guardian','Friend','Colleague','Other'
+];
+
 function initReferenceData() {
     if (!localStorage.getItem('prowess-designations')) {
         const seeded = DEFAULT_DESIGNATIONS.map((v, i) => ({ id: i + 1, value: v }));
@@ -2019,6 +2026,10 @@ function initReferenceData() {
     if (!localStorage.getItem('prowess-marital-statuses')) {
         const seeded = DEFAULT_MARITAL_STATUSES.map((v, i) => ({ id: i + 1, value: v }));
         localStorage.setItem('prowess-marital-statuses', JSON.stringify(seeded));
+    }
+    if (!localStorage.getItem('prowess-relationship-types')) {
+        const seeded = DEFAULT_RELATIONSHIP_TYPES.map((v, i) => ({ id: i + 1, value: v, active: true }));
+        localStorage.setItem('prowess-relationship-types', JSON.stringify(seeded));
     }
 }
 
@@ -2063,6 +2074,23 @@ function populateMaritalStatusDropdown() {
         opt.textContent = item.value;
         sel.appendChild(opt);
     });
+    sel.value = cur;
+}
+
+function populateRelationshipTypeDropdown() {
+    const items = JSON.parse(localStorage.getItem('prowess-relationship-types')) || [];
+    const sel   = document.getElementById('ec-relationship');
+    const cur   = sel.value;
+    sel.innerHTML = '<option value="">-- Select --</option>';
+    items
+        .filter(item => item.active !== false)          // active items only
+        .sort((a, b) => a.value.localeCompare(b.value))
+        .forEach(function (item) {
+            const opt = document.createElement('option');
+            opt.value = item.value;
+            opt.textContent = item.value;
+            sel.appendChild(opt);
+        });
     sel.value = cur;
 }
 
@@ -2342,6 +2370,114 @@ function resetMaritalForm() {
     document.getElementById('marital-edit-id').value = '';
     maritalSubmitBtn.innerHTML = '<i class="fa-solid fa-plus"></i> Add';
     maritalCancelBtn.style.display = 'none';
+}
+
+// ── Relationship Types CRUD ───────────────────────
+
+function renderRelationshipTypes() {
+    const items = JSON.parse(localStorage.getItem('prowess-relationship-types')) || [];
+    const list  = document.getElementById('rel-type-list');
+    list.innerHTML = '';
+    if (items.length === 0) {
+        list.innerHTML = '<li class="ref-empty">No relationship types added yet.</li>';
+        return;
+    }
+    [...items].sort((a, b) => a.value.localeCompare(b.value)).forEach(function (item) {
+        const isActive = item.active !== false;
+        const li = document.createElement('li');
+        li.className = 'ref-value-item';
+        li.innerHTML =
+            `<span class="ref-value-text">${item.value}</span>` +
+            `<span class="ref-value-actions">` +
+                `<button class="ref-btn-toggle ${isActive ? 'is-active' : 'is-inactive'}"` +
+                    ` data-type="rel-type" data-id="${item.id}"` +
+                    ` title="${isActive ? 'Active – click to deactivate' : 'Inactive – click to activate'}">` +
+                    `${isActive ? 'Active' : 'Inactive'}` +
+                `</button>` +
+                `<button class="ref-btn-edit" data-type="rel-type" data-id="${item.id}" title="Edit">` +
+                    `<i class="fa-solid fa-pen-to-square"></i>` +
+                `</button>` +
+                `<button class="ref-btn-delete" data-type="rel-type" data-id="${item.id}" title="Delete">` +
+                    `<i class="fa-solid fa-trash"></i>` +
+                `</button>` +
+            `</span>`;
+        list.appendChild(li);
+    });
+}
+
+const relTypeForm      = document.getElementById('rel-type-form');
+const relTypeInput     = document.getElementById('rel-type-input');
+const relTypeSubmitBtn = document.getElementById('rel-type-submit-btn');
+const relTypeCancelBtn = document.getElementById('rel-type-cancel-btn');
+
+relTypeForm.addEventListener('submit', function (e) {
+    e.preventDefault();
+    const value = relTypeInput.value.trim();
+    if (!value) return;
+
+    const items  = JSON.parse(localStorage.getItem('prowess-relationship-types')) || [];
+    const editId = Number(document.getElementById('rel-type-edit-id').value);
+
+    if (editId) {
+        const updated = items.map(i => i.id === editId ? { ...i, value } : i);
+        localStorage.setItem('prowess-relationship-types', JSON.stringify(updated));
+    } else {
+        const exists = items.some(i => i.value.toLowerCase() === value.toLowerCase());
+        if (exists) { alert('This relationship type already exists.'); return; }
+        const newId = items.length ? Math.max(...items.map(i => i.id)) + 1 : 1;
+        items.push({ id: newId, value, active: true });
+        localStorage.setItem('prowess-relationship-types', JSON.stringify(items));
+    }
+
+    resetRelationshipTypeForm();
+    renderRelationshipTypes();
+    populateRelationshipTypeDropdown();
+});
+
+document.getElementById('rel-type-list').addEventListener('click', function (e) {
+    const toggleBtn = e.target.closest('.ref-btn-toggle[data-type="rel-type"]');
+    const editBtn   = e.target.closest('.ref-btn-edit[data-type="rel-type"]');
+    const deleteBtn = e.target.closest('.ref-btn-delete[data-type="rel-type"]');
+
+    if (toggleBtn) {
+        const id      = Number(toggleBtn.getAttribute('data-id'));
+        const items   = JSON.parse(localStorage.getItem('prowess-relationship-types')) || [];
+        const updated = items.map(i => i.id === id ? { ...i, active: !(i.active !== false) } : i);
+        localStorage.setItem('prowess-relationship-types', JSON.stringify(updated));
+        renderRelationshipTypes();
+        populateRelationshipTypeDropdown();
+    }
+
+    if (editBtn) {
+        const id    = Number(editBtn.getAttribute('data-id'));
+        const items = JSON.parse(localStorage.getItem('prowess-relationship-types')) || [];
+        const item  = items.find(i => i.id === id);
+        if (!item) return;
+        relTypeInput.value = item.value;
+        document.getElementById('rel-type-edit-id').value = id;
+        relTypeSubmitBtn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Update';
+        relTypeCancelBtn.style.display = 'inline-block';
+        relTypeInput.focus();
+    }
+
+    if (deleteBtn) {
+        if (!confirm('Delete this relationship type?')) return;
+        const id      = Number(deleteBtn.getAttribute('data-id'));
+        const items   = JSON.parse(localStorage.getItem('prowess-relationship-types')) || [];
+        const updated = items.filter(i => i.id !== id);
+        localStorage.setItem('prowess-relationship-types', JSON.stringify(updated));
+        renderRelationshipTypes();
+        populateRelationshipTypeDropdown();
+    }
+});
+
+relTypeCancelBtn.addEventListener('click', resetRelationshipTypeForm);
+
+function resetRelationshipTypeForm() {
+    relTypeForm.reset();
+    document.getElementById('rel-type-edit-id').value = '';
+    relTypeSubmitBtn.innerHTML = '<i class="fa-solid fa-plus"></i> Add';
+    relTypeCancelBtn.style.display = 'none';
 }
 
 // ═══════════════════════════════════════════════
