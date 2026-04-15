@@ -1503,19 +1503,23 @@ function renderMyProfile() {
         if (el) s.fn(emp, el);
     });
 
+    // Set scroll-container height so it fills the remaining viewport
+    mpSetScrollHeight();
+    window.addEventListener('resize', mpSetScrollHeight);
+
     // Wire nav-button clicks → smooth scroll with sticky-nav offset
-    var navEl      = document.getElementById('mp-nav');
-    var contentEl  = document.querySelector('.content');
+    var navEl       = document.getElementById('mp-nav');
+    var scrollBox   = document.getElementById('mp-scroll-container');
     document.querySelectorAll('.mp-nav-btn').forEach(function (btn) {
         btn.addEventListener('click', function () {
             var target = document.getElementById(btn.getAttribute('data-target'));
-            if (!target || !contentEl) return;
+            if (!target || !scrollBox) return;
             var navH   = navEl ? navEl.offsetHeight : 0;
             var offset = target.getBoundingClientRect().top
-                         - contentEl.getBoundingClientRect().top
-                         + contentEl.scrollTop
-                         - navH - 12;
-            contentEl.scrollTo({ top: offset, behavior: 'smooth' });
+                         - scrollBox.getBoundingClientRect().top
+                         + scrollBox.scrollTop
+                         - navH - 8;
+            scrollBox.scrollTo({ top: offset, behavior: 'smooth' });
         });
     });
 
@@ -1523,11 +1527,21 @@ function renderMyProfile() {
     mpInitScrollSpy();
 }
 
+// ── Dynamically size the scroll container to fill remaining viewport ──
+
+function mpSetScrollHeight() {
+    var container = document.getElementById('mp-scroll-container');
+    if (!container) return;
+    var rect    = container.getBoundingClientRect();
+    var availH  = window.innerHeight - rect.top - 16;   // 16px breathing room
+    container.style.height = Math.max(200, availH) + 'px';
+}
+
 // ── IntersectionObserver scrollspy ───────────────────────────────────
 
 function mpInitScrollSpy() {
-    var contentEl = document.querySelector('.content');
-    if (!contentEl) return;
+    var scrollBox = document.getElementById('mp-scroll-container');
+    if (!scrollBox) return;
 
     var sections = document.querySelectorAll('.mp-section');
     var navBtns  = document.querySelectorAll('.mp-nav-btn');
@@ -1543,8 +1557,8 @@ function mpInitScrollSpy() {
             }
         });
     }, {
-        root:       contentEl,
-        rootMargin: '-10% 0px -60% 0px',
+        root:       scrollBox,          // ← our self-contained scroll box
+        rootMargin: '-10% 0px -55% 0px',
         threshold:  0
     });
 

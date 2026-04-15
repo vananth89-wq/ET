@@ -4161,9 +4161,20 @@ tbody td:last-child {
 }
 
 /* ── One-pager layout ─────────────────────────────────────────────── */
+
+/* Self-contained scroll container — sticky works relative to this */
+.mp-scroll-container {
+    overflow-y: auto;
+    border-radius: 12px;
+    /* height set dynamically by JS */
+}
+.mp-scroll-container::-webkit-scrollbar { width: 6px; }
+.mp-scroll-container::-webkit-scrollbar-track { background: #f0f4fa; border-radius: 3px; }
+.mp-scroll-container::-webkit-scrollbar-thumb { background: #c5d3e8; border-radius: 3px; }
+
 .mp-page { position: relative; }
 
-/* Sticky nav bar */
+/* Sticky nav — sticks inside .mp-scroll-container */
 .mp-sticky-nav {
     position: sticky;
     top: 0;
