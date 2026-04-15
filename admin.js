@@ -3409,20 +3409,7 @@ function docShowEmpPopover(empId, triggerEl) {
         ? (JSON.parse(localStorage.getItem('prowess-departments') || '[]')
             .find(d => d.deptId === emp.departmentId))
         : null;
-    const deptName    = deptObj ? deptObj.name : (emp.departmentId || '—');
-    const managerEmp  = emp.managerId
-        ? employees.find(e => e.employeeId === emp.managerId)
-        : null;
-    const managerName = managerEmp ? managerEmp.name : (emp.managerId || '—');
-
-    const statusVal   = getEmpStatus(emp);
-    const statusCls   = statusVal === 'Active' ? 'badge-active' : statusVal === 'Upcoming' ? 'badge-upcoming' : 'badge-closed';
-    const roleCls     = { 'Employee':'badge-active','Manager':'badge-upcoming','Dept Head':'badge-depthead','HR':'badge-hr','Finance':'badge-finance' }[emp.role || 'Employee'] || 'badge-active';
-
-    const fmtDate = val => {
-        if (!val || val === '9999-12-31') return val === '9999-12-31' ? 'Open-ended' : '—';
-        return new Date(val + 'T00:00:00').toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' });
-    };
+    const deptName = deptObj ? deptObj.name : (emp.departmentId || '—');
 
     function popRow(iconCls, label, value) {
         return '<div class="dep-pop-row">' +
@@ -3435,22 +3422,13 @@ function docShowEmpPopover(empId, triggerEl) {
     body.innerHTML =
         '<div class="dep-pop-hero">' +
             '<div class="dep-pop-avatar" style="background:' + avatarColor + ';">' + initial + '</div>' +
-            '<div class="dep-pop-name">'  + escHtml(emp.name) + '</div>' +
-            '<div class="dep-pop-id">'    + escHtml(emp.employeeId) + '</div>' +
-            '<div class="dep-pop-badges">' +
-                '<span class="badge ' + roleCls   + '">' + escHtml(emp.role || 'Employee') + '</span>' +
-                '<span class="badge ' + statusCls + '">' + statusVal + '</span>' +
-            '</div>' +
+            '<div class="dep-pop-name">'  + escHtml(emp.name) + ' <span style="opacity:.7;font-weight:500;font-size:13px;">(' + escHtml(emp.employeeId) + ')</span></div>' +
         '</div>' +
         '<div class="dep-pop-body">' +
-            (emp.designation ? popRow('id-badge',      'Designation', emp.designation)   : '') +
-            popRow('sitemap',      'Department',  deptName) +
-            (emp.managerId   ? popRow('user-tie',      'Manager',     managerName)        : '') +
-            (emp.mobile      ? popRow('phone',         'Mobile',      emp.mobile)         : '') +
-            (emp.nationality ? popRow('earth-asia',    'Nationality', emp.nationality)    : '') +
-            popRow('calendar-plus', 'Start Date', fmtDate(emp.startDate)) +
-            (emp.endDate && emp.endDate !== '9999-12-31'
-                ? popRow('calendar-xmark', 'End Date', fmtDate(emp.endDate)) : '') +
+            popRow('id-badge',  'Designation', emp.designation || '—') +
+            popRow('sitemap',   'Department',  deptName) +
+            popRow('envelope',  'Email',       emp.email  || '—') +
+            popRow('phone',     'Mobile No',   emp.mobile || '—') +
         '</div>';
 
     // ── Position near trigger ──────────────────────
