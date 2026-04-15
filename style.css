@@ -3429,3 +3429,42 @@ tbody td:last-child {
     border-color: var(--blue);
     transform: translateX(2px);
 }
+
+/* ── Employee form – photo upload avatar ────────── */
+.emp-form-avatar-wrap {
+    position: relative;
+    width: 64px;
+    height: 64px;
+    flex-shrink: 0;
+    cursor: pointer;
+}
+.emp-form-avatar-wrap .emp-form-avatar {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    overflow: hidden;
+    position: relative;
+}
+.emp-form-avatar-overlay {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity .18s;
+    color: #fff;
+    font-size: 16px;
+    pointer-events: none;
+}
+.emp-form-avatar-wrap:hover .emp-form-avatar-overlay { opacity: 1; }
+
+/* Popover avatar as photo */
+.dep-pop-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 50%;
+}

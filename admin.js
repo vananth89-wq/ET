@@ -560,7 +560,8 @@ profileForm.addEventListener('submit', function (event) {
                          departmentId, managerId, role, hireDate, endDate, nationality, maritalStatus,
                          businessEmail, personalEmail,
                          passportCountry, passportNumber, passportIssueDate, passportExpiryDate,
-                         identifications: [...tempEmpIds] };
+                         identifications: [...tempEmpIds],
+                         photo: empCurrentPhoto !== undefined ? empCurrentPhoto : (emp.photo || null) };
             }
             return emp;
         });
@@ -589,7 +590,7 @@ profileForm.addEventListener('submit', function (event) {
             departmentId, managerId, role, hireDate, endDate, nationality, maritalStatus,
             businessEmail, personalEmail,
             passportCountry, passportNumber, passportIssueDate, passportExpiryDate,
-            identifications: [...tempEmpIds], photo: null
+            identifications: [...tempEmpIds], photo: empCurrentPhoto || null
         };
         employees.push(newEmployee);
 
@@ -689,6 +690,9 @@ employeeBody.addEventListener('click', function (event) {
         resetIdAddForm();
         renderEmpIdList();
 
+        // Restore photo preview
+        empSetAvatarPreview(emp.photo || null);
+
         empSubmitBtn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Update Employee';
         empCancelBtn.style.display = 'inline-flex';
         document.getElementById('emp-form-title').textContent = 'Edit Employee — ' + emp.name;
@@ -723,6 +727,40 @@ empCancelBtn.addEventListener('click', resetEmpForm);
 
 // Set defaults on page load
 document.getElementById('emp-end-date').value = '9999-12-31';
+
+// ── Employee photo upload ────────────────────────
+
+let empCurrentPhoto = null; // base64 string or null
+
+function empSetAvatarPreview(photoSrc) {
+    empCurrentPhoto = photoSrc || null;
+    const icon = document.getElementById('emp-avatar-icon');
+    const img  = document.getElementById('emp-avatar-img');
+    if (!icon || !img) return;
+    if (photoSrc) {
+        img.src = photoSrc;
+        img.style.display = 'block';
+        icon.style.display = 'none';
+    } else {
+        img.src = '';
+        img.style.display = 'none';
+        icon.style.display = '';
+    }
+}
+
+document.getElementById('emp-avatar-wrap').addEventListener('click', function () {
+    document.getElementById('emp-photo-upload').click();
+});
+
+document.getElementById('emp-photo-upload').addEventListener('change', function (e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function (ev) { empSetAvatarPreview(ev.target.result); };
+    reader.readAsDataURL(file);
+    // Reset so same file can be re-selected
+    e.target.value = '';
+});
 
 // ── Filter listeners ────────────────────────────
 
@@ -799,6 +837,7 @@ function resetEmpForm() {
     document.getElementById('emp-form-title').textContent = 'New Employee';
     empSubmitBtn.innerHTML = '<i class="fa-solid fa-plus"></i> Add Employee';
     empCancelBtn.style.display = 'none';
+    empSetAvatarPreview(null);
 }
 
 // ═══════════════════════════════════════════════
@@ -3419,9 +3458,13 @@ function docShowEmpPopover(empId, triggerEl) {
             '</div>';
     }
 
+    const avatarContent = emp.photo
+        ? '<img src="' + emp.photo + '" alt="' + escHtml(emp.name) + '" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" />'
+        : initial;
+
     body.innerHTML =
         '<div class="dep-pop-hero">' +
-            '<div class="dep-pop-avatar" style="background:' + avatarColor + ';">' + initial + '</div>' +
+            '<div class="dep-pop-avatar" style="background:' + (emp.photo ? 'transparent' : avatarColor) + ';">' + avatarContent + '</div>' +
             '<div class="dep-pop-name">'  + escHtml(emp.name) + ' <span style="opacity:.7;font-weight:500;font-size:13px;">(' + escHtml(emp.employeeId) + ')</span></div>' +
         '</div>' +
         '<div class="dep-pop-body">' +
