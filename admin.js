@@ -236,6 +236,9 @@ profileForm.addEventListener('submit', function (event) {
     const nationality   = document.getElementById('emp-nationality').value.trim();
     const maritalStatus = document.getElementById('emp-marital-status').value;
 
+    const businessEmail = document.getElementById('emp-business-email').value.trim().toLowerCase();
+    const personalEmail = document.getElementById('emp-personal-email').value.trim().toLowerCase();
+
     // ── Phone validation: digits only, 7–15 chars ──
     const phoneDigits = phoneRaw.replace(/[\s\-().]/g, '');
     const phoneError  = document.getElementById('emp-phone-error');
@@ -246,6 +249,64 @@ profileForm.addEventListener('submit', function (event) {
     }
     phoneError.style.display = 'none';
     const mobile = countryCode + ' ' + phoneRaw;
+
+    // ── Email format validation ──
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const bizErrEl   = document.getElementById('emp-business-email-error');
+    const bizErrMsg  = document.getElementById('emp-business-email-error-msg');
+    const perErrEl   = document.getElementById('emp-personal-email-error');
+    const perErrMsg  = document.getElementById('emp-personal-email-error-msg');
+
+    bizErrEl.style.display = 'none';
+    perErrEl.style.display = 'none';
+
+    if (!emailRegex.test(businessEmail)) {
+        bizErrMsg.textContent = 'Enter a valid business email address.';
+        bizErrEl.style.display = 'block';
+        document.getElementById('emp-business-email').focus();
+        return;
+    }
+    if (!emailRegex.test(personalEmail)) {
+        perErrMsg.textContent = 'Enter a valid personal email address.';
+        perErrEl.style.display = 'block';
+        document.getElementById('emp-personal-email').focus();
+        return;
+    }
+
+    // ── Business and personal email must not be the same ──
+    if (businessEmail === personalEmail) {
+        perErrMsg.textContent = 'Personal email must be different from the business email.';
+        perErrEl.style.display = 'block';
+        document.getElementById('emp-personal-email').focus();
+        return;
+    }
+
+    // ── Email uniqueness across all employees ──
+    const otherEmployees = editingEmpId !== null
+        ? employees.filter(e => e.id !== editingEmpId)
+        : employees;
+
+    const bizConflict = otherEmployees.find(e =>
+        (e.businessEmail || '').toLowerCase() === businessEmail ||
+        (e.personalEmail  || '').toLowerCase() === businessEmail
+    );
+    if (bizConflict) {
+        bizErrMsg.textContent = `This email is already in use by ${bizConflict.name} (${bizConflict.employeeId}).`;
+        bizErrEl.style.display = 'block';
+        document.getElementById('emp-business-email').focus();
+        return;
+    }
+
+    const perConflict = otherEmployees.find(e =>
+        (e.businessEmail || '').toLowerCase() === personalEmail ||
+        (e.personalEmail  || '').toLowerCase() === personalEmail
+    );
+    if (perConflict) {
+        perErrMsg.textContent = `This email is already in use by ${perConflict.name} (${perConflict.employeeId}).`;
+        perErrEl.style.display = 'block';
+        document.getElementById('emp-personal-email').focus();
+        return;
+    }
 
     // ── Validation: employee cannot be their own manager ──
     if (managerId && managerId === employeeId) {
@@ -264,7 +325,8 @@ profileForm.addEventListener('submit', function (event) {
         employees = employees.map(function (emp) {
             if (emp.id === editingEmpId) {
                 return { ...emp, name, employeeId, designation, mobile, countryCode, phone: phoneRaw,
-                         departmentId, managerId, role, hireDate, endDate, nationality, maritalStatus };
+                         departmentId, managerId, role, hireDate, endDate, nationality, maritalStatus,
+                         businessEmail, personalEmail };
             }
             return emp;
         });
@@ -290,7 +352,8 @@ profileForm.addEventListener('submit', function (event) {
         const newEmployee = {
             id: Date.now(),
             name, employeeId, designation, mobile, countryCode, phone: phoneRaw,
-            departmentId, managerId, role, hireDate, endDate, nationality, maritalStatus, photo: null
+            departmentId, managerId, role, hireDate, endDate, nationality, maritalStatus,
+            businessEmail, personalEmail, photo: null
         };
         employees.push(newEmployee);
 
@@ -366,7 +429,11 @@ employeeBody.addEventListener('click', function (event) {
         document.getElementById('emp-phone').value           = emp.phone || '';
         document.getElementById('emp-hire-date').value       = emp.hireDate || '';
         document.getElementById('emp-end-date').value        = emp.endDate || '9999-12-31';
-        document.getElementById('emp-phone-error').style.display = 'none';
+        document.getElementById('emp-business-email').value  = emp.businessEmail || '';
+        document.getElementById('emp-personal-email').value  = emp.personalEmail || '';
+        document.getElementById('emp-phone-error').style.display         = 'none';
+        document.getElementById('emp-business-email-error').style.display = 'none';
+        document.getElementById('emp-personal-email-error').style.display = 'none';
 
         // Populate all dropdowns first, then restore saved values
         editingEmpId = id;
@@ -434,7 +501,9 @@ function resetEmpForm() {
     // Re-apply defaults that reset() clears
     document.getElementById('emp-end-date').value = '9999-12-31';
     document.getElementById('emp-country-code').value = '+91';
-    document.getElementById('emp-phone-error').style.display = 'none';
+    document.getElementById('emp-phone-error').style.display          = 'none';
+    document.getElementById('emp-business-email-error').style.display = 'none';
+    document.getElementById('emp-personal-email-error').style.display = 'none';
     document.getElementById('emp-form-title').textContent = 'New Employee';
     empSubmitBtn.innerHTML = '<i class="fa-solid fa-plus"></i> Add Employee';
     empCancelBtn.style.display = 'none';
@@ -1595,19 +1664,21 @@ function exportEmployees() {
             ? (employees.find(e => e.employeeId === emp.managerId)?.name || emp.managerId)
             : '';
         return {
-            '#':               i + 1,
-            'Employee ID':     emp.employeeId,
-            'Full Name':       emp.name,
-            'Designation':     emp.designation     || '',
-            'Department':      deptName,
-            'Manager':         managerName,
-            'Mobile':          emp.mobile          || '',
-            'Nationality':     emp.nationality     || '',
-            'Marital Status':  emp.maritalStatus   || '',
-            'Hire Date':       formatDateDisplay(emp.hireDate),
-            'End Date':        formatDateDisplay(emp.endDate),
-            'Role':            emp.role            || 'Employee',
-            'Status':          getEmpStatus(emp)
+            '#':                i + 1,
+            'Employee ID':      emp.employeeId,
+            'Full Name':        emp.name,
+            'Designation':      emp.designation     || '',
+            'Department':       deptName,
+            'Manager':          managerName,
+            'Mobile':           emp.mobile          || '',
+            'Business Email':   emp.businessEmail   || '',
+            'Personal Email':   emp.personalEmail   || '',
+            'Nationality':      emp.nationality     || '',
+            'Marital Status':   emp.maritalStatus   || '',
+            'Hire Date':        formatDateDisplay(emp.hireDate),
+            'End Date':         formatDateDisplay(emp.endDate),
+            'Role':             emp.role            || 'Employee',
+            'Status':           getEmpStatus(emp)
         };
     });
 
@@ -1616,7 +1687,7 @@ function exportEmployees() {
     // Column widths
     ws['!cols'] = [
         {wch:4},{wch:12},{wch:22},{wch:22},{wch:20},{wch:20},
-        {wch:18},{wch:14},{wch:14},{wch:12},{wch:12},{wch:12},{wch:10}
+        {wch:18},{wch:28},{wch:28},{wch:14},{wch:14},{wch:12},{wch:12},{wch:12},{wch:10}
     ];
 
     const wb = XLSX.utils.book_new();
