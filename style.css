@@ -3523,3 +3523,200 @@ tbody td:last-child {
     display: block;
 }
 
+
+/* ═══════════════════════════════════════════════════════════════
+   EMPLOYEE FORM — PROGRESS TRACKER
+   ═══════════════════════════════════════════════════════════════ */
+
+.emp-form-progress {
+    display: flex;
+    align-items: center;
+    padding: 14px 28px;
+    background: #f4f8fd;
+    border-bottom: 1px solid #e2eaf5;
+    gap: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+.emp-form-progress::-webkit-scrollbar { display: none; }
+
+.efp-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    min-width: 58px;
+    cursor: pointer;
+    padding: 5px 4px;
+    border-radius: 8px;
+    flex-shrink: 0;
+    transition: background 0.15s;
+}
+.efp-step:hover { background: #eaf2ff; }
+
+.efp-icon {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    background: #e4ecf6;
+    color: #93afc8;
+    position: relative;
+    transition: background 0.25s, color 0.25s;
+}
+
+/* optional sections get amber tint */
+.efp-step.efp-optional .efp-icon {
+    background: #fef9ec;
+    color: #d49c1a;
+}
+.efp-step.efp-optional .efp-label { color: #c48a10; }
+
+/* completed state */
+.efp-step.efp-done .efp-icon {
+    background: #e6f7ef;
+    color: #22a06b;
+}
+.efp-step.efp-done .efp-icon::after {
+    content: '\f00c';
+    font-family: 'Font Awesome 6 Free';
+    font-weight: 900;
+    font-size: 7px;
+    position: absolute;
+    bottom: -1px;
+    right: -1px;
+    width: 13px;
+    height: 13px;
+    background: #22a06b;
+    color: #fff;
+    border-radius: 50%;
+    border: 1.5px solid #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 10px;
+    text-align: center;
+}
+
+.efp-label {
+    font-size: 9.5px;
+    color: #8aaccc;
+    font-weight: 600;
+    text-align: center;
+    line-height: 1.2;
+    letter-spacing: 0.3px;
+}
+.efp-step.efp-done .efp-label { color: #22a06b; }
+
+.efp-connector {
+    flex: 1;
+    height: 2px;
+    background: #dce9f6;
+    border-radius: 1px;
+    min-width: 8px;
+    transition: background 0.35s;
+}
+.efp-connector.efp-done { background: #22a06b; }
+
+/* ═══════════════════════════════════════════════════════════════
+   EMPLOYEE FORM — SECTION COLLAPSE & COMPLETION
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Section label is now interactive */
+.emp-section-label {
+    cursor: pointer;
+    user-select: none;
+}
+
+/* Icon wrapped in a small coloured bubble */
+.esc-icon-bubble {
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    background: rgba(47, 119, 181, 0.1);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: background 0.2s;
+}
+.esc-icon-bubble i { font-size: 12px; color: var(--blue); transition: color 0.2s; }
+
+/* Right-side wrapper (check + chevron) */
+.esc-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+}
+
+/* Completion check */
+.esc-check {
+    display: none;
+    color: #22a06b;
+    font-size: 14px;
+    flex-shrink: 0;
+}
+.emp-section.esc-complete .esc-check { display: inline-block; }
+
+/* When complete: icon bubble and label go green */
+.emp-section.esc-complete .esc-icon-bubble { background: rgba(34, 160, 107, 0.1); }
+.emp-section.esc-complete .esc-icon-bubble i { color: #22a06b; }
+.emp-section.esc-complete .emp-section-label { color: #22a06b; }
+
+/* Chevron */
+.esc-chevron {
+    color: #b0c8e0;
+    font-size: 11px;
+    transition: transform 0.25s ease;
+    flex-shrink: 0;
+}
+.emp-section.esc-collapsed .esc-chevron { transform: rotate(-90deg); }
+
+/* Collapsible body */
+.emp-section-body {
+    overflow: hidden;
+    transition: max-height 0.3s ease, opacity 0.25s ease;
+    max-height: 3000px;
+    opacity: 1;
+}
+.emp-section.esc-collapsed .emp-section-body {
+    max-height: 0;
+    opacity: 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   EMPLOYEE FORM — INPUT SUCCESS STATE
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Text / email / number / date inputs that have a valid value */
+.emp-form-card input[required]:not(:placeholder-shown):valid {
+    border-color: #5ecb8e;
+    background: #f4fdf8;
+}
+/* Select success class applied by JS */
+.emp-form-card select[required].efp-valid {
+    border-color: #5ecb8e;
+    background: #f4fdf8;
+}
+/* Date inputs — :placeholder-shown doesn't work for dates; use a JS-added class */
+.emp-form-card input[type="date"][required].efp-valid {
+    border-color: #5ecb8e;
+    background: #f4fdf8;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   EMPLOYEE FORM — SCROLL-TO-ERROR SHAKE
+   ═══════════════════════════════════════════════════════════════ */
+
+@keyframes efp-shake {
+    0%, 100% { transform: translateX(0); }
+    20%       { transform: translateX(-5px); }
+    40%       { transform: translateX(5px); }
+    60%       { transform: translateX(-3px); }
+    80%       { transform: translateX(3px); }
+}
+.efp-shake { animation: efp-shake 0.38s ease; }

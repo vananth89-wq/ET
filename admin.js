@@ -758,6 +758,8 @@ employeeBody.addEventListener('click', function (event) {
         empSubmitBtn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Update Employee';
         empCancelBtn.style.display = 'inline-flex';
         document.getElementById('emp-form-title').textContent = 'Edit Employee — ' + emp.name;
+        // Refresh progress tracker to reflect restored values
+        if (typeof empUpdateFormProgress === 'function') empUpdateFormProgress();
         profileForm.scrollIntoView({ behavior: 'smooth' });
         return;
     }
@@ -866,6 +868,153 @@ function updatePassportDateRequired() {
 // Live listener — fires as the user types in the passport number field
 document.getElementById('emp-passport-number')
     .addEventListener('input', updatePassportDateRequired);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ── EMPLOYEE FORM UX ENHANCEMENTS (progress, collapse, success states) ──────
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Section metadata: which required field IDs belong to each section
+var EMP_SECTION_META = [
+    { id: 's-personal',   required: ['emp-name','emp-id','emp-nationality','emp-marital-status'], optional: false },
+    { id: 's-contact',    required: ['emp-phone'], optional: false },
+    { id: 's-email',      required: ['emp-business-email','emp-personal-email'], optional: false },
+    { id: 's-passport',   required: [], optional: true },
+    { id: 's-identity',   required: [], optional: true },
+    { id: 's-employment', required: ['emp-designation','emp-department','emp-hire-date','emp-end-date'], optional: false },
+    { id: 's-address',    required: ['emp-addr-line1','emp-addr-line2','emp-addr-city','emp-addr-district','emp-addr-country'], optional: false },
+    { id: 's-emergency',  required: ['ec-name','ec-relationship','ec-phone'], optional: false },
+];
+
+// ── Initialise sections: add data-section-id, icon bubble, check, chevron, body wrapper ──
+(function empInitSections() {
+    var keyMap = {
+        'Personal Information': 's-personal',
+        'Contact Details':      's-contact',
+        'Email Addresses':      's-email',
+        'Passport Information': 's-passport',
+        'Employee Identification': 's-identity',
+        'Employment Details':   's-employment',
+        'Address Information':  's-address',
+        'Emergency Contact':    's-emergency',
+    };
+
+    document.querySelectorAll('.emp-section').forEach(function(section) {
+        var label = section.querySelector(':scope > .emp-section-label');
+        if (!label) return;
+
+        // Match section by keyword in label text
+        var text = label.textContent.trim();
+        var sectionId = null;
+        Object.keys(keyMap).forEach(function(k) {
+            if (text.indexOf(k) !== -1) sectionId = keyMap[k];
+        });
+        if (!sectionId) return;
+        section.dataset.sectionId = sectionId;
+
+        // Wrap existing icon in bubble
+        var icon = label.querySelector(':scope > i');
+        if (icon) {
+            var bubble = document.createElement('span');
+            bubble.className = 'esc-icon-bubble';
+            label.insertBefore(bubble, icon);
+            bubble.appendChild(icon);
+        }
+
+        // Append right-side controls (check + chevron)
+        var right = document.createElement('span');
+        right.className = 'esc-right';
+        right.innerHTML = '<i class="fa-solid fa-circle-check esc-check"></i>' +
+                          '<i class="fa-solid fa-chevron-down esc-chevron"></i>';
+        label.appendChild(right);
+
+        // Wrap all non-label children in emp-section-body
+        var body = document.createElement('div');
+        body.className = 'emp-section-body';
+        Array.from(section.children).forEach(function(child) {
+            if (child !== label) body.appendChild(child);
+        });
+        section.appendChild(body);
+
+        // Collapse toggle on label click
+        label.addEventListener('click', function() {
+            section.classList.toggle('esc-collapsed');
+        });
+    });
+})();
+
+// ── Update progress tracker + section completion states ──────────────────────
+function empUpdateFormProgress() {
+    EMP_SECTION_META.forEach(function(meta, idx) {
+        var section = document.querySelector('[data-section-id="' + meta.id + '"]');
+        var step    = document.querySelector('.efp-step[data-target="' + meta.id + '"]');
+
+        // Mark required select/date fields with efp-valid for CSS success state
+        if (section) {
+            section.querySelectorAll('select[required], input[type="date"][required]').forEach(function(el) {
+                el.classList.toggle('efp-valid', el.value !== '');
+            });
+        }
+
+        // Determine completion
+        var isDone = !meta.optional && meta.required.length > 0 &&
+            meta.required.every(function(id) {
+                var el = document.getElementById(id);
+                return el && el.value && el.value.trim() !== '';
+            });
+
+        if (section) section.classList.toggle('esc-complete', isDone);
+        if (step)    step.classList.toggle('efp-done', isDone);
+    });
+
+    // Update connector lines
+    var connectors = document.querySelectorAll('.efp-connector');
+    EMP_SECTION_META.forEach(function(meta, idx) {
+        if (idx >= connectors.length) return;
+        var isDone = !meta.optional && meta.required.length > 0 &&
+            meta.required.every(function(id) {
+                var el = document.getElementById(id);
+                return el && el.value && el.value.trim() !== '';
+            });
+        connectors[idx].classList.toggle('efp-done', isDone);
+    });
+}
+
+// Wire form input/change → progress update
+(function() {
+    var form = document.getElementById('profile-form');
+    if (form) {
+        form.addEventListener('input',  empUpdateFormProgress);
+        form.addEventListener('change', empUpdateFormProgress);
+    }
+})();
+
+// Progress step click → scroll to section (expanding if collapsed)
+document.querySelectorAll('.efp-step[data-target]').forEach(function(step) {
+    step.addEventListener('click', function() {
+        var section = document.querySelector('[data-section-id="' + step.dataset.target + '"]');
+        if (!section) return;
+        section.classList.remove('esc-collapsed');
+        setTimeout(function() {
+            section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 50);
+    });
+});
+
+// When browser native validation fires on a field, expand its section and shake
+document.querySelectorAll('#profile-form [required]').forEach(function(el) {
+    el.addEventListener('invalid', function() {
+        var section = el.closest('.emp-section');
+        if (section) section.classList.remove('esc-collapsed');
+        setTimeout(function() {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            el.classList.add('efp-shake');
+            setTimeout(function() { el.classList.remove('efp-shake'); }, 420);
+        }, 80);
+    });
+});
+
+// Run once on load to reflect restored edit state
+empUpdateFormProgress();
 
 function resetEmpForm() {
     profileForm.reset();
