@@ -2378,11 +2378,24 @@ tbody td:last-child {
 .oc-search-wrap {
     position: relative;
     min-width: 200px;
+    display: flex;
+    align-items: center;
+}
+
+.oc-search-wrap > i {
+    position: absolute;
+    left: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #aaa;
+    font-size: 13px;
+    pointer-events: none;
+    z-index: 1;
 }
 
 .oc-search-wrap input {
     width: 100%;
-    padding: 7px 32px 7px 12px;
+    padding: 7px 30px 7px 32px;
     border: 1px solid var(--border);
     border-radius: 6px;
     font-size: 13px;
