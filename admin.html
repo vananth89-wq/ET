@@ -227,7 +227,75 @@
                             </div>
                         </div>
 
-                        <!-- ── SECTION 5: Employment ── -->
+                        <!-- ── SECTION 5: Employee Identification ── -->
+                        <div class="emp-section">
+                            <div class="emp-section-label">
+                                <i class="fa-solid fa-id-card-clip"></i> Employee Identification
+                                <span class="section-optional-tag">Optional</span>
+                            </div>
+
+                            <!-- Existing ID records list -->
+                            <div id="emp-id-records-list" class="emp-id-records-list" style="display:none;">
+                                <table class="emp-id-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Country</th>
+                                            <th>ID Type</th>
+                                            <th>ID Number</th>
+                                            <th>Expiry Date</th>
+                                            <th>Status</th>
+                                            <th></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="emp-id-tbody"></tbody>
+                                </table>
+                            </div>
+
+                            <!-- Add / Edit ID sub-form (type="button" prevents main form submit) -->
+                            <div class="emp-id-add-form">
+                                <div class="emp-field-grid emp-grid-4">
+                                    <div class="form-group">
+                                        <label for="emp-id-country">
+                                            <i class="fa-solid fa-earth-americas fa-fw"></i> Country
+                                        </label>
+                                        <select id="emp-id-country">
+                                            <option value="">-- Select Country --</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="emp-id-type">
+                                            <i class="fa-solid fa-tag fa-fw"></i> ID Type
+                                        </label>
+                                        <select id="emp-id-type" disabled>
+                                            <option value="">-- Select Country first --</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="emp-id-number">
+                                            <i class="fa-solid fa-hashtag fa-fw"></i> ID Number
+                                        </label>
+                                        <input type="text" id="emp-id-number" placeholder="e.g. 1234-5678-9012" />
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="emp-id-expiry">
+                                            <i class="fa-solid fa-calendar-xmark fa-fw"></i> Expiry Date
+                                        </label>
+                                        <input type="date" id="emp-id-expiry" />
+                                    </div>
+                                </div>
+                                <div class="emp-id-form-actions">
+                                    <button type="button" class="emp-id-add-btn" id="emp-id-add-btn">
+                                        <i class="fa-solid fa-plus"></i> Add ID
+                                    </button>
+                                    <button type="button" class="emp-id-cancel-btn" id="emp-id-cancel-edit-btn" style="display:none;">
+                                        <i class="fa-solid fa-xmark"></i> Cancel Edit
+                                    </button>
+                                    <small id="emp-id-error" class="field-error" style="display:none;"></small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ── SECTION 6: Employment ── -->
                         <div class="emp-section">
                             <div class="emp-section-label">
                                 <i class="fa-solid fa-briefcase"></i> Employment Details
@@ -286,7 +354,10 @@
                 </div>
 
                 <!-- PASSPORT ALERTS PANEL -->
-                <div id="passport-alerts-panel" style="display:none; margin-bottom:16px;"></div>
+                <div id="passport-alerts-panel" style="display:none; margin-bottom:10px;"></div>
+
+                <!-- ID ALERTS PANEL -->
+                <div id="id-alerts-panel" style="display:none; margin-bottom:16px;"></div>
 
                 <!-- EMPLOYEES FILTER BAR -->
                 <div class="emp-filter-bar">
@@ -586,6 +657,42 @@
                             <button type="button" class="btn-cancel" id="marital-cancel-btn" style="display:none;">Cancel</button>
                         </form>
                         <ul class="ref-value-list" id="marital-list"></ul>
+                    </div>
+
+                    <!-- ID COUNTRIES -->
+                    <div class="ref-card">
+                        <h3 class="ref-card-title">
+                            <i class="fa-solid fa-earth-asia"></i> ID Countries
+                        </h3>
+                        <form id="id-country-form" class="ref-inline-form">
+                            <input type="hidden" id="id-country-edit-id" />
+                            <input type="text" id="id-country-input" placeholder="e.g. India" required />
+                            <button type="submit" class="btn-add" id="id-country-submit-btn">
+                                <i class="fa-solid fa-plus"></i> Add
+                            </button>
+                            <button type="button" class="btn-cancel" id="id-country-cancel-btn" style="display:none;">Cancel</button>
+                        </form>
+                        <ul class="ref-value-list" id="id-country-list"></ul>
+                    </div>
+
+                    <!-- ID TYPES -->
+                    <div class="ref-card">
+                        <h3 class="ref-card-title">
+                            <i class="fa-solid fa-id-card-clip"></i> ID Types
+                            <span class="ref-card-hint">linked to a country</span>
+                        </h3>
+                        <form id="id-type-form" class="ref-inline-form ref-inline-form--stacked">
+                            <input type="hidden" id="id-type-edit-id" />
+                            <select id="id-type-country-select" required>
+                                <option value="">-- Country --</option>
+                            </select>
+                            <input type="text" id="id-type-input" placeholder="e.g. Aadhaar" required />
+                            <button type="submit" class="btn-add" id="id-type-submit-btn">
+                                <i class="fa-solid fa-plus"></i> Add
+                            </button>
+                            <button type="button" class="btn-cancel" id="id-type-cancel-btn" style="display:none;">Cancel</button>
+                        </form>
+                        <ul class="ref-value-list" id="id-type-list"></ul>
                     </div>
 
                 </div>

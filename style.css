@@ -2035,3 +2035,192 @@ tbody td:last-child {
     margin-left: auto;
     line-height: 1;
 }
+
+/* ── EMPLOYEE IDENTIFICATION SECTION ─────────── */
+
+/* Mini ID records table inside the form */
+.emp-id-records-list {
+    margin-bottom: 14px;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid #dce8f4;
+}
+
+.emp-id-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+}
+
+.emp-id-table thead {
+    background: linear-gradient(135deg, #2a4a7a 0%, #2F77B5 100%);
+}
+
+.emp-id-table thead th {
+    padding: 8px 12px;
+    color: rgba(255,255,255,0.9);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    text-align: left;
+}
+
+.emp-id-table tbody tr {
+    border-bottom: 1px solid #eef2f8;
+    transition: background 0.12s;
+}
+
+.emp-id-table tbody tr:last-child { border-bottom: none; }
+.emp-id-table tbody tr:hover { background: #f4f8ff; }
+
+.emp-id-table tbody td {
+    padding: 8px 12px;
+    color: var(--text);
+    vertical-align: middle;
+}
+
+/* Row action buttons inside the ID mini table */
+.emp-id-row-actions {
+    display: flex;
+    gap: 5px;
+    justify-content: center;
+}
+
+.emp-id-edit-btn,
+.emp-id-delete-btn {
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 12px;
+    transition: background 0.14s, transform 0.1s;
+}
+
+.emp-id-edit-btn   { background: #e8f0fe; color: var(--blue); }
+.emp-id-edit-btn:hover   { background: var(--blue); color: #fff; transform: translateY(-1px); }
+.emp-id-delete-btn { background: #fde8e8; color: #c62828; }
+.emp-id-delete-btn:hover { background: #c62828; color: #fff; transform: translateY(-1px); }
+
+/* Add / edit sub-form action row */
+.emp-id-form-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.emp-id-add-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: linear-gradient(135deg, var(--navy) 0%, #2F77B5 100%);
+    color: #fff;
+    border: none;
+    border-radius: 7px;
+    padding: 7px 16px;
+    font-size: 12px;
+    font-weight: 600;
+    font-family: 'Poppins', sans-serif;
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(24,52,91,0.22);
+    transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.emp-id-add-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px rgba(24,52,91,0.30);
+}
+
+.emp-id-cancel-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: transparent;
+    color: #c62828;
+    border: 1px solid #ffcdd2;
+    border-radius: 7px;
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    font-family: 'Poppins', sans-serif;
+    cursor: pointer;
+    transition: background 0.14s;
+}
+
+.emp-id-cancel-btn:hover { background: #fff0f0; }
+
+/* ID Status badges */
+.id-status-badge {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.id-badge-active   { background: #e6f9ec; color: #2e7d32; }
+.id-badge-expiring { background: #fff3e0; color: #e65100; border: 1px solid #ffcc80; }
+.id-badge-expired  { background: #ffebee; color: #c62828; border: 1px solid #ef9a9a; }
+
+/* ID alert panel accent colour (re-uses passport-alerts-card) */
+.id-alerts-card {
+    border-color: #b0bec5;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+}
+
+.id-alerts-card .pa-header {
+    background: linear-gradient(135deg, #eceff1 0%, #f5f5f5 100%);
+    border-bottom-color: #b0bec5;
+    color: #37474f;
+}
+
+.id-alerts-card .pa-header i { color: #546e7a; }
+.id-alerts-card .pa-total-badge { background: #546e7a; }
+
+/* Alert level classes for ID rows */
+.id-alert-expired  { background: #ffebee; color: #c62828; border: 1px solid #ef9a9a; }
+.id-alert-expiring { background: #fff3e0; color: #e65100; border: 1px solid #ffcc80; }
+
+/* Country tag chip inside ID type list items */
+.id-type-country-tag {
+    display: inline-block;
+    background: #e8f0fe;
+    color: var(--navy);
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-size: 10px;
+    font-weight: 700;
+    margin-right: 5px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+/* Small hint text in ref card title */
+.ref-card-hint {
+    font-size: 10px;
+    font-weight: 400;
+    color: #8fa3bc;
+    margin-left: 6px;
+    text-transform: none;
+    letter-spacing: 0;
+}
+
+/* Stacked ref-inline-form for ID Types (two inputs) */
+.ref-inline-form--stacked {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.ref-inline-form--stacked select,
+.ref-inline-form--stacked input[type="text"] {
+    flex: 1;
+    min-width: 120px;
+}

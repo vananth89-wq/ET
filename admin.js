@@ -133,7 +133,11 @@ tabItems.forEach(function (item) {
         if (tab === 'employees')      populateEmployeeFormDropdowns();
         if (tab === 'departments')    { populateDeptFormDropdowns(); renderOrgChart(); }
         if (tab === 'workflow-roles') { populateWfEmpGrid(); renderWfRoles(); }
-        if (tab === 'reference-data') { renderDesignations(); renderNationalities(); renderMaritalStatuses(); }
+        if (tab === 'reference-data') {
+            renderDesignations(); renderNationalities(); renderMaritalStatuses();
+            renderIdCountries();  renderIdTypes();
+            populateIdCountrySelects();
+        }
     });
 });
 
@@ -283,8 +287,9 @@ function renderEmployees() {
             : `${employees.length} employee${employees.length !== 1 ? 's' : ''}`;
     }
 
-    // Refresh passport alerts panel whenever employees render
+    // Refresh document alert panels whenever employees render
     renderPassportAlerts();
+    renderIdAlerts();
 
     employeeBody.innerHTML = '';
 
@@ -509,7 +514,8 @@ profileForm.addEventListener('submit', function (event) {
                 return { ...emp, name, employeeId, designation, mobile, countryCode, phone: phoneRaw,
                          departmentId, managerId, role, hireDate, endDate, nationality, maritalStatus,
                          businessEmail, personalEmail,
-                         passportCountry, passportNumber, passportIssueDate, passportExpiryDate };
+                         passportCountry, passportNumber, passportIssueDate, passportExpiryDate,
+                         identifications: [...tempEmpIds] };
             }
             return emp;
         });
@@ -537,7 +543,8 @@ profileForm.addEventListener('submit', function (event) {
             name, employeeId, designation, mobile, countryCode, phone: phoneRaw,
             departmentId, managerId, role, hireDate, endDate, nationality, maritalStatus,
             businessEmail, personalEmail,
-            passportCountry, passportNumber, passportIssueDate, passportExpiryDate, photo: null
+            passportCountry, passportNumber, passportIssueDate, passportExpiryDate,
+            identifications: [...tempEmpIds], photo: null
         };
         employees.push(newEmployee);
 
@@ -619,6 +626,11 @@ employeeBody.addEventListener('click', function (event) {
         document.getElementById('emp-passport-issue-date').value  = emp.passportIssueDate || '';
         document.getElementById('emp-passport-expiry-date').value = emp.passportExpiryDate || '';
         updatePassportDateRequired(); // apply required state based on restored passport number
+        // Load identification records into temp buffer and render
+        tempEmpIds = emp.identifications ? JSON.parse(JSON.stringify(emp.identifications)) : [];
+        populateIdCountrySelects();
+        resetIdAddForm();
+        renderEmpIdList();
         document.getElementById('emp-phone-error').style.display         = 'none';
         document.getElementById('emp-business-email-error').style.display = 'none';
         document.getElementById('emp-personal-email-error').style.display = 'none';
@@ -714,6 +726,10 @@ function resetEmpForm() {
     document.getElementById('emp-personal-email-error').style.display = 'none';
     // Clear dynamic passport date required state
     updatePassportDateRequired();
+    // Clear identification records buffer
+    tempEmpIds = [];
+    resetIdAddForm();
+    renderEmpIdList();
     document.getElementById('emp-form-title').textContent = 'New Employee';
     empSubmitBtn.innerHTML = '<i class="fa-solid fa-plus"></i> Add Employee';
     empCancelBtn.style.display = 'none';
@@ -2058,7 +2074,16 @@ function exportEmployees() {
             'Hire Date':        formatDateDisplay(emp.hireDate),
             'End Date':         formatDateDisplay(emp.endDate),
             'Role':             emp.role            || 'Employee',
-            'Status':           getEmpStatus(emp)
+            'Status':           getEmpStatus(emp),
+            'ID Records':       (function () {
+                const idCountries = JSON.parse(localStorage.getItem('prowess-id-countries')) || [];
+                const idTypes     = JSON.parse(localStorage.getItem('prowess-id-types'))     || [];
+                return (emp.identifications || []).map(function (r) {
+                    const cn = idCountries.find(c => String(c.id) === String(r.countryId))?.name || '?';
+                    const tn = idTypes.find(t => String(t.id) === String(r.idTypeId))?.name      || '?';
+                    return `${cn} / ${tn}: ${r.idNumber}${r.expiryDate ? ' (exp: ' + r.expiryDate + ')' : ''}`;
+                }).join(' | ');
+            })()
         };
     });
 
@@ -2126,13 +2151,632 @@ function exportDepartments() {
 document.getElementById('btn-export-employees').addEventListener('click', exportEmployees);
 document.getElementById('btn-export-departments').addEventListener('click', exportDepartments);
 
+// ═══════════════════════════════════════════════
+// ── SECTION 6: EMPLOYEE IDENTIFICATION ─────────
+// ═══════════════════════════════════════════════
+
+// ── 6A. Reference Data: ID Countries & ID Types ─
+
+const DEFAULT_ID_COUNTRIES = [
+    { id: 10001, name: 'India' },
+    { id: 10002, name: 'Saudi Arabia' },
+    { id: 10003, name: 'United Arab Emirates' },
+    { id: 10004, name: 'Malaysia' },
+    { id: 10005, name: 'Singapore' },
+    { id: 10006, name: 'United States' },
+    { id: 10007, name: 'United Kingdom' },
+    { id: 10008, name: 'Qatar' },
+    { id: 10009, name: 'Kuwait' },
+    { id: 10010, name: 'Bahrain' },
+    { id: 10011, name: 'Oman' },
+    { id: 10012, name: 'Pakistan' },
+    { id: 10013, name: 'Sri Lanka' },
+    { id: 10014, name: 'Bangladesh' },
+    { id: 10015, name: 'Nepal' },
+];
+
+const DEFAULT_ID_TYPES = [
+    // India
+    { id: 20001, countryId: 10001, name: 'Aadhaar' },
+    { id: 20002, countryId: 10001, name: 'PAN' },
+    { id: 20003, countryId: 10001, name: 'Voter ID' },
+    { id: 20004, countryId: 10001, name: 'Driving License' },
+    // Saudi Arabia
+    { id: 20005, countryId: 10002, name: 'Iqama' },
+    { id: 20006, countryId: 10002, name: 'Saudi National ID' },
+    // UAE
+    { id: 20007, countryId: 10003, name: 'Emirates ID' },
+    { id: 20008, countryId: 10003, name: 'UAE Residence Visa' },
+    // Malaysia
+    { id: 20009, countryId: 10004, name: 'MyKad' },
+    { id: 20010, countryId: 10004, name: 'MyPR' },
+    { id: 20011, countryId: 10004, name: 'Work Permit' },
+    // Singapore
+    { id: 20012, countryId: 10005, name: 'NRIC' },
+    { id: 20013, countryId: 10005, name: 'FIN' },
+    { id: 20014, countryId: 10005, name: 'Employment Pass' },
+    // United States
+    { id: 20015, countryId: 10006, name: 'Social Security' },
+    { id: 20016, countryId: 10006, name: 'Green Card' },
+    { id: 20017, countryId: 10006, name: "Driver's License" },
+    // United Kingdom
+    { id: 20018, countryId: 10007, name: 'National Insurance' },
+    { id: 20019, countryId: 10007, name: 'BRP' },
+    // Qatar
+    { id: 20020, countryId: 10008, name: 'Qatar ID' },
+    { id: 20021, countryId: 10008, name: 'Qatar Residence Permit' },
+    // Kuwait
+    { id: 20022, countryId: 10009, name: 'Civil ID' },
+    // Bahrain
+    { id: 20023, countryId: 10010, name: 'CPR' },
+    // Oman
+    { id: 20024, countryId: 10011, name: 'Oman Resident Card' },
+    // Pakistan
+    { id: 20025, countryId: 10012, name: 'CNIC' },
+    { id: 20026, countryId: 10012, name: 'NICOP' },
+    // Sri Lanka
+    { id: 20027, countryId: 10013, name: 'NIC' },
+    // Bangladesh
+    { id: 20028, countryId: 10014, name: 'NID' },
+    // Nepal
+    { id: 20029, countryId: 10015, name: 'Citizenship Certificate' },
+];
+
+/** Seed ID reference data if not already present */
+function initIdReferenceData() {
+    if (!localStorage.getItem('prowess-id-countries')) {
+        localStorage.setItem('prowess-id-countries', JSON.stringify(DEFAULT_ID_COUNTRIES));
+    }
+    if (!localStorage.getItem('prowess-id-types')) {
+        localStorage.setItem('prowess-id-types', JSON.stringify(DEFAULT_ID_TYPES));
+    }
+}
+
+// ── Populate all country selects used in the ID feature ──────
+
+function populateIdCountrySelects() {
+    const countries = JSON.parse(localStorage.getItem('prowess-id-countries')) || [];
+    const sorted    = [...countries].sort((a, b) => a.name.localeCompare(b.name));
+
+    // Employee form – Add ID country dropdown
+    const empSel  = document.getElementById('emp-id-country');
+    const empCur  = empSel ? empSel.value : '';
+    if (empSel) {
+        empSel.innerHTML = '<option value="">-- Select Country --</option>';
+        sorted.forEach(function (c) {
+            const o = document.createElement('option');
+            o.value = c.id; o.textContent = c.name;
+            empSel.appendChild(o);
+        });
+        empSel.value = empCur;
+    }
+
+    // Reference Data tab – ID Types form country select
+    const refSel = document.getElementById('id-type-country-select');
+    const refCur = refSel ? refSel.value : '';
+    if (refSel) {
+        refSel.innerHTML = '<option value="">-- Country --</option>';
+        sorted.forEach(function (c) {
+            const o = document.createElement('option');
+            o.value = c.id; o.textContent = c.name;
+            refSel.appendChild(o);
+        });
+        refSel.value = refCur;
+    }
+}
+
+/** Filter ID Types dropdown by selected country */
+function populateIdTypeSelect(countryId) {
+    const types  = JSON.parse(localStorage.getItem('prowess-id-types')) || [];
+    const sel    = document.getElementById('emp-id-type');
+    if (!sel) return;
+    if (!countryId) {
+        sel.innerHTML = '<option value="">-- Select Country first --</option>';
+        sel.disabled  = true;
+        return;
+    }
+    const filtered = types
+        .filter(t => String(t.countryId) === String(countryId))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    sel.innerHTML = '<option value="">-- Select ID Type --</option>';
+    filtered.forEach(function (t) {
+        const o = document.createElement('option');
+        o.value = t.id; o.textContent = t.name;
+        sel.appendChild(o);
+    });
+    sel.disabled = (filtered.length === 0);
+}
+
+// Country selection drives ID Type dropdown
+document.getElementById('emp-id-country').addEventListener('change', function () {
+    populateIdTypeSelect(this.value);
+});
+
+// ── Render ID Countries list (Reference Data tab) ─────────────
+
+function renderIdCountries() {
+    const countries = JSON.parse(localStorage.getItem('prowess-id-countries')) || [];
+    const list      = document.getElementById('id-country-list');
+    if (!list) return;
+    if (countries.length === 0) {
+        list.innerHTML = '<li class="ref-value-empty">No countries added.</li>';
+        return;
+    }
+    list.innerHTML = [...countries]
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map(c => `
+            <li class="ref-value-item" data-type="id-country" data-id="${c.id}">
+                <span class="ref-value-text">${c.name}</span>
+                <span class="ref-value-actions">
+                    <button class="ref-btn-edit"   data-type="id-country" data-id="${c.id}">Edit</button>
+                    <button class="ref-btn-delete" data-type="id-country" data-id="${c.id}">Delete</button>
+                </span>
+            </li>`)
+        .join('');
+}
+
+// ── Render ID Types list (Reference Data tab) ─────────────────
+
+function renderIdTypes() {
+    const types     = JSON.parse(localStorage.getItem('prowess-id-types'))     || [];
+    const countries = JSON.parse(localStorage.getItem('prowess-id-countries')) || [];
+    const list      = document.getElementById('id-type-list');
+    if (!list) return;
+    if (types.length === 0) {
+        list.innerHTML = '<li class="ref-value-empty">No ID types added.</li>';
+        return;
+    }
+    list.innerHTML = [...types]
+        .sort((a, b) => {
+            const ca = countries.find(c => c.id === a.countryId)?.name || '';
+            const cb = countries.find(c => c.id === b.countryId)?.name || '';
+            return ca.localeCompare(cb) || a.name.localeCompare(b.name);
+        })
+        .map(t => {
+            const countryName = countries.find(c => c.id === t.countryId)?.name || 'Unknown';
+            return `
+                <li class="ref-value-item" data-type="id-type" data-id="${t.id}">
+                    <span class="ref-value-text">
+                        <span class="id-type-country-tag">${countryName}</span>
+                        ${t.name}
+                    </span>
+                    <span class="ref-value-actions">
+                        <button class="ref-btn-edit"   data-type="id-type" data-id="${t.id}">Edit</button>
+                        <button class="ref-btn-delete" data-type="id-type" data-id="${t.id}">Delete</button>
+                    </span>
+                </li>`;
+        })
+        .join('');
+}
+
+// ── ID Countries CRUD ─────────────────────────────────────────
+
+document.getElementById('id-country-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    const editId  = document.getElementById('id-country-edit-id').value;
+    const name    = document.getElementById('id-country-input').value.trim();
+    const countries = JSON.parse(localStorage.getItem('prowess-id-countries')) || [];
+
+    if (editId) {
+        // Edit existing
+        const updated = countries.map(c => c.id === Number(editId) ? { ...c, name } : c);
+        localStorage.setItem('prowess-id-countries', JSON.stringify(updated));
+        document.getElementById('id-country-edit-id').value = '';
+        document.getElementById('id-country-submit-btn').innerHTML = '<i class="fa-solid fa-plus"></i> Add';
+        document.getElementById('id-country-cancel-btn').style.display = 'none';
+    } else {
+        // Add new
+        const duplicate = countries.find(c => c.name.toLowerCase() === name.toLowerCase());
+        if (duplicate) { alert(`"${name}" already exists.`); return; }
+        countries.push({ id: Date.now(), name });
+        localStorage.setItem('prowess-id-countries', JSON.stringify(countries));
+    }
+    document.getElementById('id-country-input').value = '';
+    renderIdCountries();
+    populateIdCountrySelects();
+});
+
+document.getElementById('id-country-cancel-btn').addEventListener('click', function () {
+    document.getElementById('id-country-edit-id').value = '';
+    document.getElementById('id-country-input').value   = '';
+    document.getElementById('id-country-submit-btn').innerHTML = '<i class="fa-solid fa-plus"></i> Add';
+    this.style.display = 'none';
+});
+
+document.getElementById('id-country-list').addEventListener('click', function (e) {
+    const btn  = e.target.closest('[data-type="id-country"]');
+    if (!btn)  return;
+    const id   = Number(btn.getAttribute('data-id'));
+    const countries = JSON.parse(localStorage.getItem('prowess-id-countries')) || [];
+    const item = countries.find(c => c.id === id);
+    if (!item) return;
+
+    if (btn.classList.contains('ref-btn-edit')) {
+        document.getElementById('id-country-edit-id').value = id;
+        document.getElementById('id-country-input').value   = item.name;
+        document.getElementById('id-country-submit-btn').innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Update';
+        document.getElementById('id-country-cancel-btn').style.display = 'inline-flex';
+    }
+    if (btn.classList.contains('ref-btn-delete')) {
+        if (!confirm(`Delete country "${item.name}"? All linked ID Types will also be deleted.`)) return;
+        const updated = countries.filter(c => c.id !== id);
+        localStorage.setItem('prowess-id-countries', JSON.stringify(updated));
+        // Cascade delete ID types for this country
+        const types   = JSON.parse(localStorage.getItem('prowess-id-types')) || [];
+        localStorage.setItem('prowess-id-types', JSON.stringify(types.filter(t => t.countryId !== id)));
+        renderIdCountries();
+        renderIdTypes();
+        populateIdCountrySelects();
+    }
+});
+
+// ── ID Types CRUD ─────────────────────────────────────────────
+
+document.getElementById('id-type-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    const editId    = document.getElementById('id-type-edit-id').value;
+    const countryId = Number(document.getElementById('id-type-country-select').value);
+    const name      = document.getElementById('id-type-input').value.trim();
+    if (!countryId) { alert('Please select a country.'); return; }
+    const types = JSON.parse(localStorage.getItem('prowess-id-types')) || [];
+
+    if (editId) {
+        const updated = types.map(t => t.id === Number(editId) ? { ...t, countryId, name } : t);
+        localStorage.setItem('prowess-id-types', JSON.stringify(updated));
+        document.getElementById('id-type-edit-id').value = '';
+        document.getElementById('id-type-submit-btn').innerHTML = '<i class="fa-solid fa-plus"></i> Add';
+        document.getElementById('id-type-cancel-btn').style.display = 'none';
+    } else {
+        const dup = types.find(t => t.countryId === countryId && t.name.toLowerCase() === name.toLowerCase());
+        if (dup) { alert(`"${name}" already exists for this country.`); return; }
+        types.push({ id: Date.now(), countryId, name });
+        localStorage.setItem('prowess-id-types', JSON.stringify(types));
+    }
+    document.getElementById('id-type-input').value = '';
+    document.getElementById('id-type-country-select').value = '';
+    renderIdTypes();
+});
+
+document.getElementById('id-type-cancel-btn').addEventListener('click', function () {
+    document.getElementById('id-type-edit-id').value = '';
+    document.getElementById('id-type-input').value   = '';
+    document.getElementById('id-type-country-select').value = '';
+    document.getElementById('id-type-submit-btn').innerHTML = '<i class="fa-solid fa-plus"></i> Add';
+    this.style.display = 'none';
+});
+
+document.getElementById('id-type-list').addEventListener('click', function (e) {
+    const btn = e.target.closest('[data-type="id-type"]');
+    if (!btn) return;
+    const id  = Number(btn.getAttribute('data-id'));
+    const types     = JSON.parse(localStorage.getItem('prowess-id-types'))     || [];
+    const countries = JSON.parse(localStorage.getItem('prowess-id-countries')) || [];
+    const item      = types.find(t => t.id === id);
+    if (!item) return;
+
+    if (btn.classList.contains('ref-btn-edit')) {
+        document.getElementById('id-type-edit-id').value = id;
+        populateIdCountrySelects(); // ensure options present
+        document.getElementById('id-type-country-select').value = item.countryId;
+        document.getElementById('id-type-input').value = item.name;
+        document.getElementById('id-type-submit-btn').innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Update';
+        document.getElementById('id-type-cancel-btn').style.display = 'inline-flex';
+    }
+    if (btn.classList.contains('ref-btn-delete')) {
+        const countryName = countries.find(c => c.id === item.countryId)?.name || '';
+        if (!confirm(`Delete ID type "${item.name}" (${countryName})?`)) return;
+        localStorage.setItem('prowess-id-types', JSON.stringify(types.filter(t => t.id !== id)));
+        renderIdTypes();
+    }
+});
+
+// Also render ID Countries/Types when the reference-data tab is activated
+// (patched into the existing tab-switch listener above via the init block)
+
+// ── 6B. Employee ID Records (per-employee, stored in employee.identifications) ─
+
+/** Temp buffer: holds the ID records for the employee currently in the form */
+let tempEmpIds    = [];
+let editingIdIdx  = null; // index into tempEmpIds being edited
+
+/** Status helpers for a single ID record */
+const ID_EXPIRY_ALERT_DAYS = 15;
+
+function getIdStatus(record) {
+    if (!record.expiryDate) return 'Active';
+    const today    = new Date(); today.setHours(0, 0, 0, 0);
+    const expiry   = new Date(record.expiryDate);
+    const diffDays = Math.floor((expiry - today) / 86400000);
+    if (diffDays < 0)                      return 'Expired';
+    if (diffDays <= ID_EXPIRY_ALERT_DAYS)  return 'Expiring Soon';
+    return 'Active';
+}
+
+function getIdStatusBadge(status) {
+    const map = {
+        'Active':        'id-badge-active',
+        'Expiring Soon': 'id-badge-expiring',
+        'Expired':       'id-badge-expired',
+    };
+    return `<span class="id-status-badge ${map[status] || 'id-badge-active'}">${status}</span>`;
+}
+
+/** Render the mini ID table inside the employee form */
+function renderEmpIdList() {
+    const countries = JSON.parse(localStorage.getItem('prowess-id-countries')) || [];
+    const types     = JSON.parse(localStorage.getItem('prowess-id-types'))     || [];
+    const listWrap  = document.getElementById('emp-id-records-list');
+    const tbody     = document.getElementById('emp-id-tbody');
+    if (!listWrap || !tbody) return;
+
+    if (tempEmpIds.length === 0) {
+        listWrap.style.display = 'none';
+        return;
+    }
+    listWrap.style.display = 'block';
+
+    tbody.innerHTML = '';
+    tempEmpIds.forEach(function (rec, idx) {
+        const countryName = countries.find(c => String(c.id) === String(rec.countryId))?.name || '—';
+        const typeName    = types.find(t => String(t.id) === String(rec.idTypeId))?.name      || '—';
+        const status      = getIdStatus(rec);
+        const statusBadge = getIdStatusBadge(status);
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${countryName}</td>
+            <td>${typeName}</td>
+            <td><strong>${rec.idNumber}</strong></td>
+            <td>${rec.expiryDate || '—'}</td>
+            <td>${statusBadge}</td>
+            <td>
+                <div class="emp-id-row-actions">
+                    <button type="button" class="emp-id-edit-btn"   data-idx="${idx}" title="Edit">
+                        <i class="fa-solid fa-pen-to-square"></i>
+                    </button>
+                    <button type="button" class="emp-id-delete-btn" data-idx="${idx}" title="Delete">
+                        <i class="fa-solid fa-trash"></i>
+                    </button>
+                </div>
+            </td>`;
+        tbody.appendChild(tr);
+    });
+}
+
+/** Reset the ID add/edit sub-form */
+function resetIdAddForm() {
+    document.getElementById('emp-id-country').value  = '';
+    document.getElementById('emp-id-type').innerHTML = '<option value="">-- Select Country first --</option>';
+    document.getElementById('emp-id-type').disabled  = true;
+    document.getElementById('emp-id-number').value   = '';
+    document.getElementById('emp-id-expiry').value   = '';
+    document.getElementById('emp-id-error').style.display = 'none';
+    document.getElementById('emp-id-add-btn').innerHTML = '<i class="fa-solid fa-plus"></i> Add ID';
+    document.getElementById('emp-id-cancel-edit-btn').style.display = 'none';
+    editingIdIdx = null;
+}
+
+/** Add / Update ID record button */
+document.getElementById('emp-id-add-btn').addEventListener('click', function () {
+    const countryId  = document.getElementById('emp-id-country').value;
+    const idTypeId   = document.getElementById('emp-id-type').value;
+    const idNumber   = document.getElementById('emp-id-number').value.trim();
+    const expiryDate = document.getElementById('emp-id-expiry').value;
+    const errEl      = document.getElementById('emp-id-error');
+    errEl.style.display = 'none';
+
+    // Validation
+    if (!countryId) {
+        errEl.textContent = 'Please select a country.';
+        errEl.style.display = 'inline';
+        return;
+    }
+    if (!idTypeId) {
+        errEl.textContent = 'Please select an ID type.';
+        errEl.style.display = 'inline';
+        return;
+    }
+    if (!idNumber) {
+        errEl.textContent = 'ID Number is mandatory.';
+        errEl.style.display = 'inline';
+        return;
+    }
+    if (expiryDate) {
+        const today = new Date().toISOString().split('T')[0];
+        if (expiryDate <= today) {
+            errEl.textContent = 'Expiry Date must be a future date.';
+            errEl.style.display = 'inline';
+            return;
+        }
+    }
+    // Duplicate ID Type check (warn if same type already added, skip for current edit index)
+    const dupIdx = tempEmpIds.findIndex(function (r, i) {
+        return String(r.idTypeId) === String(idTypeId) && i !== editingIdIdx;
+    });
+    if (dupIdx !== -1) {
+        if (!confirm('This employee already has a record for this ID type. Add anyway?')) return;
+    }
+
+    if (editingIdIdx !== null) {
+        // Update existing record
+        tempEmpIds[editingIdIdx] = { ...tempEmpIds[editingIdIdx], countryId, idTypeId, idNumber, expiryDate };
+    } else {
+        // Add new record
+        tempEmpIds.push({ id: Date.now(), countryId, idTypeId, idNumber, expiryDate });
+    }
+    resetIdAddForm();
+    renderEmpIdList();
+});
+
+/** Cancel edit on ID sub-form */
+document.getElementById('emp-id-cancel-edit-btn').addEventListener('click', function () {
+    resetIdAddForm();
+});
+
+/** Edit / Delete row clicks (event delegation on tbody) */
+document.getElementById('emp-id-tbody').addEventListener('click', function (e) {
+    const editBtn   = e.target.closest('.emp-id-edit-btn');
+    const deleteBtn = e.target.closest('.emp-id-delete-btn');
+
+    if (editBtn) {
+        const idx = Number(editBtn.getAttribute('data-idx'));
+        const rec = tempEmpIds[idx];
+        if (!rec) return;
+        editingIdIdx = idx;
+
+        // Populate sub-form with record values
+        document.getElementById('emp-id-country').value = rec.countryId;
+        populateIdTypeSelect(rec.countryId);
+        // Wait for options to render, then set value
+        setTimeout(function () {
+            document.getElementById('emp-id-type').value = rec.idTypeId;
+        }, 0);
+        document.getElementById('emp-id-number').value  = rec.idNumber;
+        document.getElementById('emp-id-expiry').value  = rec.expiryDate || '';
+        document.getElementById('emp-id-add-btn').innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Update ID';
+        document.getElementById('emp-id-cancel-edit-btn').style.display = 'inline-flex';
+    }
+
+    if (deleteBtn) {
+        const idx = Number(deleteBtn.getAttribute('data-idx'));
+        if (!confirm('Remove this ID record?')) return;
+        tempEmpIds.splice(idx, 1);
+        renderEmpIdList();
+        if (editingIdIdx === idx) resetIdAddForm();
+    }
+});
+
+// ── 6C. ID Alerts ──────────────────────────────
+
+function buildIdNotifyMailto(emp, record, status) {
+    const countries   = JSON.parse(localStorage.getItem('prowess-id-countries')) || [];
+    const types       = JSON.parse(localStorage.getItem('prowess-id-types'))     || [];
+    const countryName = countries.find(c => String(c.id) === String(record.countryId))?.name || '—';
+    const typeName    = types.find(t => String(t.id) === String(record.idTypeId))?.name       || '—';
+
+    const hrEmails  = getHrEmails();
+    const toAddress = emp.businessEmail || emp.personalEmail || '';
+    const ccAddress = hrEmails.filter(e => e !== toAddress).join(',');
+
+    let subject, body;
+    if (status === 'Expired') {
+        subject = `Your ${typeName} has expired`;
+        body    = `Dear ${emp.name},\n\nYour ${typeName} for ${countryName} has expired on ${record.expiryDate}.\n` +
+                  `Please update your records immediately.\n\nRegards,\nHR Team`;
+    } else {
+        const today    = new Date(); today.setHours(0, 0, 0, 0);
+        const diffDays = Math.floor((new Date(record.expiryDate) - today) / 86400000);
+        subject = `Your ${typeName} is expiring soon`;
+        body    = `Dear ${emp.name},\n\nYour ${typeName} for ${countryName} will expire on ${record.expiryDate} ` +
+                  `(in ${diffDays} day${diffDays !== 1 ? 's' : ''}).\n` +
+                  `Please take necessary action to renew it.\n\nRegards,\nHR Team`;
+    }
+
+    let href = `mailto:${toAddress}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    if (ccAddress) href += `&cc=${encodeURIComponent(ccAddress)}`;
+    return href;
+}
+
+function renderIdAlerts() {
+    const panel = document.getElementById('id-alerts-panel');
+    if (!panel) return;
+
+    // Collect all ID records needing attention across all employees
+    const alerts = [];
+    employees.forEach(function (emp) {
+        (emp.identifications || []).forEach(function (rec) {
+            const status = getIdStatus(rec);
+            if (status === 'Expired' || status === 'Expiring Soon') {
+                alerts.push({ emp, record: rec, status });
+            }
+        });
+    });
+
+    // Update sidebar badge for IDs (combine with passport badge later if needed)
+    if (alerts.length === 0) {
+        panel.style.display = 'none';
+        panel.innerHTML     = '';
+        return;
+    }
+
+    // Sort: Expired first, then Expiring Soon; within each group, soonest first
+    const statusOrder = { 'Expired': 0, 'Expiring Soon': 1 };
+    alerts.sort((a, b) => {
+        const so = statusOrder[a.status] - statusOrder[b.status];
+        if (so !== 0) return so;
+        return (a.record.expiryDate || '').localeCompare(b.record.expiryDate || '');
+    });
+
+    const countries = JSON.parse(localStorage.getItem('prowess-id-countries')) || [];
+    const types     = JSON.parse(localStorage.getItem('prowess-id-types'))     || [];
+
+    function buildRows(items) {
+        return items.map(function ({ emp, record, status }) {
+            const countryName = countries.find(c => String(c.id) === String(record.countryId))?.name || '—';
+            const typeName    = types.find(t => String(t.id) === String(record.idTypeId))?.name       || '—';
+            const today       = new Date(); today.setHours(0,0,0,0);
+            const diffDays    = record.expiryDate
+                ? Math.floor((new Date(record.expiryDate) - today) / 86400000)
+                : null;
+            const dayLabel    = status === 'Expired'
+                ? `Expired ${Math.abs(diffDays)}d ago`
+                : `Expires in ${diffDays}d`;
+            const levelClass  = status === 'Expired' ? 'id-alert-expired' : 'id-alert-expiring';
+            const mailtoHref  = buildIdNotifyMailto(emp, record, status);
+
+            return `
+              <div class="pa-row">
+                <div class="pa-emp-info">
+                    <strong>${emp.name}</strong>
+                    <span class="pa-empid">${emp.employeeId}</span>
+                </div>
+                <div class="pa-passport-info">
+                    <span>${countryName}</span>
+                    <span class="pa-sep">·</span>
+                    <span><strong>${typeName}</strong></span>
+                    <span class="pa-sep">·</span>
+                    <span>${record.idNumber}</span>
+                    <span class="pa-sep">·</span>
+                    <span>${record.expiryDate || '—'}</span>
+                </div>
+                <div class="pa-days-badge ${levelClass}">${dayLabel}</div>
+                <a class="pa-notify-btn" href="${mailtoHref}" title="Notify ${emp.name}">
+                    <i class="fa-solid fa-envelope"></i> Notify
+                </a>
+              </div>`;
+        }).join('');
+    }
+
+    const expired  = alerts.filter(a => a.status === 'Expired');
+    const expiring = alerts.filter(a => a.status === 'Expiring Soon');
+
+    let html = `<div class="passport-alerts-card id-alerts-card">
+      <div class="pa-header">
+        <i class="fa-solid fa-id-card-clip"></i>
+        ID Expiry Alerts &nbsp;<span class="pa-total-badge">${alerts.length} record${alerts.length !== 1 ? 's' : ''}</span>
+        <span class="pa-header-hint">Clicking "Notify" opens a pre-filled email in your mail client.</span>
+      </div>`;
+
+    if (expired.length)  html += `<div class="pa-section-title pa-title-expired"><i class="fa-solid fa-circle-xmark"></i> Expired (${expired.length})</div>${buildRows(expired)}`;
+    if (expiring.length) html += `<div class="pa-section-title pa-title-critical"><i class="fa-solid fa-circle-exclamation"></i> Expiring within ${ID_EXPIRY_ALERT_DAYS} days (${expiring.length})</div>${buildRows(expiring)}`;
+
+    html += `</div>`;
+    panel.innerHTML    = html;
+    panel.style.display = 'block';
+}
+
+// ── Wire export buttons ── (already done above, this is just init ordering)
+
 // ── INITIALIZE ──────────────────────────────────
 
 initReferenceData();
+initIdReferenceData();
 populateEmployeeFormDropdowns();
+populateIdCountrySelects();
 populateDeptFormDropdowns();
 renderEmployees();
 renderDepartments();
 renderOrgChart();
 renderProjects();
 renderWfRoles();
+renderIdCountries();
+renderIdTypes();
