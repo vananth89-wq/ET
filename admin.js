@@ -1265,68 +1265,11 @@ function resetDeptForm() {
 // ── ORG CHART ───────────────────────────────────
 
 function renderOrgChart() {
-    const container = document.getElementById('org-chart');
-    if (!container) return;
-
-    // Only show departments active on the selected view date
-    const activeDepts = departments.filter(d => isDeptActive(d));
-
-    if (activeDepts.length === 0) {
-        const msg = departments.length === 0
-            ? 'Add departments to see the org chart.'
-            : `No active departments on ${formatViewDate()}.`;
-        container.innerHTML = `<p class="no-data" style="padding:20px 0;">${msg}</p>`;
-        return;
-    }
-
-    // Root = active depts whose parent is either absent or not active on this date
-    const activeDeptIds = new Set(activeDepts.map(d => d.deptId));
-    const roots = activeDepts.filter(d => !d.parentDeptId || !activeDeptIds.has(d.parentDeptId));
-
-    container.innerHTML = `
-        <div class="org-tree-wrap">
-            <ul class="org-tree">
-                ${roots.map(d => buildTreeNode(d, activeDepts)).join('')}
-            </ul>
-        </div>
-    `;
+    docRenderOrgChart();
 }
 
 function formatViewDate() {
     return new Date(deptViewDate + 'T00:00:00').toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' });
-}
-
-function buildTreeNode(dept, activeDepts) {
-    const empCount = employees.filter(e => e.departmentId === dept.deptId).length;
-    const headName = dept.headId
-        ? (employees.find(e => e.employeeId === dept.headId)?.name || dept.headId)
-        : 'No Head';
-
-    // Only recurse into children that are also active on the selected date
-    const children = activeDepts.filter(d => d.parentDeptId === dept.deptId);
-
-    return `
-        <li>
-            <div class="org-node">
-                <div class="org-node-header">
-                    <span class="org-dept-id">${dept.deptId}</span>
-                    <span class="org-dept-name">${dept.name}</span>
-                </div>
-                <div class="org-node-body">
-                    <span class="org-head">
-                        <i class="fa-solid fa-user-tie"></i> ${headName}
-                    </span>
-                    <span class="org-emp-count">
-                        <i class="fa-solid fa-users"></i> ${empCount} emp
-                    </span>
-                </div>
-            </div>
-            ${children.length > 0
-                ? `<ul>${children.map(c => buildTreeNode(c, activeDepts)).join('')}</ul>`
-                : ''
-            }
-        </li>
-    `;
 }
 
 // ═══════════════════════════════════════════════
@@ -2950,3 +2893,570 @@ renderProjects();
 renderWfRoles();
 renderIdCountries();
 renderIdTypes();
+
+// ═══════════════════════════════════════════════════════════════════
+// ── DEPARTMENT ORG CHART  (doc-* prefix, admin Departments tab) ────
+// ═══════════════════════════════════════════════════════════════════
+
+function escHtml(str) {
+    return String(str || '')
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+const DOC_PALETTE = [
+    { bg: '#EBF4FF', border: '#3B82F6', avatar: '#1D4ED8' },
+    { bg: '#F0FDF4', border: '#22C55E', avatar: '#15803D' },
+    { bg: '#FFF7ED', border: '#F97316', avatar: '#C2410C' },
+    { bg: '#FDF4FF', border: '#A855F7', avatar: '#7E22CE' },
+    { bg: '#FFF1F2', border: '#F43F5E', avatar: '#BE123C' },
+    { bg: '#F0FDFA', border: '#14B8A6', avatar: '#0F766E' },
+    { bg: '#FFFBEB', border: '#EAB308', avatar: '#A16207' },
+    { bg: '#F5F3FF', border: '#8B5CF6', avatar: '#6D28D9' },
+    { bg: '#ECFEFF', border: '#06B6D4', avatar: '#0E7490' },
+    { bg: '#FFF0F0', border: '#EF4444', avatar: '#B91C1C' },
+];
+
+// State
+let docMap        = {};
+let docRoots      = [];
+let docCollapsed  = new Set();
+let docSelectedId = null;
+let docFocusId    = null;
+let docZoom       = 1;
+let docPanX       = 0;
+let docPanY       = 0;
+let docDragging   = false;
+let docDragStart  = { x: 0, y: 0, px: 0, py: 0 };
+
+// ── Color helpers ──────────────────────────────────────────────────
+
+function docColor(deptId) {
+    const n = String(deptId || 'a').split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+    return DOC_PALETTE[Math.abs(n) % DOC_PALETTE.length];
+}
+
+// ── Tree builders ──────────────────────────────────────────────────
+
+function docBuildTree(deptList) {
+    docMap   = {};
+    docRoots = [];
+    deptList.forEach(d => { docMap[d.deptId] = Object.assign({}, d, { children: [] }); });
+    deptList.forEach(d => {
+        if (d.parentDeptId && docMap[d.parentDeptId]) {
+            docMap[d.parentDeptId].children.push(docMap[d.deptId]);
+        } else {
+            docRoots.push(docMap[d.deptId]);
+        }
+    });
+    function sortChildren(node) {
+        node.children.sort((a, b) => a.name.localeCompare(b.name));
+        node.children.forEach(sortChildren);
+    }
+    docRoots.forEach(sortChildren);
+}
+
+function docSubDeptCount(deptId) {
+    const node = docMap[deptId];
+    if (!node) return 0;
+    let count = node.children.length;
+    node.children.forEach(c => { count += docSubDeptCount(c.deptId); });
+    return count;
+}
+
+function docReportingChain(deptId) {
+    const chain = [];
+    let cur = docMap[deptId];
+    while (cur) {
+        chain.unshift(cur.deptId);
+        cur = cur.parentDeptId ? docMap[cur.parentDeptId] : null;
+    }
+    return chain;
+}
+
+function docAllSubDepts(deptId) {
+    const result = [];
+    const node   = docMap[deptId];
+    if (!node) return result;
+    node.children.forEach(c => {
+        result.push(c.deptId);
+        result.push(...docAllSubDepts(c.deptId));
+    });
+    return result;
+}
+
+// ── Card renderer (recursive) ──────────────────────────────────────
+
+function docRenderNode(node) {
+    const color      = docColor(node.deptId);
+    const initial    = (node.name || '?').charAt(0).toUpperCase();
+    const hasChildren = node.children.length > 0;
+    const collapsed   = docCollapsed.has(node.deptId);
+    const subCount    = docSubDeptCount(node.deptId);
+    const empCount    = employees.filter(e => e.departmentId === node.deptId).length;
+    const headName    = node.headId
+        ? (employees.find(e => e.employeeId === node.headId)?.name || node.headId)
+        : 'No Head';
+    const parentName  = node.parentDeptId && docMap[node.parentDeptId]
+        ? docMap[node.parentDeptId].name : null;
+
+    const wrap = document.createElement('div');
+    wrap.className     = 'eoc-node-wrap';
+    wrap.dataset.deptId = node.deptId;
+
+    const card = document.createElement('div');
+    card.className     = 'eoc-card doc-dept-card';
+    card.dataset.deptId = node.deptId;
+    card.style.setProperty('--eoc-border', color.border);
+    card.style.setProperty('--eoc-bg',     color.bg);
+    card.title = node.name + ' — click for details, double-click to focus';
+
+    card.innerHTML =
+        '<div class="eoc-avatar" style="background:' + color.avatar + ';">' + initial + '</div>' +
+        '<div class="eoc-card-body">' +
+            '<div class="eoc-card-name">' + escHtml(node.name) + '</div>' +
+            '<div class="eoc-card-desg"><i class="fa-solid fa-user-tie" style="font-size:10px;margin-right:3px;"></i>' + escHtml(headName) + '</div>' +
+            (parentName ? '<div class="eoc-card-dept">' + escHtml(parentName) + '</div>' : '') +
+            '<div class="eoc-card-id">' + escHtml(node.deptId) + '</div>' +
+        '</div>' +
+        '<div class="eoc-team-badge" style="gap:6px;">' +
+            '<i class="fa-solid fa-users"></i> ' + empCount + ' emp' +
+            (subCount > 0 ? ' &nbsp;·&nbsp; <i class="fa-solid fa-sitemap"></i> ' + subCount + ' sub' : '') +
+        '</div>';
+
+    wrap.appendChild(card);
+
+    if (hasChildren) {
+        const toggle = document.createElement('button');
+        toggle.className     = 'eoc-toggle-btn';
+        toggle.dataset.deptId = node.deptId;
+        toggle.title   = collapsed ? 'Expand' : 'Collapse';
+        toggle.innerHTML = collapsed
+            ? '<i class="fa-solid fa-plus"></i>'
+            : '<i class="fa-solid fa-minus"></i>';
+        wrap.appendChild(toggle);
+    }
+
+    if (hasChildren && !collapsed) {
+        const childRow = document.createElement('div');
+        childRow.className        = 'eoc-children-row';
+        childRow.dataset.parentDeptId = node.deptId;
+        node.children.forEach(child => {
+            const cWrap = document.createElement('div');
+            cWrap.className = 'eoc-child-wrap';
+            cWrap.appendChild(docRenderNode(child));
+            childRow.appendChild(cWrap);
+        });
+        wrap.appendChild(childRow);
+    }
+
+    return wrap;
+}
+
+// ── SVG connector lines ────────────────────────────────────────────
+
+function docDrawLines() {
+    const canvas = document.getElementById('doc-canvas');
+    if (!canvas) return;
+    const old = document.getElementById('doc-svg');
+    if (old) old.remove();
+
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.id = 'doc-svg';
+    svg.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible;z-index:0;';
+
+    const canvasRect = canvas.getBoundingClientRect();
+
+    document.querySelectorAll('.eoc-children-row[data-parent-dept-id]').forEach(row => {
+        const parentId   = row.dataset.parentDeptId;
+        const parentCard = canvas.querySelector('.eoc-card[data-dept-id="' + parentId + '"]');
+        if (!parentCard) return;
+        const childCards = Array.from(
+            row.querySelectorAll(':scope > .eoc-child-wrap > .eoc-node-wrap > .eoc-card')
+        );
+        if (!childCards.length) return;
+
+        const pr  = parentCard.getBoundingClientRect();
+        const px  = pr.left + pr.width / 2 - canvasRect.left;
+        const py  = pr.bottom               - canvasRect.top;
+        const gap = 24;
+
+        const pts = childCards.map(c => {
+            const r = c.getBoundingClientRect();
+            return { x: r.left + r.width / 2 - canvasRect.left, y: r.top - canvasRect.top };
+        });
+
+        const onChain = parentCard.classList.contains('eoc-card--chain') ||
+                        parentCard.classList.contains('eoc-card--selected');
+        const lineCol = onChain ? '#3B82F6' : '#C8D8EA';
+        const lineW   = onChain ? '2.5'     : '1.5';
+
+        function mkLine(x1, y1, x2, y2) {
+            const el = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            el.setAttribute('x1', x1); el.setAttribute('y1', y1);
+            el.setAttribute('x2', x2); el.setAttribute('y2', y2);
+            el.setAttribute('stroke', lineCol);
+            el.setAttribute('stroke-width', lineW);
+            el.setAttribute('stroke-linecap', 'round');
+            svg.appendChild(el);
+        }
+
+        const barY = py + gap;
+        if (pts.length === 1) {
+            mkLine(px, py, pts[0].x, pts[0].y);
+        } else {
+            mkLine(px, py, px, barY);
+            const minX = Math.min(...pts.map(p => p.x));
+            const maxX = Math.max(...pts.map(p => p.x));
+            mkLine(minX, barY, maxX, barY);
+            pts.forEach(p => mkLine(p.x, barY, p.x, p.y));
+        }
+    });
+
+    canvas.insertBefore(svg, canvas.firstChild);
+}
+
+// ── Highlight ──────────────────────────────────────────────────────
+
+function docApplyHighlight() {
+    const cards = document.querySelectorAll('.doc-dept-card');
+    cards.forEach(c => c.classList.remove('eoc-card--selected','eoc-card--chain','eoc-card--sub','eoc-card--dimmed'));
+
+    if (!docFocusId && !docSelectedId) return;
+    const focusId = docFocusId || docSelectedId;
+    const chain   = docReportingChain(focusId);
+    const subs    = docAllSubDepts(focusId);
+
+    cards.forEach(c => {
+        const id = c.dataset.deptId;
+        if (id === focusId)               c.classList.add('eoc-card--selected');
+        else if (chain.includes(id))       c.classList.add('eoc-card--chain');
+        else if (subs.includes(id))        c.classList.add('eoc-card--sub');
+        else                               c.classList.add('eoc-card--dimmed');
+    });
+
+    docDrawLines();
+}
+
+// ── Zoom / pan ─────────────────────────────────────────────────────
+
+function docApplyTransform() {
+    const canvas = document.getElementById('doc-canvas');
+    if (canvas) {
+        canvas.style.transform       = `translate(${docPanX}px,${docPanY}px) scale(${docZoom})`;
+        canvas.style.transformOrigin = '0 0';
+    }
+    const lbl = document.getElementById('doc-zoom-level');
+    if (lbl) lbl.textContent = Math.round(docZoom * 100) + '%';
+}
+
+function docResetView() {
+    setTimeout(() => {
+        const viewport = document.getElementById('doc-viewport');
+        const canvas   = document.getElementById('doc-canvas');
+        if (!viewport || !canvas) return;
+        const vw = viewport.clientWidth;
+        const ch = canvas.scrollWidth;
+        docZoom = 1;
+        docPanX = Math.max(0, (vw - ch) / 2);
+        docPanY = 40;
+        docApplyTransform();
+    }, 80);
+}
+
+function docSetupZoomPan() {
+    const viewport = document.getElementById('doc-viewport');
+    if (!viewport || viewport._docReady) return;
+    viewport._docReady = true;
+
+    viewport.addEventListener('wheel', e => {
+        e.preventDefault();
+        const factor  = e.deltaY > 0 ? 0.9 : 1.1;
+        const newZoom = Math.max(0.25, Math.min(2.5, docZoom * factor));
+        const rect    = viewport.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+        docPanX = mx - (mx - docPanX) * (newZoom / docZoom);
+        docPanY = my - (my - docPanY) * (newZoom / docZoom);
+        docZoom = newZoom;
+        docApplyTransform();
+    }, { passive: false });
+
+    viewport.addEventListener('mousedown', e => {
+        if (e.target.closest('.eoc-card') || e.target.closest('.eoc-toggle-btn')) return;
+        docDragging  = true;
+        docDragStart = { x: e.clientX, y: e.clientY, px: docPanX, py: docPanY };
+        viewport.style.cursor = 'grabbing';
+        e.preventDefault();
+    });
+    document.addEventListener('mousemove', e => {
+        if (!docDragging) return;
+        docPanX = docDragStart.px + (e.clientX - docDragStart.x);
+        docPanY = docDragStart.py + (e.clientY - docDragStart.y);
+        docApplyTransform();
+    });
+    document.addEventListener('mouseup', () => {
+        if (!docDragging) return;
+        docDragging = false;
+        const vp = document.getElementById('doc-viewport');
+        if (vp) vp.style.cursor = 'grab';
+    });
+}
+
+// ── Details panel ──────────────────────────────────────────────────
+
+function docShowDetails(deptId) {
+    const dept  = docMap[deptId];
+    if (!dept) return;
+    docSelectedId = deptId;
+
+    const panel = document.getElementById('doc-details-panel');
+    const body  = document.getElementById('doc-details-body');
+    if (!panel || !body) return;
+
+    const color    = docColor(deptId);
+    const initial  = (dept.name || '?').charAt(0).toUpperCase();
+    const headEmp  = dept.headId ? employees.find(e => e.employeeId === dept.headId) : null;
+    const headName = headEmp ? headEmp.name : (dept.headId || '—');
+    const empCount = employees.filter(e => e.departmentId === deptId).length;
+    const subDepts = (docMap[deptId]?.children || []).map(c => c.name);
+    const parentName = dept.parentDeptId && docMap[dept.parentDeptId]
+        ? docMap[dept.parentDeptId].name : 'Top Level';
+    const chain    = docReportingChain(deptId);
+
+    const chainHtml = chain.map(id => {
+        const n = docMap[id];
+        return n ? '<span class="eoc-chain-pill">' + escHtml(n.name) + '</span>' : '';
+    }).join('<i class="fa-solid fa-angle-right eoc-chain-arrow"></i>');
+
+    function detRow(icon, label, value) {
+        return '<div class="eoc-det-row">' +
+            '<div class="eoc-det-icon"><i class="fa-solid fa-' + icon + '"></i></div>' +
+            '<div><div class="eoc-det-label">' + label + '</div>' +
+            '<div class="eoc-det-value">' + escHtml(String(value)) + '</div></div>' +
+            '</div>';
+    }
+
+    body.innerHTML =
+        '<div class="eoc-det-hero">' +
+            '<div class="eoc-det-avatar" style="background:' + color.avatar + ';">' + initial + '</div>' +
+            '<div class="eoc-det-name">'  + escHtml(dept.name)   + '</div>' +
+            '<div class="eoc-det-desg" style="color:#888;">Department</div>' +
+            '<div class="eoc-det-id">'    + escHtml(dept.deptId) + '</div>' +
+        '</div>' +
+        '<div class="eoc-det-grid">' +
+            detRow('user-tie',      'Department Head',  headName) +
+            detRow('sitemap',       'Parent',           parentName) +
+            detRow('users',         'Employees',        empCount + ' member' + (empCount !== 1 ? 's' : '')) +
+            detRow('code-branch',   'Sub-Departments',  subDepts.length > 0 ? subDepts.join(', ') : 'None') +
+            detRow('calendar-plus', 'Start Date',       formatDateDisplay(dept.startDate)) +
+            detRow('calendar-xmark','End Date',         formatDateDisplay(dept.endDate)) +
+        '</div>' +
+        (chain.length > 1
+            ? '<div class="eoc-det-section"><div class="eoc-det-section-title"><i class="fa-solid fa-route"></i> Hierarchy Chain</div>' +
+              '<div class="eoc-chain-row">' + chainHtml + '</div></div>'
+            : '') +
+        '<div class="eoc-det-actions">' +
+            '<button class="oc-btn oc-btn-primary btn-focus-mode" onclick="docFocusOn(\'' + deptId + '\')"><i class="fa-solid fa-crosshairs"></i> Focus on this dept</button>' +
+        '</div>';
+
+    panel.classList.add('eoc-details-panel--open');
+    docApplyHighlight();
+}
+
+// ── Focus mode ─────────────────────────────────────────────────────
+
+function docFocusOn(deptId) {
+    docFocusId = deptId;
+    const dept = docMap[deptId];
+    if (!dept) return;
+
+    const bar    = document.getElementById('doc-focus-bar');
+    const nameEl = document.getElementById('doc-focus-name');
+    if (bar)    bar.style.display  = 'flex';
+    if (nameEl) nameEl.textContent = dept.name;
+
+    docReportingChain(deptId).forEach(id => docCollapsed.delete(id));
+    docAllSubDepts(deptId).forEach(id => docCollapsed.delete(id));
+
+    docRenderOrgChart();
+    docApplyHighlight();
+
+    setTimeout(() => {
+        const card = document.querySelector('.doc-dept-card[data-dept-id="' + deptId + '"]');
+        if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+    }, 150);
+}
+
+function docClearFocus() {
+    docFocusId    = null;
+    docSelectedId = null;
+    const bar = document.getElementById('doc-focus-bar');
+    if (bar) bar.style.display = 'none';
+    const panel = document.getElementById('doc-details-panel');
+    if (panel) panel.classList.remove('eoc-details-panel--open');
+    docApplyHighlight();
+    docDrawLines();
+}
+
+// ── Main render ─────────────────────────────────────────────────────
+
+function docRenderOrgChart() {
+    const root = document.getElementById('doc-tree-root');
+    if (!root) return;
+
+    const activeDepts   = departments.filter(d => isDeptActive(d));
+    const activeDeptIds = new Set(activeDepts.map(d => d.deptId));
+
+    if (activeDepts.length === 0) {
+        const msg = departments.length === 0
+            ? 'Add departments to see the org chart.'
+            : `No active departments on ${formatViewDate()}.`;
+        root.innerHTML = '<p class="no-data" style="padding:40px;text-align:center;">' + msg + '</p>';
+        return;
+    }
+
+    // Apply search filter if active
+    const searchQ = (document.getElementById('doc-search')?.value || '').trim().toLowerCase();
+    let deptList = activeDepts;
+    if (searchQ) {
+        const matched = new Set(
+            activeDepts
+                .filter(d => d.name.toLowerCase().includes(searchQ) || d.deptId.toLowerCase().includes(searchQ))
+                .map(d => d.deptId)
+        );
+        // Include ancestors so tree is coherent
+        matched.forEach(id => {
+            docReportingChain(id).forEach(aid => matched.add(aid));
+        });
+        deptList = activeDepts.filter(d => matched.has(d.deptId));
+    }
+
+    docBuildTree(deptList);
+
+    root.innerHTML = '';
+
+    if (docRoots.length === 0) {
+        root.innerHTML = '<p class="no-data" style="padding:40px;text-align:center;">No matching departments.</p>';
+        return;
+    }
+
+    const rootRow = document.createElement('div');
+    rootRow.className = 'eoc-roots-row';
+
+    docRoots.forEach(node => {
+        const wrap = document.createElement('div');
+        wrap.className = 'eoc-root-wrap';
+        wrap.appendChild(docRenderNode(node));
+        rootRow.appendChild(wrap);
+    });
+
+    root.appendChild(rootRow);
+
+    requestAnimationFrame(() => {
+        docDrawLines();
+        docApplyHighlight();
+    });
+}
+
+// ── Event wiring ────────────────────────────────────────────────────
+
+(function docSetupEvents() {
+
+    // Card click → details; double-click → focus
+    document.addEventListener('click', e => {
+        const card = e.target.closest('.doc-dept-card');
+        if (card) { docShowDetails(card.dataset.deptId); return; }
+
+        const toggle = e.target.closest('.eoc-toggle-btn[data-dept-id]');
+        if (toggle) {
+            const id = toggle.dataset.deptId;
+            if (docCollapsed.has(id)) docCollapsed.delete(id);
+            else docCollapsed.add(id);
+            docRenderOrgChart();
+            return;
+        }
+
+        const detClose = e.target.closest('#doc-details-close');
+        if (detClose) {
+            document.getElementById('doc-details-panel').classList.remove('eoc-details-panel--open');
+            docSelectedId = null;
+            docApplyHighlight();
+            docDrawLines();
+        }
+    });
+
+    document.addEventListener('dblclick', e => {
+        const card = e.target.closest('.doc-dept-card');
+        if (card) docFocusOn(card.dataset.deptId);
+    });
+
+    // Expand / Collapse All
+    document.getElementById('doc-expand-all')?.addEventListener('click', () => {
+        docCollapsed.clear();
+        docRenderOrgChart();
+    });
+    document.getElementById('doc-collapse-all')?.addEventListener('click', () => {
+        Object.keys(docMap).forEach(id => {
+            if (docMap[id].children.length > 0) docCollapsed.add(id);
+        });
+        docRenderOrgChart();
+    });
+
+    // Zoom buttons
+    document.getElementById('doc-zoom-in')?.addEventListener('click', () => {
+        docZoom = Math.min(2.5, docZoom * 1.2); docApplyTransform();
+    });
+    document.getElementById('doc-zoom-out')?.addEventListener('click', () => {
+        docZoom = Math.max(0.25, docZoom / 1.2); docApplyTransform();
+    });
+    document.getElementById('doc-zoom-reset')?.addEventListener('click', () => {
+        docZoom = 1; docPanX = 0; docPanY = 0;
+        docApplyTransform();
+        docResetView();
+    });
+
+    // Search
+    const docSearchEl = document.getElementById('doc-search');
+    const docClearEl  = document.getElementById('doc-search-clear');
+    if (docSearchEl) {
+        docSearchEl.addEventListener('input', function () {
+            const q = this.value.trim();
+            if (docClearEl) docClearEl.style.display = q ? 'flex' : 'none';
+            docRenderOrgChart();
+            setTimeout(docResetView, 80);
+        });
+    }
+    if (docClearEl) {
+        docClearEl.addEventListener('click', () => {
+            if (docSearchEl) docSearchEl.value = '';
+            docClearEl.style.display = 'none';
+            docClearFocus();
+            docRenderOrgChart();
+        });
+    }
+
+    // Focus bar — clear
+    document.getElementById('doc-focus-clear')?.addEventListener('click', () => {
+        if (docSearchEl) docSearchEl.value = '';
+        if (docClearEl)  docClearEl.style.display = 'none';
+        docClearFocus();
+        docRenderOrgChart();
+    });
+
+    // Re-draw lines on resize when dept tab is active
+    window.addEventListener('resize', () => {
+        if (document.getElementById('tab-departments')?.classList.contains('active')) {
+            docDrawLines();
+        }
+    });
+
+    // Tab activation → setup zoom/pan
+    document.querySelectorAll('.tab-item[data-tab="departments"]').forEach(item => {
+        item.addEventListener('click', () => {
+            docSetupZoomPan();
+            setTimeout(docResetView, 120);
+        });
+    });
+
+})();

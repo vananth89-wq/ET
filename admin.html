@@ -455,12 +455,67 @@
                     <span class="dept-date-hint" id="dept-date-hint"></span>
                 </div>
 
-                <!-- ORG CHART — appears above form -->
-                <div class="form-card" style="margin-bottom: 24px;">
-                    <h3 class="chart-title">Organisation Structure</h3>
-                    <div id="org-chart">
-                        <p class="no-data" style="padding: 20px 0;">Add departments to see the org chart.</p>
+                <!-- ORG CHART — interactive dept tree -->
+                <div class="form-card doc-chart-card" style="margin-bottom:24px; padding:0; overflow:hidden;">
+                    <div style="padding:18px 20px 14px; border-bottom:1px solid var(--border);">
+                        <h3 class="chart-title" style="margin:0;">Organisation Structure</h3>
                     </div>
+
+                    <!-- Toolbar -->
+                    <div class="oc-toolbar" style="border-radius:0;">
+                        <div class="oc-toolbar-left">
+                            <div class="oc-search-wrap">
+                                <i class="fa-solid fa-magnifying-glass"></i>
+                                <input type="text" id="doc-search" placeholder="Search department…" autocomplete="off" />
+                                <button class="oc-search-clear" id="doc-search-clear" style="display:none;" title="Clear">
+                                    <i class="fa-solid fa-xmark"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="oc-toolbar-right">
+                            <button class="oc-btn oc-btn-ghost" id="doc-expand-all">
+                                <i class="fa-solid fa-expand"></i> Expand All
+                            </button>
+                            <button class="oc-btn oc-btn-ghost" id="doc-collapse-all">
+                                <i class="fa-solid fa-compress"></i> Collapse All
+                            </button>
+                            <div class="oc-zoom-group">
+                                <button class="oc-zoom-btn" id="doc-zoom-out" title="Zoom out">−</button>
+                                <span class="oc-zoom-label" id="doc-zoom-level">100%</span>
+                                <button class="oc-zoom-btn" id="doc-zoom-in" title="Zoom in">+</button>
+                                <button class="oc-btn oc-btn-ghost oc-zoom-reset" id="doc-zoom-reset" title="Reset view">
+                                    <i class="fa-solid fa-arrows-to-dot"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Focus banner -->
+                    <div class="oc-focus-bar" id="doc-focus-bar" style="display:none;">
+                        <i class="fa-solid fa-crosshairs"></i>
+                        <span>Focused on <strong id="doc-focus-name"></strong></span>
+                        <button class="oc-btn oc-btn-ghost oc-focus-clear" id="doc-focus-clear">
+                            <i class="fa-solid fa-xmark"></i> Clear Focus
+                        </button>
+                    </div>
+
+                    <!-- Viewport -->
+                    <div class="oc-viewport" id="doc-viewport" style="min-height:360px; border-radius:0; border:none; border-top:1px solid var(--border);">
+                        <div class="oc-canvas" id="doc-canvas">
+                            <div id="doc-tree-root"></div>
+                        </div>
+                    </div>
+
+                    <!-- Details slide-panel -->
+                    <aside class="oc-details-panel" id="doc-details-panel">
+                        <div class="oc-details-header">
+                            <span class="oc-details-title">Department Details</span>
+                            <button class="oc-details-close" id="doc-details-close">
+                                <i class="fa-solid fa-xmark"></i>
+                            </button>
+                        </div>
+                        <div class="oc-details-body" id="doc-details-body"></div>
+                    </aside>
                 </div>
 
                 <!-- ADD / EDIT FORM -->
