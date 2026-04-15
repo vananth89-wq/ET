@@ -2563,9 +2563,7 @@ tbody td:last-child {
     border-radius: 0 0 10px 10px;
     border: 1px solid var(--border);
     border-top: none;
-    /* subtle dot-grid background */
-    background-image: radial-gradient(circle, #c5cfe0 1px, transparent 1px);
-    background-size: 28px 28px;
+    background-image: none;
 }
 .oc-viewport:active { cursor: grabbing; }
 
