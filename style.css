@@ -3272,3 +3272,35 @@ tbody td:last-child {
     .poc-reports-row .eoc-card { width: 145px; }
 }
 
+
+/* ── Dept details panel – employee list ────────── */
+.doc-emp-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 6px;
+}
+.doc-emp-list-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 5px 10px;
+    background: var(--light);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    gap: 8px;
+}
+.doc-emp-list-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--navy);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.doc-emp-list-id {
+    font-size: 11px;
+    color: #888;
+    white-space: nowrap;
+    flex-shrink: 0;
+}

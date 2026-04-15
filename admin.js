@@ -3323,7 +3323,8 @@ function docShowDetails(deptId) {
     const initial  = (dept.name || '?').charAt(0).toUpperCase();
     const headEmp  = dept.headId ? employees.find(e => e.employeeId === dept.headId) : null;
     const headName = headEmp ? headEmp.name : (dept.headId || '—');
-    const empCount = employees.filter(e => e.departmentId === deptId).length;
+    const deptEmps = employees.filter(e => e.departmentId === deptId);
+    const empCount = deptEmps.length;
     const subDepts = (docMap[deptId]?.children || []).map(c => c.name);
     const parentName = dept.parentDeptId && docMap[dept.parentDeptId]
         ? docMap[dept.parentDeptId].name : 'Top Level';
@@ -3342,6 +3343,27 @@ function docShowDetails(deptId) {
             '</div>';
     }
 
+    // Build employees list HTML
+    const empListHtml = empCount === 0
+        ? '<span class="eoc-det-value">None</span>'
+        : '<div class="eoc-det-value">' + empCount + ' member' + (empCount !== 1 ? 's' : '') + '</div>' +
+          '<div class="doc-emp-list">' +
+          deptEmps.map(e =>
+              '<div class="doc-emp-list-item">' +
+                  '<span class="doc-emp-list-name">' + escHtml(e.name) + '</span>' +
+                  '<span class="doc-emp-list-id">' + escHtml(e.employeeId) + '</span>' +
+              '</div>'
+          ).join('') +
+          '</div>';
+
+    const empRowHtml =
+        '<div class="eoc-det-row">' +
+            '<div class="eoc-det-icon"><i class="fa-solid fa-users"></i></div>' +
+            '<div style="flex:1;min-width:0;"><div class="eoc-det-label">Employees</div>' +
+            empListHtml +
+            '</div>' +
+        '</div>';
+
     body.innerHTML =
         '<div class="eoc-det-hero">' +
             '<div class="eoc-det-avatar" style="background:' + color.avatar + ';">' + initial + '</div>' +
@@ -3352,7 +3374,7 @@ function docShowDetails(deptId) {
         '<div class="eoc-det-grid">' +
             detRow('user-tie',      'Department Head',  headName) +
             detRow('sitemap',       'Parent',           parentName) +
-            detRow('users',         'Employees',        empCount + ' member' + (empCount !== 1 ? 's' : '')) +
+            empRowHtml +
             detRow('code-branch',   'Sub-Departments',  subDepts.length > 0 ? subDepts.join(', ') : 'None') +
             detRow('calendar-plus', 'Start Date',       formatDateDisplay(dept.startDate)) +
             detRow('calendar-xmark','End Date',         formatDateDisplay(dept.endDate)) +
