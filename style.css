@@ -3036,3 +3036,228 @@ tbody td:last-child {
     .eoc-card-name, .eoc-card-desg, .eoc-card-dept { max-width: 120px; }
 }
 
+
+
+/* ═══════════════════════════════════════════════
+   EMPLOYEE ORG CHART  (index.html, tab: org-chart)
+   Uses poc-* prefix (Personal Org Chart)
+   Card/avatar styles reuse eoc-* from admin CSS
+   ═══════════════════════════════════════════════ */
+
+.poc-container {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 10px 0 40px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+}
+
+/* ── Ancestor breadcrumb chain ───────────────── */
+.poc-chain {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    padding: 10px 16px;
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 24px;
+    width: 100%;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+}
+
+.poc-chain-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 11px;
+    background: var(--light);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--navy);
+    cursor: pointer;
+    transition: background .15s, border-color .15s, color .15s;
+    white-space: nowrap;
+}
+.poc-chain-pill:hover { background: #e8f4ff; border-color: var(--blue); color: var(--blue); }
+
+.poc-chain-pill--active {
+    background: var(--navy);
+    color: var(--white);
+    border-color: var(--navy);
+    cursor: default;
+    pointer-events: none;
+}
+.poc-chain-pill--active:hover { background: var(--navy); }
+
+.poc-cp-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.poc-chain-arrow {
+    font-size: 16px;
+    color: #bbb;
+    line-height: 1;
+    padding: 0 1px;
+}
+
+/* ── Section labels ───────────────────────────── */
+.poc-section-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.7px;
+    color: #888;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.poc-section-label i { color: var(--blue); font-size: 12px; }
+
+.poc-count-badge {
+    display: inline-block;
+    background: var(--blue);
+    color: var(--white);
+    border-radius: 10px;
+    padding: 0px 7px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: none;
+    letter-spacing: 0;
+    margin-left: 2px;
+}
+
+/* ── Vertical connector line ─────────────────── */
+.poc-connector {
+    width: 2px;
+    height: 32px;
+    background: #b0c4de;
+    border-radius: 2px;
+    margin: 0 auto;
+}
+
+/* ── Manager row ──────────────────────────────── */
+.poc-manager-row {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+}
+
+.poc-mgr-card {
+    width: 190px !important;
+    opacity: 0.92;
+    border-color: #b0c4de !important;
+}
+.poc-mgr-card:hover { opacity: 1; }
+
+/* ── Self / focus section ─────────────────────── */
+.poc-self-section {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+}
+
+/* Make the focused (self) card wider and more prominent */
+.poc-focus-card {
+    width: 220px !important;
+    box-shadow: 0 4px 20px rgba(47,119,181,0.20) !important;
+    padding: 18px 18px 14px !important;
+}
+.poc-focus-card .eoc-card-name { font-size: 14px !important; max-width: 180px !important; }
+.poc-focus-card .eoc-card-desg { font-size: 12px !important; max-width: 180px !important; }
+.poc-focus-card .eoc-card-dept { max-width: 180px !important; }
+
+/* ── Reports row ──────────────────────────────── */
+.poc-reports-section {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+}
+
+.poc-reports-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    justify-content: center;
+    width: 100%;
+}
+
+.poc-reports-row .eoc-card {
+    width: 168px;
+    transition: border-color .2s, box-shadow .2s, transform .15s;
+}
+.poc-reports-row .eoc-card:hover {
+    border-color: var(--blue);
+    box-shadow: 0 4px 14px rgba(47,119,181,0.18);
+    transform: translateY(-2px);
+}
+
+/* ── "No direct reports" note ────────────────── */
+.poc-no-reports {
+    margin-top: 8px;
+    font-size: 13px;
+    color: #aaa;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.poc-no-reports i { color: var(--green); }
+
+/* ── "Back to My Position" button ────────────── */
+.poc-back-btn {
+    margin-top: 28px;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 10px 20px;
+    background: var(--navy);
+    color: var(--white);
+    border: none;
+    border-radius: 8px;
+    font-size: 13px;
+    font-family: 'Poppins', sans-serif;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background .18s;
+    box-shadow: 0 2px 8px rgba(24,52,91,0.18);
+}
+.poc-back-btn:hover { background: var(--blue); }
+
+/* ── Empty state ──────────────────────────────── */
+.poc-empty {
+    text-align: center;
+    padding: 60px 20px;
+    color: #aaa;
+    width: 100%;
+}
+.poc-empty i {
+    font-size: 48px;
+    margin-bottom: 16px;
+    display: block;
+    opacity: 0.3;
+    color: var(--blue);
+}
+.poc-empty p {
+    font-size: 14px;
+    color: #999;
+    line-height: 1.7;
+}
+
+/* ── Responsive ───────────────────────────────── */
+@media (max-width: 560px) {
+    .poc-focus-card  { width: 180px !important; }
+    .poc-mgr-card    { width: 160px !important; }
+    .poc-reports-row .eoc-card { width: 145px; }
+}
+

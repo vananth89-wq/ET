@@ -615,3 +615,241 @@ renderDashboard();
 renderInsights();
 populateMonthFilter();
 populateProjectFilter();
+
+// ══════════════════════════════════════════════
+//  EMPLOYEE ORG CHART  (tab: org-chart)
+// ══════════════════════════════════════════════
+
+let pocFocusId = null;  // currently focused employee
+let pocMeId    = null;  // logged-in employee's ID
+
+const POC_COLORS = [
+    '#2F77B5','#61CE70','#e53935','#f57f17','#8e24aa',
+    '#00897b','#f4511e','#1e88e5','#6d4c41','#546e7a'
+];
+
+function pocColor(deptId) {
+    if (!deptId) return '#2F77B5';
+    const n = String(deptId).split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+    return POC_COLORS[Math.abs(n) % POC_COLORS.length];
+}
+
+function pocInitials(name) {
+    if (!name) return '?';
+    return name.trim().split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2);
+}
+
+function pocDeptName(deptId, departments) {
+    const d = departments.find(d => String(d.id) === String(deptId));
+    return d ? d.name : '—';
+}
+
+function pocAncestors(empId, empMap) {
+    const chain = [];
+    let cur = empMap[empId];
+    while (cur && cur.managerId && empMap[cur.managerId]) {
+        cur = empMap[cur.managerId];
+        chain.unshift(cur);
+        if (chain.length > 20) break; // safety guard
+    }
+    return chain;
+}
+
+function pocMakeCard(emp, departments, isMe, isFocus, onClick) {
+    const color = pocColor(emp.departmentId);
+    const card  = document.createElement('div');
+    card.className = 'eoc-card' + (isFocus ? ' poc-focus-card eoc-card--selected' : '');
+
+    card.innerHTML = `
+        ${isMe ? '<span class="eoc-you-badge">You</span>' : ''}
+        <div class="eoc-avatar" style="background:${color};width:${isFocus ? 52 : 42}px;height:${isFocus ? 52 : 42}px;font-size:${isFocus ? 19 : 15}px">${pocInitials(emp.name)}</div>
+        <div class="eoc-card-body">
+            <div class="eoc-card-name">${emp.name || '—'}</div>
+            <div class="eoc-card-desg">${emp.designation || '—'}</div>
+            <div class="eoc-card-dept">${pocDeptName(emp.departmentId, departments)}</div>
+            <div class="eoc-card-id">#${emp.employeeId || ''}</div>
+        </div>
+    `;
+
+    if (onClick) {
+        card.style.cursor = 'pointer';
+        card.addEventListener('click', onClick);
+    }
+    return card;
+}
+
+function renderEmpOrgChartView() {
+    const container = document.getElementById('poc-container');
+    if (!container) return;
+    container.innerHTML = '';
+
+    const employees   = JSON.parse(localStorage.getItem('prowess-employees')   || '[]');
+    const departments = JSON.parse(localStorage.getItem('prowess-departments')  || '[]');
+
+    // ── Empty state ──────────────────────────────
+    if (employees.length === 0) {
+        container.innerHTML = `
+            <div class="poc-empty">
+                <i class="fa-solid fa-diagram-project"></i>
+                <p>Org chart data isn't available yet.<br>Ask your admin to add employee records.</p>
+            </div>`;
+        return;
+    }
+
+    // ── Build id → employee map ──────────────────
+    const empMap = {};
+    employees.forEach(e => { empMap[e.employeeId] = e; });
+
+    // ── Identify logged-in user (match by name) ──
+    if (!pocMeId) {
+        const profile = JSON.parse(localStorage.getItem('prowess-profile') || '{}');
+        const me = employees.find(e =>
+            e.name && profile.name &&
+            e.name.trim().toLowerCase() === profile.name.trim().toLowerCase()
+        );
+        pocMeId = me ? me.employeeId : (employees[0]?.employeeId || null);
+    }
+
+    // ── Default focus = "me" ────────────────────
+    if (!pocFocusId || !empMap[pocFocusId]) {
+        pocFocusId = pocMeId;
+    }
+
+    const focusEmp = empMap[pocFocusId];
+    if (!focusEmp) {
+        container.innerHTML = `
+            <div class="poc-empty">
+                <i class="fa-solid fa-user-slash"></i>
+                <p>Your employee profile couldn't be linked.<br>Ask your admin to check your record.</p>
+            </div>`;
+        return;
+    }
+
+    // ── 1. Ancestor breadcrumb chain ─────────────
+    const ancestors = pocAncestors(pocFocusId, empMap);
+    if (ancestors.length > 0) {
+        const chain = document.createElement('div');
+        chain.className = 'poc-chain';
+
+        ancestors.forEach((anc, i) => {
+            if (i > 0) {
+                const arr = document.createElement('span');
+                arr.className = 'poc-chain-arrow';
+                arr.textContent = '›';
+                chain.appendChild(arr);
+            }
+            const pill = document.createElement('span');
+            pill.className = 'poc-chain-pill';
+            pill.innerHTML = `<span class="poc-cp-dot" style="background:${pocColor(anc.departmentId)}"></span>${anc.name}`;
+            pill.title = `Go to ${anc.name}`;
+            pill.addEventListener('click', () => { pocFocusId = anc.employeeId; renderEmpOrgChartView(); });
+            chain.appendChild(pill);
+        });
+
+        // separator + current person
+        const arr2 = document.createElement('span');
+        arr2.className = 'poc-chain-arrow';
+        arr2.textContent = '›';
+        chain.appendChild(arr2);
+
+        const active = document.createElement('span');
+        active.className = 'poc-chain-pill poc-chain-pill--active';
+        active.innerHTML = `<span class="poc-cp-dot" style="background:${pocColor(focusEmp.departmentId)}"></span>${focusEmp.name}`;
+        chain.appendChild(active);
+
+        container.appendChild(chain);
+    }
+
+    // ── 2. Manager card (one level up) ───────────
+    const mgr = focusEmp.managerId ? empMap[focusEmp.managerId] : null;
+    if (mgr) {
+        const mgrSection = document.createElement('div');
+        mgrSection.className = 'poc-manager-row';
+
+        const lbl = document.createElement('div');
+        lbl.className = 'poc-section-label';
+        lbl.innerHTML = '<i class="fa-solid fa-arrow-up"></i> Reports To';
+        mgrSection.appendChild(lbl);
+
+        const mgrCard = pocMakeCard(mgr, departments, mgr.employeeId === pocMeId, false, () => {
+            pocFocusId = mgr.employeeId;
+            renderEmpOrgChartView();
+        });
+        mgrCard.classList.add('poc-mgr-card');
+        mgrSection.appendChild(mgrCard);
+        container.appendChild(mgrSection);
+
+        // Connector ↓
+        const conn = document.createElement('div');
+        conn.className = 'poc-connector';
+        container.appendChild(conn);
+    }
+
+    // ── 3. Focused (self) card ───────────────────
+    const selfSection = document.createElement('div');
+    selfSection.className = 'poc-self-section';
+    selfSection.appendChild(pocMakeCard(focusEmp, departments, focusEmp.employeeId === pocMeId, true, null));
+    container.appendChild(selfSection);
+
+    // ── 4. Direct reports ────────────────────────
+    const reports = employees.filter(e => String(e.managerId) === String(pocFocusId));
+    if (reports.length > 0) {
+        // Connector ↓
+        const conn2 = document.createElement('div');
+        conn2.className = 'poc-connector';
+        container.appendChild(conn2);
+
+        const repSection = document.createElement('div');
+        repSection.className = 'poc-reports-section';
+
+        const lbl2 = document.createElement('div');
+        lbl2.className = 'poc-section-label';
+        lbl2.innerHTML = `<i class="fa-solid fa-users"></i> Direct Reports <span class="poc-count-badge">${reports.length}</span>`;
+        repSection.appendChild(lbl2);
+
+        const row = document.createElement('div');
+        row.className = 'poc-reports-row';
+
+        reports.forEach(rep => {
+            const subCount = employees.filter(e => String(e.managerId) === String(rep.employeeId)).length;
+            const card = pocMakeCard(rep, departments, rep.employeeId === pocMeId, false, () => {
+                pocFocusId = rep.employeeId;
+                renderEmpOrgChartView();
+            });
+            if (subCount > 0) {
+                const badge = document.createElement('div');
+                badge.className = 'eoc-team-badge';
+                badge.innerHTML = `<i class="fa-solid fa-users"></i> ${subCount} report${subCount > 1 ? 's' : ''}`;
+                card.appendChild(badge);
+            }
+            row.appendChild(card);
+        });
+
+        repSection.appendChild(row);
+        container.appendChild(repSection);
+    } else {
+        const noRep = document.createElement('div');
+        noRep.className = 'poc-no-reports';
+        noRep.innerHTML = '<i class="fa-solid fa-user-check"></i> No direct reports';
+        container.appendChild(noRep);
+    }
+
+    // ── 5. "Back to Me" button ───────────────────
+    if (pocFocusId !== pocMeId && pocMeId) {
+        const backBtn = document.createElement('button');
+        backBtn.className = 'poc-back-btn';
+        backBtn.innerHTML = '<i class="fa-solid fa-location-crosshairs"></i> Back to My Position';
+        backBtn.addEventListener('click', () => {
+            pocFocusId = pocMeId;
+            renderEmpOrgChartView();
+        });
+        container.appendChild(backBtn);
+    }
+}
+
+// ── Wire tab click → render org chart ──────────
+document.querySelector('[data-tab="org-chart"]').addEventListener('click', function () {
+    pocFocusId = null; // reset to "me" on each tab open
+    pocMeId    = null; // re-derive from profile in case it changed
+    renderEmpOrgChartView();
+});
