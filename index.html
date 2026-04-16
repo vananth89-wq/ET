@@ -58,7 +58,7 @@
             <ul class="sidebar-menu">
 
                 <!-- ── Top-level items ── -->
-                <li class="tab-item" data-tab="my-profile">
+                <li class="tab-item active" data-tab="my-profile">
                     <i class="fa-solid fa-id-badge"></i>
                     <span>My Profile</span>
                 </li>
@@ -67,7 +67,7 @@
                     <span>Org Chart</span>
                 </li>
 
-                <li class="tab-item active" data-tab="my-expense">
+                <li class="tab-item" data-tab="my-expense">
                     <i class="fa-solid fa-wallet"></i>
                     <span>My Expense</span>
                 </li>
@@ -78,157 +78,270 @@
         <!-- CONTENT AREA -->
         <main class="content">
 
-            <!-- ── MY EXPENSE: unified one-pager ────── -->
-            <section id="tab-my-expense" class="tab-panel active">
-                <h2 class="page-title">My Expense</h2>
-                <div class="mp-scroll-container" id="me-scroll-container">
+            <!-- ── MY EXPENSE ──────────────────────── -->
+            <section id="tab-my-expense" class="tab-panel">
+                <div class="exp-module">
 
-                    <!-- Sticky nav injected by JS -->
-                    <div id="me-nav-placeholder"></div>
+                    <!-- ══════════════════════════════════
+                         SECTION A: REPORT LIST
+                         ══════════════════════════════════ -->
+                    <div class="exp-report-list-panel" id="exp-report-list-panel">
+                        <div class="exp-panel-header">
+                            <span class="exp-panel-title">
+                                <i class="fa-solid fa-file-invoice-dollar"></i> My Reports
+                            </span>
+                            <button class="exp-btn-new-report" id="exp-btn-new-report">
+                                <i class="fa-solid fa-plus"></i> New Report
+                            </button>
+                        </div>
+                        <!-- KPI Summary Strip -->
+                        <div class="exp-kpi-strip" id="exp-kpi-strip"></div>
 
-                    <div class="mp-sections">
+                        <!-- Status Filter Chips -->
+                        <div class="exp-filter-chips" id="exp-filter-chips"></div>
 
-                        <!-- ── DASHBOARD ── -->
-                        <section id="me-s-dashboard" class="mp-section">
-                            <div class="ev-section-title">
-                                <i class="fa-solid fa-chart-pie"></i>Expense Summary
-                            </div>
-                            <div class="cards">
-                                <div class="card total-card">
-                                    <p class="card-label">Total Expenses</p>
-                                    <p class="card-amount" id="total-amount">₹0</p>
-                                </div>
-                                <div class="card">
-                                    <p class="card-label">🚕 Cab</p>
-                                    <p class="card-amount" id="cat-Cab">₹0</p>
-                                </div>
-                                <div class="card">
-                                    <p class="card-label">📱 Mobile</p>
-                                    <p class="card-amount" id="cat-Mobile">₹0</p>
-                                </div>
-                                <div class="card">
-                                    <p class="card-label">✈️ Flight</p>
-                                    <p class="card-amount" id="cat-Flight">₹0</p>
-                                </div>
-                                <div class="card">
-                                    <p class="card-label">🌐 Internet</p>
-                                    <p class="card-amount" id="cat-Internet">₹0</p>
-                                </div>
-                                <div class="card">
-                                    <p class="card-label">📦 Miscellaneous</p>
-                                    <p class="card-amount" id="cat-Miscellaneous">₹0</p>
-                                </div>
-                            </div>
-                        </section>
+                        <div class="exp-report-table-wrap">
+                            <table class="exp-report-table" id="exp-report-table">
+                                <thead>
+                                    <tr>
+                                        <th>Report Name</th>
+                                        <th>Status</th>
+                                        <th>Total</th>
+                                        <th>Last Updated</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="exp-report-tbody">
+                                    <!-- Populated by JS -->
+                                </tbody>
+                            </table>
+                        </div>
 
-                        <!-- ── INSIGHTS ── -->
-                        <section id="me-s-insights" class="mp-section">
-                            <div class="ev-section-title">
-                                <i class="fa-solid fa-lightbulb"></i>Smart Insights
+                        <!-- Delete Confirmation Strip -->
+                        <div id="exp-delete-confirm-strip" class="exp-delete-confirm-strip" style="display:none;"
+                             role="alertdialog" aria-label="Delete report confirmation">
+                            <div class="exp-delete-confirm-inner">
+                                <i class="fa-solid fa-triangle-exclamation exp-delete-confirm-icon"></i>
+                                <span class="exp-delete-confirm-msg" id="exp-delete-confirm-msg">Delete this report? This cannot be undone.</span>
+                                <div class="exp-delete-confirm-actions">
+                                    <button id="exp-delete-cancel-btn" class="exp-delete-btn-cancel">
+                                        <i class="fa-solid fa-xmark"></i> Cancel
+                                    </button>
+                                    <button id="exp-delete-yes-btn" class="exp-delete-btn-yes">
+                                        <i class="fa-solid fa-trash"></i> Delete
+                                    </button>
+                                </div>
                             </div>
-                            <div class="insight-cards" id="insight-cards">
-                                <!-- Populated by JavaScript -->
-                            </div>
-                            <div class="charts-row">
-                                <div class="chart-card">
-                                    <h3 class="chart-title">Spending by Category</h3>
-                                    <div class="chart-container">
-                                        <canvas id="donut-chart"></canvas>
+                        </div>
+
+                    </div>
+
+                    <!-- ══════════════════════════════════
+                         SECTION B: REPORT DETAIL
+                         (hidden until a report is selected)
+                         ══════════════════════════════════ -->
+                    <div class="exp-report-detail" id="exp-report-detail" style="display:none;">
+
+                        <!-- SAP Fiori Object Header -->
+                        <div class="exp-report-header" id="exp-report-header">
+
+                            <!-- Row 1: Back + Title ‖ Status Badge + Approval Flow -->
+                            <div class="exp-obj-row-title">
+
+                                <!-- Left: back button + report title + subtitle -->
+                                <div class="exp-obj-title-area">
+                                    <button class="exp-btn-back" id="exp-btn-back" title="Back to report list">
+                                        <i class="fa-solid fa-arrow-left"></i>
+                                    </button>
+                                    <div class="exp-report-name-wrap">
+                                        <span class="exp-report-label">Expense Report</span>
+                                        <input type="text" id="exp-report-name-input"
+                                               class="exp-report-name-input"
+                                               placeholder="Report Name" />
                                     </div>
                                 </div>
-                                <div class="chart-card">
-                                    <h3 class="chart-title">Monthly Trend</h3>
-                                    <div class="chart-container">
-                                        <canvas id="bar-chart"></canvas>
+
+                                <!-- Right: status pill + approval flow stepper -->
+                                <div class="exp-obj-right-panel">
+                                    <div id="exp-report-status-badge" class="exp-status-badge exp-status-draft">Draft</div>
+                                    <div class="exp-approval-flow" id="exp-approval-flow">
+                                        <!-- Populated by expRenderApprovalFlow() -->
                                     </div>
                                 </div>
-                            </div>
-                        </section>
 
-                        <!-- ── ADD EXPENSE ── -->
-                        <section id="me-s-add-expense" class="mp-section">
-                            <div class="ev-section-title">
-                                <i class="fa-solid fa-plus"></i>Add New Expense
                             </div>
-                            <div class="form-card">
-                                <form id="expense-form">
-                                    <div class="form-row">
+
+                            <!-- Row 2: Key Attributes -->
+                            <div class="exp-obj-row-attrs">
+                                <div class="exp-obj-attr">
+                                    <span class="exp-obj-attr-label">Submitted</span>
+                                    <span class="exp-obj-attr-value" id="exp-attr-submitted">—</span>
+                                </div>
+                                <div class="exp-obj-attr-sep"></div>
+                                <div class="exp-obj-attr">
+                                    <span class="exp-obj-attr-label">Approved</span>
+                                    <span class="exp-obj-attr-value" id="exp-attr-approved">—</span>
+                                </div>
+                                <div class="exp-obj-attr-sep"></div>
+                                <div class="exp-obj-attr">
+                                    <span class="exp-obj-attr-label">Base Currency</span>
+                                    <strong class="exp-obj-attr-value" id="exp-base-currency-display">—</strong>
+                                </div>
+                                <div class="exp-obj-attr-sep"></div>
+                                <div class="exp-obj-attr">
+                                    <span class="exp-obj-attr-label">Approved In</span>
+                                    <span class="exp-obj-attr-value" id="exp-attr-duration">—</span>
+                                </div>
+                            </div>
+
+                        </div><!-- /.exp-report-header -->
+
+                        <!-- Status awareness banner -->
+                        <div id="exp-status-banner" class="exp-status-banner" style="display:none;"></div>
+
+                        <!-- MIDDLE: Line Items -->
+                        <div class="exp-line-items-section">
+                            <div class="exp-line-items-header">
+                                <span class="exp-section-title">
+                                    <i class="fa-solid fa-list-check"></i> Expense Line Items
+                                </span>
+                                <button class="exp-btn-add-item" id="exp-btn-add-item">
+                                    <i class="fa-solid fa-plus"></i> Add Expense
+                                </button>
+                            </div>
+
+                            <!-- Inline add/edit form -->
+                            <div class="exp-item-form-wrap" id="exp-item-form-wrap" style="display:none;">
+                                <div class="exp-item-form" id="exp-item-form">
+                                    <input type="hidden" id="exp-item-edit-id" />
+
+                                    <!-- Non-blocking duplicate warning -->
+                                    <div id="exp-dup-warning" class="exp-dup-warning" style="display:none;">
+                                        <i class="fa-solid fa-triangle-exclamation"></i>
+                                        <span>Possible duplicate — a similar expense with the same date, category, and amount already exists.</span>
+                                    </div>
+
+                                    <div class="exp-item-form-grid">
                                         <div class="form-group">
-                                            <label for="category">Category</label>
-                                            <select id="category" required>
+                                            <label for="exp-item-category">Category</label>
+                                            <select id="exp-item-category" required>
                                                 <option value="">-- Select --</option>
-                                                <option value="Cab">🚕 Cab</option>
-                                                <option value="Mobile">📱 Mobile</option>
-                                                <option value="Flight">✈️ Flight</option>
-                                                <option value="Internet">🌐 Internet</option>
-                                                <option value="Miscellaneous">📦 Miscellaneous</option>
                                             </select>
+                                            <span class="exp-field-error" id="exp-err-category"></span>
                                         </div>
                                         <div class="form-group">
-                                            <label for="date">Date</label>
-                                            <input type="date" id="date" required />
+                                            <label for="exp-item-date">Date</label>
+                                            <input type="date" id="exp-item-date" required />
+                                            <span class="exp-field-error" id="exp-err-date"></span>
                                         </div>
                                         <div class="form-group">
-                                            <label for="project">Project</label>
-                                            <select id="project" required>
-                                                <option value="">-- Select Date First --</option>
+                                            <label for="exp-item-project">Project</label>
+                                            <select id="exp-item-project">
+                                                <option value="">-- None --</option>
                                             </select>
+                                            <span class="exp-field-error" id="exp-err-project"></span>
                                         </div>
                                         <div class="form-group">
-                                            <label for="amount">Amount (₹)</label>
-                                            <input type="number" id="amount" placeholder="e.g. 500" min="1" required />
+                                            <label for="exp-item-currency">Currency</label>
+                                            <select id="exp-item-currency" required>
+                                                <option value="">-- Select --</option>
+                                            </select>
+                                            <span class="exp-field-error" id="exp-err-currency"></span>
                                         </div>
                                         <div class="form-group">
-                                            <label for="note">Note</label>
-                                            <input type="text" id="note" placeholder="Optional note" />
+                                            <label for="exp-item-amount">Amount</label>
+                                            <input type="number" id="exp-item-amount" placeholder="e.g. 500" min="0.01" step="any" required />
+                                            <span class="exp-field-error" id="exp-err-amount"></span>
+                                        </div>
+                                        <div class="form-group exp-rate-group">
+                                            <label for="exp-item-rate">
+                                                Exchange Rate
+                                                <span class="exp-autofill-badge" id="exp-rate-autofill-badge" style="display:none;">Auto-filled</span>
+                                                <span class="exp-rate-hint" id="exp-rate-hint"></span>
+                                            </label>
+                                            <input type="number" id="exp-item-rate" readonly
+                                                   placeholder="Auto-filled" class="exp-rate-input" />
+                                            <span class="exp-field-error" id="exp-err-rate"></span>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="exp-item-converted">
+                                                Converted to <span id="exp-item-base-lbl">—</span> <span class="exp-base-tag">(Base)</span>
+                                            </label>
+                                            <input type="number" id="exp-item-converted" readonly
+                                                   placeholder="Auto-calculated" class="exp-rate-input" />
+                                        </div>
+                                        <div class="form-group exp-note-group">
+                                            <label for="exp-item-note">Note</label>
+                                            <input type="text" id="exp-item-note" placeholder="Optional note" />
+                                            <span class="exp-field-error" id="exp-err-note"></span>
                                         </div>
                                     </div>
-                                    <button type="submit" class="btn-add">+ Add Expense</button>
-                                </form>
+                                    <div class="exp-item-form-actions">
+                                        <button type="button" class="exp-btn-save-item" id="exp-btn-save-item">
+                                            <i class="fa-solid fa-floppy-disk"></i> Save
+                                        </button>
+                                        <button type="button" class="exp-btn-cancel-item" id="exp-btn-cancel-item">
+                                            Cancel
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
-                        </section>
 
-                        <!-- ── MY EXPENSES TABLE ── -->
-                        <section id="me-s-my-expenses" class="mp-section">
-                            <div class="ev-section-title">
-                                <i class="fa-solid fa-table-list"></i>My Expenses
-                            </div>
-                            <div class="filter-bar">
-                                <div class="filter-group">
-                                    <label for="month-filter">Month:</label>
-                                    <select id="month-filter">
-                                        <option value="all">All Months</option>
-                                    </select>
-                                </div>
-                                <div class="filter-group">
-                                    <label for="project-filter">Project:</label>
-                                    <select id="project-filter">
-                                        <option value="all">All Projects</option>
-                                    </select>
-                                </div>
-                            </div>
-                            <div class="table-wrapper">
-                                <table id="expense-table">
+                            <!-- Line items table -->
+                            <div class="exp-items-table-wrap">
+                                <table class="exp-items-table" id="exp-items-table">
                                     <thead>
                                         <tr>
                                             <th>#</th>
                                             <th>Category</th>
                                             <th>Date</th>
                                             <th>Project</th>
-                                            <th>Amount (₹)</th>
+                                            <th>Amount</th>
+                                            <th>Currency</th>
+                                            <th>Rate</th>
+                                            <th>Converted (Base)</th>
                                             <th>Note</th>
+                                            <th>Attachment</th>
                                             <th>Action</th>
                                         </tr>
                                     </thead>
-                                    <tbody id="expense-body">
-                                        <!-- Rows added by JavaScript -->
+                                    <tbody id="exp-items-tbody">
+                                        <!-- Populated by JS -->
                                     </tbody>
                                 </table>
                             </div>
-                        </section>
+                        </div>
 
-                    </div><!-- /.mp-sections -->
-                </div><!-- /#me-scroll-container -->
+                        <!-- Submit Confirmation Strip (8) -->
+                        <div id="exp-submit-confirm-strip" class="exp-submit-confirm-strip" style="display:none;"
+                             role="alertdialog" aria-label="Submit report confirmation">
+                            <div class="exp-submit-confirm-inner">
+                                <i class="fa-solid fa-paper-plane exp-submit-confirm-icon"></i>
+                                <span class="exp-submit-confirm-msg">Submit this report for approval? This action cannot be undone.</span>
+                                <div class="exp-submit-confirm-actions">
+                                    <button id="exp-submit-cancel-btn" class="exp-submit-btn-cancel">
+                                        <i class="fa-solid fa-xmark"></i> Cancel
+                                    </button>
+                                    <button id="exp-submit-yes-btn" class="exp-submit-btn-yes">
+                                        <i class="fa-solid fa-paper-plane"></i> Yes, Submit
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- BOTTOM: Total + Actions -->
+                        <div class="exp-report-footer">
+                            <div class="exp-total-block">
+                                <span class="exp-total-label">Total</span>
+                                <span class="exp-total-amount" id="exp-total-display">—</span>
+                            </div>
+                            <div class="exp-footer-actions" id="exp-footer-actions">
+                                <!-- Buttons inserted by JS based on status -->
+                            </div>
+                        </div>
+
+                    </div><!-- /#exp-report-detail -->
+
+                </div><!-- /.exp-module -->
             </section>
 
             <!-- ── TAB 5: ORG CHART ──────────────── -->
@@ -307,7 +420,7 @@
             </section>
 
             <!-- ── TAB 6: MY PROFILE ─────────────────── -->
-            <section id="tab-my-profile" class="tab-panel">
+            <section id="tab-my-profile" class="tab-panel active">
                 <h2 class="page-title">My Profile</h2>
                 <div class="mp-scroll-container" id="mp-scroll-container">
                     <div id="mp-wrapper">
@@ -317,6 +430,79 @@
             </section>
 
         </main>
+    </div>
+
+    <!-- ── CREATE REPORT MODAL ───────────────────────────────────── -->
+    <div id="exp-create-modal" class="exp-modal-overlay" style="display:none;"
+         role="dialog" aria-modal="true" aria-labelledby="exp-modal-title">
+        <div class="exp-modal-card">
+            <div class="exp-modal-header">
+                <div class="exp-modal-header-left">
+                    <div class="exp-modal-icon"><i class="fa-solid fa-file-circle-plus"></i></div>
+                    <h3 class="exp-modal-title" id="exp-modal-title">New Expense Report</h3>
+                </div>
+                <button class="exp-modal-close" id="exp-modal-close" title="Close">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div class="exp-modal-body">
+                <div class="exp-modal-field">
+                    <label class="exp-modal-label" for="exp-modal-name">
+                        Report Name <span class="exp-modal-req">*</span>
+                    </label>
+                    <input type="text" id="exp-modal-name" class="exp-modal-input"
+                           placeholder="e.g. April 2026 Expenses" maxlength="100" autocomplete="off" />
+                    <div class="exp-modal-err" id="exp-modal-name-err" style="display:none;">
+                        <i class="fa-solid fa-circle-exclamation"></i> Report name is required.
+                    </div>
+                </div>
+                <div class="exp-modal-field">
+                    <label class="exp-modal-label" for="exp-modal-desc">
+                        Description <span class="exp-modal-optional">optional</span>
+                    </label>
+                    <textarea id="exp-modal-desc" class="exp-modal-input exp-modal-textarea"
+                              placeholder="e.g. Business travel expenses for Q2 client visit…"
+                              maxlength="300" rows="3"></textarea>
+                </div>
+                <p class="exp-modal-hint">
+                    <i class="fa-solid fa-keyboard"></i>
+                    Press <kbd>Enter</kbd> to create &nbsp;·&nbsp; <kbd>Esc</kbd> to cancel
+                </p>
+            </div>
+            <div class="exp-modal-footer">
+                <button class="exp-modal-btn exp-modal-btn--cancel" id="exp-modal-cancel">Cancel</button>
+                <button class="exp-modal-btn exp-modal-btn--create" id="exp-modal-create">
+                    <i class="fa-solid fa-file-circle-plus"></i> Create Report
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Expense toast notifications -->
+    <div id="export-toast" class="export-toast" role="status" aria-live="polite">
+        <i class="fa-solid fa-circle-check"></i>
+        <span id="export-toast-text"></span>
+    </div>
+
+    <!-- ── Attachment Modal ─────────────────────────────────────────── -->
+    <div id="exp-att-overlay" class="exp-att-overlay" style="display:none;" role="dialog"
+         aria-modal="true" aria-labelledby="exp-att-modal-title">
+        <div class="exp-att-modal">
+
+            <!-- Header -->
+            <div class="exp-att-modal-header">
+                <span class="exp-att-modal-title" id="exp-att-modal-title">
+                    <i class="fa-solid fa-paperclip"></i> Attachments
+                </span>
+                <button class="exp-att-modal-close" id="exp-att-modal-close" title="Close">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <!-- Body: populated by JS -->
+            <div class="exp-att-modal-body" id="exp-att-modal-body"></div>
+
+        </div>
     </div>
 
     <script src="script.js"></script>

@@ -10,6 +10,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
     <link rel="stylesheet" href="style.css" />
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 </head>
 
 <body>
@@ -50,6 +51,14 @@
                 <li class="tab-item" data-tab="reference-data">
                     <i class="fa-solid fa-list"></i>
                     <span>Reference Data</span>
+                </li>
+                <li class="tab-item" data-tab="exchange-rates">
+                    <i class="fa-solid fa-arrow-right-arrow-left"></i>
+                    <span>Exchange Rates</span>
+                </li>
+                <li class="tab-item" data-tab="reports">
+                    <i class="fa-solid fa-chart-bar"></i>
+                    <span>Reports</span>
                 </li>
             </ul>
         </nav>
@@ -395,6 +404,32 @@
                                         <i class="fa-solid fa-calendar-xmark fa-fw"></i> End Date
                                     </label>
                                     <input type="date" id="emp-end-date" required />
+                                </div>
+                                <div class="form-group">
+                                    <label for="emp-work-country">
+                                        <i class="fa-solid fa-earth-asia fa-fw"></i> Country of Work
+                                    </label>
+                                    <select id="emp-work-country" required>
+                                        <option value="">-- Select Country --</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="emp-work-location">
+                                        <i class="fa-solid fa-location-dot fa-fw"></i> Location
+                                    </label>
+                                    <!-- Disabled until a Country of Work is chosen -->
+                                    <select id="emp-work-location" required disabled>
+                                        <option value="">-- Select Country First --</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="emp-base-currency">
+                                        <i class="fa-solid fa-coins fa-fw"></i> Base Currency
+                                        <span class="field-hint">Auto-suggested from country</span>
+                                    </label>
+                                    <select id="emp-base-currency" required>
+                                        <option value="">-- Select Currency --</option>
+                                    </select>
                                 </div>
                             </div>
                         </div>
@@ -907,112 +942,293 @@
 
             <!-- ── TAB 5: REFERENCE DATA ─────────── -->
             <section id="tab-reference-data" class="tab-panel">
-                <h2 class="page-title">Reference Data</h2>
 
-                <div class="ref-data-grid">
-
-                    <!-- DESIGNATIONS -->
-                    <div class="ref-card">
-                        <h3 class="ref-card-title">
-                            <i class="fa-solid fa-id-badge"></i> Designations
-                        </h3>
-                        <form id="designation-form" class="ref-inline-form">
-                            <input type="hidden" id="designation-edit-id" />
-                            <input type="text" id="designation-input" placeholder="e.g. Senior Developer" required />
-                            <button type="submit" class="btn-add" id="designation-submit-btn">
-                                <i class="fa-solid fa-plus"></i> Add
-                            </button>
-                            <button type="button" class="btn-cancel" id="designation-cancel-btn" style="display:none;">Cancel</button>
-                        </form>
-                        <ul class="ref-value-list" id="designation-list"></ul>
+                <!-- ══ PAGE 1: Picklist Directory ════════════════ -->
+                <div id="rd-page1">
+                    <div class="rd-header">
+                        <div>
+                            <h2 class="page-title">Reference Data</h2>
+                            <p class="page-subtitle">Manage all picklists used across the system.</p>
+                        </div>
+                        <button class="btn-add" id="rd-add-pl-btn">
+                            <i class="fa-solid fa-plus"></i> New Picklist
+                        </button>
                     </div>
 
-                    <!-- NATIONALITIES -->
-                    <div class="ref-card">
-                        <h3 class="ref-card-title">
-                            <i class="fa-solid fa-flag"></i> Nationalities
-                        </h3>
-                        <form id="nationality-form" class="ref-inline-form">
-                            <input type="hidden" id="nationality-edit-id" />
-                            <input type="text" id="nationality-input" placeholder="e.g. Indian" required />
-                            <button type="submit" class="btn-add" id="nationality-submit-btn">
-                                <i class="fa-solid fa-plus"></i> Add
+                    <!-- Picklist add/edit form -->
+                    <div class="rd-form-card" id="rd-pl-form-wrap" style="display:none;">
+                        <input type="hidden" id="rd-pl-edit-id" />
+                        <div class="rd-form-row">
+                            <div class="form-group">
+                                <label>Picklist ID <span class="req">*</span>
+                                    <span class="field-hint">Unique system key e.g. DEPARTMENT</span>
+                                </label>
+                                <input type="text" id="rd-pl-id-input" placeholder="e.g. DEPARTMENT" autocomplete="off" />
+                            </div>
+                            <div class="form-group">
+                                <label>Description <span class="req">*</span></label>
+                                <input type="text" id="rd-pl-desc-input" placeholder="e.g. Department" />
+                            </div>
+                            <div class="form-group">
+                                <label>Parent Picklist
+                                    <span class="field-hint">Enables dependent dropdowns</span>
+                                </label>
+                                <select id="rd-pl-parent-select">
+                                    <option value="">— None —</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="rd-form-actions">
+                            <button class="btn-add" id="rd-pl-save-btn">
+                                <i class="fa-solid fa-floppy-disk"></i> Save
                             </button>
-                            <button type="button" class="btn-cancel" id="nationality-cancel-btn" style="display:none;">Cancel</button>
-                        </form>
-                        <ul class="ref-value-list" id="nationality-list"></ul>
+                            <button class="btn-cancel" id="rd-pl-cancel-btn">Cancel</button>
+                        </div>
                     </div>
 
-                    <!-- MARITAL STATUSES -->
-                    <div class="ref-card">
-                        <h3 class="ref-card-title">
-                            <i class="fa-solid fa-heart"></i> Marital Statuses
-                        </h3>
-                        <form id="marital-form" class="ref-inline-form">
-                            <input type="hidden" id="marital-edit-id" />
-                            <input type="text" id="marital-input" placeholder="e.g. Married" required />
-                            <button type="submit" class="btn-add" id="marital-submit-btn">
-                                <i class="fa-solid fa-plus"></i> Add
+                    <div class="rd-table-wrap">
+                        <table class="rd-table" id="rd-pl-table">
+                            <thead>
+                                <tr>
+                                    <th>Picklist ID</th>
+                                    <th>Description</th>
+                                    <th>Parent Picklist</th>
+                                    <th class="rd-th-center"># Values</th>
+                                    <th class="rd-th-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="rd-pl-tbody">
+                                <tr><td colspan="5" class="rd-empty">Loading…</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- ══ PAGE 2: Values for selected picklist ══════ -->
+                <div id="rd-page2" style="display:none;">
+                    <div class="rd-header">
+                        <div class="rd-breadcrumb">
+                            <button class="rd-back-btn" id="rd-back-btn">
+                                <i class="fa-solid fa-arrow-left"></i> Reference Data
                             </button>
-                            <button type="button" class="btn-cancel" id="marital-cancel-btn" style="display:none;">Cancel</button>
-                        </form>
-                        <ul class="ref-value-list" id="marital-list"></ul>
+                            <i class="fa-solid fa-chevron-right rd-bc-sep"></i>
+                            <span class="rd-page2-title" id="rd-page2-title">—</span>
+                        </div>
+                        <button class="btn-add" id="rd-add-val-btn">
+                            <i class="fa-solid fa-plus"></i> Add Value
+                        </button>
                     </div>
 
-                    <!-- ID COUNTRIES -->
-                    <div class="ref-card">
-                        <h3 class="ref-card-title">
-                            <i class="fa-solid fa-earth-asia"></i> ID Countries
-                        </h3>
-                        <form id="id-country-form" class="ref-inline-form">
-                            <input type="hidden" id="id-country-edit-id" />
-                            <input type="text" id="id-country-input" placeholder="e.g. India" required />
-                            <button type="submit" class="btn-add" id="id-country-submit-btn">
-                                <i class="fa-solid fa-plus"></i> Add
-                            </button>
-                            <button type="button" class="btn-cancel" id="id-country-cancel-btn" style="display:none;">Cancel</button>
-                        </form>
-                        <ul class="ref-value-list" id="id-country-list"></ul>
+                    <!-- Parent filter bar -->
+                    <div class="rd-filter-bar" id="rd-parent-filter" style="display:none;">
+                        <i class="fa-solid fa-filter"></i>
+                        <label for="rd-parent-filter-sel">Filter by</label>
+                        <select id="rd-parent-filter-sel">
+                            <option value="">All</option>
+                        </select>
                     </div>
 
-                    <!-- ID TYPES -->
-                    <div class="ref-card">
-                        <h3 class="ref-card-title">
-                            <i class="fa-solid fa-id-card-clip"></i> ID Types
-                            <span class="ref-card-hint">linked to a country</span>
-                        </h3>
-                        <form id="id-type-form" class="ref-inline-form ref-inline-form--stacked">
-                            <input type="hidden" id="id-type-edit-id" />
-                            <select id="id-type-country-select" required>
-                                <option value="">-- Country --</option>
-                            </select>
-                            <input type="text" id="id-type-input" placeholder="e.g. Aadhaar" required />
-                            <button type="submit" class="btn-add" id="id-type-submit-btn">
-                                <i class="fa-solid fa-plus"></i> Add
+                    <!-- Value add/edit form -->
+                    <div class="rd-form-card" id="rd-val-form-wrap" style="display:none;">
+                        <input type="hidden" id="rd-val-edit-id" />
+                        <div class="rd-form-row" id="rd-val-form-fields">
+                            <!-- Injected by JS -->
+                        </div>
+                        <div class="rd-form-actions">
+                            <button class="btn-add" id="rd-val-save-btn">
+                                <i class="fa-solid fa-floppy-disk"></i> Save
                             </button>
-                            <button type="button" class="btn-cancel" id="id-type-cancel-btn" style="display:none;">Cancel</button>
-                        </form>
-                        <ul class="ref-value-list" id="id-type-list"></ul>
+                            <button class="btn-cancel" id="rd-val-cancel-btn">Cancel</button>
+                        </div>
                     </div>
 
-                    <!-- RELATIONSHIP TYPES -->
-                    <div class="ref-card">
-                        <h3 class="ref-card-title">
-                            <i class="fa-solid fa-people-arrows"></i> Relationship Types
-                            <span class="ref-card-hint">for emergency contacts</span>
-                        </h3>
-                        <form id="rel-type-form" class="ref-inline-form">
-                            <input type="hidden" id="rel-type-edit-id" />
-                            <input type="text" id="rel-type-input" placeholder="e.g. Father" required />
-                            <button type="submit" class="btn-add" id="rel-type-submit-btn">
-                                <i class="fa-solid fa-plus"></i> Add
+                    <div class="rd-table-wrap">
+                        <table class="rd-table" id="rd-val-table">
+                            <thead id="rd-val-thead"></thead>
+                            <tbody id="rd-val-tbody">
+                                <tr><td colspan="6" class="rd-empty">Loading…</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+            </section>
+
+            <!-- ── TAB: EXCHANGE RATES ─────────────── -->
+            <section id="tab-exchange-rates" class="tab-panel">
+                <h2 class="page-title">Exchange Rates</h2>
+                <p class="page-subtitle">Define currency conversion rates. Enter each pair in <strong>one direction only</strong> — the reverse rate is calculated automatically.</p>
+
+                <!-- Add / Edit Form -->
+                <div class="er-form-card">
+                    <h3 class="er-form-title">
+                        <i class="fa-solid fa-plus"></i>
+                        <span id="er-form-title-text">Add Exchange Rate</span>
+                    </h3>
+                    <p class="er-helper-text">
+                        <i class="fa-solid fa-circle-info"></i>
+                        <span>
+                            Enter the rate in <strong>one direction only</strong> (e.g. SAR → INR = 22.50) —
+                            the reverse rate is calculated automatically as <strong>1 ÷ rate</strong>.
+                            Same-currency entries are never needed; the system always returns <strong>1</strong>.
+                            For effective dates, the system picks the <strong>latest rate</strong> whose date is
+                            on or before the expense date.
+                        </span>
+                    </p>
+
+                    <input type="hidden" id="er-edit-id" />
+
+                    <div class="er-form-grid">
+                        <!-- Currency pair with swap button -->
+                        <div class="er-pair-group">
+                            <div class="form-group">
+                                <label for="er-from-currency">From Currency</label>
+                                <select id="er-from-currency" required>
+                                    <option value="">-- Select --</option>
+                                </select>
+                            </div>
+                            <button type="button" id="er-swap-btn" class="er-swap-btn" title="Swap currencies">
+                                <i class="fa-solid fa-right-left"></i>
                             </button>
-                            <button type="button" class="btn-cancel" id="rel-type-cancel-btn" style="display:none;">Cancel</button>
-                        </form>
-                        <ul class="ref-value-list" id="rel-type-list"></ul>
+                            <div class="form-group">
+                                <label for="er-to-currency">To Currency</label>
+                                <select id="er-to-currency" required>
+                                    <option value="">-- Select --</option>
+                                </select>
+                            </div>
+                        </div>
+                        <!-- Rate and date -->
+                        <div class="form-group">
+                            <label for="er-rate">Exchange Rate</label>
+                            <input type="number" id="er-rate" placeholder="e.g. 83.50" min="0.000001" step="any" required />
+                        </div>
+                        <div class="form-group">
+                            <label for="er-effective-date">
+                                Effective Date
+                                <span class="er-date-tip" title="The system picks the latest rate whose effective date is on or before the expense date. Example: rates on Jan 1 and Mar 1 — an expense dated Feb 15 uses the Jan 1 rate.">
+                                    <i class="fa-solid fa-circle-question"></i>
+                                </span>
+                            </label>
+                            <input type="date" id="er-effective-date" required />
+                        </div>
+                    </div>
+
+                    <!-- Live reverse rate preview -->
+                    <div id="er-reverse-preview" class="er-reverse-preview" style="display:none;">
+                        <i class="fa-solid fa-rotate"></i>
+                        Reverse rate (auto):
+                        <span class="er-preview-pair">
+                            <span class="er-currency-badge er-badge-muted" id="er-preview-to"></span>
+                            <span class="er-direction-arrow">→</span>
+                            <span class="er-currency-badge er-badge-muted" id="er-preview-from"></span>
+                        </span>
+                        = <strong id="er-preview-val"></strong>
+                    </div>
+
+                    <!-- Reverse-duplicate inline warning (blocks save) -->
+                    <div id="er-reverse-warning" class="er-inline-warning er-inline-warning--block" style="display:none;">
+                        <i class="fa-solid fa-ban"></i>
+                        <span id="er-reverse-warning-msg"></span>
+                    </div>
+
+                    <!-- Date validation inline notice (allows save) -->
+                    <div id="er-date-warning" class="er-inline-warning er-inline-warning--info" style="display:none;">
+                        <i class="fa-solid fa-circle-exclamation"></i>
+                        <span id="er-date-warning-msg"></span>
+                    </div>
+
+                    <div class="er-form-actions">
+                        <button type="button" class="btn-add" id="er-submit-btn">
+                            <i class="fa-solid fa-floppy-disk"></i> Save Rate
+                        </button>
+                        <button type="button" class="btn-cancel" id="er-cancel-btn" style="display:none;">Cancel</button>
+                    </div>
+                </div>
+
+                <!-- Rates Table -->
+                <div class="er-table-wrap">
+                    <table class="er-table" id="exrate-table">
+                        <thead>
+                            <tr>
+                                <th>Stored Direction</th>
+                                <th>Rate</th>
+                                <th>Reverse Direction</th>
+                                <th>Reverse Rate</th>
+                                <th>Effective Date</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="exrate-tbody">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- ── TAB: REPORTS ──────────────────────── -->
+            <section id="tab-reports" class="tab-panel tab-reports-full">
+
+                <!-- ── REPORT LIST ── -->
+                <div id="rpt-list-panel">
+
+                    <!-- Title bar (non-sticky) -->
+                    <div class="rpt-title-bar">
+                        <h2 class="rpt-title">Reports</h2>
+                        <p class="rpt-subtitle">View and manage available reports</p>
+                    </div>
+
+                    <!-- Toolbar: search + count -->
+                    <div class="rpt-list-toolbar">
+                        <div class="rpt-list-search">
+                            <i class="fa-solid fa-magnifying-glass"></i>
+                            <input type="text" id="rpt-list-search" class="rpt-list-search-inp"
+                                   placeholder="Search reports…" autocomplete="off" />
+                        </div>
+                        <div class="rpt-list-toolbar-right">
+                            <span class="rpt-list-count" id="rpt-list-count"></span>
+                        </div>
+                    </div>
+
+                    <!-- Table frame (scrollable) -->
+                    <div class="rpt-list-table-frame" id="rpt-list-table-frame">
+                        <table class="rpt-list-table">
+                            <thead>
+                                <tr>
+                                    <th class="col-name">Report Name</th>
+                                    <th class="col-desc">Description</th>
+                                    <th class="col-roles">Roles</th>
+                                    <th class="col-status">Status</th>
+                                    <th class="col-updated">Last Updated</th>
+                                    <th class="col-action">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="rpt-tbody">
+                                <!-- Populated by renderAdminReports() -->
+                            </tbody>
+                        </table>
+
+                        <!-- Empty state -->
+                        <div class="rpt-list-empty" id="rpt-list-empty" style="display:none">
+                            <i class="fa-solid fa-inbox"></i>
+                            <p>No reports available</p>
+                        </div>
                     </div>
 
                 </div>
+
+                <!-- ── REPORT DETAIL (hidden until a report is selected) ── -->
+                <div id="rpt-detail-panel" style="display:none;">
+                    <div class="rpt-detail-header">
+                        <button class="rpt-back-btn" id="rpt-back-btn">
+                            <i class="fa-solid fa-arrow-left"></i> Back to Reports
+                        </button>
+                        <h2 class="page-title rpt-detail-title" id="rpt-detail-title"></h2>
+                    </div>
+                    <div id="rpt-detail-content">
+                        <!-- Populated by REPORT_LOADERS[id](report) -->
+                    </div>
+                </div>
+
             </section>
 
         </main>
@@ -1020,6 +1236,9 @@
 
     <!-- Export toast notification -->
     <div id="export-toast" class="export-toast" role="status" aria-live="polite"></div>
+
+    <!-- Exchange rate toast stack -->
+    <div id="er-toast-container" class="er-toast-container" role="status" aria-live="polite"></div>
 
     <!-- ── EMPLOYEE POPOVER CARD ────────────────── -->
     <div id="doc-emp-popover" class="doc-emp-popover" style="display:none;" role="dialog" aria-modal="true">

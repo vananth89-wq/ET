@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clear Expense Data — Prowess</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #f4f7fb;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+        .card {
+            background: #fff;
+            border-radius: 16px;
+            box-shadow: 0 4px 24px rgba(24,52,91,0.12);
+            padding: 40px 48px;
+            max-width: 480px;
+            width: 100%;
+            text-align: center;
+        }
+        .icon { font-size: 48px; margin-bottom: 16px; }
+        h1 { color: #18345B; font-size: 22px; margin-bottom: 8px; }
+        p  { color: #555; font-size: 14px; line-height: 1.6; margin-bottom: 28px; }
+        .btn {
+            display: inline-block;
+            padding: 12px 32px;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+            transition: background 0.15s;
+        }
+        .btn-danger {
+            background: #D32F2F;
+            color: #fff;
+        }
+        .btn-danger:hover { background: #B71C1C; }
+        .btn-secondary {
+            background: #f0f0f0;
+            color: #333;
+            margin-left: 12px;
+        }
+        .btn-secondary:hover { background: #e0e0e0; }
+        .result {
+            margin-top: 24px;
+            padding: 14px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            display: none;
+        }
+        .result.success { background: #E8F5E9; color: #2E7D32; border: 1px solid #A5D6A7; }
+        .result.error   { background: #FFEBEE; color: #C62828; border: 1px solid #EF9A9A; }
+        .count { font-weight: 700; }
+    </style>
+</head>
+<body>
+<div class="card">
+    <div class="icon">🗑️</div>
+    <h1>Clear Expense Reports</h1>
+    <p>
+        This will permanently delete all expense reports and their line items
+        stored in this browser.<br><br>
+        <strong>Employees, departments, and projects will not be affected.</strong>
+    </p>
+    <div id="actions">
+        <button class="btn btn-danger" onclick="doClear()">Yes, Clear All Reports</button>
+        <button class="btn btn-secondary" onclick="doCancel()">Cancel</button>
+    </div>
+    <div class="result" id="result"></div>
+</div>
+
+<script>
+    function doClear() {
+        try {
+            var existing = JSON.parse(localStorage.getItem('prowess-expense-reports') || '[]');
+            var count = existing.length;
+            localStorage.removeItem('prowess-expense-reports');
+            showResult('success',
+                '✅ Done! <span class="count">' + count + ' report' + (count !== 1 ? 's' : '') + '</span> cleared successfully. ' +
+                'You can close this tab and return to the app.');
+            document.getElementById('actions').style.display = 'none';
+        } catch (e) {
+            showResult('error', '❌ Error: ' + e.message);
+        }
+    }
+
+    function doCancel() {
+        showResult('success', 'Cancelled — no data was changed. You can close this tab.');
+        document.getElementById('actions').style.display = 'none';
+    }
+
+    function showResult(type, html) {
+        var el = document.getElementById('result');
+        el.className = 'result ' + type;
+        el.innerHTML = html;
+        el.style.display = 'block';
+    }
+
+    // Show current count on load
+    window.addEventListener('load', function() {
+        try {
+            var count = JSON.parse(localStorage.getItem('prowess-expense-reports') || '[]').length;
+            document.querySelector('p').innerHTML +=
+                '<br><em style="color:#1976D2">Currently stored: <strong>' + count + ' report' + (count !== 1 ? 's' : '') + '</strong></em>';
+        } catch(e) {}
+    });
+</script>
+</body>
+</html>
