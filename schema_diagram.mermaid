@@ -1,0 +1,330 @@
+erDiagram
+
+  %% ── Core HR ─────────────────────────────────────────────────────────────────
+
+  departments {
+    uuid    id PK
+    string  dept_id
+    string  name
+    ts      created_at
+    ts      updated_at
+    ts      deleted_at
+  }
+
+  employees {
+    uuid    id PK
+    string  employee_id
+    string  name
+    string  job_title
+    string  designation
+    uuid    dept_id FK
+    uuid    manager_id FK
+    uuid    base_currency_id FK
+    string  status
+    string  business_email
+    string  personal_email
+    string  mobile
+    string  work_location
+    string  work_country
+    string  nationality
+    string  marital_status
+    date    hire_date
+    date    end_date
+    date    probation_end_date
+    string  photo_url
+    ts      created_at
+    ts      updated_at
+    ts      deleted_at
+  }
+
+  department_heads {
+    uuid    id PK
+    uuid    department_id FK
+    uuid    employee_id FK
+    date    from_date
+    date    to_date
+    ts      created_at
+    ts      updated_at
+  }
+
+  employee_addresses {
+    uuid    id PK
+    uuid    employee_id FK
+    string  line1
+    string  line2
+    string  city
+    string  district
+    string  state
+    string  country
+    string  pin
+    string  landmark
+    ts      created_at
+    ts      updated_at
+  }
+
+  emergency_contacts {
+    uuid    id PK
+    uuid    employee_id FK
+    string  name
+    string  relationship
+    string  phone
+    string  alt_phone
+    string  email
+    ts      created_at
+    ts      updated_at
+  }
+
+  passports {
+    uuid    id PK
+    uuid    employee_id FK
+    string  passport_number
+    string  country
+    date    issue_date
+    date    expiry_date
+    ts      created_at
+    ts      updated_at
+  }
+
+  identity_records {
+    uuid    id PK
+    uuid    employee_id FK
+    string  record_type
+    string  id_type
+    string  id_number
+    string  country
+    date    expiry
+    ts      created_at
+    ts      updated_at
+  }
+
+  %% ── Auth & Profiles ──────────────────────────────────────────────────────────
+
+  profiles {
+    uuid    id PK
+    uuid    employee_id FK
+    bool    is_active
+    ts      created_at
+    ts      updated_at
+  }
+
+  %% ── Role & Permission System ─────────────────────────────────────────────────
+
+  roles {
+    uuid    id PK
+    string  code
+    string  name
+    string  description
+    string  role_type
+    bool    is_system
+    bool    active
+    bool    editable
+    int     sort_order
+    ts      created_at
+    ts      updated_at
+  }
+
+  user_roles {
+    uuid    id PK
+    uuid    profile_id FK
+    uuid    role_id FK
+    uuid    granted_by
+    bool    is_active
+    string  assignment_source
+    ts      granted_at
+    ts      expires_at
+    ts      updated_at
+  }
+
+  modules {
+    uuid    id PK
+    string  code
+    string  name
+    bool    active
+    int     sort_order
+    ts      created_at
+    ts      updated_at
+  }
+
+  permissions {
+    uuid    id PK
+    uuid    module_id FK
+    string  code
+    string  name
+    string  description
+    ts      created_at
+  }
+
+  role_permissions {
+    uuid    role_id FK
+    uuid    permission_id FK
+    ts      created_at
+  }
+
+  %% ── Expense Management ───────────────────────────────────────────────────────
+
+  currencies {
+    uuid    id PK
+    string  code
+    string  name
+    string  symbol
+    bool    active
+    ts      created_at
+    ts      updated_at
+  }
+
+  exchange_rates {
+    uuid    id PK
+    uuid    from_currency_id FK
+    uuid    to_currency_id FK
+    float   rate
+    date    effective_date
+    ts      created_at
+    ts      updated_at
+  }
+
+  projects {
+    uuid    id PK
+    string  name
+    bool    active
+    date    start_date
+    date    end_date
+    ts      created_at
+    ts      updated_at
+  }
+
+  expense_reports {
+    uuid    id PK
+    uuid    employee_id FK
+    uuid    base_currency_id FK
+    string  name
+    string  status
+    uuid    approved_by FK
+    uuid    rejected_by FK
+    string  rejection_reason
+    ts      submitted_at
+    ts      approved_at
+    ts      rejected_at
+    ts      created_at
+    ts      updated_at
+    ts      deleted_at
+  }
+
+  line_items {
+    uuid    id PK
+    uuid    report_id FK
+    uuid    currency_id FK
+    uuid    exchange_rate_id FK
+    uuid    category_id FK
+    uuid    project_id FK
+    float   amount
+    float   converted_amount
+    float   exchange_rate_snapshot
+    date    expense_date
+    string  note
+    ts      created_at
+    ts      updated_at
+    ts      deleted_at
+  }
+
+  attachments {
+    uuid    id PK
+    uuid    line_item_id FK
+    string  file_name
+    string  mime_type
+    int     size_bytes
+    string  storage_path
+    ts      created_at
+    ts      updated_at
+  }
+
+  %% ── Reference / Config ───────────────────────────────────────────────────────
+
+  picklists {
+    uuid    id PK
+    string  picklist_id
+    string  name
+    ts      created_at
+    ts      updated_at
+  }
+
+  picklist_values {
+    uuid    id PK
+    uuid    picklist_id FK
+    uuid    parent_value_id FK
+    string  value
+    string  ref_id
+    bool    active
+    ts      created_at
+    ts      updated_at
+  }
+
+  %% ── Audit & System ───────────────────────────────────────────────────────────
+
+  audit_log {
+    uuid    id PK
+    uuid    user_id
+    string  action
+    string  entity_type
+    uuid    entity_id
+    json    metadata
+    string  ip_address
+    ts      created_at
+  }
+
+  notifications {
+    uuid    id PK
+    uuid    user_id
+    string  type
+    string  title
+    string  body
+    string  entity_type
+    uuid    entity_id
+    ts      read_at
+    ts      created_at
+    ts      updated_at
+  }
+
+  workflow_instances {
+    uuid    id PK
+    string  entity_type
+    uuid    entity_id
+    string  status
+    string  current_step
+    ts      created_at
+    ts      updated_at
+  }
+
+  %% ── Relationships ────────────────────────────────────────────────────────────
+
+  employees         }o--|| departments        : "dept_id"
+  employees         }o--o| employees          : "manager_id (self)"
+  employees         }o--o| currencies         : "base_currency_id"
+  department_heads  }o--|| departments        : "department_id"
+  department_heads  }o--|| employees          : "employee_id"
+  employee_addresses ||--|| employees         : "employee_id"
+  emergency_contacts }o--|| employees         : "employee_id"
+  passports         ||--o| employees          : "employee_id"
+  identity_records  }o--|| employees          : "employee_id"
+
+  profiles          ||--o| employees          : "employee_id"
+  user_roles        }o--|| profiles           : "profile_id"
+  user_roles        }o--|| roles              : "role_id"
+  role_permissions  }o--|| roles              : "role_id"
+  role_permissions  }o--|| permissions        : "permission_id"
+  permissions       }o--o| modules            : "module_id"
+
+  expense_reports   }o--|| employees          : "employee_id"
+  expense_reports   }o--|| currencies         : "base_currency_id"
+  expense_reports   }o--o| employees          : "approved_by"
+  expense_reports   }o--o| employees          : "rejected_by"
+  line_items        }o--|| expense_reports    : "report_id"
+  line_items        }o--|| currencies         : "currency_id"
+  line_items        }o--o| exchange_rates     : "exchange_rate_id"
+  line_items        }o--o| picklist_values    : "category_id"
+  line_items        }o--o| projects           : "project_id"
+  attachments       }o--|| line_items         : "line_item_id"
+  exchange_rates    }o--|| currencies         : "from_currency_id"
+  exchange_rates    }o--|| currencies         : "to_currency_id"
+
+  picklist_values   }o--|| picklists          : "picklist_id"
+  picklist_values   }o--o| picklist_values    : "parent_value_id (self)"

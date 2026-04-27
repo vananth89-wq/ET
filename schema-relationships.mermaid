@@ -1,0 +1,314 @@
+erDiagram
+
+    %% ╔══════════════════════════════════════════════════════╗
+    %% ║  DOMAIN MAP                                         ║
+    %% ║  [AUTH] → [ORG] → [EXPENSE] → [AUDIT]             ║
+    %% ║                ↑        ↑                           ║
+    %% ║           [REF DATA] [WORKFLOW placeholder]        ║
+    %% ╚══════════════════════════════════════════════════════╝
+
+    %% ── AUTH ──────────────────────────────────────────────
+    AUTH_USERS {
+        uuid        id              PK
+        string      email
+        string      encrypted_password
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    PROFILES {
+        uuid        id              PK  "FK → auth.users"
+        uuid        employee_id     FK  "→ employees"
+        boolean     is_active
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    PROFILE_ROLES {
+        uuid        id              PK
+        uuid        profile_id      FK  "→ profiles"
+        enum        role                "employee|manager|finance|admin"
+        uuid        assigned_by     FK  "→ auth.users (who granted)"
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    %% ── ORGANISATION ──────────────────────────────────────
+    DEPARTMENTS {
+        uuid        id              PK
+        string      dept_id             "E.g. D001"
+        string      name
+        timestamptz created_at
+        timestamptz updated_at
+        timestamptz deleted_at          "null = active"
+    }
+
+    DEPARTMENT_HEADS {
+        uuid        id              PK
+        uuid        department_id   FK  "→ departments"
+        uuid        employee_id     FK  "→ employees"
+        date        from_date
+        date        to_date             "null = current head"
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    EMPLOYEES {
+        uuid        id              PK
+        string      employee_id         "E.g. E001"
+        string      name
+        string      business_email
+        string      personal_email
+        string      mobile
+        string      country_code
+        string      nationality
+        string      marital_status
+        string      designation
+        string      job_title           "display only, not for access control"
+        uuid        dept_id         FK  "→ departments"
+        uuid        manager_id      FK  "self-ref → employees"
+        date        hire_date
+        date        end_date
+        date        probation_end_date
+        string      work_country
+        string      work_location
+        uuid        base_currency_id FK "→ currencies"
+        string      photo_url
+        enum        status              "Draft|Incomplete|Active|Inactive"
+        timestamptz created_at
+        timestamptz updated_at
+        timestamptz deleted_at          "null = active"
+    }
+
+    EMPLOYEE_ADDRESSES {
+        uuid        id              PK
+        uuid        employee_id     FK
+        string      line1
+        string      line2
+        string      landmark
+        string      city
+        string      district
+        string      state
+        string      pin
+        string      country
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    EMERGENCY_CONTACTS {
+        uuid        id              PK
+        uuid        employee_id     FK
+        string      name
+        string      relationship
+        string      phone
+        string      alt_phone
+        string      email
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    IDENTITY_RECORDS {
+        uuid        id              PK
+        uuid        employee_id     FK
+        string      country
+        string      id_type
+        string      record_type
+        string      id_number
+        date        expiry
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    PASSPORTS {
+        uuid        id              PK
+        uuid        employee_id     FK
+        string      country
+        string      passport_number
+        date        issue_date
+        date        expiry_date
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    %% ── REFERENCE DATA ────────────────────────────────────
+    CURRENCIES {
+        uuid        id              PK
+        string      code                "ISO: INR, USD, SAR"
+        string      name                "Indian Rupee..."
+        string      symbol              "₹, $, ﷼"
+        boolean     active
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    EXCHANGE_RATES {
+        uuid        id              PK
+        uuid        from_currency_id FK "→ currencies"
+        uuid        to_currency_id   FK "→ currencies"
+        numeric     rate
+        date        effective_date
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    PICKLISTS {
+        uuid        id              PK
+        string      picklist_id         "E.g. LOCATION, DESIGNATION"
+        string      name
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    PICKLIST_VALUES {
+        uuid        id              PK
+        uuid        picklist_id     FK
+        string      value
+        string      ref_id
+        boolean     active
+        uuid        parent_value_id FK  "self-ref (cascading lists)"
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    PROJECTS {
+        uuid        id              PK
+        string      name
+        date        start_date
+        date        end_date
+        boolean     active
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    %% ── EXPENSE ───────────────────────────────────────────
+    EXPENSE_REPORTS {
+        uuid        id              PK
+        uuid        employee_id     FK  "→ employees"
+        string      name
+        enum        status              "draft|submitted|approved|rejected"
+        uuid        base_currency_id FK "→ currencies"
+        timestamptz submitted_at
+        timestamptz approved_at
+        uuid        approved_by     FK  "→ employees"
+        timestamptz rejected_at
+        uuid        rejected_by     FK  "→ employees"
+        string      rejection_reason
+        timestamptz created_at
+        timestamptz updated_at
+        timestamptz deleted_at          "null = active | only draft allowed"
+    }
+
+    LINE_ITEMS {
+        uuid        id              PK
+        uuid        report_id       FK  "→ expense_reports"
+        uuid        category_id     FK  "→ picklist_values"
+        uuid        project_id      FK  "→ projects"
+        uuid        currency_id     FK  "→ currencies"
+        uuid        exchange_rate_id FK "→ exchange_rates"
+        date        expense_date
+        numeric     amount
+        numeric     exchange_rate_snapshot  "rate value at time of entry"
+        numeric     converted_amount
+        string      note
+        timestamptz created_at
+        timestamptz updated_at
+        timestamptz deleted_at          "null = active | only draft allowed"
+    }
+
+    ATTACHMENTS {
+        uuid        id              PK
+        uuid        line_item_id    FK  "→ line_items"
+        string      file_name
+        string      storage_path        "Supabase Storage URL"
+        string      mime_type
+        integer     size_bytes
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    %% ── WORKFLOW (placeholder — to be designed) ───────────
+    WORKFLOW_INSTANCES {
+        uuid        id              PK
+        string      entity_type         "expense_report"
+        uuid        entity_id           "→ expense_reports.id"
+        string      current_step
+        string      status              "pending|completed|cancelled"
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    %% ── NOTIFICATIONS (placeholder — to be designed) ──────
+    NOTIFICATIONS {
+        uuid        id              PK
+        uuid        user_id         FK  "→ auth.users"
+        string      type
+        string      title
+        string      body
+        string      entity_type
+        uuid        entity_id
+        timestamptz read_at
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    %% ── AUDIT ─────────────────────────────────────────────
+    AUDIT_LOG {
+        uuid        id              PK
+        uuid        user_id         FK  "→ auth.users"
+        string      action              "report.submitted, report.approved..."
+        string      entity_type         "expense_report | employee..."
+        uuid        entity_id
+        jsonb       metadata
+        string      ip_address
+        timestamptz created_at          "immutable — no updated_at"
+    }
+
+
+    %% ── RELATIONSHIPS ─────────────────────────────────────
+
+    %% Auth
+    AUTH_USERS      ||--||  PROFILES                : "has profile"
+    PROFILES        ||--o{  PROFILE_ROLES           : "has roles"
+    AUTH_USERS      ||--o{  PROFILE_ROLES           : "granted by"
+    PROFILES        ||--o|  EMPLOYEES               : "linked to"
+
+    %% Organisation
+    DEPARTMENTS     ||--o{  EMPLOYEES               : "has members"
+    EMPLOYEES       ||--o{  EMPLOYEES               : "manages (manager_id)"
+    DEPARTMENTS     ||--o{  DEPARTMENT_HEADS        : "head history"
+    EMPLOYEES       ||--o{  DEPARTMENT_HEADS        : "was/is head"
+
+    %% Employee detail
+    EMPLOYEES       ||--o|  EMPLOYEE_ADDRESSES      : "has address"
+    EMPLOYEES       ||--o{  EMERGENCY_CONTACTS      : "has contacts"
+    EMPLOYEES       ||--o{  IDENTITY_RECORDS        : "has IDs"
+    EMPLOYEES       ||--o|  PASSPORTS               : "has passport"
+
+    %% Reference data
+    PICKLISTS       ||--o{  PICKLIST_VALUES         : "has values"
+    PICKLIST_VALUES ||--o{  PICKLIST_VALUES         : "parent → child"
+
+    %% Currencies & rates
+    CURRENCIES      ||--o{  EXCHANGE_RATES          : "from currency"
+    CURRENCIES      ||--o{  EXCHANGE_RATES          : "to currency"
+    EMPLOYEES       }o--||  CURRENCIES              : "base currency"
+
+    %% Expense
+    EMPLOYEES       ||--o{  EXPENSE_REPORTS         : "submits"
+    EMPLOYEES       ||--o{  EXPENSE_REPORTS         : "approves/rejects"
+    EXPENSE_REPORTS ||--o{  LINE_ITEMS              : "contains"
+    LINE_ITEMS      ||--o{  ATTACHMENTS             : "has receipts"
+    LINE_ITEMS      }o--||  PICKLIST_VALUES         : "category"
+    LINE_ITEMS      }o--o|  PROJECTS                : "billed to"
+    LINE_ITEMS      }o--||  CURRENCIES              : "expense currency"
+    LINE_ITEMS      }o--o|  EXCHANGE_RATES          : "rate applied"
+    EXPENSE_REPORTS }o--||  CURRENCIES              : "base currency"
+
+    %% Workflow placeholder
+    WORKFLOW_INSTANCES  }o--o|  EXPENSE_REPORTS     : "tracks approval of"
+
+    %% Notifications placeholder
+    AUTH_USERS      ||--o{  NOTIFICATIONS           : "receives"
+
+    %% Audit
+    AUTH_USERS      ||--o{  AUDIT_LOG               : "tracked in"

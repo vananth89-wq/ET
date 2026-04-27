@@ -1,0 +1,112 @@
+---
+config:
+  look: classic
+---
+flowchart TB
+
+    %% ── DOMAIN BLOCKS ─────────────────────────────────────────────────
+
+    subgraph AUTH ["🔐 Auth & Access"]
+        direction TB
+        A1[auth.users]
+        A2["profiles\nis_active"]
+        A3["profile_roles\nrole: employee, manager, finance, admin\nUNIQUE profile_id + role\nassigned_by"]
+        A1 --> A2
+        A2 --> A3
+        A1 -->|granted by| A3
+    end
+
+    subgraph ORG ["🏢 Organisation"]
+        direction TB
+        O1["employees\njob_title display only"]
+        O2[departments]
+        O3["department_heads\nfrom_date to_date"]
+        O4[employee_addresses]
+        O5[emergency_contacts]
+        O6[identity_records]
+        O7[passports]
+        O2 --> O3
+        O3 --> O1
+        O1 --> O4
+        O1 --> O5
+        O1 --> O6
+        O1 --> O7
+        O1 -->|manager_id| O1
+    end
+
+    subgraph REF ["📋 Reference Data"]
+        direction TB
+        R1[picklists]
+        R2["picklist_values\nparent to child"]
+        R3[currencies]
+        R4["exchange_rates\neffective_date"]
+        R5[projects]
+        R1 --> R2
+        R2 -->|parent| R2
+        R3 --> R4
+    end
+
+    subgraph EXP ["💰 Expense"]
+        direction TB
+        E1["expense_reports\ndeleted_at: draft only"]
+        E2["line_items\ndeleted_at: draft only\nexchange_rate_snapshot"]
+        E3[attachments]
+        E1 --> E2
+        E2 --> E3
+    end
+
+    subgraph WF ["⚙️ Workflow - placeholder"]
+        direction TB
+        W1["workflow_instances\nentity_type / entity_id"]
+    end
+
+    subgraph NOTIF ["🔔 Notifications - placeholder"]
+        direction TB
+        N1["notifications\nread_at"]
+    end
+
+    subgraph AUD ["📜 Audit"]
+        direction TB
+        AU1["audit_log\nimmutable - no updated_at"]
+    end
+
+    %% ── CROSS-DOMAIN RELATIONSHIPS ────────────────────────────────────
+
+    AUTH  -->|"profile_roles drives all RLS"| ORG
+    AUTH  -->|"every action tracked"| AUD
+    AUTH  -->|"receives"| NOTIF
+
+    ORG   -->|"employee submits"| EXP
+    ORG   -->|"manager approves"| EXP
+    ORG   -->|"base_currency_id"| REF
+
+    REF   -->|"picklists: designation, location"| ORG
+    REF   -->|"currency + rate applied"| EXP
+
+    EXP   -->|"report actions logged"| AUD
+    EXP   -->|"triggers"| WF
+    WF    -->|"on state change"| NOTIF
+
+    %% ── NOTE ──────────────────────────────────────────────────────────
+
+    NOTE["📌 All tables include created_at + updated_at\ndeleted_at only on: expense_reports, line_items, departments, employees"]
+
+    %% ── STYLES ────────────────────────────────────────────────────────
+
+    classDef authStyle    fill:#dbeafe,stroke:#2563eb,color:#1e3a8a
+    classDef orgStyle     fill:#dcfce7,stroke:#16a34a,color:#14532d
+    classDef refStyle     fill:#fef9c3,stroke:#ca8a04,color:#713f12
+    classDef expStyle     fill:#ede9fe,stroke:#7c3aed,color:#3b0764
+    classDef wfStyle      fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e,stroke-dasharray:5 5
+    classDef notifStyle   fill:#fce7f3,stroke:#db2777,color:#831843,stroke-dasharray:5 5
+    classDef audStyle     fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
+    classDef noteStyle    fill:#f8fafc,stroke:#94a3b8,color:#475569
+
+    class A1,A2,A3 authStyle
+    class O1,O2,O3,O4,O5,O6,O7 orgStyle
+    class R1,R2,R3,R4,R5 refStyle
+    class E1,E2,E3 expStyle
+    class W1 wfStyle
+    class N1 notifStyle
+    class AU1 audStyle
+    class NOTE noteStyle

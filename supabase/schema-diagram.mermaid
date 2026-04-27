@@ -1,0 +1,234 @@
+erDiagram
+
+  %% ── REFERENCE & LOOKUP ──────────────────────────────────────────
+
+  currencies {
+    uuid   id PK
+    text   code UK
+    text   name
+    text   symbol
+    bool   active
+  }
+
+  exchange_rates {
+    uuid    id PK
+    uuid    from_currency_id FK
+    uuid    to_currency_id FK
+    numeric rate
+    date    effective_date
+  }
+
+  picklists {
+    uuid id PK
+    text picklist_id UK
+    text name
+  }
+
+  picklist_values {
+    uuid id PK
+    uuid picklist_id FK
+    text value
+    text ref_id
+    bool active
+    uuid parent_value_id FK
+  }
+
+  projects {
+    uuid id PK
+    text name
+    date start_date
+    date end_date
+    bool active
+  }
+
+  %% ── HR / EMPLOYEES ──────────────────────────────────────────────
+
+  departments {
+    uuid        id PK
+    text        dept_id UK
+    text        name
+    timestamptz deleted_at
+  }
+
+  employees {
+    uuid        id PK
+    text        employee_id UK
+    text        name
+    text        business_email UK
+    text        mobile
+    text        designation
+    text        job_title
+    uuid        dept_id FK
+    uuid        manager_id FK
+    uuid        base_currency_id FK
+    date        hire_date
+    date        end_date
+    text        work_location
+    text        photo_url
+    text        status
+    timestamptz deleted_at
+  }
+
+  department_heads {
+    uuid id PK
+    uuid department_id FK
+    uuid employee_id FK
+    date from_date
+    date to_date
+  }
+
+  employee_addresses {
+    uuid id PK
+    uuid employee_id FK
+    text city
+    text state
+    text country
+    text pin
+  }
+
+  emergency_contacts {
+    uuid id PK
+    uuid employee_id FK
+    text name
+    text relationship
+    text phone
+    text email
+  }
+
+  identity_records {
+    uuid id PK
+    uuid employee_id FK
+    text id_type
+    text id_number
+    date expiry
+    text country
+  }
+
+  passports {
+    uuid id PK
+    uuid employee_id FK
+    text passport_number
+    date issue_date
+    date expiry_date
+  }
+
+  %% ── AUTH & ACCESS CONTROL ───────────────────────────────────────
+
+  profiles {
+    uuid        id PK
+    uuid        employee_id FK
+    bool        is_active
+    timestamptz created_at
+  }
+
+  profile_roles {
+    uuid      id PK
+    uuid      profile_id FK
+    role_type role
+    uuid      assigned_by FK
+  }
+
+  %% ── EXPENSE MANAGEMENT ──────────────────────────────────────────
+
+  expense_reports {
+    uuid        id PK
+    uuid        employee_id FK
+    uuid        base_currency_id FK
+    text        name
+    text        status
+    uuid        approved_by FK
+    uuid        rejected_by FK
+    timestamptz submitted_at
+    timestamptz approved_at
+    timestamptz deleted_at
+  }
+
+  line_items {
+    uuid        id PK
+    uuid        report_id FK
+    uuid        category_id FK
+    uuid        project_id FK
+    uuid        currency_id FK
+    uuid        exchange_rate_id FK
+    date        expense_date
+    numeric     amount
+    numeric     exchange_rate_snapshot
+    numeric     converted_amount
+    text        note
+    timestamptz deleted_at
+  }
+
+  attachments {
+    uuid    id PK
+    uuid    line_item_id FK
+    text    file_name
+    text    storage_path
+    text    mime_type
+    integer size_bytes
+  }
+
+  workflow_instances {
+    uuid        id PK
+    text        entity_type
+    uuid        entity_id
+    text        step
+    text        status
+    uuid        actor_id
+    timestamptz acted_at
+  }
+
+  %% ── SYSTEM ──────────────────────────────────────────────────────
+
+  audit_log {
+    uuid        id PK
+    uuid        user_id FK
+    text        action
+    text        entity_type
+    uuid        entity_id
+    jsonb       old_data
+    jsonb       new_data
+    timestamptz created_at
+  }
+
+  notifications {
+    uuid        id PK
+    uuid        user_id FK
+    text        type
+    text        message
+    timestamptz read_at
+  }
+
+  %% ── RELATIONSHIPS ───────────────────────────────────────────────
+
+  currencies         ||--o{ exchange_rates    : "from_currency_id"
+  currencies         ||--o{ exchange_rates    : "to_currency_id"
+  currencies         ||--o{ employees         : "base_currency_id"
+  currencies         ||--o{ expense_reports   : "base_currency_id"
+  currencies         ||--o{ line_items        : "currency_id"
+
+  picklists          ||--o{ picklist_values   : "picklist_id"
+  picklist_values    ||--o{ picklist_values   : "parent_value_id (self)"
+  picklist_values    ||--o{ line_items        : "category_id"
+
+  projects           ||--o{ line_items        : "project_id"
+
+  exchange_rates     ||--o{ line_items        : "exchange_rate_id"
+
+  departments        ||--o{ employees         : "dept_id"
+  departments        ||--o{ department_heads  : "department_id"
+
+  employees          ||--o{ employees         : "manager_id (self)"
+  employees          ||--o{ department_heads  : "employee_id"
+  employees          ||--|{ employee_addresses : "employee_id"
+  employees          ||--o{ emergency_contacts : "employee_id"
+  employees          ||--o{ identity_records   : "employee_id"
+  employees          ||--|{ passports          : "employee_id"
+  employees          ||--o{ expense_reports    : "employee_id"
+  employees          ||--o{ expense_reports    : "approved_by"
+  employees          ||--o{ expense_reports    : "rejected_by"
+  employees          ||--|{ profiles           : "employee_id"
+
+  profiles           ||--o{ profile_roles     : "profile_id"
+
+  expense_reports    ||--o{ line_items        : "report_id"
+  line_items         ||--o{ attachments       : "line_item_id"

@@ -1,0 +1,360 @@
+erDiagram
+
+  %% ════════════════════════════════════════════
+  %% REFERENCE & LOOKUP
+  %% ════════════════════════════════════════════
+
+  currencies {
+    uuid    id          PK
+    text    code        UK  "ISO: INR USD SAR"
+    text    name
+    text    symbol
+    bool    active
+    ts      created_at
+    ts      updated_at
+  }
+
+  exchange_rates {
+    uuid    id              PK
+    uuid    from_currency_id FK
+    uuid    to_currency_id   FK
+    numeric rate
+    date    effective_date
+    ts      created_at
+    ts      updated_at
+  }
+
+  picklists {
+    uuid id          PK
+    text picklist_id UK   "e.g. LOCATION DESIGNATION"
+    text name
+    ts   created_at
+    ts   updated_at
+  }
+
+  picklist_values {
+    uuid id              PK
+    uuid picklist_id     FK
+    text value
+    text ref_id
+    bool active
+    uuid parent_value_id FK  "self-ref for hierarchy"
+    ts   created_at
+    ts   updated_at
+  }
+
+  projects {
+    uuid id         PK
+    text name
+    date start_date
+    date end_date
+    bool active
+    ts   created_at
+    ts   updated_at
+  }
+
+  %% ════════════════════════════════════════════
+  %% HR / EMPLOYEES
+  %% ════════════════════════════════════════════
+
+  departments {
+    uuid id         PK
+    text dept_id    UK   "e.g. D001"
+    text name
+    ts   created_at
+    ts   updated_at
+    ts   deleted_at      "soft delete"
+  }
+
+  employees {
+    uuid id               PK
+    text employee_id      UK   "e.g. EMP001"
+    text name
+    text business_email   UK
+    text personal_email
+    text mobile
+    text country_code
+    text nationality
+    text marital_status
+    text designation
+    text job_title
+    uuid dept_id          FK
+    uuid manager_id       FK   "self-ref"
+    uuid base_currency_id FK
+    date hire_date
+    date end_date
+    date probation_end_date
+    text work_country
+    text work_location
+    text photo_url
+    text status
+    ts   created_at
+    ts   updated_at
+    ts   deleted_at            "soft delete"
+  }
+
+  department_heads {
+    uuid id            PK
+    uuid department_id FK
+    uuid employee_id   FK
+    date from_date
+    date to_date            "NULL = current head"
+    ts   created_at
+    ts   updated_at
+  }
+
+  employee_addresses {
+    uuid id          PK
+    uuid employee_id FK  "UNIQUE"
+    text landmark
+    text city
+    text district
+    text state
+    text pin
+    text country
+    ts   created_at
+    ts   updated_at
+  }
+
+  emergency_contacts {
+    uuid id           PK
+    uuid employee_id  FK
+    text name
+    text relationship
+    text phone
+    text alt_phone
+    text email
+    ts   created_at
+    ts   updated_at
+  }
+
+  identity_records {
+    uuid id          PK
+    uuid employee_id FK
+    text country
+    text id_type
+    text record_type
+    text id_number
+    date expiry
+    ts   created_at
+    ts   updated_at
+  }
+
+  passports {
+    uuid id              PK
+    uuid employee_id     FK  "UNIQUE"
+    text country
+    text passport_number
+    date issue_date
+    date expiry_date
+    ts   created_at
+    ts   updated_at
+  }
+
+  %% ════════════════════════════════════════════
+  %% AUTH — IDENTITY BRIDGE
+  %% ════════════════════════════════════════════
+
+  profiles {
+    uuid id          PK  "= auth.users.id"
+    uuid employee_id FK  "UNIQUE — links user to employee"
+    bool is_active
+    ts   created_at
+    ts   updated_at
+  }
+
+  %% ════════════════════════════════════════════
+  %% SECURITY — ROLE-TYPE ASSIGNMENTS (enum-based)
+  %% Used by RLS has_role() function
+  %% ════════════════════════════════════════════
+
+  profile_roles {
+    uuid      id          PK
+    uuid      profile_id  FK
+    role_type role            "admin|finance|hr|manager|employee|dept_head|mss"
+    uuid      assigned_by FK  "auth.users"
+    ts        created_at
+    ts        updated_at
+  }
+
+  %% ════════════════════════════════════════════
+  %% SECURITY — NAMED ROLES & PERMISSIONS
+  %% Used by Role Assignments / Role Management UI
+  %% ════════════════════════════════════════════
+
+  roles {
+    uuid      id          PK
+    text      code        UK  "e.g. admin finance ess"
+    text      name
+    text      description
+    role_type role_type       "system|custom|protected"
+    bool      is_system
+    ts        created_at
+    ts        updated_at
+  }
+
+  user_roles {
+    uuid id         PK
+    uuid profile_id FK
+    uuid role_id    FK
+    uuid assigned_by FK  "auth.users"
+    ts   created_at
+  }
+
+  modules {
+    uuid id         PK
+    text code       UK  "e.g. expense_management"
+    text name
+    int  sort_order
+    bool active
+    ts   created_at
+    ts   updated_at
+  }
+
+  permissions {
+    uuid id          PK
+    uuid module_id   FK
+    text code        UK  "e.g. expense.create"
+    text name
+    text description
+    ts   created_at
+    ts   updated_at
+  }
+
+  role_permissions {
+    uuid role_id       FK
+    uuid permission_id FK
+    ts   created_at
+  }
+
+  %% ════════════════════════════════════════════
+  %% EXPENSE MANAGEMENT
+  %% ════════════════════════════════════════════
+
+  expense_reports {
+    uuid id               PK
+    uuid employee_id      FK
+    uuid base_currency_id FK
+    text name
+    text status               "draft|submitted|approved|rejected"
+    uuid approved_by      FK  "employees"
+    uuid rejected_by      FK  "employees"
+    text rejection_reason
+    ts   submitted_at
+    ts   approved_at
+    ts   rejected_at
+    ts   created_at
+    ts   updated_at
+    ts   deleted_at            "soft delete"
+  }
+
+  line_items {
+    uuid    id                     PK
+    uuid    report_id              FK
+    uuid    category_id            FK  "picklist_values"
+    uuid    project_id             FK
+    uuid    currency_id            FK
+    uuid    exchange_rate_id       FK
+    date    expense_date
+    numeric amount
+    numeric exchange_rate_snapshot     "rate at time of entry"
+    numeric converted_amount
+    text    note
+    ts      created_at
+    ts      updated_at
+    ts      deleted_at                 "soft delete"
+  }
+
+  attachments {
+    uuid    id           PK
+    uuid    line_item_id FK
+    text    file_name
+    text    storage_path     "Supabase Storage path"
+    text    mime_type
+    int     size_bytes
+    ts      created_at
+    ts      updated_at
+  }
+
+  workflow_instances {
+    uuid id          PK
+    text entity_type     "expense_report etc."
+    uuid entity_id
+    text step
+    text status
+    uuid actor_id
+    ts   acted_at
+    ts   created_at
+  }
+
+  %% ════════════════════════════════════════════
+  %% SYSTEM
+  %% ════════════════════════════════════════════
+
+  audit_log {
+    uuid  id          PK
+    uuid  user_id     FK  "auth.users"
+    text  action
+    text  entity_type
+    uuid  entity_id
+    jsonb old_data
+    jsonb new_data
+    ts    created_at
+  }
+
+  notifications {
+    uuid id      PK
+    uuid user_id FK  "auth.users"
+    text type
+    text message
+    ts   read_at
+    ts   created_at
+  }
+
+  %% ════════════════════════════════════════════
+  %% RELATIONSHIPS
+  %% ════════════════════════════════════════════
+
+  %% Reference
+  currencies         ||--o{ exchange_rates     : "from_currency_id"
+  currencies         ||--o{ exchange_rates     : "to_currency_id"
+  currencies         ||--o{ employees          : "base_currency_id"
+  currencies         ||--o{ expense_reports    : "base_currency_id"
+  currencies         ||--o{ line_items         : "currency_id"
+
+  picklists          ||--o{ picklist_values    : "picklist_id"
+  picklist_values    ||--o{ picklist_values    : "parent_value_id (self)"
+  picklist_values    ||--o{ line_items         : "category_id"
+
+  projects           ||--o{ line_items         : "project_id"
+  exchange_rates     ||--o{ line_items         : "exchange_rate_id"
+
+  %% HR
+  departments        ||--o{ employees          : "dept_id"
+  departments        ||--o{ department_heads   : "department_id"
+  employees          ||--o{ employees          : "manager_id (self)"
+  employees          ||--o{ department_heads   : "employee_id"
+  employees          ||--|{ employee_addresses : "employee_id"
+  employees          ||--o{ emergency_contacts : "employee_id"
+  employees          ||--o{ identity_records   : "employee_id"
+  employees          ||--|{ passports          : "employee_id"
+  employees          ||--o{ expense_reports    : "employee_id"
+  employees          ||--o{ expense_reports    : "approved_by"
+  employees          ||--o{ expense_reports    : "rejected_by"
+
+  %% Auth bridge
+  employees          ||--|{ profiles           : "employee_id"
+
+  %% Security — enum-based (RLS)
+  profiles           ||--o{ profile_roles      : "profile_id"
+
+  %% Security — named roles
+  profiles           ||--o{ user_roles         : "profile_id"
+  roles              ||--o{ user_roles         : "role_id"
+  roles              ||--o{ role_permissions   : "role_id"
+  modules            ||--o{ permissions        : "module_id"
+  permissions        ||--o{ role_permissions   : "permission_id"
+
+  %% Expense
+  expense_reports    ||--o{ line_items         : "report_id"
+  line_items         ||--o{ attachments        : "line_item_id"
