@@ -96,7 +96,7 @@ export function useExchangeRates(): UseExchangeRatesResult {
     const patch: Record<string, unknown> = {};
     if (payload.rate          !== undefined) patch.rate           = payload.rate;
     if (payload.effectiveDate !== undefined) patch.effective_date = payload.effectiveDate;
-    const { error: err } = await supabase.from('exchange_rates').update(patch).eq('id', id);
+    const { error: err } = await supabase.from('exchange_rates').update(patch as any).eq('id', id);
     if (err) return err.message;
     refetch();
     return null;

@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
+import WorkflowGateBanner from '../../workflow/components/WorkflowGateBanner';
 import { useProjects } from '../../hooks/useProjects';
 import ConfirmationModal from '../shared/ConfirmationModal';
 import ErrorBanner from '../shared/ErrorBanner';
@@ -183,6 +184,10 @@ export default function Projects() {
 
   return (
     <div className="ar-panel">
+      {/* Workflow gate banners */}
+      <WorkflowGateBanner moduleCode="project_create" actionLabel="new projects created" />
+      <WorkflowGateBanner moduleCode="project_edit"   actionLabel="project edits saved" />
+
       {/* Page title */}
       <div style={{ marginBottom: 20 }}>
         <h2 className="page-title">Project Management</h2>

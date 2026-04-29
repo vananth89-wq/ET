@@ -45,11 +45,6 @@ interface PlVal {
   value: string;
 }
 
-interface ProfileData {
-  name?: string;
-  employeeId?: string;
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Dept colour palette (stable hash → colour)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -500,7 +495,7 @@ export default function EmpOrgChart() {
     const m: Record<string, Dept> = {};
     // Index by both UUID (id) and text code (deptId) so employee.deptId (UUID) resolves correctly
     departments.forEach(d => {
-      m[d.id]    = d;  // UUID FK match (Supabase employees store dept_id as UUID)
+      if (d.id) m[d.id] = d;  // UUID FK match (Supabase employees store dept_id as UUID)
       m[d.deptId] = d;          // text code match (legacy compatibility)
     });
     return m;

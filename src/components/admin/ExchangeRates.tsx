@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import ConfirmationModal from '../shared/ConfirmationModal';
 import ErrorBanner from '../shared/ErrorBanner';
+import WorkflowGateBanner from '../../workflow/components/WorkflowGateBanner';
 import { useExchangeRates } from '../../hooks/useExchangeRates';
 import { useCurrencies } from '../../hooks/useCurrencies';
 import { usePicklistValues } from '../../hooks/usePicklistValues';
@@ -15,11 +16,6 @@ interface StoredRate {
   toCode: string;
   rate: number;
   effectiveDate: string;
-}
-
-interface PicklistItem {
-  id: string; picklistId: string; value: string; active?: boolean;
-  meta?: { code?: string; symbol?: string; };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -373,6 +369,9 @@ export default function ExchangeRates() {
 
   return (
     <div className="ar-panel" style={{ position: 'relative' }}>
+      {/* Workflow gate banner */}
+      <WorkflowGateBanner moduleCode="exchange_rate_update" actionLabel="exchange rate updates" />
+
       {/* Loading overlay while rates are fetching */}
       {ratesLoading && (
         <div style={{ textAlign: 'center', padding: '20px', color: '#6B7280', fontSize: 13 }}>

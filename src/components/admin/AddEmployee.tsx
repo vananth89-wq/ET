@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
+import WorkflowGateBanner from '../../workflow/components/WorkflowGateBanner';
 import { supabase } from '../../lib/supabase';
 import { useEmployees } from '../../hooks/useEmployees';
 import { usePicklistValues } from '../../hooks/usePicklistValues';
@@ -276,7 +277,7 @@ function NewHiresTable({ employees, onContinue, onDelete, picklistVals, departme
                     }}>{emp.status}</span>
                   </td>
                   <td style={{ fontSize: 12.5, color: '#6B7280' }}>
-                    {emp.updatedAt ? fmtDate(emp.updatedAt.slice(0, 10)) : '—'}
+                    {emp.updatedAt ? fmtDate(String(emp.updatedAt).slice(0, 10)) : '—'}
                   </td>
                   <td>
                     <div className="emp-action-btns" style={{ display: 'flex', gap: 6 }}>
@@ -682,14 +683,14 @@ export default function AddEmployee() {
     if (knownUUID) {
       const { error: dbErr } = await supabase
         .from('employees')
-        .update(dbPayload)
+        .update(dbPayload as any)
         .eq('id', knownUUID);
       if (dbErr) { showToast(`Save failed: ${dbErr.message}`, 'error'); return false; }
       empUUID = knownUUID;
     } else {
       const { data: inserted, error: dbErr } = await supabase
         .from('employees')
-        .insert(dbPayload)
+        .insert(dbPayload as any)
         .select('id')
         .single();
       if (dbErr || !inserted) { showToast(`Save failed: ${dbErr?.message ?? 'unknown error'}`, 'error'); return false; }
@@ -739,11 +740,11 @@ export default function AddEmployee() {
     let empUUID: string | undefined;
     if (knownUUID) {
       // Employee already exists — UPDATE by primary key (no stale-list dependency)
-      await supabase.from('employees').update(dbPayload).eq('id', knownUUID);
+      await supabase.from('employees').update(dbPayload as any).eq('id', knownUUID);
       empUUID = knownUUID;
     } else {
       // First autosave for a brand-new employee — INSERT
-      const { data: inserted } = await supabase.from('employees').insert(dbPayload).select('id').single();
+      const { data: inserted } = await supabase.from('employees').insert(dbPayload as any).select('id').single();
       empUUID = inserted?.id;
     }
 
@@ -1255,11 +1256,11 @@ export default function AddEmployee() {
 
     let empUUID: string | null = null;
     if (existingRow) {
-      const { error } = await supabase.from('employees').update(dbPayload).eq('id', existingRow.id);
+      const { error } = await supabase.from('employees').update(dbPayload as any).eq('id', existingRow.id);
       if (error) { setErrors({ _global: error.message } as Record<string, string>); return; }
       empUUID = existingRow.id;
     } else {
-      const { data: inserted, error } = await supabase.from('employees').insert(dbPayload).select('id').single();
+      const { data: inserted, error } = await supabase.from('employees').insert(dbPayload as any).select('id').single();
       if (error || !inserted) { setErrors({ _global: error?.message ?? 'Insert failed' } as Record<string, string>); return; }
       empUUID = inserted.id;
     }
@@ -1406,7 +1407,7 @@ export default function AddEmployee() {
     if (deletedRow) {
       await supabase
         .from('employees')
-        .update({ deleted_at: new Date().toISOString() } as Record<string, unknown>)
+        .update({ deleted_at: new Date().toISOString() } as any)
         .eq('id', deletedRow.id);
       refetchEmployees();
     }
@@ -1904,6 +1905,12 @@ export default function AddEmployee() {
   // ─────────────────────────────────────────────────────────────────────────
   return (
     <div className="page-content" style={{ padding: '28px 32px' }}>
+      {/* Workflow gate banners */}
+      {editingEmpId
+        ? <WorkflowGateBanner moduleCode="employee_edit"        actionLabel="employee detail edits" />
+        : <WorkflowGateBanner moduleCode="employee_onboarding"  actionLabel="new employee creation" />
+      }
+
       <h2 className="page-title" style={{ marginBottom: 20 }}>
         {editingEmpId ? 'Edit Employee' : 'Add New Employee'}
       </h2>

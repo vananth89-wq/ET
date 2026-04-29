@@ -9,7 +9,7 @@
  * within that portlet. Shown as a ⓘ icon that floats a dark popup on hover.
  */
 
-import React, { useState, useRef } from 'react';
+import { useState, useRef } from 'react';
 import ReactDOM from 'react-dom';
 
 // ─── Tooltip data ─────────────────────────────────────────────────────────────

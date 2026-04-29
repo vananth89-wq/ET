@@ -7,6 +7,8 @@ import { useEmployees } from '../../../hooks/useEmployees';
 import { useCurrencies } from '../../../hooks/useCurrencies';
 import { supabase } from '../../../lib/supabase';
 import { COUNTRIES } from '../../admin/AddEmployee';
+import WorkflowGateBanner           from '../../../workflow/components/WorkflowGateBanner';
+import { useProfileWorkflowGates } from '../../../workflow/hooks/useProfileWorkflowGates';
 
 // ── Phone codes for the mobile country-code picker ─────────────────────────
 
@@ -200,6 +202,9 @@ export default function MyProfile() {
   const { employees }                    = useEmployees();
   const { currencies }                   = useCurrencies();
   const [activeSection, setActiveSection] = useState('personal');
+
+  // Single batched query for all profile section workflow gates + pending counts
+  const { activeGates, pendingCounts } = useProfileWorkflowGates();
   const scrollRef  = useRef<HTMLDivElement>(null);
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
 
@@ -248,7 +253,7 @@ export default function MyProfile() {
       patch.managerId        = empRow.manager_id        ?? null;
       patch.hireDate         = empRow.hire_date         ?? null;
       patch.endDate          = empRow.end_date          ?? null;
-      patch.probationEndDate = empRow.probation_end_date ?? null;
+      // probation_end_date was moved to employee_employment satellite table
       patch.workCountry      = empRow.work_country      ?? null;
       patch.workLocation     = empRow.work_location     ?? null;
       patch.baseCurrencyId   = empRow.base_currency_id  ?? null;
@@ -570,9 +575,9 @@ export default function MyProfile() {
 
       let error;
       if (extData.ecId) {
-        ({ error } = await supabase.from('emergency_contacts').update(payload).eq('id', extData.ecId as string));
+        ({ error } = await supabase.from('emergency_contacts').update(payload as any).eq('id', extData.ecId as string));
       } else {
-        const res = await supabase.from('emergency_contacts').insert(payload).select('id').single();
+        const res = await supabase.from('emergency_contacts').insert(payload as any).select('id').single();
         error = res.error;
         if (res.data) setExtData(prev => ({ ...prev, ecId: res.data!.id }));
       }
@@ -814,8 +819,8 @@ export default function MyProfile() {
             {resolvePicklist('DESIGNATION', emp.designation as string | undefined)}
           </div>
           <div className="mp-header-meta">
-            {(emp.businessEmail || emp.email) && (
-              <span><i className="fa-solid fa-envelope" />{(emp.businessEmail || emp.email) as string}</span>
+            {!!(emp.businessEmail || emp.email) && (
+              <span><i className="fa-solid fa-envelope" />{String(emp.businessEmail || emp.email)}</span>
             )}
             {emp.mobile && (
               <span><i className="fa-solid fa-phone" />{emp.mobile as string}</span>
@@ -852,6 +857,7 @@ export default function MyProfile() {
 
             {/* ── Personal ─────────────────────────────────────────── */}
             <section id="mps-personal" ref={el => { sectionRefs.current.personal = el; }} className="mp-section">
+              <WorkflowGateBanner moduleCode="profile_personal" active={activeGates.has('profile_personal')} pendingCount={pendingCounts['profile_personal'] ?? 0} actionLabel="personal info changes" />
               <SectionHeader
                 icon="fa-circle-user" text="Personal Information"
                 section="personal"
@@ -894,6 +900,7 @@ export default function MyProfile() {
 
             {/* ── Contact ──────────────────────────────────────────── */}
             <section id="mps-contact" ref={el => { sectionRefs.current.contact = el; }} className="mp-section">
+              <WorkflowGateBanner moduleCode="profile_contact" active={activeGates.has('profile_contact')} pendingCount={pendingCounts['profile_contact'] ?? 0} actionLabel="contact info changes" />
               <SectionHeader
                 icon="fa-phone" text="Contact Information"
                 section="contact"
@@ -953,6 +960,7 @@ export default function MyProfile() {
 
             {/* ── Employment (read-only) ───────────────────────────── */}
             <section id="mps-employment" ref={el => { sectionRefs.current.employment = el; }} className="mp-section">
+              <WorkflowGateBanner moduleCode="profile_employment" active={activeGates.has('profile_employment')} pendingCount={pendingCounts['profile_employment'] ?? 0} actionLabel="employment detail changes" />
               <SectionTitle icon="fa-briefcase" text="Employment Information" />
               <div className="ev-field-grid ev-grid-2">
                 <div className="ev-field">
@@ -981,6 +989,7 @@ export default function MyProfile() {
 
             {/* ── Address ──────────────────────────────────────────── */}
             <section id="mps-address" ref={el => { sectionRefs.current.address = el; }} className="mp-section">
+              <WorkflowGateBanner moduleCode="profile_address" active={activeGates.has('profile_address')} pendingCount={pendingCounts['profile_address'] ?? 0} actionLabel="address changes" />
               <SectionHeader
                 icon="fa-location-dot" text="Address Information"
                 section="address"
@@ -1033,6 +1042,7 @@ export default function MyProfile() {
 
             {/* ── Passport ─────────────────────────────────────────── */}
             <section id="mps-passport" ref={el => { sectionRefs.current.passport = el; }} className="mp-section">
+              <WorkflowGateBanner moduleCode="profile_passport" active={activeGates.has('profile_passport')} pendingCount={pendingCounts['profile_passport'] ?? 0} actionLabel="passport detail changes" />
               <SectionHeader
                 icon="fa-passport" text="Passport Information"
                 section="passport"
@@ -1106,6 +1116,7 @@ export default function MyProfile() {
 
             {/* ── Identification (read-only) ───────────────────────── */}
             <section id="mps-identification" ref={el => { sectionRefs.current.identification = el; }} className="mp-section">
+              <WorkflowGateBanner moduleCode="profile_identification" active={activeGates.has('profile_identification')} pendingCount={pendingCounts['profile_identification'] ?? 0} actionLabel="identification changes" />
               <SectionTitle icon="fa-id-card-clip" text="Identification Details" />
               {identifications.length === 0 ? (
                 <div className="ev-empty-state">
@@ -1142,6 +1153,7 @@ export default function MyProfile() {
 
             {/* ── Emergency Contact ────────────────────────────────── */}
             <section id="mps-emergency" ref={el => { sectionRefs.current.emergency = el; }} className="mp-section">
+              <WorkflowGateBanner moduleCode="profile_emergency_contact" active={activeGates.has('profile_emergency_contact')} pendingCount={pendingCounts['profile_emergency_contact'] ?? 0} actionLabel="emergency contact changes" />
               <SectionHeader
                 icon="fa-phone-volume" text="Emergency Contact Information"
                 section="emergency"

@@ -538,7 +538,6 @@ export default function RoleAssignments() {
               name,
               status,
               dept_id,
-              photo_url,
               departments:departments!employees_dept_id_fkey (
                 name
               )
@@ -561,7 +560,7 @@ export default function RoleAssignments() {
           name:          (emp?.name as string) ?? '(No employee linked)',
           status:        (emp?.status as string) ?? 'Unknown',
           dept_name:     (dept?.name as string) ?? null,
-          photo_url:     (emp?.photo_url as string | null) ?? null,
+          photo_url:     null,
         };
       });
 
@@ -594,7 +593,6 @@ export default function RoleAssignments() {
           id,
           name,
           business_email,
-          photo_url,
           departments:departments!employees_dept_id_fkey (name)
         `)
         .eq('status', 'Active')
@@ -618,7 +616,7 @@ export default function RoleAssignments() {
           name:           e.name,
           business_email: e.business_email as string | null,
           dept_name:      (e.departments as Record<string, unknown> | null)?.name as string | null ?? null,
-          photo_url:      e.photo_url as string | null,
+          photo_url:      null,
         }));
 
       setUnlinkedEmployees(unlinked);
@@ -807,7 +805,7 @@ export default function RoleAssignments() {
         // ambiguous constraint name causing a silent query failure.
         const { data: empData, error: empErr } = await supabase
           .from('employees')
-          .select('id, name, status, photo_url, dept_id')
+          .select('id, name, status, dept_id')
           .ilike('name', `%${empSearch.trim()}%`)
           .is('deleted_at', null)
           .limit(12);
@@ -824,7 +822,7 @@ export default function RoleAssignments() {
         if (profileErr) throw profileErr;
 
         // 3. Fetch dept names for the unique dept_ids in results
-        const deptIds = [...new Set(empData.map(e => e.dept_id).filter(Boolean))];
+        const deptIds = [...new Set(empData.map(e => e.dept_id).filter((id): id is string => id != null))];
         const deptMap = new Map<string, string>();
         if (deptIds.length) {
           const { data: deptData } = await supabase
@@ -852,7 +850,7 @@ export default function RoleAssignments() {
             profile_id,
             name:        emp.name,
             status:      emp.status,
-            photo_url:   emp.photo_url,
+            photo_url:   null,
             dept_name:   emp.dept_id ? (deptMap.get(emp.dept_id) ?? null) : null,
             already_has: assignedProfileIds.has(profile_id),
           });
@@ -1027,7 +1025,7 @@ export default function RoleAssignments() {
       });
       if (syncErr) throw syncErr;
 
-      const summary = data as Record<string, { eligible: number; inserted: number; deleted: number }>;
+      const summary = (data ?? {}) as Record<string, { eligible: number; inserted: number; deleted: number }>;
       const entry   = summary[selectedRole.code];
       const msg     = entry
         ? `Sync complete — ${entry.eligible} eligible, ${entry.inserted} added, ${entry.deleted} removed`

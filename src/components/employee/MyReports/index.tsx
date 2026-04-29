@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { ExpenseStatus } from '../../../types';
+import type { ExpenseStatus, ExpenseReport } from '../../../types';
 import { useExpenseData } from '../../../hooks/useExpenseData';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useCurrencies } from '../../../hooks/useCurrencies';
@@ -108,8 +108,8 @@ export default function MyReports() {
     if (pendingDelete) { deleteReport(pendingDelete); setPendingDelete(null); }
   }
 
-  const rowTotal = (r: ExpenseReport) =>
-    r.lineItems.reduce((s, li) => s + (li.convertedAmount || 0), 0);
+  const rowTotal = (r: ExpenseReport): number =>
+    r.lineItems.reduce((s: number, li) => s + (li.convertedAmount || 0), 0);
 
   const fmtLastUpdated = (iso: string) => iso ? iso.slice(0, 10) : '—';
 

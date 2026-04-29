@@ -36,12 +36,23 @@ import ReferenceData                                              from './compon
 import EmployeeDetails                                            from './components/admin/EmployeeDetails';
 import AddEmployee                                                from './components/admin/AddEmployee';
 import EmpOrgChart                                                from './components/employee/EmpOrgChart';
-import ApprovalQueue                                              from './components/approvals/ApprovalQueue';
+import ApproverInbox                                             from './workflow/screens/ApproverInbox';
+import WorkflowMyRequests                                        from './workflow/screens/WorkflowMyRequests';
+import WorkflowTemplates                                         from './workflow/screens/WorkflowTemplates';
+import WorkflowDelegations                                       from './workflow/screens/WorkflowDelegations';
+import WorkflowAssignments                                       from './workflow/screens/WorkflowAssignments';
+import WorkflowPerformanceDashboard                              from './workflow/screens/WorkflowPerformanceDashboard';
+import WorkflowOperations                                        from './workflow/screens/WorkflowOperations';
+import WorkflowAnalytics                                         from './workflow/screens/WorkflowAnalytics';
+import NotificationMonitor                                       from './workflow/screens/NotificationMonitor';
+import JobsAdmin                                                 from './admin/screens/JobsAdmin';
+import ExpenseAnalytics                                          from './components/admin/analytics/ExpenseAnalytics';
 import PermissionCatalog                                          from './components/admin/permissions/PermissionCatalog';
 import RoleManagement                                             from './components/admin/permissions/RoleManagement';
 import RoleAssignments                                            from './components/admin/permissions/RoleAssignments';
 import ComingSoon                                                 from './components/shared/ComingSoon';
 import NotificationBell                                           from './components/shared/NotificationBell';
+import { ErrorBoundary }                                          from './components/shared/ErrorBoundary';
 import { usePicklistValues }                                      from './hooks/usePicklistValues';
 import { supabase }                                               from './lib/supabase';
 
@@ -83,7 +94,26 @@ const ADMIN_NAV: NavItem[] = [
   { path: '/admin/workflow-roles',    label: 'Workflow Roles',    icon: 'fa-shield-halved',   permission: 'security.manage_roles' },
   { path: '/admin/reference-data',    label: 'Reference Data',    icon: 'fa-list',            permission: 'reference.view'      },
   { path: '/admin/exchange-rates',    label: 'Exchange Rates',    icon: 'fa-arrow-right-arrow-left', permission: 'exchange_rate.view' },
-  { path: '/admin/reports',           label: 'Reports',           icon: 'fa-chart-bar',       permission: 'report.view'         },
+  { path: '/admin/reports',             label: 'Reports',           icon: 'fa-file-chart-column', permission: 'report.view'       },
+
+  // ── Workflow group ────────────────────────────────────────────────────────
+  { group: 'Workflow',     groupIcon: 'fa-diagram-next',
+    path: '/admin/workflow/operations',     label: 'Operations',         icon: 'fa-gauge-high',    permission: 'workflow.admin'      },
+  { group: 'Workflow',     groupIcon: 'fa-diagram-next',
+    path: '/admin/workflow/templates',      label: 'Templates',          icon: 'fa-layer-group', permission: 'workflow.admin'        },
+  { group: 'Workflow',     groupIcon: 'fa-diagram-next',
+    path: '/admin/workflow/delegations',    label: 'Delegations',        icon: 'fa-right-left',  permission: 'workflow.admin'        },
+  { group: 'Workflow',     groupIcon: 'fa-diagram-next',
+    path: '/admin/workflow/assignments',    label: 'Assignments',        icon: 'fa-network-wired', permission: 'workflow.admin'      },
+  { group: 'Workflow',     groupIcon: 'fa-diagram-next',
+    path: '/admin/workflow/performance',   label: 'Performance',        icon: 'fa-chart-line',    permission: 'workflow.admin'      },
+  { group: 'Workflow',     groupIcon: 'fa-diagram-next',
+    path: '/admin/workflow/analytics',     label: 'Analytics',           icon: 'fa-chart-bar',    permission: 'workflow.admin'      },
+  { group: 'Workflow',     groupIcon: 'fa-diagram-next',
+    path: '/admin/workflow/notifications', label: 'Notification Monitor', icon: 'fa-bell',        permission: 'workflow.admin'      },
+  // ── Jobs group ───────────────────────────────────────────────────────────
+  { group: 'Jobs',         groupIcon: 'fa-gears',
+    path: '/admin/jobs',                        label: 'Background Jobs',    icon: 'fa-clock-rotate-left', permission: 'workflow.admin'         },
 
   // ── Security group ────────────────────────────────────────────────────────
   { group: 'Security',     groupIcon: 'fa-lock',
@@ -434,11 +464,8 @@ function SidebarGroup({ icon, label, children, defaultOpen = true }: {
 
 function Sidebar() {
   const loc         = useLocation();
-  const { can, canAny } = usePermissions();
+  const { can } = usePermissions();
   const isAdmin     = loc.pathname.startsWith('/admin');
-
-  // Show the Approval Queue link for anyone with approval authority
-  const canApprove = can('expense.edit_approval');
 
   // Filter the nav config to only items the user has permission to see
   const visibleItems = ADMIN_NAV.filter(item => can(item.permission));
@@ -478,9 +505,19 @@ function Sidebar() {
             <NavLink to="/expense"  className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`} end>
               <i className="fa-solid fa-wallet" /> My Expenses
             </NavLink>
-            {canApprove && (
-              <NavLink to="/approvals" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
-                <i className="fa-solid fa-clock-rotate-left" /> Approval Queue
+            {can('workflow.submit') && (
+              <NavLink to="/workflow/my-requests" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
+                <i className="fa-solid fa-list-check" /> My Requests
+              </NavLink>
+            )}
+            {can('workflow.approve') && (
+              <NavLink to="/workflow/inbox" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
+                <i className="fa-solid fa-inbox" /> Workflow Inbox
+              </NavLink>
+            )}
+            {can('workflow.approve') && (
+              <NavLink to="/workflow/delegations" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
+                <i className="fa-solid fa-right-left" /> My Delegations
               </NavLink>
             )}
           </>
@@ -538,7 +575,11 @@ function AppShell() {
       <div className="app-shell">
         <Sidebar />
         <main className="app-main">
-          <Outlet />
+          {/* Page-level boundary: a crash in any route stays contained here.
+              The header and sidebar remain fully functional. */}
+          <ErrorBoundary scope="page">
+            <Outlet />
+          </ErrorBoundary>
         </main>
       </div>
     </div>
@@ -573,9 +614,19 @@ export default function App() {
             <ReportDetail />
           </ProtectedRoute>
         } />
-        <Route path="/approvals"            element={
-          <ProtectedRoute requiredPermission="expense.edit_approval">
-            <ApprovalQueue />
+        <Route path="/workflow/my-requests"  element={
+          <ProtectedRoute requiredPermission="workflow.submit">
+            <WorkflowMyRequests />
+          </ProtectedRoute>
+        } />
+        <Route path="/workflow/inbox"       element={
+          <ProtectedRoute requiredPermission="workflow.approve">
+            <ApproverInbox />
+          </ProtectedRoute>
+        } />
+        <Route path="/workflow/delegations" element={
+          <ProtectedRoute requiredPermission="workflow.approve">
+            <WorkflowDelegations />
           </ProtectedRoute>
         } />
 
@@ -623,6 +674,55 @@ export default function App() {
           } />
           <Route path="reports"          element={
             <ProtectedRoute requiredPermission="report.view"><AdminReports /></ProtectedRoute>
+          } />
+          <Route path="analytics"        element={
+            <ProtectedRoute requiredPermission="report.view"><ExpenseAnalytics /></ProtectedRoute>
+          } />
+
+          {/* Workflow */}
+          <Route path="workflow/operations" element={
+            <ProtectedRoute requiredPermission="workflow.admin">
+              <WorkflowOperations />
+            </ProtectedRoute>
+          } />
+          <Route path="workflow/inbox"   element={
+            <ProtectedRoute requiredPermission="workflow.approve"><ApproverInbox /></ProtectedRoute>
+          } />
+          <Route path="workflow/templates" element={
+            <ProtectedRoute requiredPermission="workflow.admin">
+              <WorkflowTemplates />
+            </ProtectedRoute>
+          } />
+          <Route path="workflow/delegations" element={
+            <ProtectedRoute requiredPermission="workflow.admin">
+              <WorkflowDelegations adminView />
+            </ProtectedRoute>
+          } />
+          <Route path="workflow/assignments" element={
+            <ProtectedRoute requiredPermission="workflow.admin">
+              <WorkflowAssignments />
+            </ProtectedRoute>
+          } />
+          <Route path="workflow/performance" element={
+            <ProtectedRoute requiredPermission="workflow.admin">
+              <WorkflowPerformanceDashboard />
+            </ProtectedRoute>
+          } />
+          <Route path="workflow/analytics" element={
+            <ProtectedRoute requiredPermission="workflow.admin">
+              <WorkflowAnalytics />
+            </ProtectedRoute>
+          } />
+          <Route path="workflow/notifications" element={
+            <ProtectedRoute requiredPermission="workflow.admin">
+              <NotificationMonitor />
+            </ProtectedRoute>
+          } />
+          {/* Jobs */}
+          <Route path="jobs" element={
+            <ProtectedRoute requiredPermission="workflow.admin">
+              <JobsAdmin />
+            </ProtectedRoute>
           } />
 
           {/* Security */}

@@ -336,7 +336,7 @@ export default function RoleManagement() {
       const trimmed = editingDescValue.trim() || null;
       const { error: err } = await supabase
         .from('permissions')
-        .update({ description: trimmed } as Record<string, unknown>)
+        .update({ description: trimmed } as any)
         .eq('id', permId);
       if (err) throw err;
       // Patch local state so the grid reflects the change immediately

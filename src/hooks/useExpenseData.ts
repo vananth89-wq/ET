@@ -169,20 +169,10 @@ export interface UseExpenseDataResult {
   addAttachment:    (reportId: string, itemId: string, file: File) => Promise<Attachment>;
   /** Remove an attachment from Storage + DB and update local state. */
   deleteAttachment: (reportId: string, itemId: string, attId: string) => Promise<void>;
-  /** ESS: draft → submitted. Calls submit_expense() RPC. */
+  /** ESS: draft → submitted. Calls submit_expense() → wf_submit() under the hood. */
   submitReport:     (id: string) => Promise<void>;
-  /**
-   * Approve an expense report via the two-stage workflow:
-   *   Manager/DeptHead  submitted       → manager_approved
-   *   Finance/Admin     manager_approved → approved
-   *   Admin             submitted       → approved  (skip stage 1)
-   * The DB function enforces scope. Pass optional notes for the audit log.
-   */
-  approveReport:    (id: string, notes?: string) => Promise<void>;
-  /** Reject a report (at any approval stage). Reason is required. */
-  rejectReport:     (id: string, reason: string) => Promise<void>;
-  /** ESS: pull back a submitted report → draft (before manager actions it). */
-  recallReport:     (id: string) => Promise<void>;
+  /** ESS: withdraw a submitted report back to draft via the workflow engine. */
+  recallReport:     (id: string, reason?: string) => Promise<void>;
 }
 
 export function useExpenseData(): UseExpenseDataResult {
@@ -375,7 +365,7 @@ export function useExpenseData(): UseExpenseDataResult {
       if (cid) dbPatch.base_currency_id = cid;
     }
     if (Object.keys(dbPatch).length === 0) return;
-    const { error: err } = await supabase.from('expense_reports').update(dbPatch).eq('id', id);
+    const { error: err } = await supabase.from('expense_reports').update(dbPatch as any).eq('id', id);
     if (err) console.error('[useExpenseData] updateReport:', err.message);
   }, [patchReport]);
 
@@ -448,12 +438,6 @@ export function useExpenseData(): UseExpenseDataResult {
       throw new Error(err.message);
     }
 
-    // Persist attachments separately
-    if (item.attachments && item.attachments.length > 0) {
-      const store = loadAttachmentStore();
-      store[item.id] = item.attachments;
-      saveAttachmentStore(store);
-    }
   }, []);
 
   // ── Update line item ───────────────────────────────────────────────────────
@@ -483,20 +467,10 @@ export function useExpenseData(): UseExpenseDataResult {
     }
 
     if (Object.keys(dbPatch).length > 0) {
-      const { error: err } = await supabase.from('line_items').update(dbPatch).eq('id', itemId);
+      const { error: err } = await supabase.from('line_items').update(dbPatch as any).eq('id', itemId);
       if (err) console.error('[useExpenseData] updateLineItem:', err.message);
     }
 
-    // Persist attachments if changed
-    if (patch.attachments !== undefined) {
-      const store = loadAttachmentStore();
-      if (patch.attachments.length > 0) {
-        store[itemId] = patch.attachments;
-      } else {
-        delete store[itemId];
-      }
-      saveAttachmentStore(store);
-    }
   }, []);
 
   // ── Delete line item (soft) ────────────────────────────────────────────────
@@ -670,44 +644,15 @@ export function useExpenseData(): UseExpenseDataResult {
     refetch();
   }, [patchReport, refetch, reports]);
 
-  const approveReport = useCallback(async (id: string, notes?: string): Promise<void> => {
-    const prev = reports.find(r => r.id === id);
-    // Optimistically move to a "pending" visual — actual new status comes from refetch
-    patchReport(id, { status: 'manager_approved' });
-
-    const { error: err } = await supabase.rpc('approve_expense', {
-      p_report_id: id,
-      p_notes:     notes ?? null,
-    });
-    if (err) {
-      if (prev) patchReport(id, { status: prev.status });
-      console.error('[useExpenseData] approveReport:', err.message);
-      throw new Error(err.message);
-    }
-    refetch();
-  }, [patchReport, refetch, reports]);
-
-  const rejectReport = useCallback(async (id: string, reason: string): Promise<void> => {
-    const prev = reports.find(r => r.id === id);
-    patchReport(id, { status: 'rejected', rejectionReason: reason });
-
-    const { error: err } = await supabase.rpc('reject_expense', {
-      p_report_id: id,
-      p_reason:    reason,
-    });
-    if (err) {
-      if (prev) patchReport(id, { status: prev.status, rejectionReason: prev.rejectionReason });
-      console.error('[useExpenseData] rejectReport:', err.message);
-      throw new Error(err.message);
-    }
-    refetch();
-  }, [patchReport, refetch, reports]);
-
-  const recallReport = useCallback(async (id: string): Promise<void> => {
+  const recallReport = useCallback(async (id: string, reason?: string): Promise<void> => {
     const prev = reports.find(r => r.id === id);
     patchReport(id, { status: 'draft', submittedAt: undefined });
 
-    const { error: err } = await supabase.rpc('recall_expense', { p_report_id: id });
+    const { error: err } = await supabase.rpc('wf_withdraw_by_record', {
+      p_module_code: 'expense_reports',
+      p_record_id:   id,
+      p_reason:      reason ?? null,
+    });
     if (err) {
       if (prev) patchReport(id, { status: prev.status, submittedAt: prev.submittedAt });
       console.error('[useExpenseData] recallReport:', err.message);
@@ -723,6 +668,6 @@ export function useExpenseData(): UseExpenseDataResult {
     createReport, updateReport, deleteReport,
     addLineItem, updateLineItem, deleteLineItem,
     addAttachment, deleteAttachment,
-    submitReport, approveReport, rejectReport, recallReport,
+    submitReport, recallReport,
   };
 }

@@ -62,252 +62,11 @@ const DEFAULT_PICKLISTS: Picklist[] = [
   { id: 'Expense_Category',  description: 'Expense Category',  parentPicklistId: null,         system: true,  metaFields: [] },
 ];
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Default picklist VALUES — mirrors initPicklists() seeding in admin.js
-// ─────────────────────────────────────────────────────────────────────────────
-
-const DEFAULT_VALUES: PlValue[] = (() => {
-  const s: PlValue[] = [];
-
-  // Country ID index: old numeric id → new string id (G001..G015)
-  const CMAP: Record<number, string> = {
-    10001:'G001',10002:'G002',10003:'G003',10004:'G004',10005:'G005',
-    10006:'G006',10007:'G007',10008:'G008',10009:'G009',10010:'G010',
-    10011:'G011',10012:'G012',10013:'G013',10014:'G014',10015:'G015',
-  };
-
-  // ── DESIGNATION ────────────────────────────────────────────────────────────
-  [
-    'Analyst','Associate','Business Analyst','Chief Executive Officer',
-    'Chief Financial Officer','Chief Operating Officer','Chief Technology Officer',
-    'Consultant','Data Engineer','Data Scientist','DevOps Engineer',
-    'Director','Engineering Manager','Executive Assistant','Finance Manager',
-    'Frontend Developer','Full Stack Developer','HR Business Partner',
-    'HR Manager','Infrastructure Engineer','IT Manager','Junior Developer',
-    'Lead Developer','Marketing Manager','Mobile Developer','Operations Manager',
-    'Principal Engineer','Product Manager','Product Owner','Program Manager',
-    'Project Manager','QA Engineer','Sales Manager','Scrum Master',
-    'Senior Analyst','Senior Consultant','Senior Developer','Senior Engineer',
-    'Senior Manager','Software Architect','Software Engineer','Solution Architect',
-    'Support Engineer','Systems Administrator','Technical Lead','Test Engineer',
-    'UI/UX Designer','Vice President',
-  ].forEach((v, i) => s.push({
-    id: 'D' + String(i + 1).padStart(3, '0'), picklistId: 'DESIGNATION', value: v,
-    parentValueId: null, active: true,
-    refId: 'D' + String(i + 1).padStart(3, '0'), meta: null,
-  }));
-
-  // ── NATIONALITY ────────────────────────────────────────────────────────────
-  [
-    'Afghan','Albanian','Algerian','American','Angolan','Argentine','Armenian',
-    'Australian','Austrian','Azerbaijani','Bahraini','Bangladeshi','Belgian',
-    'Bolivian','Brazilian','British','Bulgarian','Cambodian','Cameroonian',
-    'Canadian','Chilean','Chinese','Colombian','Congolese','Costa Rican',
-    'Croatian','Cuban','Czech','Danish','Dutch','Ecuadorian','Egyptian',
-    'Emirati','Estonian','Ethiopian','Finnish','French','Georgian','German',
-    'Ghanaian','Greek','Guatemalan','Hungarian','Icelandic','Indian',
-    'Indonesian','Iranian','Iraqi','Irish','Israeli','Italian','Ivorian',
-    'Jamaican','Japanese','Jordanian','Kazakhstani','Kenyan','Korean',
-    'Kuwaiti','Latvian','Lebanese','Libyan','Lithuanian','Malaysian',
-    'Maldivian','Maltese','Mauritian','Mexican','Mongolian','Moroccan',
-    'Mozambican','Namibian','Nepalese','New Zealander','Nigerian','Norwegian',
-    'Omani','Pakistani','Palestinian','Panamanian','Peruvian','Philippine',
-    'Polish','Portuguese','Qatari','Romanian','Russian','Rwandan','Saudi',
-    'Senegalese','Serbian','Singaporean','Slovak','Slovenian','Somali',
-    'South African','Spanish','Sri Lankan','Sudanese','Swedish','Swiss',
-    'Syrian','Taiwanese','Tanzanian','Thai','Trinidadian','Tunisian',
-    'Turkish','Ugandan','Ukrainian','Uruguayan','Venezuelan','Vietnamese',
-    'Yemeni','Zambian','Zimbabwean',
-  ].forEach((v, i) => s.push({
-    id: 'N' + String(i + 1).padStart(3, '0'), picklistId: 'NATIONALITY', value: v,
-    parentValueId: null, active: true,
-    refId: 'N' + String(i + 1).padStart(3, '0'), meta: null,
-  }));
-
-  // ── MARITAL_STATUS ─────────────────────────────────────────────────────────
-  ['Single','Married','Divorced','Widowed','Separated']
-    .forEach((v, i) => s.push({
-      id: 'M' + String(i + 1).padStart(3, '0'), picklistId: 'MARITAL_STATUS', value: v,
-      parentValueId: null, active: true,
-      refId: 'M' + String(i + 1).padStart(3, '0'), meta: null,
-    }));
-
-  // ── RELATIONSHIP_TYPE ──────────────────────────────────────────────────────
-  ['Father','Mother','Spouse','Brother','Sister','Son','Daughter','Guardian','Friend','Colleague','Other']
-    .forEach((v, i) => s.push({
-      id: 'R' + String(i + 1).padStart(3, '0'), picklistId: 'RELATIONSHIP_TYPE', value: v,
-      parentValueId: null, active: true,
-      refId: 'R' + String(i + 1).padStart(3, '0'), meta: null,
-    }));
-
-  // ── ID_COUNTRY (IDs: G001–G015) ───────────────────────────────────────────
-  // currencyId links to CURRENCY picklist (C001=INR, C002=USD, C004=GBP, C005=SAR,
-  //   C006=AED, C007=SGD, C012=MYR, C013=QAR, C014=KWD, C015=BHD)
-  // Countries with no seeded currency (Oman, Pakistan, Sri Lanka, Bangladesh, Nepal)
-  //   are left blank — admins can set them in Reference Data once the currency is added.
-  const COUNTRY_CURRENCY: Record<string, string> = {
-    'India': 'C001', 'Saudi Arabia': 'C005', 'United Arab Emirates': 'C006',
-    'Malaysia': 'C012', 'Singapore': 'C007', 'United States': 'C002',
-    'United Kingdom': 'C004', 'Qatar': 'C013', 'Kuwait': 'C014', 'Bahrain': 'C015',
-  };
-  [
-    'India','Saudi Arabia','United Arab Emirates','Malaysia','Singapore',
-    'United States','United Kingdom','Qatar','Kuwait','Bahrain',
-    'Oman','Pakistan','Sri Lanka','Bangladesh','Nepal',
-  ].forEach((name, i) => s.push({
-    id: CMAP[10001 + i], picklistId: 'ID_COUNTRY', value: name,
-    parentValueId: null, active: true, refId: null,
-    meta: { code: '', currencyId: COUNTRY_CURRENCY[name] ?? '' },
-  }));
-
-  // ── ID_TYPE (IDs: T001–T029, parentValueId = country G-ID) ───────────────
-  [
-    { seq: 1,  cid: 10001, name: 'Aadhaar' },
-    { seq: 2,  cid: 10001, name: 'PAN' },
-    { seq: 3,  cid: 10001, name: 'Voter ID' },
-    { seq: 4,  cid: 10001, name: 'Driving License' },
-    { seq: 5,  cid: 10002, name: 'Iqama' },
-    { seq: 6,  cid: 10002, name: 'Saudi National ID' },
-    { seq: 7,  cid: 10003, name: 'Emirates ID' },
-    { seq: 8,  cid: 10003, name: 'UAE Residence Visa' },
-    { seq: 9,  cid: 10004, name: 'MyKad' },
-    { seq: 10, cid: 10004, name: 'MyPR' },
-    { seq: 11, cid: 10004, name: 'Work Permit' },
-    { seq: 12, cid: 10005, name: 'NRIC' },
-    { seq: 13, cid: 10005, name: 'FIN' },
-    { seq: 14, cid: 10005, name: 'Employment Pass' },
-    { seq: 15, cid: 10006, name: 'Social Security' },
-    { seq: 16, cid: 10006, name: 'Green Card' },
-    { seq: 17, cid: 10006, name: "Driver's License" },
-    { seq: 18, cid: 10007, name: 'National Insurance' },
-    { seq: 19, cid: 10007, name: 'BRP' },
-    { seq: 20, cid: 10008, name: 'Qatar ID' },
-    { seq: 21, cid: 10008, name: 'Qatar Residence Permit' },
-    { seq: 22, cid: 10009, name: 'Civil ID' },
-    { seq: 23, cid: 10010, name: 'CPR' },
-    { seq: 24, cid: 10011, name: 'Oman Resident Card' },
-    { seq: 25, cid: 10012, name: 'CNIC' },
-    { seq: 26, cid: 10012, name: 'NICOP' },
-    { seq: 27, cid: 10013, name: 'NIC' },
-    { seq: 28, cid: 10014, name: 'NID' },
-    { seq: 29, cid: 10015, name: 'Citizenship Certificate' },
-  ].forEach(t => s.push({
-    id: 'T' + String(t.seq).padStart(3, '0'), picklistId: 'ID_TYPE', value: t.name,
-    parentValueId: CMAP[t.cid], active: true, refId: null, meta: null,
-  }));
-
-  // ── LOCATION (IDs: L001–L028, parentValueId = country G-ID) ──────────────
-  [
-    { seq: 1,  cid: 10001, name: 'Chennai' },
-    { seq: 2,  cid: 10001, name: 'Bangalore' },
-    { seq: 3,  cid: 10001, name: 'Hyderabad' },
-    { seq: 4,  cid: 10001, name: 'Osmanabad' },
-    { seq: 5,  cid: 10001, name: 'Mumbai' },
-    { seq: 6,  cid: 10001, name: 'Delhi' },
-    { seq: 7,  cid: 10002, name: 'Riyadh' },
-    { seq: 8,  cid: 10002, name: 'Jeddah' },
-    { seq: 9,  cid: 10002, name: 'Jubail' },
-    { seq: 10, cid: 10002, name: 'Dammam' },
-    { seq: 11, cid: 10003, name: 'Dubai' },
-    { seq: 12, cid: 10003, name: 'Abu Dhabi' },
-    { seq: 13, cid: 10003, name: 'Sharjah' },
-    { seq: 14, cid: 10004, name: 'Kuala Lumpur' },
-    { seq: 15, cid: 10004, name: 'Johor Bahru' },
-    { seq: 16, cid: 10005, name: 'Singapore' },
-    { seq: 17, cid: 10006, name: 'New York' },
-    { seq: 18, cid: 10006, name: 'Houston' },
-    { seq: 19, cid: 10007, name: 'London' },
-    { seq: 20, cid: 10008, name: 'Doha' },
-    { seq: 21, cid: 10009, name: 'Kuwait City' },
-    { seq: 22, cid: 10010, name: 'Manama' },
-    { seq: 23, cid: 10011, name: 'Muscat' },
-    { seq: 24, cid: 10012, name: 'Karachi' },
-    { seq: 25, cid: 10012, name: 'Lahore' },
-    { seq: 26, cid: 10013, name: 'Colombo' },
-    { seq: 27, cid: 10014, name: 'Dhaka' },
-    { seq: 28, cid: 10015, name: 'Kathmandu' },
-  ].forEach(l => s.push({
-    id: 'L' + String(l.seq).padStart(3, '0'), picklistId: 'LOCATION', value: l.name,
-    parentValueId: CMAP[l.cid], active: true, refId: null, meta: null,
-  }));
-
-  // ── CURRENCY (IDs: C001–C015) ─────────────────────────────────────────────
-  [
-    { code: 'INR', name: 'Indian Rupee',       symbol: '₹'   },
-    { code: 'USD', name: 'US Dollar',           symbol: '$'   },
-    { code: 'EUR', name: 'Euro',                symbol: '€'   },
-    { code: 'GBP', name: 'British Pound',       symbol: '£'   },
-    { code: 'SAR', name: 'Saudi Riyal',         symbol: '﷼'   },
-    { code: 'AED', name: 'UAE Dirham',          symbol: 'د.إ' },
-    { code: 'SGD', name: 'Singapore Dollar',    symbol: 'S$'  },
-    { code: 'AUD', name: 'Australian Dollar',   symbol: 'A$'  },
-    { code: 'CAD', name: 'Canadian Dollar',     symbol: 'C$'  },
-    { code: 'JPY', name: 'Japanese Yen',        symbol: '¥'   },
-    { code: 'CNY', name: 'Chinese Yuan',        symbol: '¥'   },
-    { code: 'MYR', name: 'Malaysian Ringgit',   symbol: 'RM'  },
-    { code: 'QAR', name: 'Qatari Riyal',        symbol: '﷼'   },
-    { code: 'KWD', name: 'Kuwaiti Dinar',       symbol: 'KD'  },
-    { code: 'BHD', name: 'Bahraini Dinar',      symbol: 'BD'  },
-  ].forEach((c, i) => s.push({
-    id: 'C' + String(i + 1).padStart(3, '0'), picklistId: 'CURRENCY', value: c.name,
-    parentValueId: null, active: true, refId: null,
-    meta: { code: c.code, symbol: c.symbol },
-  }));
-
-  // ── Expense_Category (IDs: X001–X010) ────────────────────────────────────
-  [
-    { refId: 'EC001', value: 'Cab'             },
-    { refId: 'EC002', value: 'Flight'          },
-    { refId: 'EC003', value: 'Hotel'           },
-    { refId: 'EC004', value: 'Internet'        },
-    { refId: 'EC005', value: 'Meals'           },
-    { refId: 'EC006', value: 'Miscellaneous'   },
-    { refId: 'EC007', value: 'Mobile'          },
-    { refId: 'EC008', value: 'Office Supplies' },
-    { refId: 'EC009', value: 'Training'        },
-    { refId: 'EC010', value: 'Travel'          },
-  ].forEach((c, i) => s.push({
-    id: 'X' + String(i + 1).padStart(3, '0'), picklistId: 'Expense_Category', value: c.value,
-    parentValueId: null, active: true, refId: c.refId, meta: null,
-  }));
-
-  return s;
-})();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Per-picklist single-char prefix for ID generation */
-const PICKLIST_PREFIX: Record<string, string> = {
-  DESIGNATION:       'D',
-  NATIONALITY:       'N',
-  MARITAL_STATUS:    'M',
-  RELATIONSHIP_TYPE: 'R',
-  ID_COUNTRY:        'G',   // G for Geography
-  ID_TYPE:           'T',
-  LOCATION:          'L',
-  CURRENCY:          'C',
-  Expense_Category:  'X',   // X for eXpense
-};
-
-/** Get the 1-char prefix for a given picklist (falls back to first alpha char) */
-function plPrefix(picklistId: string): string {
-  return PICKLIST_PREFIX[picklistId]
-    ?? picklistId.replace(/[^A-Z]/g, '').charAt(0)
-    ?? 'V';
-}
-
-/** Generate next unique 4-char alphanumeric ID for a picklist (prefix + 3-digit seq) */
-function plGenId(picklistId: string, existingIds: string[]): string {
-  const prefix = plPrefix(picklistId);
-  const used = new Set(existingIds.map(id => id.toUpperCase()));
-  for (let n = 1; n <= 999; n++) {
-    const candidate = prefix + String(n).padStart(3, '0');
-    if (!used.has(candidate)) return candidate;
-  }
-  return prefix + Math.random().toString(36).slice(2, 5).toUpperCase();
-}
 
 /** Checks only actual employee / expense data usage — does NOT include child-value references */
 function plIsInUse(valueId: string, vals: PlValue[], employees: Record<string, unknown>[]): boolean {
@@ -449,7 +208,7 @@ function Page2({ picklist, vals, employees, onBack, picklistRowId, onRefetch }: 
           value:           formValue.trim(),
           parent_value_id: formParent || null,
           meta:            meta as unknown as Record<string, string>,
-        } as Record<string, unknown>).eq('id', editVid);
+        } as any).eq('id', editVid);
         if (error) throw error;
       } else {
         // Insert via RPC so lock_timeout is enforced server-side
@@ -491,7 +250,7 @@ function Page2({ picklist, vals, employees, onBack, picklistRowId, onRefetch }: 
         return;
       }
     }
-    const { error } = await supabase.from('picklist_values').update({ active: !willDeactivate } as Record<string, unknown>).eq('id', val.id);
+    const { error } = await supabase.from('picklist_values').update({ active: !willDeactivate } as any).eq('id', val.id);
     if (error) {
       setValInfoModal({ open: true, title: 'Error', message: error.message });
       return;
@@ -533,7 +292,7 @@ function Page2({ picklist, vals, employees, onBack, picklistRowId, onRefetch }: 
         // Deactivate all active children first
         const childIds = vals.filter(v => v.parentValueId === val.id).map(v => v.id);
         if (childIds.length > 0) {
-          const { error } = await supabase.from('picklist_values').update({ active: false } as Record<string, unknown>).in('id', childIds);
+          const { error } = await supabase.from('picklist_values').update({ active: false } as any).in('id', childIds);
           if (error) throw error;
         }
         if (pendingInUseCheck) {
@@ -542,12 +301,12 @@ function Page2({ picklist, vals, employees, onBack, picklistRowId, onRefetch }: 
           return;
         }
         // Also deactivate the value itself
-        const { error } = await supabase.from('picklist_values').update({ active: false } as Record<string, unknown>).eq('id', val.id);
+        const { error } = await supabase.from('picklist_values').update({ active: false } as any).eq('id', val.id);
         if (error) throw error;
       }
 
       if (kind === 'deactivate-inuse') {
-        const { error } = await supabase.from('picklist_values').update({ active: false } as Record<string, unknown>).eq('id', val.id);
+        const { error } = await supabase.from('picklist_values').update({ active: false } as any).eq('id', val.id);
         if (error) throw error;
       }
 
@@ -841,14 +600,13 @@ interface Page1Props {
   picklists:       Picklist[];
   vals:            PlValue[];
   loading:         boolean;
-  picklistUuidMap: Map<string, string>;
   onSavePicklist:  (data: { id: string; description: string; parentPicklistId: string | null; isNew: boolean }) => Promise<void>;
   onDeletePicklist:(id: string) => Promise<void>;
   onRefetch:       () => void;
   onOpenPage2:     (id: string) => void;
 }
 
-function Page1({ picklists, vals, loading, picklistUuidMap, onSavePicklist, onDeletePicklist, onRefetch, onOpenPage2 }: Page1Props) {
+function Page1({ picklists, vals, loading, onSavePicklist, onDeletePicklist, onRefetch, onOpenPage2 }: Page1Props) {
   const [showForm, setShowForm]   = useState(false);
   const [editPlId, setEditPlId]   = useState<string | null>(null);
   const [formId, setFormId]       = useState('');
@@ -1147,7 +905,7 @@ export default function ReferenceData() {
               ? (uuidToCode.get(row.parent_picklist_id) ?? null)
               : null,
             system:           row.system ?? false,
-            metaFields:       systemDef ? (systemDef.metaFields ?? []) : ((row.meta_fields as string[] | null) ?? []),
+            metaFields:       systemDef ? (systemDef.metaFields ?? []) : ((row.meta_fields as unknown as MetaField[] | null) ?? []),
           };
         });
         setPicklists(mapped);
@@ -1200,7 +958,7 @@ export default function ReferenceData() {
       const { error } = await supabase.from('picklists').update({
         name:               data.description,
         parent_picklist_id: parentUUID,
-      }).eq('id', uuid);
+      } as any).eq('id', uuid);
       if (error) throw error;
     }
   }, [picklistUuidMap]);
@@ -1236,7 +994,6 @@ export default function ReferenceData() {
         picklists={picklists}
         vals={vals}
         loading={picklistsLoading}
-        picklistUuidMap={picklistUuidMap}
         onSavePicklist={handleSavePicklist}
         onDeletePicklist={handleDeletePicklist}
         onRefetch={refetchPicklists}

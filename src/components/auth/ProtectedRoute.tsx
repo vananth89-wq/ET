@@ -26,9 +26,9 @@
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { usePermissions } from '../../hooks/usePermissions';
-import type { Database } from '../../types/database';
 
-type RoleType = Database['public']['Enums']['role_type'];
+// Legacy role_type values — enum was dropped from DB but kept here for backward compat
+type RoleType = 'employee' | 'manager' | 'finance' | 'admin';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;

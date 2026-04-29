@@ -28,18 +28,8 @@ export default function ResetPasswordPage() {
       'This reset link has expired or has already been used. ' +
       'Please request a new one from the login page.';
 
-    // ── Check for server-side error in the URL hash ───────────────────────
-    // Supabase redirects here with #error=... when the token is invalid or
-    // expired before the client even gets to process it.
-    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
-    if (hashParams.get('error')) {
-      const desc = hashParams.get('error_description') ?? '';
-      const msg = desc || EXPIRED_MSG;
-      setError(msg);
-      setChecking(false);
-      clearTimeout(timer);
-      return;
-    }
+    // Safety net: if no auth event arrives in 8 s, show expired error
+    let timer: ReturnType<typeof setTimeout>;
 
     function resolve(err?: string) {
       if (resolved) return;
@@ -50,8 +40,19 @@ export default function ResetPasswordPage() {
       setChecking(false);
     }
 
-    // Safety net: if no auth event arrives in 8 s, show expired error
-    const timer = setTimeout(() => resolve(EXPIRED_MSG), 8_000);
+    // ── Check for server-side error in the URL hash ───────────────────────
+    // Supabase redirects here with #error=... when the token is invalid or
+    // expired before the client even gets to process it.
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    if (hashParams.get('error')) {
+      const desc = hashParams.get('error_description') ?? '';
+      const msg = desc || EXPIRED_MSG;
+      setError(msg);
+      setChecking(false);
+      return;
+    }
+
+    timer = setTimeout(() => resolve(EXPIRED_MSG), 8_000);
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (resolved) return;

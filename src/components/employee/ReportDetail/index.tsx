@@ -5,11 +5,13 @@ import { useLocalStorage } from '../../../hooks/useLocalStorage';
 import { usePicklistValues } from '../../../hooks/usePicklistValues';
 import { useProjects } from '../../../hooks/useProjects';
 import { usePermissions } from '../../../hooks/usePermissions';
+import { useWorkflowInstance } from '../../../workflow/hooks/useWorkflowInstance';
 import type { LineItem, Attachment, ExchangeRate } from '../../../types';
 import { fmtAmount, getCurrencySymbol, lookupRate } from '../../../utils/currency';
 import { fmtDate } from '../../../utils/dates';
 import StatusBadge from '../../shared/StatusBadge';
 import ApprovalFlow from '../../shared/ApprovalFlow';
+import { WorkflowTimeline } from '../../../workflow/components/WorkflowTimeline';
 import AttachmentModal from './AttachmentModal';
 
 const ATT_ALLOWED = ['application/pdf', 'image/jpeg', 'image/png'];
@@ -31,7 +33,7 @@ const NOTE_REQUIRED_ABOVE = 10000;
 export default function ReportDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { getReport, updateReport, addLineItem, updateLineItem, deleteLineItem, submitReport, addAttachment, deleteAttachment } = useExpenseData();
+  const { getReport, updateReport, addLineItem, updateLineItem, deleteLineItem, submitReport, recallReport, addAttachment, deleteAttachment } = useExpenseData();
   const [exchangeRates] = useLocalStorage<ExchangeRate[]>('prowess-exchange-rates', []);
   const { picklistValues } = usePicklistValues(true);
   const { projects: rawProjects } = useProjects(false);
@@ -39,6 +41,13 @@ export default function ReportDetail() {
 
   const { can } = usePermissions();
   const report = getReport(id!);
+
+  // ── Workflow instance for this report ────────────────────────────
+  const wf = useWorkflowInstance('expense_reports', id ?? null);
+
+  const [showWithdrawConfirm, setShowWithdrawConfirm] = useState(false);
+  const [withdrawReason, setWithdrawReason]           = useState('');
+  const [withdrawing, setWithdrawing]                 = useState(false);
   const [attItemId, setAttItemId] = useState<string | null>(null);
   const [editItem, setEditItem] = useState<LineItem | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -52,7 +61,7 @@ export default function ReportDetail() {
   const [dupWarning, setDupWarning] = useState(false);
   const [attError, setAttError] = useState('');
   const [showAttWarning, setShowAttWarning] = useState(false);
-  const [pendingSave, setPendingSave] = useState(false);
+  const [_pendingSave, setPendingSave] = useState(false);
   const [warnFiles, setWarnFiles] = useState<Attachment[]>([]);
   const [warnDragging, setWarnDragging] = useState(false);
   const [warnAttError, setWarnAttError] = useState('');
@@ -327,16 +336,37 @@ export default function ReportDetail() {
   }
 
   // ── Banners ─────────────────────────────────────────────────────
+  const canWithdraw = report.status === 'submitted' && can('expense.submit') && wf.instance?.status === 'in_progress';
+
   const bannerCls: Record<string, string> = {
-    draft: 'exp-status-banner--draft', submitted: 'exp-status-banner--submitted',
-    approved: 'exp-status-banner--approved', rejected: 'exp-status-banner--rejected',
+    draft:            'exp-status-banner--draft',
+    submitted:        'exp-status-banner--submitted',
+    manager_approved: 'exp-status-banner--submitted',
+    approved:         'exp-status-banner--approved',
+    rejected:         'exp-status-banner--rejected',
   };
   const bannerMsg: Record<string, string> = {
-    draft:     `This report is in <strong>Draft</strong>. You can add or edit line items. Submit when ready.`,
-    submitted: `This report has been <strong>Submitted</strong> and is awaiting approval.`,
-    approved:  `This report has been <strong>Approved</strong>.`,
-    rejected:  `This report has been <strong>Rejected</strong>. Please review and resubmit.`,
+    draft:            `This report is in <strong>Draft</strong>. You can add or edit line items. Submit when ready.`,
+    submitted:        `This report is <strong>In Review</strong> — awaiting approval from your approvers.`,
+    manager_approved: `This report is <strong>In Review</strong> — awaiting final approval.`,
+    approved:         `This report has been fully <strong>Approved</strong>.`,
+    rejected:         `This report has been <strong>Rejected</strong>. Please review the feedback and resubmit.`,
   };
+
+  async function handleWithdraw() {
+    if (!report) return;
+    setWithdrawing(true);
+    try {
+      await recallReport(report.id, withdrawReason.trim() || undefined);
+      setShowWithdrawConfirm(false);
+      setWithdrawReason('');
+      wf.refresh();
+    } catch (e) {
+      // error surfaced by recallReport
+    } finally {
+      setWithdrawing(false);
+    }
+  }
 
   return (
     <div className="exp-detail-wrap">
@@ -388,10 +418,37 @@ export default function ReportDetail() {
       <div className="exp-detail-body">
 
         {/* ── Status Banner ─────────────────────────────────────── */}
-        <div
-          className={`exp-status-banner ${bannerCls[report.status]}`}
-          dangerouslySetInnerHTML={{ __html: `<i class="fa-solid fa-circle-info"></i> ${bannerMsg[report.status]}` }}
-        />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div
+            className={`exp-status-banner ${bannerCls[report.status] ?? 'exp-status-banner--draft'}`}
+            style={{ flex: 1, margin: 0 }}
+            dangerouslySetInnerHTML={{ __html: `<i class="fa-solid fa-circle-info"></i> ${bannerMsg[report.status] ?? ''}` }}
+          />
+          {canWithdraw && (
+            <button
+              onClick={() => setShowWithdrawConfirm(true)}
+              style={{
+                flexShrink: 0, padding: '7px 14px', borderRadius: 6,
+                border: '1px solid #FCA5A5', background: '#FEF2F2',
+                fontSize: 12, fontWeight: 600, color: '#DC2626', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap',
+              }}
+            >
+              <i className="fa-solid fa-rotate-left" style={{ fontSize: 11 }} />
+              Withdraw
+            </button>
+          )}
+        </div>
+
+        {/* ── Workflow Timeline ────────────────────────────────── */}
+        {wf.instance && (
+          <WorkflowTimeline
+            history={wf.history}
+            tasks={wf.tasks}
+            currentStep={wf.instance.currentStep ?? 1}
+            status={wf.instance.status}
+          />
+        )}
 
         {/* ── Line Items Section ────────────────────────────────── */}
         <div className="exp-line-items-section">
@@ -728,6 +785,51 @@ export default function ReportDetail() {
 
       </div>{/* /.exp-detail-body */}
 
+      {/* ── Withdraw Confirm Modal ───────────────────────────────────── */}
+      {showWithdrawConfirm && (
+        <div className="exp-modal-overlay exp-modal--open" onClick={() => setShowWithdrawConfirm(false)}>
+          <div className="exp-modal-box" onClick={e => e.stopPropagation()}>
+            <h3 className="exp-modal-title">
+              <i className="fa-solid fa-rotate-left" style={{ color: '#DC2626', marginRight: 8 }} />
+              Withdraw Report?
+            </h3>
+            <p style={{ color: '#64748b', marginBottom: 16 }}>
+              This will cancel the approval process and return the report to draft so you can make changes.
+            </p>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
+              Reason (optional)
+            </label>
+            <textarea
+              value={withdrawReason}
+              onChange={e => setWithdrawReason(e.target.value)}
+              placeholder="Why are you withdrawing this report?"
+              rows={3}
+              style={{
+                width: '100%', padding: '8px 10px', border: '1px solid #D1D5DB',
+                borderRadius: 6, fontSize: 13, resize: 'vertical', outline: 'none',
+                fontFamily: 'inherit', boxSizing: 'border-box', marginBottom: 16,
+              }}
+            />
+            <div className="exp-modal-actions">
+              <button className="exp-btn-cancel-item" onClick={() => { setShowWithdrawConfirm(false); setWithdrawReason(''); }} disabled={withdrawing}>
+                Cancel
+              </button>
+              <button
+                onClick={handleWithdraw}
+                disabled={withdrawing}
+                style={{
+                  padding: '7px 16px', borderRadius: 6, border: 'none',
+                  background: '#DC2626', color: '#fff', fontWeight: 600, fontSize: 13,
+                  cursor: withdrawing ? 'not-allowed' : 'pointer', opacity: withdrawing ? 0.7 : 1,
+                }}
+              >
+                {withdrawing ? 'Withdrawing…' : 'Confirm Withdraw'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Submit Confirm Modal ──────────────────────────────────── */}
       {showSubmitConfirm && (
         <div className="exp-modal-overlay exp-modal--open" onClick={() => setShowSubmitConfirm(false)}>
@@ -849,7 +951,7 @@ export default function ReportDetail() {
           item={attItem}
           readOnly={!editable}
           onClose={() => setAttItemId(null)}
-          onAdd={file => addAttachment(report.id, attItem.id, file)}
+          onAdd={async file => { await addAttachment(report!.id, attItem.id, file); }}
           onDelete={attId => deleteAttachment(report.id, attItem.id, attId)}
         />
       )}

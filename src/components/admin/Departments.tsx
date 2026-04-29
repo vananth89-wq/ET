@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef } from 'react';
 import { supabase } from '../../lib/supabase';
+import WorkflowGateBanner from '../../workflow/components/WorkflowGateBanner';
 import { useDepartments } from '../../hooks/useDepartments';
 import { useEmployees } from '../../hooks/useEmployees';
 import ConfirmationModal from '../shared/ConfirmationModal';
@@ -207,7 +208,7 @@ export default function Departments() {
           parent_dept_id:   formParentDeptId  || null,
           start_date:       formStartDate      || null,
           end_date:         formEndDate        || null,
-        } as Record<string, unknown>)
+        } as any)
         .eq('id', editId);
 
       if (dbErr) {
@@ -291,7 +292,7 @@ export default function Departments() {
           parent_dept_id:   formParentDeptId  || null,
           start_date:       formStartDate      || null,
           end_date:         formEndDate        || null,
-        } as Record<string, unknown>);
+        } as any);
 
       if (dbErr) {
         setSaving(false);
@@ -343,7 +344,7 @@ export default function Departments() {
 
     const { error: dbErr } = await supabase
       .from('departments')
-      .update({ deleted_at: new Date().toISOString() } as Record<string, unknown>)
+      .update({ deleted_at: new Date().toISOString() } as any)
       .eq('id', deptId);
 
     if (dbErr) {
@@ -423,6 +424,10 @@ export default function Departments() {
 
   return (
     <div className="ar-panel">
+
+      {/* Workflow gate banners — shown automatically when a workflow is configured */}
+      <WorkflowGateBanner moduleCode="department_create" actionLabel="new departments created" />
+      <WorkflowGateBanner moduleCode="department_edit"   actionLabel="department edits saved" />
 
       {/* Title */}
       <h2 className="page-title">Department Management</h2>

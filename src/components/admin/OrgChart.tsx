@@ -419,11 +419,12 @@ function EmpPopover({ state, plVals, departments, onClose }: {
 export default function OrgChart() {
   const { departments: supabaseDepts } = useDepartments();
   const { employees: supabaseEmps }   = useEmployees();
-  const { picklistValues: plVals }    = usePicklistValues();
+  const { picklistValues: plValsRaw }    = usePicklistValues();
 
   // supabaseDepts still needs a cast to the legacy TreeNode-compatible Department shape
   const departments = supabaseDepts as unknown as Department[];
   const employees   = supabaseEmps;  // typed as Employee[] from useEmployees — no cast needed
+  const plVals = plValsRaw as any;
 
   const today = new Date().toISOString().split('T')[0];
   const [viewDate,  setViewDate]  = useState(today);

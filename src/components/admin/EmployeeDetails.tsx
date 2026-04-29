@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useEmployees, type Employee } from '../../hooks/useEmployees';
+import WorkflowGateBanner from '../../workflow/components/WorkflowGateBanner';
 import { usePicklistValues }           from '../../hooks/usePicklistValues';
 import { useDepartments }              from '../../hooks/useDepartments';
 import ErrorBanner                     from '../shared/ErrorBanner';
@@ -76,8 +77,8 @@ function exportCsv(rows: FullEmployee[], picklistVals: PicklistValue[]) {
     e.managerId || '',
     e.role || '',
     e.status || '',
-    fmtDate(e.hireDate),
-    fmtDate(e.endDate),
+    fmtDate(e.hireDate ?? undefined),
+    fmtDate(e.endDate ?? undefined),
   ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
 
   const csv = [header.join(','), ...lines].join('\n');
@@ -258,7 +259,7 @@ export default function EmployeeDetails() {
     if (editingEmp) {
       return (
         <EmployeeEditPanel
-          emp={editingEmp}
+          emp={editingEmp as any}
           onClose={() => setEditingEmpId(null)}
           onSaved={() => refetch()}
         />
@@ -274,9 +275,12 @@ export default function EmployeeDetails() {
     <div className="page-content" style={{ padding: '28px 32px' }}>
       <h2 className="page-title" style={{ marginBottom: 20 }}>Employee Details</h2>
 
+      {/* Workflow gate banner */}
+      <WorkflowGateBanner moduleCode="employee_edit" actionLabel="employee detail edits" />
+
       {/* ── Alerts ──────────────────────────────────────────────────────── */}
-      <AlertBanner type="contract"  employees={activeEmployees} picklistVals={picklistVals} />
-      <AlertBanner type="probation" employees={activeEmployees} picklistVals={picklistVals} />
+      <AlertBanner type="contract"  employees={activeEmployees} picklistVals={picklistVals as any} />
+      <AlertBanner type="probation" employees={activeEmployees} picklistVals={picklistVals as any} />
 
       {/* ── Filter Bar ──────────────────────────────────────────────────── */}
       <div style={{
@@ -345,7 +349,7 @@ export default function EmployeeDetails() {
           <div style={{ marginLeft: 'auto' }}>
             <button
               className="btn-export"
-              onClick={() => exportCsv(filtered, picklistVals)}
+              onClick={() => exportCsv(filtered, picklistVals as any)}
               title="Download employee list as CSV"
             >
               <i className="fa-solid fa-file-excel" />
@@ -409,8 +413,8 @@ export default function EmployeeDetails() {
                       </div>
                     </td>
                     <td style={{ fontSize: 13 }}>{resolveLabel('DESIGNATION', emp.designation)}</td>
-                    <td style={{ fontSize: 13 }}>{resolveDept(emp.deptId)}</td>
-                    <td style={{ fontSize: 13 }}>{resolveManager(emp.managerId)}</td>
+                    <td style={{ fontSize: 13 }}>{resolveDept(emp.deptId ?? undefined)}</td>
+                    <td style={{ fontSize: 13 }}>{resolveManager(emp.managerId ?? undefined)}</td>
                     <td style={{ fontSize: 13 }}>
                       {emp.role === 'Department Manager'
                         ? <span style={{ background: '#F3E8FF', color: '#7C3AED', padding: '2px 10px', borderRadius: 12, fontSize: 12, fontWeight: 600 }}>Dept Manager</span>

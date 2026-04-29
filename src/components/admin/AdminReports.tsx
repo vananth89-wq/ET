@@ -6,21 +6,19 @@ import {
 } from 'recharts';
 import { useLocalStorage } from '../../hooks/useLocalStorage';
 import { useAuth } from '../../contexts/AuthContext';
-import { useEmployees, type Employee } from '../../hooks/useEmployees';
+import { useEmployees } from '../../hooks/useEmployees';
 import { useDepartments } from '../../hooks/useDepartments';
 import { useExpenseData } from '../../hooks/useExpenseData';
 import { useProjects } from '../../hooks/useProjects';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useExchangeRates } from '../../hooks/useExchangeRates';
 import { useCurrencies } from '../../hooks/useCurrencies';
-import type { ExpenseReport } from '../../types';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
-interface Dept  { deptId: string; name: string; }
-interface Proj  { id: string | number; name: string; }
+interface Dept  { id?: string; deptId: string; name: string; }
 
 interface FlatRow {
   reportId: string; reportName: string; status: string; baseCurrency: string;

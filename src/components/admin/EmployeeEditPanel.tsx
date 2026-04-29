@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { supabase } from '../../lib/supabase';
+import WorkflowGateBanner from '../../workflow/components/WorkflowGateBanner';
 import { useEmployees } from '../../hooks/useEmployees';
 import { usePicklistValues } from '../../hooks/usePicklistValues';
 import { useDepartments } from '../../hooks/useDepartments';
@@ -564,7 +565,7 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
     if (Object.keys(dbPatch).length > 0) {
       const { error } = await supabase
         .from('employees')
-        .update(dbPatch)
+        .update(dbPatch as any)
         .eq('id', empUUID);
       if (error) {
         setSaving(false);
@@ -1151,6 +1152,9 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
 
   return (
     <div className="emp-edit-panel">
+      {/* Workflow gate banner */}
+      <WorkflowGateBanner moduleCode="employee_edit" actionLabel="employee detail edits" />
+
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="emp-edit-panel-header">
         <button className="emp-edit-back-btn" onClick={onClose}>

@@ -26,13 +26,42 @@ import { fmtAmount }         from '../../../utils/currency';
 import StatusBadge           from '../../shared/StatusBadge';
 import type { ExpenseReport, ExpenseStatus } from '../../../types';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// ─── Migration banner ─────────────────────────────────────────────────────────
+// Approval now flows through the Workflow Approver Inbox.
+// This component is kept for historical report viewing only.
 
-type ActionType = 'approve' | 'reject';
-
-interface ActionModal {
-  report:     ExpenseReport;
-  actionType: ActionType;
+function WorkflowMigrationBanner() {
+  const navigate = useNavigate();
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      gap: 16, padding: '14px 18px', borderRadius: 10, marginBottom: 20,
+      background: '#EFF6FF', border: '1px solid #BFDBFE',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+        <i className="fas fa-diagram-next" style={{ color: '#2F77B5', fontSize: 16, marginTop: 2, flexShrink: 0 }} />
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#18345B' }}>
+            Approvals have moved to the Workflow Engine
+          </div>
+          <div style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>
+            New approval tasks are managed in the Approver Inbox. This screen shows read-only report history.
+          </div>
+        </div>
+      </div>
+      <button
+        onClick={() => navigate('/admin/workflow/inbox')}
+        style={{
+          flexShrink: 0, padding: '7px 16px', borderRadius: 6, border: 'none',
+          background: '#2F77B5', color: '#fff', fontSize: 12, fontWeight: 600,
+          cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap',
+        }}
+      >
+        <i className="fas fa-inbox" style={{ fontSize: 11 }} />
+        Go to Approver Inbox
+      </button>
+    </div>
+  );
 }
 
 // ─── Status pills the queue shows for each permission level ──────────────────
@@ -52,104 +81,14 @@ function formatDate(iso?: string): string {
   return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-// ─── Approve / Reject modal ───────────────────────────────────────────────────
-
-interface ModalProps {
-  modal:      ActionModal;
-  onClose:    () => void;
-  onConfirm:  (notes: string) => Promise<void>;
-}
-
-function ActionConfirmModal({ modal, onClose, onConfirm }: ModalProps) {
-  const [notes,    setNotes]    = useState('');
-  const [loading,  setLoading]  = useState(false);
-  const [error,    setError]    = useState<string | null>(null);
-
-  const isReject  = modal.actionType === 'reject';
-  const title     = isReject ? 'Reject Expense Report' : 'Approve Expense Report';
-  const btnClass  = isReject ? 'btn-danger' : 'btn-primary';
-  const btnLabel  = isReject ? 'Confirm Reject' : 'Confirm Approve';
-  const notesLabel = isReject ? 'Rejection reason (required)' : 'Notes (optional)';
-
-  async function handleConfirm() {
-    if (isReject && !notes.trim()) {
-      setError('Please enter a rejection reason.');
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    try {
-      await onConfirm(notes.trim());
-      onClose();
-    } catch (err: any) {
-      setError(err.message ?? 'Action failed. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 480 }}>
-        <div className="modal-header">
-          <h3>{title}</h3>
-          <button className="modal-close" onClick={onClose} disabled={loading}>✕</button>
-        </div>
-
-        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {/* Report summary */}
-          <div style={{ background: 'var(--surface)', borderRadius: 8, padding: '12px 16px' }}>
-            <div style={{ fontWeight: 600, marginBottom: 4 }}>{modal.report.name}</div>
-            <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-              {modal.report.employeeName ?? modal.report.employeeId}
-              &nbsp;·&nbsp;
-              <StatusBadge status={modal.report.status} />
-              &nbsp;·&nbsp;
-              {fmtAmount(reportTotal(modal.report), modal.report.baseCurrencyCode)}
-            </div>
-          </div>
-
-          {/* Notes / reason */}
-          <div>
-            <label className="field-label">{notesLabel}</label>
-            <textarea
-              className="form-input"
-              rows={3}
-              value={notes}
-              onChange={e => setNotes(e.target.value)}
-              placeholder={isReject ? 'Explain why this report is being rejected…' : 'Any comments for the audit log…'}
-              autoFocus
-            />
-          </div>
-
-          {error && (
-            <div className="form-error-banner">{error}</div>
-          )}
-        </div>
-
-        <div className="modal-footer">
-          <button className="btn btn-ghost" onClick={onClose} disabled={loading}>Cancel</button>
-          <button className={`btn ${btnClass}`} onClick={handleConfirm} disabled={loading}>
-            {loading ? <span className="spinner-sm" /> : null}
-            {btnLabel}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function ApprovalQueue() {
   const navigate                           = useNavigate();
   const { can, canAny }                    = usePermissions();
   const { reports, loading, error,
-          approveReport, rejectReport,
           refetch }                        = useExpenseData();
 
-  const [modal,       setModal]            = useState<ActionModal | null>(null);
-  const [actionError, setActionError]      = useState<string | null>(null);
   const [statusFilter, setStatusFilter]    = useState<ExpenseStatus | 'all'>('all');
 
   // ── Determine which statuses to surface for this user ────────────────────
@@ -189,24 +128,6 @@ export default function ApprovalQueue() {
     return counts;
   }, [queueReports]);
 
-  // ── Action handlers ───────────────────────────────────────────────────────
-
-  function openAction(report: ExpenseReport, actionType: ActionType) {
-    setActionError(null);
-    setModal({ report, actionType });
-  }
-
-  async function handleConfirm(notes: string) {
-    if (!modal) return;
-    if (modal.actionType === 'approve') {
-      await approveReport(modal.report.id, notes || undefined);
-    } else {
-      await rejectReport(modal.report.id, notes);
-    }
-    setModal(null);
-    refetch();
-  }
-
   // ── Guard ─────────────────────────────────────────────────────────────────
 
   if (!canAccessQueue) {
@@ -245,11 +166,14 @@ export default function ApprovalQueue() {
         </button>
       </div>
 
+      {/* ── Migration banner ─────────────────────────────────────────────── */}
+      <WorkflowMigrationBanner />
+
       {/* ── Error banner ─────────────────────────────────────────────────── */}
-      {(error || actionError) && (
+      {error && (
         <div className="form-error-banner" style={{ marginBottom: 16 }}>
           <i className="fa-solid fa-circle-exclamation" style={{ marginRight: 6 }} />
-          {error ?? actionError}
+          {error}
         </div>
       )}
 
@@ -335,19 +259,12 @@ export default function ApprovalQueue() {
                   <div className="approval-card-actions">
                     {canActOnThis && (
                       <button
-                        className="btn btn-success btn-sm"
-                        onClick={() => openAction(report, 'approve')}
+                        className="btn btn-primary btn-sm"
+                        onClick={() => navigate('/admin/workflow/inbox')}
+                        title="Open Approver Inbox to act on this report"
                       >
-                        <i className="fa-solid fa-check" /> Approve
+                        <i className="fa-solid fa-inbox" /> Open Inbox
                       </button>
-                    )}
-                    {canActOnThis && (
-                    <button
-                      className="btn btn-danger btn-sm"
-                      onClick={() => openAction(report, 'reject')}
-                    >
-                      <i className="fa-solid fa-xmark" /> Reject
-                    </button>
                     )}
                     <button
                       className="btn btn-ghost btn-sm"
@@ -393,14 +310,6 @@ export default function ApprovalQueue() {
         </div>
       )}
 
-      {/* ── Action modal ─────────────────────────────────────────────────── */}
-      {modal && (
-        <ActionConfirmModal
-          modal={modal}
-          onClose={() => setModal(null)}
-          onConfirm={handleConfirm}
-        />
-      )}
     </div>
   );
 }
