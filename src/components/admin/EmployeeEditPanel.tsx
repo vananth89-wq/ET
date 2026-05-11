@@ -104,6 +104,8 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
   const [dName,        setDName]        = useState('');
   const [dNationality, setDNationality] = useState('');
   const [dMarital,     setDMarital]     = useState('');
+  const [dGender,      setDGender]      = useState('');
+  const [dDob,         setDDob]         = useState('');
   const [dPhoto,       setDPhoto]       = useState('');
   const photoRef = useRef<HTMLInputElement>(null);
 
@@ -157,6 +159,18 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
   const [dEcPhone,   setDEcPhone]   = useState('');
   const [dEcAlt,     setDEcAlt]     = useState('');
   const [dEcEmail,   setDEcEmail]   = useState('');
+
+  // ── Age helper ───────────────────────────────────────────────────────────
+  const calcAge = (dobStr: string): number | null => {
+    if (!dobStr) return null;
+    const birth = new Date(dobStr);
+    if (isNaN(birth.getTime())) return null;
+    const today = new Date();
+    let age = today.getFullYear() - birth.getFullYear();
+    const m = today.getMonth() - birth.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+    return age;
+  };
 
   // ── Picklist helpers ──────────────────────────────────────────────────────
   const resolve = (plId: string, val?: unknown) => {
@@ -292,7 +306,9 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
     switch (sectionId) {
       case 'personal':
         setDName(e.name || ''); setDNationality((e.nationality as string) || '');
-        setDMarital((e.maritalStatus as string) || ''); setDPhoto((e.photo as string) || '');
+        setDMarital((e.maritalStatus as string) || ''); setDGender((e.gender as string) || '');
+        setDDob((e.dob as string) || '');
+        setDPhoto((e.photo as string) || '');
         break;
       case 'contact':
         setDCountryCode((e.countryCode as string) || '+91'); setDMobile((e.mobile as string) || '');
@@ -349,6 +365,8 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
         if (!dName.trim()) errs.name = 'Full name is required.';
         if (!dNationality) errs.nationality = 'Nationality is required.';
         if (!dMarital)     errs.maritalStatus = 'Marital status is required.';
+        if (!dGender)      errs.gender = 'Gender is required.';
+        if (!dDob)         errs.dob = 'Date of birth is required.';
         break;
       case 'contact':
         if (!dMobile.trim()) errs.mobile = 'Mobile number is required.';
@@ -409,7 +427,7 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
 
     switch (sectionId) {
       case 'personal':
-        frontendPatch = { name: dName.trim(), nationality: dNationality, maritalStatus: dMarital, photo: dPhoto };
+        frontendPatch = { name: dName.trim(), nationality: dNationality, maritalStatus: dMarital, gender: dGender, dob: dDob, photo: dPhoto };
         // name stays in employees core; personal attributes go to employee_personal satellite
         dbPatch = { name: dName.trim() };
         break;
@@ -584,6 +602,8 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
           employee_id:    empUUID,
           nationality:    dNationality || null,
           marital_status: dMarital     || null,
+          gender:         dGender      || null,
+          dob:            dDob         || null,
           photo_url:      dPhoto       || null,
         }, { onConflict: 'employee_id' });
       if (error) satelliteError = error.message;
@@ -689,6 +709,9 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
           <SummaryRow label="ID" value={e.employeeId} />
           <SummaryRow label="Nationality" value={e.nationality as string} />
           <SummaryRow label="Marital Status" value={resolve('MARITAL_STATUS', e.maritalStatus)} />
+          <SummaryRow label="Gender" value={e.gender as string} />
+          <SummaryRow label="Date of Birth" value={e.dob as string} />
+          {e.dob && <SummaryRow label="Age" value={calcAge(e.dob as string) !== null ? `${calcAge(e.dob as string)} years` : undefined} />}
         </div>
       );
       case 'contact': return (
@@ -805,6 +828,31 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
               </select>
               <FieldError msg={errors.maritalStatus} />
             </div>
+            <div className={`form-group ${errors.gender ? 'form-group--error' : ''}`}>
+              <label><i className="fa-solid fa-venus-mars fa-fw" /> Gender</label>
+              <select value={dGender} onChange={e => { setDGender(e.target.value); setIsDirty(true); setErrors(p => ({ ...p, gender: '' })); }} required>
+                <option value="">-- Select --</option>
+                <option value="Male">Male</option>
+                <option value="Female">Female</option>
+              </select>
+              <FieldError msg={errors.gender} />
+            </div>
+            <div className={`form-group ${errors.dob ? 'form-group--error' : ''}`}>
+              <label><i className="fa-solid fa-cake-candles fa-fw" /> Date of Birth</label>
+              <input
+                type="date"
+                value={dDob}
+                onChange={e => { setDDob(e.target.value); setIsDirty(true); setErrors(p => ({ ...p, dob: '' })); }}
+                max={new Date().toISOString().slice(0, 10)}
+              />
+              <FieldError msg={errors.dob} />
+            </div>
+            {dDob && (
+              <div className="form-group">
+                <label><i className="fa-solid fa-hourglass-half fa-fw" /> Age</label>
+                <input type="text" value={calcAge(dDob) !== null ? `${calcAge(dDob)} years` : ''} readOnly />
+              </div>
+            )}
           </div>
         </div>
       );

@@ -1,330 +1,503 @@
 erDiagram
 
-  %% ── Core HR ─────────────────────────────────────────────────────────────────
+  %% ── CORE IDENTITY ────────────────────────────────────────────────────────
 
-  departments {
-    uuid    id PK
-    string  dept_id
-    string  name
-    ts      created_at
-    ts      updated_at
-    ts      deleted_at
+  profiles {
+    uuid id PK
+    uuid user_id FK
+    text role_id FK
+    uuid employee_id FK
+    bool editable
+    ts   created_at
+    ts   updated_at
   }
 
   employees {
-    uuid    id PK
-    string  employee_id
-    string  name
-    string  job_title
-    string  designation
-    uuid    dept_id FK
-    uuid    manager_id FK
-    uuid    base_currency_id FK
-    string  status
-    string  business_email
-    string  personal_email
-    string  mobile
-    string  work_location
-    string  work_country
-    string  nationality
-    string  marital_status
-    date    hire_date
-    date    end_date
-    date    probation_end_date
-    string  photo_url
-    ts      created_at
-    ts      updated_at
-    ts      deleted_at
+    uuid   id PK
+    uuid   company_id FK
+    text   name
+    text   job_info
+    text   dept_id FK
+    bool   dept_head
+    uuid   manager_id FK
+    text   designation
+    text   employment_type
+    text   business_unit
+    text   work_location
+    text   work_country
+    text   nationality
+    text   marital_status
+    date   hire_date
+    date   wfh_date
+    date   probation_end_date
+    text   photo_url
+    bool   active
+    ts     created_at
+    ts     updated_at
+    ts     deleted_at
+  }
+
+  departments {
+    uuid id PK
+    text dept_id
+    text name
+    ts   created_at
+    ts   updated_at
   }
 
   department_heads {
-    uuid    id PK
-    uuid    department_id FK
-    uuid    employee_id FK
-    date    from_date
-    date    to_date
-    ts      created_at
-    ts      updated_at
+    uuid id PK
+    uuid dept_id FK
+    uuid employee_id FK
+    ts   created_at
+    ts   updated_at
   }
 
   employee_addresses {
-    uuid    id PK
-    uuid    employee_id FK
-    string  line1
-    string  line2
-    string  city
-    string  district
-    string  state
-    string  country
-    string  pin
-    string  landmark
-    ts      created_at
-    ts      updated_at
+    uuid   id PK
+    uuid   employee_id FK
+    text   type
+    text   line1
+    text   line2
+    text   city
+    text   state
+    text   zip
+    text   country
+    bool   is_default
+    ts     created_at
+    ts     updated_at
   }
 
   emergency_contacts {
-    uuid    id PK
-    uuid    employee_id FK
-    string  name
-    string  relationship
-    string  phone
-    string  alt_phone
-    string  email
-    ts      created_at
-    ts      updated_at
+    uuid   id PK
+    uuid   employee_id FK
+    text   name
+    text   relationship
+    text   alt_phone
+    text   email
+    ts     created_at
+    ts     updated_at
   }
 
   passports {
-    uuid    id PK
-    uuid    employee_id FK
-    string  passport_number
-    string  country
-    date    issue_date
-    date    expiry_date
-    ts      created_at
-    ts      updated_at
+    uuid   id PK
+    uuid   employee_id FK
+    text   passport_number
+    text   nationality
+    date   issue_date
+    date   expiry_date
+    text   country
+    bool   expiry
+    ts     created_at
+    ts     updated_at
   }
 
   identity_records {
-    uuid    id PK
-    uuid    employee_id FK
-    string  record_type
-    string  id_type
-    string  id_number
-    string  country
-    date    expiry
-    ts      created_at
-    ts      updated_at
+    uuid   id PK
+    uuid   employee_id FK
+    text   id_type
+    text   record_type
+    text   id_number
+    date   expiry_date
+    text   country
+    bool   expiry
+    ts     created_at
+    ts     updated_at
   }
 
-  %% ── Auth & Profiles ──────────────────────────────────────────────────────────
-
-  profiles {
-    uuid    id PK
-    uuid    employee_id FK
-    bool    is_active
-    ts      created_at
-    ts      updated_at
-  }
-
-  %% ── Role & Permission System ─────────────────────────────────────────────────
+  %% ── RBAC ─────────────────────────────────────────────────────────────────
 
   roles {
-    uuid    id PK
-    string  code
-    string  name
-    string  description
-    string  role_type
-    bool    is_system
-    bool    active
-    bool    editable
-    int     sort_order
-    ts      created_at
-    ts      updated_at
-  }
-
-  user_roles {
-    uuid    id PK
-    uuid    profile_id FK
-    uuid    role_id FK
-    uuid    granted_by
-    bool    is_active
-    string  assignment_source
-    ts      granted_at
-    ts      expires_at
-    ts      updated_at
-  }
-
-  modules {
-    uuid    id PK
-    string  code
-    string  name
-    bool    active
-    int     sort_order
-    ts      created_at
-    ts      updated_at
+    uuid id PK
+    text code
+    text name
+    bool active
+    ts   created_at
+    ts   updated_at
   }
 
   permissions {
-    uuid    id PK
-    uuid    module_id FK
-    string  code
-    string  name
-    string  description
-    ts      created_at
+    uuid id PK
+    uuid module_id FK
+    text code
+    text name
+    text description
+    int  sort_order
+    ts   created_at
+    ts   updated_at
   }
 
   role_permissions {
-    uuid    role_id FK
-    uuid    permission_id FK
-    ts      created_at
+    uuid role_id FK
+    uuid permission_id FK
+    ts   created_at
   }
 
-  %% ── Expense Management ───────────────────────────────────────────────────────
-
-  currencies {
-    uuid    id PK
-    string  code
-    string  name
-    string  symbol
-    bool    active
-    ts      created_at
-    ts      updated_at
+  modules {
+    uuid id PK
+    text code
+    text name
+    ts   created_at
   }
 
-  exchange_rates {
-    uuid    id PK
-    uuid    from_currency_id FK
-    uuid    to_currency_id FK
-    float   rate
-    date    effective_date
-    ts      created_at
-    ts      updated_at
-  }
-
-  projects {
-    uuid    id PK
-    string  name
-    bool    active
-    date    start_date
-    date    end_date
-    ts      created_at
-    ts      updated_at
-  }
-
-  expense_reports {
-    uuid    id PK
-    uuid    employee_id FK
-    uuid    base_currency_id FK
-    string  name
-    string  status
-    uuid    approved_by FK
-    uuid    rejected_by FK
-    string  rejection_reason
-    ts      submitted_at
-    ts      approved_at
-    ts      rejected_at
-    ts      created_at
-    ts      updated_at
-    ts      deleted_at
-  }
-
-  line_items {
-    uuid    id PK
-    uuid    report_id FK
-    uuid    currency_id FK
-    uuid    exchange_rate_id FK
-    uuid    category_id FK
-    uuid    project_id FK
-    float   amount
-    float   converted_amount
-    float   exchange_rate_snapshot
-    date    expense_date
-    string  note
-    ts      created_at
-    ts      updated_at
-    ts      deleted_at
-  }
-
-  attachments {
-    uuid    id PK
-    uuid    line_item_id FK
-    string  file_name
-    string  mime_type
-    int     size_bytes
-    string  storage_path
-    ts      created_at
-    ts      updated_at
-  }
-
-  %% ── Reference / Config ───────────────────────────────────────────────────────
-
-  picklists {
-    uuid    id PK
-    string  picklist_id
-    string  name
-    ts      created_at
-    ts      updated_at
-  }
-
-  picklist_values {
-    uuid    id PK
-    uuid    picklist_id FK
-    uuid    parent_value_id FK
-    string  value
-    string  ref_id
-    bool    active
-    ts      created_at
-    ts      updated_at
-  }
-
-  %% ── Audit & System ───────────────────────────────────────────────────────────
-
-  audit_log {
-    uuid    id PK
-    uuid    user_id
-    string  action
-    string  entity_type
-    uuid    entity_id
-    json    metadata
-    string  ip_address
-    ts      created_at
+  user_roles {
+    uuid id PK
+    uuid profile_id FK
+    text role_id FK
+    uuid granted_by FK
+    text assignment_source
+    ts   granted_at
+    ts   updated_at
   }
 
   notifications {
-    uuid    id PK
-    uuid    user_id
-    string  type
-    string  title
-    string  body
-    string  entity_type
-    uuid    entity_id
-    ts      read_at
-    ts      created_at
-    ts      updated_at
+    uuid id PK
+    uuid user_id FK
+    text type
+    text title
+    text body
+    bool read
+    ts   created_at
+    ts   updated_at
+  }
+
+  %% ── EXPENSES ─────────────────────────────────────────────────────────────
+
+  expense_reports {
+    uuid  id PK
+    uuid  profile_id FK
+    text  name
+    text  status
+    text  currency_id FK
+    float committed_amount
+    float exchange_rate_payable
+    float reimbursable_total
+    text  notes
+    bool  active
+    ts    created_at
+    ts    updated_at
+    ts    deleted_at
+  }
+
+  expenses {
+    uuid  id PK
+    uuid  report_id FK
+    text  category_id FK
+    text  description
+    float amount
+    text  currency_id FK
+    text  type
+    bool  reimbursable
+    date  expense_date
+    text  receipt_path
+    bool  active
+    ts    created_at
+    ts    updated_at
+    ts    deleted_at
+  }
+
+  %% ── REFERENCE / LOOKUP ───────────────────────────────────────────────────
+
+  currency {
+    uuid   id PK
+    text   code
+    text   name
+    text   symbol
+    int    sort_order
+    ts     created_at
+    ts     updated_at
+  }
+
+  exchange_rates {
+    uuid  id PK
+    text  from_currency FK
+    text  to_currency FK
+    float rate
+    date  effective_date
+    ts    created_at
+    ts    updated_at
+  }
+
+  categories {
+    uuid id PK
+    text name
+    ts   created_at
+    ts   updated_at
+  }
+
+  picklist_values {
+    uuid   id PK
+    text   group_code
+    text   code
+    text   label
+    text   value
+    int    sort_order
+    bool   active
+    ts     created_at
+    ts     updated_at
+  }
+
+  projects {
+    uuid   id PK
+    uuid   profile_id FK
+    text   name
+    text   status
+    bool   active
+    date   start_date
+    date   end_date
+    ts     created_at
+    ts     updated_at
+    ts     deleted_at
+  }
+
+  attachments {
+    uuid   id PK
+    uuid   user_id FK
+    text   file_name
+    text   file_type
+    text   entity_type
+    text   entity_id
+    text   storage_path
+    ts     created_at
+    ts     updated_at
+  }
+
+  %% ── WORKFLOW CORE ────────────────────────────────────────────────────────
+
+  workflow_templates {
+    uuid   id PK
+    text   code
+    text   name
+    text   description
+    text   module_code
+    bool   is_active
+    int    version
+    ts     created_at
+    ts     updated_at
+  }
+
+  workflow_steps {
+    uuid   id PK
+    uuid   template_id FK
+    int    step_order
+    text   name
+    text   approver_type
+    text   approver_role
+    uuid   approver_profile_id FK
+    int    sla_hours
+    bool   allow_delegation
+    bool   is_active
+    ts     created_at
+  }
+
+  workflow_step_conditions {
+    uuid   id PK
+    uuid   step_id FK
+    text   field_path
+    text   operator
+    text   value
+    bool   skip_step
+    ts     created_at
   }
 
   workflow_instances {
-    uuid    id PK
-    string  entity_type
-    uuid    entity_id
-    string  status
-    string  current_step
-    ts      created_at
-    ts      updated_at
+    uuid   id PK
+    uuid   template_id FK
+    int    template_version
+    text   module_code
+    uuid   record_id
+    uuid   submitted_by FK
+    int    current_step
+    text   status
+    jsonb  metadata
+    ts     created_at
+    ts     updated_at
+    ts     completed_at
   }
 
-  %% ── Relationships ────────────────────────────────────────────────────────────
+  workflow_tasks {
+    uuid   id PK
+    uuid   instance_id FK
+    uuid   step_id FK
+    int    step_order
+    uuid   assigned_to FK
+    text   status
+    text   notes
+    ts     acted_at
+    ts     due_at
+    ts     escalated_at
+    ts     created_at
+  }
 
-  employees         }o--|| departments        : "dept_id"
-  employees         }o--o| employees          : "manager_id (self)"
-  employees         }o--o| currencies         : "base_currency_id"
-  department_heads  }o--|| departments        : "department_id"
-  department_heads  }o--|| employees          : "employee_id"
-  employee_addresses ||--|| employees         : "employee_id"
-  emergency_contacts }o--|| employees         : "employee_id"
-  passports         ||--o| employees          : "employee_id"
-  identity_records  }o--|| employees          : "employee_id"
+  workflow_action_log {
+    uuid   id PK
+    uuid   instance_id FK
+    uuid   task_id FK
+    uuid   actor_id FK
+    text   action
+    int    step_order
+    text   notes
+    jsonb  metadata
+    ts     created_at
+  }
 
-  profiles          ||--o| employees          : "employee_id"
-  user_roles        }o--|| profiles           : "profile_id"
-  user_roles        }o--|| roles              : "role_id"
-  role_permissions  }o--|| roles              : "role_id"
-  role_permissions  }o--|| permissions        : "permission_id"
-  permissions       }o--o| modules            : "module_id"
+  workflow_delegations {
+    uuid   id PK
+    uuid   delegator_id FK
+    uuid   delegate_id FK
+    uuid   template_id FK
+    date   from_date
+    date   to_date
+    text   reason
+    bool   is_active
+    uuid   created_by FK
+    ts     created_at
+  }
 
-  expense_reports   }o--|| employees          : "employee_id"
-  expense_reports   }o--|| currencies         : "base_currency_id"
-  expense_reports   }o--o| employees          : "approved_by"
-  expense_reports   }o--o| employees          : "rejected_by"
-  line_items        }o--|| expense_reports    : "report_id"
-  line_items        }o--|| currencies         : "currency_id"
-  line_items        }o--o| exchange_rates     : "exchange_rate_id"
-  line_items        }o--o| picklist_values    : "category_id"
-  line_items        }o--o| projects           : "project_id"
-  attachments       }o--|| line_items         : "line_item_id"
-  exchange_rates    }o--|| currencies         : "from_currency_id"
-  exchange_rates    }o--|| currencies         : "to_currency_id"
+  workflow_sla_events {
+    uuid   id PK
+    uuid   task_id FK
+    text   event_type
+    ts     fired_at
+  }
 
-  picklist_values   }o--|| picklists          : "picklist_id"
-  picklist_values   }o--o| picklist_values    : "parent_value_id (self)"
+  %% ── WORKFLOW ASSIGNMENTS ─────────────────────────────────────────────────
+
+  workflow_assignments {
+    uuid   id PK
+    text   module_code
+    uuid   wf_template_id FK
+    text   assignment_type
+    uuid   entity_id
+    int    priority
+    date   effective_from
+    date   effective_to
+    bool   is_active
+    uuid   created_by FK
+    ts     created_at
+    ts     updated_at
+  }
+
+  workflow_assignment_audit {
+    uuid   id PK
+    uuid   assignment_id FK
+    text   module_code
+    text   assignment_type
+    uuid   entity_id
+    text   action
+    uuid   old_template_id FK
+    uuid   new_template_id FK
+    date   old_effective_from
+    date   new_effective_from
+    date   old_effective_to
+    date   new_effective_to
+    uuid   changed_by FK
+    ts     changed_at
+    text   reason
+  }
+
+  %% ── NOTIFICATIONS ────────────────────────────────────────────────────────
+
+  workflow_notification_templates {
+    uuid   id PK
+    text   code
+    text   title_tmpl
+    text   body_tmpl
+    ts     created_at
+    ts     updated_at
+  }
+
+  workflow_notification_queue {
+    uuid   id PK
+    uuid   instance_id FK
+    text   template_code
+    uuid   target_profile FK
+    jsonb  payload
+    text   status
+    text   error_message
+    text   email_status
+    ts     created_at
+    ts     processed_at
+  }
+
+  %% ── JOBS ─────────────────────────────────────────────────────────────────
+
+  job_run_log {
+    uuid   id PK
+    text   job_code
+    text   job_name
+    uuid   triggered_by FK
+    ts     started_at
+    ts     completed_at
+    int    duration_ms
+    text   status
+    int    rows_processed
+    jsonb  summary
+    text   error_message
+    ts     created_at
+  }
+
+  %% ── RELATIONSHIPS ────────────────────────────────────────────────────────
+
+  %% Identity
+  profiles                      }o--||  employees                      : "employee_id"
+  profiles                      }o--||  roles                          : "role_id"
+  employees                     }o--o|  employees                      : "manager_id"
+  employees                     }o--||  departments                    : "dept_id"
+  department_heads              }o--||  departments                    : "dept_id"
+  department_heads              }o--||  employees                      : "employee_id"
+  employee_addresses            }o--||  employees                      : "employee_id"
+  emergency_contacts            }o--||  employees                      : "employee_id"
+  passports                     }o--||  employees                      : "employee_id"
+  identity_records              }o--||  employees                      : "employee_id"
+
+  %% RBAC
+  user_roles                    }o--||  profiles                       : "profile_id"
+  role_permissions              }o--||  roles                          : "role_id"
+  role_permissions              }o--||  permissions                    : "permission_id"
+  permissions                   }o--||  modules                        : "module_id"
+  notifications                 }o--||  profiles                       : "user_id"
+
+  %% Expenses
+  expense_reports               }o--||  profiles                       : "profile_id"
+  expense_reports               }o--||  currency                       : "currency_id"
+  expenses                      }o--||  expense_reports                : "report_id"
+  expenses                      }o--||  categories                     : "category_id"
+  expenses                      }o--||  currency                       : "currency_id"
+  exchange_rates                }o--||  currency                       : "from_currency"
+  exchange_rates                }o--||  currency                       : "to_currency"
+  projects                      }o--||  profiles                       : "profile_id"
+  attachments                   }o--||  profiles                       : "user_id"
+
+  %% Workflow core
+  workflow_steps                }o--||  workflow_templates              : "template_id"
+  workflow_steps                }o--o|  profiles                       : "approver_profile_id"
+  workflow_step_conditions      }o--||  workflow_steps                 : "step_id"
+  workflow_instances            }o--||  workflow_templates              : "template_id"
+  workflow_instances            }o--||  profiles                       : "submitted_by"
+  workflow_tasks                }o--||  workflow_instances             : "instance_id"
+  workflow_tasks                }o--||  workflow_steps                 : "step_id"
+  workflow_tasks                }o--||  profiles                       : "assigned_to"
+  workflow_action_log           }o--||  workflow_instances             : "instance_id"
+  workflow_action_log           }o--o|  workflow_tasks                 : "task_id"
+  workflow_action_log           }o--||  profiles                       : "actor_id"
+  workflow_delegations          }o--||  profiles                       : "delegator_id"
+  workflow_delegations          }o--||  profiles                       : "delegate_id"
+  workflow_delegations          }o--o|  workflow_templates             : "template_id"
+  workflow_delegations          }o--o|  profiles                       : "created_by"
+  workflow_sla_events           }o--||  workflow_tasks                 : "task_id"
+
+  %% Assignments
+  workflow_assignments          }o--||  workflow_templates              : "wf_template_id"
+  workflow_assignments          }o--o|  profiles                       : "created_by"
+  workflow_assignment_audit     }o--o|  workflow_assignments           : "assignment_id"
+  workflow_assignment_audit     }o--o|  workflow_templates             : "old_template_id"
+  workflow_assignment_audit     }o--o|  workflow_templates             : "new_template_id"
+  workflow_assignment_audit     }o--o|  profiles                       : "changed_by"
+
+  %% Notifications
+  workflow_notification_queue   }o--||  workflow_instances             : "instance_id"
+  workflow_notification_queue   }o--||  profiles                       : "target_profile"
+
+  %% Jobs
+  job_run_log                   }o--o|  profiles                       : "triggered_by"

@@ -10,7 +10,7 @@
  *  - Answers "which roles can do X?" at a glance.
  *  - Serves as reference documentation for the permission model.
  *
- * To edit role→permission assignments, use Role Management (/admin/permissions/roles).
+ * To edit role→permission assignments, use Permission Matrix (/admin/permissions/matrix).
  */
 
 import { useState, useEffect, useMemo } from 'react';
@@ -87,25 +87,36 @@ export default function PermissionCatalog() {
     setError(null);
 
     try {
-      const [modsRes, permsRes, rolesRes, rpRes] = await Promise.all([
+      const [modsRes, permsRes, rolesRes, psaRes, psiRes] = await Promise.all([
         supabase.from('modules').select('id, code, name, sort_order').eq('active', true).order('sort_order'),
         supabase.from('permissions').select('id, module_id, code, name, description, sort_order').order('sort_order').order('code'),
         supabase.from('roles').select('id, code, name').order('name'),
-        supabase.from('role_permissions').select('role_id, permission_id'),
+        supabase.from('permission_set_assignments').select('role_id, permission_set_id'),
+        supabase.from('permission_set_items').select('permission_set_id, permission_id'),
       ]);
 
       // Surface the first error encountered
-      const firstError = modsRes.error ?? permsRes.error ?? rolesRes.error ?? rpRes.error;
+      const firstError = modsRes.error ?? permsRes.error ?? rolesRes.error ?? psaRes.error ?? psiRes.error;
       if (firstError) throw firstError;
 
       setModules(    (modsRes.data  ?? []) as Module[]);
       setPermissions((permsRes.data ?? []) as Permission[]);
       setRoles(      (rolesRes.data ?? []) as Role[]);
 
-      // Build a Set<"role_id|permission_id"> for O(1) lookup in the grid
-      const granted = new Set<string>(
-        (rpRes.data ?? []).map(rp => `${rp.role_id}|${rp.permission_id}`),
-      );
+      // Build a Set<"role_id|permission_id"> from the permission-set tables.
+      // permission_set_assignments links role → set; permission_set_items links set → permission.
+      // We join them in JS: set_id → [role_ids], then expand each item row.
+      const setToRoles = new Map<string, string[]>();
+      for (const row of (psaRes.data ?? [])) {
+        if (!setToRoles.has(row.permission_set_id)) setToRoles.set(row.permission_set_id, []);
+        setToRoles.get(row.permission_set_id)!.push(row.role_id);
+      }
+      const granted = new Set<string>();
+      for (const row of (psiRes.data ?? [])) {
+        for (const roleId of (setToRoles.get(row.permission_set_id) ?? [])) {
+          granted.add(`${roleId}|${row.permission_id}`);
+        }
+      }
       setGrantedSet(granted);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
@@ -160,8 +171,8 @@ export default function PermissionCatalog() {
       <h2 className="page-title">Permission Catalog</h2>
       <p className="page-subtitle">
         All permissions in the system, grouped by module. Badges show which roles
-        currently hold each permission. To edit assignments, use{' '}
-        <a href="/admin/permissions/roles" style={{ color: '#2563EB' }}>Role Management</a>.
+        currently hold each permission via assigned permission sets. To edit assignments, use{' '}
+        <a href="/admin/permissions/matrix" style={{ color: '#2563EB' }}>Permission Matrix</a>.
       </p>
 
       {/* ── Search ──────────────────────────────────────────────────────── */}

@@ -26,6 +26,10 @@ export interface WorkflowTask {
   moduleCode:        string;
   recordId:          string;
   metadata:          Record<string, unknown>;
+  /** Snapshot of values before the employee made changes.
+   *  Populated once migration 176 (current_data column) is applied.
+   *  null / undefined = not yet available (falls back to proposed-only display). */
+  currentData:       Record<string, unknown> | null;
   submittedById:     string;
   submittedByName:   string | null;
   submittedByEmail:  string | null;
@@ -67,7 +71,8 @@ export function useWorkflowTasks() {
           templateName:     r.template_name,
           moduleCode:       r.module_code,
           recordId:         r.record_id,
-          metadata:         (r.metadata ?? {}) as Record<string, unknown>,
+          metadata:         (r.metadata     ?? {})   as Record<string, unknown>,
+          currentData:      ((r as any).current_data ?? null) as Record<string, unknown> | null,
           submittedById:    r.submitted_by,
           submittedByName:  r.submitted_by_name,
           submittedByEmail: r.submitted_by_email,

@@ -34,9 +34,11 @@ import Departments                                                from './compon
 import OrgChartAdmin                                              from './components/admin/OrgChart';
 import ReferenceData                                              from './components/admin/ReferenceData';
 import EmployeeDetails                                            from './components/admin/EmployeeDetails';
+import InactiveEmployees                                          from './components/admin/InactiveEmployees';
 import AddEmployee                                                from './components/admin/AddEmployee';
 import EmpOrgChart                                                from './components/employee/EmpOrgChart';
 import ApproverInbox                                             from './workflow/screens/ApproverInbox';
+import WorkflowReview                                           from './workflow/screens/WorkflowReview';
 import WorkflowMyRequests                                        from './workflow/screens/WorkflowMyRequests';
 import WorkflowTemplates                                         from './workflow/screens/WorkflowTemplates';
 import WorkflowDelegations                                       from './workflow/screens/WorkflowDelegations';
@@ -45,11 +47,14 @@ import WorkflowPerformanceDashboard                              from './workflo
 import WorkflowOperations                                        from './workflow/screens/WorkflowOperations';
 import WorkflowAnalytics                                         from './workflow/screens/WorkflowAnalytics';
 import NotificationMonitor                                       from './workflow/screens/NotificationMonitor';
+import NotificationConfig                                        from './workflow/screens/NotificationConfig';
 import JobsAdmin                                                 from './admin/screens/JobsAdmin';
 import ExpenseAnalytics                                          from './components/admin/analytics/ExpenseAnalytics';
 import PermissionCatalog                                          from './components/admin/permissions/PermissionCatalog';
-import RoleManagement                                             from './components/admin/permissions/RoleManagement';
 import RoleAssignments                                            from './components/admin/permissions/RoleAssignments';
+import RbpTroubleshoot                                            from './components/admin/permissions/RbpTroubleshoot';
+import TargetGroups                                               from './components/admin/permissions/TargetGroups';
+import PermissionMatrix                                           from './components/admin/permissions/PermissionMatrix';
 import ComingSoon                                                 from './components/shared/ComingSoon';
 import NotificationBell                                           from './components/shared/NotificationBell';
 import { ErrorBoundary }                                          from './components/shared/ErrorBoundary';
@@ -77,51 +82,58 @@ interface NavItem {
 const ADMIN_NAV: NavItem[] = [
   // ── Employees group ──────────────────────────────────────────────────────
   { group: 'Employees',    groupIcon: 'fa-users',
-    path: '/admin/emp-org-chart',     label: 'Org Chart',         icon: 'fa-diagram-project', permission: 'employee.view_orgchart_admin' },
+    path: '/admin/emp-org-chart',     label: 'Org Chart',         icon: 'fa-diagram-project', permission: 'org_chart.view'              },
   { group: 'Employees',    groupIcon: 'fa-users',
-    path: '/admin/employee-details',  label: 'Employee Details',  icon: 'fa-table-list',      permission: 'employee.edit'               },
+    path: '/admin/employee-details',  label: 'Employee Details',  icon: 'fa-table-list',      permission: 'employee_details.edit'       },
   { group: 'Employees',    groupIcon: 'fa-users',
-    path: '/admin/add-employee',      label: 'Add New Employee',  icon: 'fa-user-plus',       permission: 'employee.create'             },
+    path: '/admin/inactive-employees', label: 'Inactive Employees', icon: 'fa-user-slash',    permission: 'inactive_employees.view'     },
+  { group: 'Employees',    groupIcon: 'fa-users',
+    path: '/admin/add-employee',      label: 'Add New Employee',  icon: 'fa-user-plus',       permission: 'hire_employee.create'        },
 
   // ── Organization group ───────────────────────────────────────────────────
   { group: 'Organization', groupIcon: 'fa-sitemap',
-    path: '/admin/departments',       label: 'Departments',       icon: 'fa-sitemap',         permission: 'department.edit'             },
+    path: '/admin/departments',       label: 'Departments',       icon: 'fa-sitemap',         permission: 'departments.edit'            },
   { group: 'Organization', groupIcon: 'fa-sitemap',
-    path: '/admin/org-chart',         label: 'Org Chart',         icon: 'fa-diagram-project', permission: 'department.view_orgchart'    },
+    path: '/admin/org-chart',         label: 'Org Chart',         icon: 'fa-diagram-project', permission: 'org_chart.view'              },
 
   // ── Top-level items ───────────────────────────────────────────────────────
-  { path: '/admin/projects',          label: 'Projects',          icon: 'fa-folder',          permission: 'project.view'        },
-  { path: '/admin/workflow-roles',    label: 'Workflow Roles',    icon: 'fa-shield-halved',   permission: 'security.manage_roles' },
-  { path: '/admin/reference-data',    label: 'Reference Data',    icon: 'fa-list',            permission: 'reference.view'      },
-  { path: '/admin/exchange-rates',    label: 'Exchange Rates',    icon: 'fa-arrow-right-arrow-left', permission: 'exchange_rate.view' },
-  { path: '/admin/reports',             label: 'Reports',           icon: 'fa-file-chart-column', permission: 'report.view'       },
+  { path: '/admin/projects',          label: 'Projects',          icon: 'fa-folder',             permission: 'projects_mgmt.view'       },
+{ path: '/admin/reference-data',    label: 'Reference Data',    icon: 'fa-list',               permission: 'picklists.view'           },
+  { path: '/admin/exchange-rates',    label: 'Exchange Rates',    icon: 'fa-arrow-right-arrow-left', permission: 'exchange_rates_mgmt.view' },
+  { path: '/admin/reports',           label: 'Reports',           icon: 'fa-file-chart-column',  permission: 'reports_admin.view'       },
 
   // ── Workflow group ────────────────────────────────────────────────────────
   { group: 'Workflow',     groupIcon: 'fa-diagram-next',
-    path: '/admin/workflow/operations',     label: 'Operations',         icon: 'fa-gauge-high',    permission: 'workflow.admin'      },
+    path: '/admin/workflow/operations',          label: 'Manage Workflow',            icon: 'fa-gauge-high',        permission: 'wf_manage.view'               },
   { group: 'Workflow',     groupIcon: 'fa-diagram-next',
-    path: '/admin/workflow/templates',      label: 'Templates',          icon: 'fa-layer-group', permission: 'workflow.admin'        },
+    path: '/admin/workflow/templates',           label: 'Manage Workflow Templates',  icon: 'fa-layer-group',       permission: 'wf_templates.view'            },
   { group: 'Workflow',     groupIcon: 'fa-diagram-next',
-    path: '/admin/workflow/delegations',    label: 'Delegations',        icon: 'fa-right-left',  permission: 'workflow.admin'        },
+    path: '/admin/workflow/notification-config', label: 'Manage Notifications',       icon: 'fa-bell-slash',        permission: 'wf_notification_config.view'  },
   { group: 'Workflow',     groupIcon: 'fa-diagram-next',
-    path: '/admin/workflow/assignments',    label: 'Assignments',        icon: 'fa-network-wired', permission: 'workflow.admin'      },
+    path: '/admin/workflow/delegations',         label: 'Manage Delegations',         icon: 'fa-right-left',        permission: 'wf_delegations.view'          },
   { group: 'Workflow',     groupIcon: 'fa-diagram-next',
-    path: '/admin/workflow/performance',   label: 'Performance',        icon: 'fa-chart-line',    permission: 'workflow.admin'      },
+    path: '/admin/workflow/assignments',         label: 'Manage Assignments',         icon: 'fa-network-wired',     permission: 'wf_assignments.view'          },
   { group: 'Workflow',     groupIcon: 'fa-diagram-next',
-    path: '/admin/workflow/analytics',     label: 'Analytics',           icon: 'fa-chart-bar',    permission: 'workflow.admin'      },
+    path: '/admin/workflow/performance',         label: 'Performance',                icon: 'fa-chart-line',        permission: 'wf_performance.view'          },
   { group: 'Workflow',     groupIcon: 'fa-diagram-next',
-    path: '/admin/workflow/notifications', label: 'Notification Monitor', icon: 'fa-bell',        permission: 'workflow.admin'      },
+    path: '/admin/workflow/analytics',           label: 'Analytics',                  icon: 'fa-chart-bar',         permission: 'wf_analytics.view'            },
+  { group: 'Workflow',     groupIcon: 'fa-diagram-next',
+    path: '/admin/workflow/notifications',       label: 'Notification Monitor',       icon: 'fa-bell',              permission: 'wf_notifications.view'        },
   // ── Jobs group ───────────────────────────────────────────────────────────
   { group: 'Jobs',         groupIcon: 'fa-gears',
-    path: '/admin/jobs',                        label: 'Background Jobs',    icon: 'fa-clock-rotate-left', permission: 'workflow.admin'         },
+    path: '/admin/jobs',                    label: 'Background Jobs',      icon: 'fa-clock-rotate-left', permission: 'jobs_manage.view'        },
 
   // ── Security group ────────────────────────────────────────────────────────
   { group: 'Security',     groupIcon: 'fa-lock',
-    path: '/admin/permissions/assignments', label: 'Role Assignments',   icon: 'fa-users-gear',  permission: 'security.manage_roles' },
+    path: '/admin/permissions/matrix',      label: 'Permission Matrix',    icon: 'fa-table-cells',       permission: 'sec_permission_matrix.view' },
   { group: 'Security',     groupIcon: 'fa-lock',
-    path: '/admin/permissions/roles',       label: 'Role Management',    icon: 'fa-user-shield', permission: 'security.manage_roles' },
+    path: '/admin/permissions/assignments', label: 'Role Assignments',     icon: 'fa-users-gear',        permission: 'sec_role_assignments.view' },
   { group: 'Security',     groupIcon: 'fa-lock',
-    path: '/admin/permissions/catalog',     label: 'Permission Catalog', icon: 'fa-key',         permission: 'security.manage_roles' },
+    path: '/admin/permissions/target-groups', label: 'Target Groups',      icon: 'fa-people-group',      permission: 'sec_target_groups.view'   },
+  { group: 'Security',     groupIcon: 'fa-lock',
+    path: '/admin/permissions/catalog',     label: 'Permission Catalog',   icon: 'fa-key',               permission: 'sec_permission_catalog.view' },
+  { group: 'Security',     groupIcon: 'fa-lock',
+    path: '/admin/permissions/rbp',         label: 'RBP Troubleshooting',  icon: 'fa-magnifying-glass-chart', permission: 'sec_rbp_troubleshoot.view' },
 ];
 
 // ─── SidebarProfileCard ───────────────────────────────────────────────────────
@@ -221,7 +233,7 @@ function UserMenu() {
   const [pwdOk,     setPwdOk]     = useState(false);
 
   // A user can access the admin section if they hold the dedicated portal gate.
-  const canAccessAdmin = canAny(['admin.access']);
+  const canAccessAdmin = canAny(['sec_admin_access.view']);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -306,7 +318,7 @@ function UserMenu() {
               <>
                 {isAdminPath ? (
                   <button type="button" className="user-menu-item"
-                    onClick={() => { setOpen(false); navigate('/expense'); }}>
+                    onClick={() => { setOpen(false); navigate('/profile'); }}>
                     <i className="fa-solid fa-arrow-left" /> Employee View
                   </button>
                 ) : (
@@ -505,17 +517,17 @@ function Sidebar() {
             <NavLink to="/expense"  className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`} end>
               <i className="fa-solid fa-wallet" /> My Expenses
             </NavLink>
-            {can('workflow.submit') && (
+            {can('wf_my_requests.view') && (
               <NavLink to="/workflow/my-requests" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
                 <i className="fa-solid fa-list-check" /> My Requests
               </NavLink>
             )}
-            {can('workflow.approve') && (
+            {can('wf_inbox.view') && (
               <NavLink to="/workflow/inbox" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
                 <i className="fa-solid fa-inbox" /> Workflow Inbox
               </NavLink>
             )}
-            {can('workflow.approve') && (
+            {can('wf_inbox.view') && (
               <NavLink to="/workflow/delegations" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
                 <i className="fa-solid fa-right-left" /> My Delegations
               </NavLink>
@@ -601,43 +613,48 @@ export default function App() {
         {/* Employee routes — any authenticated user */}
         <Route index                        element={<Navigate to="/profile" replace />} />
         <Route path="/profile"              element={
-          <ProtectedRoute requiredPermission="profile.view_own"><MyProfile /></ProtectedRoute>
+          <ProtectedRoute requiredPermission="personal_info.view"><MyProfile /></ProtectedRoute>
         } />
         <Route path="/org-chart"            element={<EmpOrgChart />} />
         <Route path="/expense"              element={
-          <ProtectedRoute requiredPermission="expense.view_own">
+          <ProtectedRoute requiredPermission="expense_reports.view">
             <MyReports />
           </ProtectedRoute>
         } />
         <Route path="/expense/report/:id"   element={
-          <ProtectedRoute requiredAnyPermission={['expense.view_own', 'expense.view_direct', 'expense.view_team', 'expense.view_org']}>
+          <ProtectedRoute requiredPermission="expense_reports.view">
             <ReportDetail />
           </ProtectedRoute>
         } />
         <Route path="/workflow/my-requests"  element={
-          <ProtectedRoute requiredPermission="workflow.submit">
+          <ProtectedRoute requiredPermission="wf_my_requests.view">
             <WorkflowMyRequests />
           </ProtectedRoute>
         } />
         <Route path="/workflow/inbox"       element={
-          <ProtectedRoute requiredPermission="workflow.approve">
+          <ProtectedRoute requiredPermission="wf_inbox.view">
             <ApproverInbox />
           </ProtectedRoute>
         } />
+        <Route path="/workflow/review/:id" element={
+          <ProtectedRoute requiredPermission="wf_inbox.view">
+            <WorkflowReview />
+          </ProtectedRoute>
+        } />
         <Route path="/workflow/delegations" element={
-          <ProtectedRoute requiredPermission="workflow.approve">
+          <ProtectedRoute requiredPermission="wf_inbox.view">
             <WorkflowDelegations />
           </ProtectedRoute>
         } />
 
         {/* ── Admin section — blanket gate + per-page permission ────────────
-            The outer ProtectedRoute (admin.access) blocks the entire /admin/*
+            The outer ProtectedRoute (sec_admin_access.view) blocks the entire /admin/*
             tree for users who have no admin-level access, even if they guess a
             URL directly. Each inner ProtectedRoute still enforces the specific
             page permission so roles with partial admin access only see what
             they're entitled to.                                               */}
         <Route path="/admin" element={
-          <ProtectedRoute requiredPermission="admin.access"><Outlet /></ProtectedRoute>
+          <ProtectedRoute requiredPermission="sec_admin_access.view"><Outlet /></ProtectedRoute>
         }>
           {/* Redirect shortcuts */}
           <Route index                   element={<Navigate to="employee-details" replace />} />
@@ -645,100 +662,109 @@ export default function App() {
 
           {/* Employee */}
           <Route path="emp-org-chart"    element={
-            <ProtectedRoute requiredPermission="employee.view_orgchart_admin"><EmpOrgChart /></ProtectedRoute>
+            <ProtectedRoute requiredPermission="org_chart.view"><EmpOrgChart /></ProtectedRoute>
           } />
           <Route path="employee-details" element={
-            <ProtectedRoute requiredPermission="employee.edit"><EmployeeDetails /></ProtectedRoute>
+            <ProtectedRoute requiredPermission="employee_details.edit"><EmployeeDetails /></ProtectedRoute>
+          } />
+          <Route path="inactive-employees" element={
+            <ProtectedRoute requiredPermission="inactive_employees.view"><InactiveEmployees /></ProtectedRoute>
           } />
           <Route path="add-employee"     element={
-            <ProtectedRoute requiredPermission="employee.create"><AddEmployee /></ProtectedRoute>
+            <ProtectedRoute requiredPermission="hire_employee.create"><AddEmployee /></ProtectedRoute>
           } />
 
           {/* Organisation */}
           <Route path="departments"      element={
-            <ProtectedRoute requiredPermission="department.edit"><Departments /></ProtectedRoute>
+            <ProtectedRoute requiredPermission="departments.edit"><Departments /></ProtectedRoute>
           } />
           <Route path="org-chart"        element={
-            <ProtectedRoute requiredPermission="department.view_orgchart"><OrgChartAdmin /></ProtectedRoute>
+            <ProtectedRoute requiredPermission="org_chart.view"><OrgChartAdmin /></ProtectedRoute>
           } />
 
           {/* Reference / Finance */}
           <Route path="projects"         element={
-            <ProtectedRoute requiredPermission="project.view"><Projects /></ProtectedRoute>
+            <ProtectedRoute requiredPermission="projects_mgmt.view"><Projects /></ProtectedRoute>
           } />
           <Route path="reference-data"   element={
-            <ProtectedRoute requiredPermission="reference.view"><ReferenceData /></ProtectedRoute>
+            <ProtectedRoute requiredPermission="picklists.view"><ReferenceData /></ProtectedRoute>
           } />
           <Route path="exchange-rates"   element={
-            <ProtectedRoute requiredPermission="exchange_rate.view"><ExchangeRates /></ProtectedRoute>
+            <ProtectedRoute requiredPermission="exchange_rates_mgmt.view"><ExchangeRates /></ProtectedRoute>
           } />
           <Route path="reports"          element={
-            <ProtectedRoute requiredPermission="report.view"><AdminReports /></ProtectedRoute>
+            <ProtectedRoute requiredPermission="reports_admin.view"><AdminReports /></ProtectedRoute>
           } />
           <Route path="analytics"        element={
-            <ProtectedRoute requiredPermission="report.view"><ExpenseAnalytics /></ProtectedRoute>
+            <ProtectedRoute requiredPermission="reports_admin.view"><ExpenseAnalytics /></ProtectedRoute>
           } />
 
           {/* Workflow */}
           <Route path="workflow/operations" element={
-            <ProtectedRoute requiredPermission="workflow.admin">
+            <ProtectedRoute requiredPermission="wf_manage.view">
               <WorkflowOperations />
             </ProtectedRoute>
           } />
           <Route path="workflow/inbox"   element={
-            <ProtectedRoute requiredPermission="workflow.approve"><ApproverInbox /></ProtectedRoute>
+            <ProtectedRoute requiredPermission="wf_manage.view"><ApproverInbox /></ProtectedRoute>
           } />
           <Route path="workflow/templates" element={
-            <ProtectedRoute requiredPermission="workflow.admin">
+            <ProtectedRoute requiredPermission="wf_templates.view">
               <WorkflowTemplates />
             </ProtectedRoute>
           } />
+          <Route path="workflow/notification-config" element={
+            <ProtectedRoute requiredPermission="wf_notification_config.view">
+              <NotificationConfig />
+            </ProtectedRoute>
+          } />
           <Route path="workflow/delegations" element={
-            <ProtectedRoute requiredPermission="workflow.admin">
+            <ProtectedRoute requiredPermission="wf_delegations.view">
               <WorkflowDelegations adminView />
             </ProtectedRoute>
           } />
           <Route path="workflow/assignments" element={
-            <ProtectedRoute requiredPermission="workflow.admin">
+            <ProtectedRoute requiredPermission="wf_assignments.view">
               <WorkflowAssignments />
             </ProtectedRoute>
           } />
           <Route path="workflow/performance" element={
-            <ProtectedRoute requiredPermission="workflow.admin">
+            <ProtectedRoute requiredPermission="wf_performance.view">
               <WorkflowPerformanceDashboard />
             </ProtectedRoute>
           } />
           <Route path="workflow/analytics" element={
-            <ProtectedRoute requiredPermission="workflow.admin">
+            <ProtectedRoute requiredPermission="wf_analytics.view">
               <WorkflowAnalytics />
             </ProtectedRoute>
           } />
           <Route path="workflow/notifications" element={
-            <ProtectedRoute requiredPermission="workflow.admin">
+            <ProtectedRoute requiredPermission="wf_notifications.view">
               <NotificationMonitor />
             </ProtectedRoute>
           } />
           {/* Jobs */}
           <Route path="jobs" element={
-            <ProtectedRoute requiredPermission="workflow.admin">
+            <ProtectedRoute requiredPermission="jobs_manage.view">
               <JobsAdmin />
             </ProtectedRoute>
           } />
 
           {/* Security */}
-          <Route path="workflow-roles"   element={
-            <ProtectedRoute requiredPermission="security.manage_roles">
-              <ComingSoon title="Workflow Roles" icon="fa-shield-halved" />
-            </ProtectedRoute>
+          <Route path="permissions/matrix" element={
+            <ProtectedRoute requiredPermission="sec_permission_matrix.view"><PermissionMatrix /></ProtectedRoute>
           } />
           <Route path="permissions/assignments" element={
-            <ProtectedRoute requiredPermission="security.manage_roles"><RoleAssignments /></ProtectedRoute>
+            <ProtectedRoute requiredPermission="sec_role_assignments.view"><RoleAssignments /></ProtectedRoute>
+          } />
+          <Route path="permissions/target-groups" element={
+            <ProtectedRoute requiredPermission="sec_target_groups.view"><TargetGroups /></ProtectedRoute>
           } />
           <Route path="permissions/catalog"     element={
-            <ProtectedRoute requiredPermission="security.manage_roles"><PermissionCatalog /></ProtectedRoute>
+            <ProtectedRoute requiredPermission="sec_permission_catalog.view"><PermissionCatalog /></ProtectedRoute>
           } />
-          <Route path="permissions/roles"       element={
-            <ProtectedRoute requiredPermission="security.manage_roles"><RoleManagement /></ProtectedRoute>
+          <Route path="permissions/rbp"         element={
+            <ProtectedRoute requiredPermission="sec_rbp_troubleshoot.view"><RbpTroubleshoot /></ProtectedRoute>
           } />
         </Route>
 

@@ -94,3 +94,77 @@ export function usePicklistValues(activeOnly = true): UsePicklistValuesResult {
 
   return { picklistValues, loading, error, refetch, getValues };
 }
+
+
+// ─── Lookup hook (transactional dropdowns) ────────────────────────────────────
+// Queries vw_picklist_values_lookup — requires picklists.lookup permission (ESS has it).
+// Returns active values only. No `active` or `meta` fields — view intentionally
+// omits them. Filter by picklistCode to get values for a specific dropdown.
+//
+// Usage:
+//   const { getValues } = usePicklistValuesLookup();
+//   const categories = getValues('EXPENSE_CATEGORY');
+//
+// NOTE: The existing usePicklistValues() hook is kept for admin picklist management
+// screens and any code relying on the `meta` field (e.g. legacy CURRENCY picklist).
+
+export interface PicklistValueLookup {
+  id:            string;        // UUID — store as FK on transactions
+  picklistCode:  string;        // text code e.g. 'EXPENSE_CATEGORY' — filter by this
+  value:         string;        // display label
+  refId:         string | null; // optional short code e.g. CAT001
+  parentValueId: string | null; // for cascading dropdowns (Country → State → City)
+}
+
+interface UsePicklistValuesLookupResult {
+  picklistValues: PicklistValueLookup[];
+  loading:        boolean;
+  error:          string | null;
+  /** Convenience: get values for a specific picklist code */
+  getValues:      (picklistCode: string) => PicklistValueLookup[];
+}
+
+export function usePicklistValuesLookup(): UsePicklistValuesLookupResult {
+  const [picklistValues, setPicklistValues] = useState<PicklistValueLookup[]>([]);
+  const [loading,        setLoading]        = useState(true);
+  const [error,          setError]          = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    setLoading(true);
+    setError(null);
+
+    supabase
+      .from('vw_picklist_values_lookup')
+      .select('id, picklist_code, value, ref_id, parent_value_id')
+      .order('value', { ascending: true })
+      .then(({ data, error: err }) => {
+        if (!mounted) return;
+        if (err) {
+          setError(err.message);
+          setPicklistValues([]);
+        } else {
+          setPicklistValues(
+            (data ?? []).map(row => ({
+              id:            row.id,
+              picklistCode:  row.picklist_code,
+              value:         row.value,
+              refId:         row.ref_id,
+              parentValueId: row.parent_value_id,
+            }))
+          );
+        }
+        setLoading(false);
+      });
+
+    return () => { mounted = false; };
+  }, []);
+
+  const getValues = useCallback(
+    (picklistCode: string) =>
+      picklistValues.filter(v => v.picklistCode === picklistCode),
+    [picklistValues]
+  );
+
+  return { picklistValues, loading, error, getValues };
+}

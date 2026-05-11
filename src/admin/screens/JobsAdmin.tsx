@@ -206,13 +206,22 @@ export default function JobsAdmin() {
     if (error) {
       showToast('err', `Job failed: ${error.message}`);
     } else {
-      const result = data as Record<string, number>;
+      // data may be a plain integer (e.g. wf_retry_failed_emails returns int)
+      // or a record object (e.g. wf_process_sla_events returns a row)
+      const count = typeof data === 'number' ? data : null;
+      const result = (typeof data === 'object' && data !== null)
+        ? data as Record<string, number>
+        : {};
       setRunResult(p => ({ ...p, [jobCode]: result }));
-      const parts = Object.entries(result)
-        .filter(([, v]) => v > 0)
-        .map(([k, v]) => `${v} ${k}`)
-        .join(', ');
-      showToast('ok', parts ? `Done — ${parts}` : 'Done — nothing to process');
+      if (count !== null) {
+        showToast('ok', count > 0 ? `Done — ${count} processed` : 'Done — nothing to process');
+      } else {
+        const parts = Object.entries(result)
+          .filter(([, v]) => v > 0)
+          .map(([k, v]) => `${v} ${k}`)
+          .join(', ');
+        showToast('ok', parts ? `Done — ${parts}` : 'Done — nothing to process');
+      }
       await loadRuns();
     }
   }

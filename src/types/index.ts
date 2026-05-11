@@ -1,5 +1,5 @@
 // ── Shared ─────────────────────────────────────────────────────────
-export type ExpenseStatus = 'draft' | 'submitted' | 'manager_approved' | 'approved' | 'rejected';
+export type ExpenseStatus = 'draft' | 'submitted' | 'needs_update' | 'manager_approved' | 'approved' | 'rejected';
 
 export interface Employee {
   employeeId: string;
@@ -65,6 +65,9 @@ export interface ExpenseReport {
   employeeName?: string;
   name: string;
   status: ExpenseStatus;
+  /** Status from workflow_instances — set when the workflow is in a state like
+   *  'awaiting_clarification' that doesn't change expense_reports.status itself. */
+  workflowStatus?: string;
   baseCurrencyCode: string;
   createdAt: string;
   updatedAt: string;

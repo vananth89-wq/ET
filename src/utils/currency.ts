@@ -11,8 +11,7 @@ export function getCurrencySymbol(code: string): string {
 }
 
 export function fmtAmount(amount: number, currencyCode: string): string {
-  const sym = getCurrencySymbol(currencyCode);
-  return `${sym}${amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `${currencyCode} ${amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 export function lookupRate(

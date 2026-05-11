@@ -1,13 +1,14 @@
 import { useState, useMemo, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useExpenseData } from '../../../hooks/useExpenseData';
-import { useLocalStorage } from '../../../hooks/useLocalStorage';
+import { useCurrenciesLookup } from '../../../hooks/useCurrencies';
+import { useExchangeRates } from '../../../hooks/useExchangeRates';
 import { usePicklistValues } from '../../../hooks/usePicklistValues';
-import { useProjects } from '../../../hooks/useProjects';
+import { useProjects, useProjectsLookup } from '../../../hooks/useProjects';
 import { usePermissions } from '../../../hooks/usePermissions';
 import { useWorkflowInstance } from '../../../workflow/hooks/useWorkflowInstance';
-import type { LineItem, Attachment, ExchangeRate } from '../../../types';
-import { fmtAmount, getCurrencySymbol, lookupRate } from '../../../utils/currency';
+import type { LineItem, Attachment } from '../../../types';
+import { fmtAmount, lookupRate } from '../../../utils/currency';
 import { fmtDate } from '../../../utils/dates';
 import StatusBadge from '../../shared/StatusBadge';
 import ApprovalFlow from '../../shared/ApprovalFlow';
@@ -33,11 +34,14 @@ const NOTE_REQUIRED_ABOVE = 10000;
 export default function ReportDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { getReport, updateReport, addLineItem, updateLineItem, deleteLineItem, submitReport, recallReport, addAttachment, deleteAttachment } = useExpenseData();
-  const [exchangeRates] = useLocalStorage<ExchangeRate[]>('prowess-exchange-rates', []);
+  const { getReport, loading: reportLoading, updateReport, addLineItem, updateLineItem, deleteLineItem, submitReport, recallReport, addAttachment, deleteAttachment, syncReportLineItems } = useExpenseData();
+  const { rates: exchangeRates } = useExchangeRates();
   const { picklistValues } = usePicklistValues(true);
-  const { projects: rawProjects } = useProjects(false);
-  const [legacyCurrencies] = useLocalStorage<any[]>('prowess-currencies', []);
+  const { projects: rawProjects } = useProjectsLookup();
+  const { currencies } = useCurrenciesLookup();
+
+  const [searchParams] = useSearchParams();
+  const resumeInstanceId = searchParams.get('resume_instance');
 
   const { can } = usePermissions();
   const report = getReport(id!);
@@ -48,6 +52,10 @@ export default function ReportDetail() {
   const [showWithdrawConfirm, setShowWithdrawConfirm] = useState(false);
   const [withdrawReason, setWithdrawReason]           = useState('');
   const [withdrawing, setWithdrawing]                 = useState(false);
+  const [resubmitResponse, setResubmitResponse]       = useState('');
+  const [resubmitting, setResubmitting]               = useState(false);
+  const [draftSaving, setDraftSaving]                 = useState(false);
+  const [draftSavedMsg, setDraftSavedMsg]             = useState<string | null>(null);
   const [attItemId, setAttItemId] = useState<string | null>(null);
   const [editItem, setEditItem] = useState<LineItem | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -63,6 +71,8 @@ export default function ReportDetail() {
   const [showAttWarning, setShowAttWarning] = useState(false);
   const [_pendingSave, setPendingSave] = useState(false);
   const [warnFiles, setWarnFiles] = useState<Attachment[]>([]);
+  // Stores the original File objects keyed by Attachment.id — needed for actual storage upload
+  const [warnRawFiles, setWarnRawFiles] = useState<Map<string, File>>(new Map());
   const [warnDragging, setWarnDragging] = useState(false);
   const [warnAttError, setWarnAttError] = useState('');
   const formFileRef = useRef<HTMLInputElement>(null);
@@ -77,19 +87,13 @@ export default function ReportDetail() {
     [picklistValues]
   );
 
-  const currencyOptions = useMemo(() => {
-    const plCurrencies = picklistValues.filter((v: any) => v.picklistId === 'CURRENCY' && v.active !== false);
-    if (plCurrencies.length) {
-      return plCurrencies.map((v: any) => {
-        const code   = v.meta?.code   || v.value;
-        const symbol = v.meta?.symbol || '';
-        return { code, label: `${code} \u2013 ${v.value}${symbol ? ` (${symbol})` : ''}` };
-      });
-    }
-    return legacyCurrencies
-      .filter((c: any) => c.active !== false)
-      .map((c: any) => ({ code: c.code, label: `${c.code} \u2013 ${c.name} (${c.symbol})` }));
-  }, [picklistValues, legacyCurrencies]);
+  const currencyOptions = useMemo(() =>
+    currencies.map(c => ({
+      code:  c.code,
+      label: `${c.code} \u2013 ${c.name} (${c.symbol})`,
+    })),
+    [currencies]
+  );
 
   const availableProjects = useMemo(() => {
     if (!form.date) return rawProjects;
@@ -98,14 +102,34 @@ export default function ReportDetail() {
     );
   }, [rawProjects, form.date]);
 
+  if (reportLoading) return (
+    <div className="auth-loading">
+      <i className="fa-solid fa-spinner fa-spin" />
+      <span>Loading report…</span>
+    </div>
+  );
+
   if (!report) return (
     <div style={{ padding: 40, color: '#64748b' }}>
       Report not found. <button onClick={() => navigate('/expense')}>Back</button>
     </div>
   );
 
-  const editable   = (report.status === 'draft' || report.status === 'rejected') && can('expense.edit');
-  const canSubmit  = editable && can('expense.submit');
+  // editable: show add/edit/delete controls for line items and attachments.
+  // awaiting_clarification lives on workflow_instances.status (not expense_reports.status
+  // which stays 'submitted'), so we read it from the already-loaded wf.instance.
+  const isAwaitingClarification = wf.instance?.status === 'awaiting_clarification';
+  const editable  = (
+    report.status === 'draft' ||
+    report.status === 'rejected' ||
+    isAwaitingClarification
+  ) && can('expense_reports.edit');
+
+  // canSubmit: only for draft/rejected — awaiting_clarification uses Respond & Resubmit
+  // !wf.loading guard prevents the button flashing enabled before workflow data arrives
+  const canSubmit = !wf.loading
+    && (report.status === 'draft' || report.status === 'rejected')
+    && can('expense_reports.edit');
   const total = report.lineItems.reduce((s, li) => s + (li.convertedAmount || 0), 0);
   const attItem = attItemId ? report.lineItems.find(li => li.id === attItemId) ?? null : null;
 
@@ -133,8 +157,12 @@ export default function ReportDetail() {
     setDupWarning(false);
     setAttError('');
     setWarnFiles([]);
+    setWarnRawFiles(new Map());
     setWarnAttError('');
     setWarnDragging(false);
+    // Reconcile local state with DB — catches any optimistic items that failed
+    // to persist (e.g. RLS block) but whose local-state rollback didn't fire.
+    if (report) syncReportLineItems(report.id);
   }
 
   function handleFormFiles(files: FileList | File[]) {
@@ -164,10 +192,13 @@ export default function ReportDetail() {
     Array.from(files).forEach(f => {
       if (!ATT_ALLOWED.includes(f.type)) { setWarnAttError('Only PDF, JPG, PNG files are allowed.'); return; }
       if (f.size > ATT_MAX) { setWarnAttError('File exceeds 5 MB limit.'); return; }
+      const attId = `att_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      // Keep the raw File reference so we can actually upload it later
+      setWarnRawFiles(prev => new Map(prev).set(attId, f));
       const reader = new FileReader();
       reader.onload = ev => {
         const att: Attachment = {
-          id: `att_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+          id: attId,
           name: f.name, type: f.type, size: f.size,
           dataUrl: ev.target!.result as string,
         };
@@ -178,49 +209,69 @@ export default function ReportDetail() {
   }
 
   function commitWithWarnFiles() {
-    const merged = [...(form.attachments ?? []), ...warnFiles];
-    setForm(prev => ({ ...prev, attachments: merged }));
+    // Capture pending files before clearing state
+    const rawFiles = new Map(warnRawFiles);
     setWarnFiles([]);
+    setWarnRawFiles(new Map());
     setShowAttWarning(false);
     setPendingSave(false);
-    // commitSave reads form state — flush via callback pattern
-    setTimeout(() => {
-      setForm(prev => {
-        const updated = { ...prev, attachments: merged };
-        // perform save inline with updated form
-        const isDuplicate = report!.lineItems.some(li =>
-          li.id !== editItem?.id &&
-          li.date === updated.date &&
-          li.category === updated.category &&
-          li.amount === updated.amount
-        );
-        const exchangeRate = updated.currencyCode === report!.baseCurrencyCode ? 1 : (updated.exchangeRate || 1);
-        const converted    = (updated.amount || 0) * exchangeRate;
-        const catEntry  = categories.find((c: any) => String(c.id) === String(updated.category));
-        const projEntry = rawProjects.find((p: any) => String(p.id) === String(updated.projectId));
-        if (editItem) {
-          updateLineItem(report!.id, editItem.id, {
-            ...updated,
-            categoryName: catEntry ? catEntry.value : updated.categoryName,
-            projectName:  projEntry ? projEntry.name : updated.projectName,
-            exchangeRate, convertedAmount: converted,
-          } as Partial<LineItem>);
-        } else {
-          addLineItem(report!.id, {
-            id: crypto.randomUUID(),
-            category: updated.category!, categoryName: catEntry ? catEntry.value : updated.category,
-            date: updated.date!, projectId: updated.projectId,
-            projectName: projEntry ? projEntry.name : undefined,
-            amount: updated.amount!, currencyCode: updated.currencyCode!,
-            exchangeRate, convertedAmount: converted,
-            note: updated.note, attachments: merged,
-          });
+
+    // All values are read directly from `form` — no setForm callback needed.
+    // Putting side-effects (addLineItem) inside a setState callback causes
+    // React Strict Mode to double-invoke the updater, creating duplicate records.
+    const isDuplicate = report!.lineItems.some(li =>
+      li.id !== editItem?.id &&
+      li.date === form.date &&
+      li.category === form.category &&
+      li.amount === form.amount
+    );
+    const exchangeRate = form.currencyCode === report!.baseCurrencyCode ? 1 : (form.exchangeRate || 1);
+    const converted    = (form.amount || 0) * exchangeRate;
+    const catEntry  = categories.find((c: any) => String(c.id) === String(form.category));
+    const projEntry = rawProjects.find((p: any) => String(p.id) === String(form.projectId));
+
+    // Upload each file to storage after the line item row exists
+    const uploadFiles = async (targetItemId: string) => {
+      for (const [, file] of rawFiles) {
+        try {
+          await addAttachment(report!.id, targetItemId, file);
+        } catch (err: any) {
+          setFormErrors(fe => ({ ...fe, _save: `Attachment upload failed: ${err.message}` }));
         }
+      }
+    };
+
+    if (editItem) {
+      updateLineItem(report!.id, editItem.id, {
+        ...form,
+        categoryName: catEntry ? catEntry.value : form.categoryName,
+        projectName:  projEntry ? projEntry.name : form.projectName,
+        exchangeRate, convertedAmount: converted,
+      } as Partial<LineItem>);
+      uploadFiles(editItem.id);
+      setDupWarning(isDuplicate);
+      if (!isDuplicate) closeForm();
+    } else {
+      const newItemId = crypto.randomUUID();
+      addLineItem(report!.id, {
+        id:              newItemId,
+        category:        form.category!,
+        categoryName:    catEntry ? catEntry.value : form.category,
+        date:            form.date!,
+        projectId:       form.projectId,
+        projectName:     projEntry ? projEntry.name : undefined,
+        amount:          form.amount!,
+        currencyCode:    form.currencyCode!,
+        exchangeRate,
+        convertedAmount: converted,
+        note:            form.note,
+        attachments:     [],
+      }).then(async () => {
+        await uploadFiles(newItemId);
         setDupWarning(isDuplicate);
         if (!isDuplicate) closeForm();
-        return updated;
-      });
-    }, 0);
+      }).catch(err => setFormErrors(fe => ({ ...fe, _save: err.message })));
+    }
   }
 
   // Auto-fill rate — accepts explicit values since setState is async
@@ -336,7 +387,22 @@ export default function ReportDetail() {
   }
 
   // ── Banners ─────────────────────────────────────────────────────
-  const canWithdraw = report.status === 'submitted' && can('expense.submit') && wf.instance?.status === 'in_progress';
+  const canWithdraw = report.status === 'submitted' && can('expense_reports.edit') && wf.instance?.status === 'in_progress';
+
+  // ── Status badge label — reflects workflow state, not just report.status ──
+  // expense_reports.status stays "submitted" throughout the approval chain,
+  // so we override the badge text to show the real workflow position.
+  const wfStatusLabel: string | undefined = (() => {
+    if (report.status !== 'submitted') return undefined; // draft / approved / rejected speak for themselves
+    switch (wf.instance?.status) {
+      case 'in_progress':            return 'In Review';
+      case 'awaiting_clarification': return 'Action Required';
+      case 'approved':               return 'Approved';
+      case 'rejected':               return 'Rejected';
+      case 'withdrawn':              return 'Withdrawn';
+      default:                       return undefined; // no instance yet — fall back to "Submitted"
+    }
+  })();
 
   const bannerCls: Record<string, string> = {
     draft:            'exp-status-banner--draft',
@@ -368,6 +434,30 @@ export default function ReportDetail() {
     }
   }
 
+  async function handleResubmit() {
+    if (!wf.instance) return;
+    setResubmitting(true);
+    try {
+      await wf.resubmit(resubmitResponse.trim() || undefined);
+      setResubmitResponse('');
+      // If we arrived here via the Update flow (sent-back tab), go back there
+      if (resumeInstanceId) {
+        navigate('/workflow/inbox?tab=sent_back');
+      }
+    } catch (e) {
+      // error surfaced by resubmit
+    } finally {
+      setResubmitting(false);
+    }
+  }
+
+  // ── Derive send-back context ─────────────────────────────────────
+  // Find the most recent clarification_requested event so we can show
+  // the approver's message in the Action Required banner.
+  const sendBackEvent = wf.instance?.status === 'awaiting_clarification'
+    ? [...wf.history].reverse().find(h => h.action === 'returned_to_initiator')
+    : undefined;
+
   return (
     <div className="exp-detail-wrap">
 
@@ -390,8 +480,8 @@ export default function ReportDetail() {
             </div>
           </div>
           <div className="exp-obj-right-panel">
-            <StatusBadge status={report.status} />
-            <ApprovalFlow status={report.status} />
+            <StatusBadge status={report.status} label={wfStatusLabel} />
+            <ApprovalFlow instance={wf.instance} tasks={wf.tasks} />
           </div>
         </div>
 
@@ -417,28 +507,101 @@ export default function ReportDetail() {
 
       <div className="exp-detail-body">
 
-        {/* ── Status Banner ─────────────────────────────────────── */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div
-            className={`exp-status-banner ${bannerCls[report.status] ?? 'exp-status-banner--draft'}`}
-            style={{ flex: 1, margin: 0 }}
-            dangerouslySetInnerHTML={{ __html: `<i class="fa-solid fa-circle-info"></i> ${bannerMsg[report.status] ?? ''}` }}
-          />
-          {canWithdraw && (
-            <button
-              onClick={() => setShowWithdrawConfirm(true)}
-              style={{
-                flexShrink: 0, padding: '7px 14px', borderRadius: 6,
-                border: '1px solid #FCA5A5', background: '#FEF2F2',
-                fontSize: 12, fontWeight: 600, color: '#DC2626', cursor: 'pointer',
-                display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap',
-              }}
-            >
-              <i className="fa-solid fa-rotate-left" style={{ fontSize: 11 }} />
-              Withdraw
-            </button>
-          )}
-        </div>
+        {/* ── Status Banner / Send-Back Callout ─────────────────── */}
+        {wf.instance?.status === 'awaiting_clarification' ? (
+          <div style={{
+            border: '1.5px solid #F59E0B', borderRadius: 10, background: '#FFFBEB',
+            padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 12,
+          }}>
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <i className="fa-solid fa-triangle-exclamation" style={{ color: '#D97706', fontSize: 16 }} />
+              <span style={{ fontWeight: 700, fontSize: 14, color: '#92400E' }}>
+                Action Required — Approver has requested clarification
+              </span>
+            </div>
+
+            {/* Approver's message */}
+            {sendBackEvent?.notes && (
+              <div style={{
+                background: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: 7,
+                padding: '10px 14px', fontSize: 13, color: '#78350F', lineHeight: 1.5,
+              }}>
+                <span style={{ fontWeight: 600, display: 'block', marginBottom: 4, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#B45309' }}>
+                  {sendBackEvent.actorName ?? 'Approver'} says:
+                </span>
+                {sendBackEvent.notes}
+              </div>
+            )}
+
+            {/* Response area */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: '#92400E' }}>
+                Your response
+              </label>
+              <textarea
+                rows={3}
+                value={resubmitResponse}
+                onChange={e => setResubmitResponse(e.target.value)}
+                placeholder="Explain your clarification or attach any missing documents above, then respond…"
+                disabled={resubmitting}
+                style={{
+                  width: '100%', padding: '9px 12px', borderRadius: 7, resize: 'vertical',
+                  border: '1px solid #FCD34D', background: '#FFFDF0', fontSize: 13,
+                  fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box',
+                  opacity: resubmitting ? 0.6 : 1,
+                }}
+              />
+            </div>
+
+            {/* Respond button */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+              {showForm && (
+                <span style={{ fontSize: 12, color: '#B45309' }}>
+                  <i className="fa-solid fa-triangle-exclamation" style={{ marginRight: 5 }} />
+                  Save or cancel the open line item before resubmitting.
+                </span>
+              )}
+              <button
+                onClick={handleResubmit}
+                disabled={resubmitting || showForm}
+                style={{
+                  padding: '9px 20px', borderRadius: 7, border: 'none',
+                  background: (resubmitting || showForm) ? '#D97706' : '#F59E0B',
+                  color: '#fff', fontWeight: 700, fontSize: 13,
+                  cursor: (resubmitting || showForm) ? 'not-allowed' : 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 7,
+                  opacity: (resubmitting || showForm) ? 0.5 : 1,
+                }}
+              >
+                <i className="fa-solid fa-paper-plane" style={{ fontSize: 12 }} />
+                {resubmitting ? 'Sending…' : 'Respond & Resubmit'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div
+              className={`exp-status-banner ${bannerCls[report.status] ?? 'exp-status-banner--draft'}`}
+              style={{ flex: 1, margin: 0 }}
+              dangerouslySetInnerHTML={{ __html: `<i class="fa-solid fa-circle-info"></i> ${bannerMsg[report.status] ?? ''}` }}
+            />
+            {canWithdraw && (
+              <button
+                onClick={() => setShowWithdrawConfirm(true)}
+                style={{
+                  flexShrink: 0, padding: '7px 14px', borderRadius: 6,
+                  border: '1px solid #FCA5A5', background: '#FEF2F2',
+                  fontSize: 12, fontWeight: 600, color: '#DC2626', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap',
+                }}
+              >
+                <i className="fa-solid fa-rotate-left" style={{ fontSize: 11 }} />
+                Withdraw
+              </button>
+            )}
+          </div>
+        )}
 
         {/* ── Workflow Timeline ────────────────────────────────── */}
         {wf.instance && (
@@ -765,13 +928,30 @@ export default function ReportDetail() {
         <div className="exp-report-footer">
           <div className="exp-total-section">
             <span className="exp-total-label">Total</span>
-            <span className="exp-total-amount">{getCurrencySymbol(report.baseCurrencyCode)}{total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-            <span className="exp-total-currency">({report.baseCurrencyCode})</span>
+            <span className="exp-total-amount">{report.baseCurrencyCode} {total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
           </div>
           <div className="exp-footer-actions">
-            {editable && (
-              <button className="exp-btn-save-draft" onClick={() => updateReport(report.id, { name: report.name })}>
-                <i className="fa-solid fa-floppy-disk" /> Save Draft
+            {editable && !isAwaitingClarification && (
+              <button
+                className="exp-btn-save-draft"
+                disabled={draftSaving}
+                onClick={async () => {
+                  setDraftSaving(true);
+                  try {
+                    await updateReport(report.id, { name: report.name });
+                    setDraftSavedMsg('Draft saved');
+                    setTimeout(() => setDraftSavedMsg(null), 3000);
+                  } catch {
+                    setDraftSavedMsg('Save failed — please try again');
+                    setTimeout(() => setDraftSavedMsg(null), 4000);
+                  } finally {
+                    setDraftSaving(false);
+                  }
+                }}
+              >
+                {draftSaving
+                  ? <><i className="fa-solid fa-spinner fa-spin" /> Saving…</>
+                  : <><i className="fa-solid fa-floppy-disk" /> Save Draft</>}
               </button>
             )}
             {canSubmit && (
@@ -784,6 +964,25 @@ export default function ReportDetail() {
         </div>
 
       </div>{/* /.exp-detail-body */}
+
+      {/* ── Draft saved toast ────────────────────────────────────────── */}
+      {draftSavedMsg && (
+        <div style={{
+          position: 'fixed', bottom: 28, left: '50%', transform: 'translateX(-50%)',
+          zIndex: 9999,
+          background: draftSavedMsg.startsWith('Save failed') ? '#FEE2E2' : '#D1FAE5',
+          color:      draftSavedMsg.startsWith('Save failed') ? '#991B1B'  : '#065F46',
+          border:     `1px solid ${draftSavedMsg.startsWith('Save failed') ? '#FCA5A5' : '#6EE7B7'}`,
+          borderRadius: 8, padding: '10px 20px',
+          fontSize: 13, fontWeight: 600,
+          display: 'flex', alignItems: 'center', gap: 8,
+          boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
+          pointerEvents: 'none',
+        }}>
+          <i className={`fa-solid ${draftSavedMsg.startsWith('Save failed') ? 'fa-circle-exclamation' : 'fa-circle-check'}`} />
+          {draftSavedMsg}
+        </div>
+      )}
 
       {/* ── Withdraw Confirm Modal ───────────────────────────────────── */}
       {showWithdrawConfirm && (
@@ -864,7 +1063,7 @@ export default function ReportDetail() {
       {/* ── No-Attachment Advisory Modal ─────────────────────────── */}
       {showAttWarning && (
         <div className="exp-modal-overlay exp-modal--open"
-          onClick={() => { setShowAttWarning(false); setPendingSave(false); setWarnFiles([]); setWarnAttError(''); }}>
+          onClick={() => { setShowAttWarning(false); setPendingSave(false); setWarnFiles([]); setWarnRawFiles(new Map()); setWarnAttError(''); }}>
           <div className="exp-modal-box exp-rwarn-box" onClick={e => e.stopPropagation()}>
 
             {/* Header */}
@@ -874,7 +1073,7 @@ export default function ReportDetail() {
                 <span className="exp-rwarn-title">No Receipt Attached</span>
               </div>
               <button className="exp-att-modal-close"
-                onClick={() => { setShowAttWarning(false); setPendingSave(false); setWarnFiles([]); setWarnAttError(''); }}>
+                onClick={() => { setShowAttWarning(false); setPendingSave(false); setWarnFiles([]); setWarnRawFiles(new Map()); setWarnAttError(''); }}>
                 <i className="fa-solid fa-xmark" />
               </button>
             </div>
@@ -911,7 +1110,10 @@ export default function ReportDetail() {
                     <span className="exp-att-form-name">{a.name}</span>
                     <span className="exp-att-form-size">{attFmtSize(a.size)}</span>
                     <button type="button" className="exp-att-form-remove"
-                      onClick={() => setWarnFiles(prev => prev.filter(f => f.id !== a.id))}>
+                      onClick={() => {
+                        setWarnFiles(prev => prev.filter(f => f.id !== a.id));
+                        setWarnRawFiles(prev => { const m = new Map(prev); m.delete(a.id); return m; });
+                      }}>
                       <i className="fa-solid fa-xmark" />
                     </button>
                   </div>

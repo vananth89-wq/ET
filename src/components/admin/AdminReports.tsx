@@ -13,6 +13,7 @@ import { useProjects } from '../../hooks/useProjects';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useExchangeRates } from '../../hooks/useExchangeRates';
 import { useCurrencies } from '../../hooks/useCurrencies';
+import { useTargetPopulation } from '../../hooks/useTargetPopulation';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -54,7 +55,6 @@ const FX_FALLBACK: Record<string, Record<string, number>> = {
   PKR: { '2023': 0.288, '2024': 0.299, '2025': 0.300, '2026': 0.302 },
   LKR: { '2023': 0.252, '2024': 0.272, '2025': 0.270, '2026': 0.287 },
 };
-const CCY_SYM: Record<string, string> = { INR: '₹', SAR: '﷼', PKR: '₨', LKR: 'Rs' };
 const BAR_PALETTE = ['#1976D2','#00897B','#3949AB','#8E24AA','#FB8C00','#90A4AE','#0288D1','#00ACC1'];
 const STATUS_PALETTE: Record<string, string> = {
   Draft: '#757575', Submitted: '#1976D2', 'Mgr Approved': '#7B1FA2',
@@ -215,7 +215,7 @@ function ErStatusBadge({ status }: { status: string }) {
 interface ChartsProps { rows: FlatRow[]; viewCcy: string; rates: { date: string; fromCcy: string; toCcy: string; rate: number }[]; }
 
 function Charts({ rows, viewCcy, rates }: ChartsProps) {
-  const sym = CCY_SYM[viewCcy] || viewCcy;
+  const sym = viewCcy;
 
   // KPI total
   const total = rows.reduce((s, r) => s + convertToView(r, viewCcy, rates), 0);
@@ -333,13 +333,55 @@ function Charts({ rows, viewCcy, rates }: ChartsProps) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function ExpenseReportDetail({ onBack }: { onBack: () => void }) {
-  const { reports }  = useExpenseData();
+  const { reports: allReports }  = useExpenseData();
   const { employees: supabaseEmps } = useEmployees();
   const { departments: supabaseDepts } = useDepartments();
   const { employee: authEmployee }  = useAuth();
   const { can } = usePermissions();
   const employees = supabaseEmps;
   const depts     = supabaseDepts as unknown as Dept[];
+
+  // ── Target population scoping ──────────────────────────────────────────────
+  // Multi-module: expense_reports.view controls which reports are visible,
+  // plus we include inactive employees whose reports the user can also see
+  // (inactive_employees.view target population).
+  // This is a UX-level filter on top of RLS — RLS is the authoritative gate.
+  const { results: popResults } = useTargetPopulation({
+    expense: { module: 'expense_reports',    action: 'view' },
+    inactive: { module: 'inactive_employees', action: 'view' },
+  });
+
+  // Merge both populations into a single allowed-UUID set for report filtering.
+  // If either resolves to 'all', the merged result is unrestricted.
+  const targetPop = useMemo((): 'ALL' | Set<string> => {
+    const exp = popResults.expense;
+    const inact = popResults.inactive;
+    if (exp.mode === 'all') return 'ALL';
+    // Build union of both scoped sets
+    const ids = new Set<string>();
+    if (exp.mode === 'scoped') exp.ids.forEach(id => ids.add(id));
+    if (inact.mode === 'scoped') inact.ids.forEach(id => ids.add(id));
+    // mode=none contributes nothing — safe to skip
+    return ids;
+  }, [popResults]);
+
+  // Build a fast UUID→Employee map so allRows can look up emp.id for filtering.
+  const empByUUID = useMemo(
+    () => new Map(supabaseEmps.map(e => [e.id, e])),
+    [supabaseEmps],
+  );
+
+  // Scope the reports list to the merged target population before building allRows.
+  const reports = useMemo(() => {
+    if (targetPop === 'ALL') return allReports;
+    return allReports.filter(rpt => {
+      // Fast path: rpt.employeeId might already be a UUID
+      if (targetPop.has(rpt.employeeId)) return true;
+      // Normal path: rpt.employeeId is the human-readable code (EMP001)
+      const emp = supabaseEmps.find(e => String(e.employeeId) === String(rpt.employeeId));
+      return emp ? targetPop.has(emp.id) : false;
+    });
+  }, [allReports, targetPop, supabaseEmps]);
   const { projects } = useProjects(false);
   const { rates: rawRates } = useExchangeRates();
   const { currencies }      = useCurrencies();
@@ -501,7 +543,7 @@ function ExpenseReportDetail({ onBack }: { onBack: () => void }) {
     });
   }, [allRows, applied]);
 
-  const sym = CCY_SYM[viewCcy] || viewCcy;
+  const sym = viewCcy;
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
 
@@ -594,6 +636,20 @@ function ExpenseReportDetail({ onBack }: { onBack: () => void }) {
             <i className="fa-solid fa-rotate-left" /> Reset
           </button>
           <div style={{ flex: 1 }} />
+          {targetPop !== 'ALL' && (
+            <span
+              title={`Showing data for ${targetPop.size} employee${targetPop.size !== 1 ? 's' : ''} in your target population`}
+              style={{
+                fontSize: 11, fontWeight: 600, color: '#7c3aed',
+                background: '#f3e8ff', border: '1px solid #ddd6fe',
+                borderRadius: 6, padding: '3px 8px', cursor: 'default',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              <i className="fa-solid fa-users" style={{ marginRight: 4 }} />
+              {targetPop.size} employee{targetPop.size !== 1 ? 's' : ''}
+            </span>
+          )}
           <span className="er-row-count" id="er-row-count">{filtered.length} rows</span>
           {can('expense.export') && (
             <button className="er-export-btn" onClick={handleExport} type="button">

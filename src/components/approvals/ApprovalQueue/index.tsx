@@ -1,21 +1,15 @@
 /**
- * ApprovalQueue — Pending expense approvals for Manager / DeptHead / Finance / Admin
+ * ApprovalQueue — Submitted expense reports visible to the current user.
  *
- * What it shows depends on the caller's permissions:
+ * Access: requires expense_reports.view permission.
+ * Scope (own / team / org) is determined entirely by RLS + target groups
+ * configured in the Permission Matrix — no role checks in this component.
  *
- *   Manager / DeptHead (expense.view_team)
- *     → reports with status = 'submitted' within their scope
- *     → Actions: Approve (→ manager_approved) | Reject
+ * Draft reports are excluded (they belong in MyReports).
+ * All other statuses are shown; the user can filter by status chip.
  *
- *   Finance / Admin (expense.view_org)
- *     → reports with status = 'manager_approved'  (and 'submitted' for Admin skip)
- *     → Actions: Approve (→ approved) | Reject
- *
- * The component uses useExpenseData which already fetches only the reports
- * the current user can see via RLS — no client-side permission filtering needed.
- *
- * Action errors surface as an inline error banner so the user knows if the
- * server rejected the action (e.g. out-of-scope employee, wrong state).
+ * Actual approve/reject actions have moved to the Workflow Approver Inbox.
+ * This screen is read-only historical view + navigation shortcut to the inbox.
  */
 
 import { useState, useMemo } from 'react';
@@ -27,8 +21,8 @@ import StatusBadge           from '../../shared/StatusBadge';
 import type { ExpenseReport, ExpenseStatus } from '../../../types';
 
 // ─── Migration banner ─────────────────────────────────────────────────────────
-// Approval now flows through the Workflow Approver Inbox.
-// This component is kept for historical report viewing only.
+// Actual approve / reject actions now live in the Workflow Approver Inbox.
+// This component is kept for read-only historical viewing + inbox shortcut.
 
 function WorkflowMigrationBanner() {
   const navigate = useNavigate();
@@ -64,11 +58,9 @@ function WorkflowMigrationBanner() {
   );
 }
 
-// ─── Status pills the queue shows for each permission level ──────────────────
-
-const MANAGER_STATUSES: ExpenseStatus[]  = ['submitted'];
-const FINANCE_STATUSES:  ExpenseStatus[] = ['manager_approved'];
-const ADMIN_STATUSES:    ExpenseStatus[] = ['submitted', 'manager_approved'];
+// ─── Statuses excluded from this queue ───────────────────────────────────────
+// Drafts belong in MyReports. Everything else (submitted, in-approval, etc.)
+// is shown here. RLS controls which employees' reports the user can see.
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -85,47 +77,36 @@ function formatDate(iso?: string): string {
 
 export default function ApprovalQueue() {
   const navigate                           = useNavigate();
-  const { can, canAny }                    = usePermissions();
+  const { can }                            = usePermissions();
   const { reports, loading, error,
           refetch }                        = useExpenseData();
 
   const [statusFilter, setStatusFilter]    = useState<ExpenseStatus | 'all'>('all');
 
-  // ── Determine which statuses to surface for this user ────────────────────
-  const isAdmin      = can('security.manage_roles');   // admin has this
-  const canApprove   = can('expense.edit_approval');    // all approvers share this permission
-  const isFinance    = can('expense.view_org');
-  // isManager = anyone who approves at the "submitted" stage:
-  //   expense.view_direct → immediate direct reports (Manager role)
-  //   expense.view_team   → full org subtree (DeptHead and above)
-  const isManager    = canAny(['expense.view_direct', 'expense.view_team']);
+  // ── Access gate ───────────────────────────────────────────────────────────
+  // expense_reports.view is the only requirement. Scope (which employees'
+  // reports are visible) is enforced by RLS + Permission Matrix target groups.
+  const canAccessQueue = can('expense_reports.view');
+  const canAct         = can('expense_reports.edit');
 
-  const queueStatuses: ExpenseStatus[] = isAdmin
-    ? ADMIN_STATUSES
-    : isFinance
-    ? FINANCE_STATUSES
-    : MANAGER_STATUSES;
-
-  const canAccessQueue = canApprove && (isAdmin || isFinance || isManager);
-
-  // ── Filter reports to approval queue ─────────────────────────────────────
-  //
-  // RLS already limits what the user can see. We just filter by the statuses
-  // relevant to this approver's role.
+  // ── Filter reports — exclude drafts, show everything else ─────────────────
+  // Status chips populate dynamically from whatever statuses appear in the
+  // data — no hardcoded workflow stage names.
   const queueReports = useMemo(() => {
-    return reports.filter(r => queueStatuses.includes(r.status));
-  }, [reports, queueStatuses]);
+    return reports.filter(r => r.status !== 'draft');
+  }, [reports]);
 
   const filtered = useMemo(() => {
     if (statusFilter === 'all') return queueReports;
     return queueReports.filter(r => r.status === statusFilter);
   }, [queueReports, statusFilter]);
 
-  // Status counts for filter chips
-  const statusCounts = useMemo(() => {
+  // Status counts + unique statuses present in the data (drives filter chips)
+  const { statusCounts, uniqueStatuses } = useMemo(() => {
     const counts: Partial<Record<ExpenseStatus, number>> = {};
     queueReports.forEach(r => { counts[r.status] = (counts[r.status] ?? 0) + 1; });
-    return counts;
+    const unique = Object.keys(counts) as ExpenseStatus[];
+    return { statusCounts: counts, uniqueStatuses: unique };
   }, [queueReports]);
 
   // ── Guard ─────────────────────────────────────────────────────────────────
@@ -154,11 +135,7 @@ export default function ApprovalQueue() {
             Approval Queue
           </h1>
           <p className="page-subtitle">
-            {isAdmin
-              ? 'All pending expenses — you can approve or reject at any stage.'
-              : isFinance
-              ? 'Manager-approved expenses awaiting final Finance sign-off.'
-              : 'Submitted expenses from your team awaiting your approval.'}
+            Expense reports within your scope — use the Approver Inbox to take action.
           </p>
         </div>
         <button className="btn btn-ghost btn-sm" onClick={refetch} title="Refresh">
@@ -179,7 +156,7 @@ export default function ApprovalQueue() {
 
       {/* ── KPI bar ──────────────────────────────────────────────────────── */}
       <div className="kpi-row" style={{ marginBottom: 20 }}>
-        {queueStatuses.map(st => (
+        {uniqueStatuses.map(st => (
           <div key={st} className="kpi-card">
             <div className="kpi-value">{statusCounts[st] ?? 0}</div>
             <div className="kpi-label">
@@ -189,12 +166,12 @@ export default function ApprovalQueue() {
         ))}
         <div className="kpi-card">
           <div className="kpi-value">{queueReports.length}</div>
-          <div className="kpi-label">Total pending</div>
+          <div className="kpi-label">Total</div>
         </div>
       </div>
 
-      {/* ── Filter chips ─────────────────────────────────────────────────── */}
-      {queueStatuses.length > 1 && (
+      {/* ── Filter chips — driven by statuses present in data ────────────── */}
+      {uniqueStatuses.length > 1 && (
         <div className="filter-chips" style={{ marginBottom: 16 }}>
           <button
             className={`filter-chip ${statusFilter === 'all' ? 'active' : ''}`}
@@ -202,13 +179,13 @@ export default function ApprovalQueue() {
           >
             All <span className="chip-count">{queueReports.length}</span>
           </button>
-          {queueStatuses.map(st => (
+          {uniqueStatuses.map(st => (
             <button
               key={st}
               className={`filter-chip ${statusFilter === st ? 'active' : ''}`}
               onClick={() => setStatusFilter(st)}
             >
-              {st === 'manager_approved' ? 'Manager Approved' : st.charAt(0).toUpperCase() + st.slice(1)}
+              {st.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
               <span className="chip-count">{statusCounts[st] ?? 0}</span>
             </button>
           ))}
@@ -233,14 +210,9 @@ export default function ApprovalQueue() {
             const itemCount   = report.lineItems.length;
             const submittedOn = formatDate(report.submittedAt);
 
-            // What actions are available for this report + this approver combo?
-            // isManager covers both view_direct (Manager) and view_team (DeptHead+)
-            const canActOnThis =
-              canApprove && (
-                isAdmin ||
-                (isFinance  && report.status === 'manager_approved') ||
-                (isManager  && report.status === 'submitted')
-              );
+            // Show the inbox shortcut if the user has edit permission.
+            // The workflow engine enforces what actions are actually available.
+            const canActOnThis = canAct;
 
             return (
               <div key={report.id} className="approval-card">

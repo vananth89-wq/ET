@@ -95,3 +95,59 @@ export function useDepartments(includeDeleted = false): UseDepartmentsResult {
 
   return { departments, loading, error, refetch };
 }
+
+
+// ─── Lookup hook (transactional dropdowns) ────────────────────────────────────
+// Queries vw_departments_lookup — requires departments.lookup permission (ESS has it).
+// Returns non-deleted departments only. Exposes id, dept_id, name — no hierarchy
+// data, no head_employee_id, no audit fields.
+// Use this for department dropdowns in transactional forms, not useDepartments().
+
+export interface DepartmentLookup {
+  id:     string;   // UUID — store as FK on transactions
+  deptId: string;   // human-readable code e.g. D001
+  name:   string;   // display label
+}
+
+interface UseDepartmentsLookupResult {
+  departments: DepartmentLookup[];
+  loading:     boolean;
+  error:       string | null;
+}
+
+export function useDepartmentsLookup(): UseDepartmentsLookupResult {
+  const [departments, setDepartments] = useState<DepartmentLookup[]>([]);
+  const [loading,     setLoading]     = useState(true);
+  const [error,       setError]       = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    setLoading(true);
+    setError(null);
+
+    supabase
+      .from('vw_departments_lookup')
+      .select('id, dept_id, name')
+      .order('name', { ascending: true })
+      .then(({ data, error: err }) => {
+        if (!mounted) return;
+        if (err) {
+          setError(err.message);
+          setDepartments([]);
+        } else {
+          setDepartments(
+            (data ?? []).map(row => ({
+              id:     row.id,
+              deptId: row.dept_id,
+              name:   row.name,
+            }))
+          );
+        }
+        setLoading(false);
+      });
+
+    return () => { mounted = false; };
+  }, []);
+
+  return { departments, loading, error };
+}

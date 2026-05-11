@@ -32,6 +32,8 @@ export interface FullEmployee {
   name: string;
   nationality?: string;
   maritalStatus?: string;
+  gender?: string;
+  dob?: string;
   countryCode?: string;
   mobile?: string;
   businessEmail?: string;
@@ -337,6 +339,9 @@ export default function AddEmployee() {
   const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const doAutosaveRef    = useRef<() => void>(() => {});
   const didMountRef      = useRef(false);
+  // Set to true during handleActivate to block any in-flight or periodic autosave
+  // from overwriting the newly-written 'Active' status back to 'Draft'.
+  const isActivatingRef  = useRef(false);
 
   // ── Editing state ───────────────────────────────────────────────────────
   const [editingEmpId,  setEditingEmpId]  = useState<string | null>(null);
@@ -349,6 +354,8 @@ export default function AddEmployee() {
   const [empId,          setEmpId]          = useState('');
   const [nationality,    setNationality]    = useState('');
   const [maritalStatus,  setMaritalStatus]  = useState('');
+  const [gender,         setGender]         = useState('');
+  const [dob,            setDob]            = useState('');
 
   // ── Section 2: Contact ──────────────────────────────────────────────────
   const [countryCode, setCountryCode] = useState('+91');
@@ -486,6 +493,17 @@ export default function AddEmployee() {
     return match ? match.value : id;
   }
 
+  function calcAge(dobStr: string): number | null {
+    if (!dobStr) return null;
+    const birth = new Date(dobStr);
+    if (isNaN(birth.getTime())) return null;
+    const today = new Date();
+    let age = today.getFullYear() - birth.getFullYear();
+    const m = today.getMonth() - birth.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+    return age;
+  }
+
   // ── Manager list: Active + Inactive employees, excluding the current employee
   // Includes Inactive so employees on leave / ex-managers can still be selected.
   // Excludes Draft/Incomplete (not fully set up yet).
@@ -511,6 +529,8 @@ export default function AddEmployee() {
     setEmpId(emp.employeeId || '');
     setNationality(emp.nationality || '');
     setMaritalStatus(emp.maritalStatus || '');
+    setGender(emp.gender || '');
+    setDob(emp.dob || '');
     setCountryCode(emp.countryCode || '+91');
     setMobile(emp.mobile || '');
     setBusinessEmail(emp.businessEmail || '');
@@ -580,7 +600,7 @@ export default function AddEmployee() {
     setCurrentEmpUUID(null);
     setPhoto('');
     setEmpName(''); setEmpId(generateEmpId(employees));
-    setNationality(''); setMaritalStatus('');
+    setNationality(''); setMaritalStatus(''); setGender(''); setDob('');
     setCountryCode('+91'); setMobile('');
     setBusinessEmail(''); setPersonalEmail('');
     setPassportCountry(''); setPassportNumber(''); setPassportIssueDate(''); setPassportExpiry('');
@@ -598,6 +618,7 @@ export default function AddEmployee() {
     setLastAutoSaved(null);
     setAutosaveStatus('idle');
     if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    isActivatingRef.current = false;   // allow autosave again for the next employee
     didMountRef.current = false;
     navigate('/admin/add-employee', { replace: true });
   }
@@ -711,6 +732,9 @@ export default function AddEmployee() {
 
   // ── Silent autosave (no validation, no flush, preserves status) ──────────
   async function doAutosave() {
+    // Block autosave while activation is in progress — otherwise an in-flight
+    // or periodic autosave could overwrite the 'Active' status back to 'Draft'.
+    if (isActivatingRef.current) return;
     if (!empName.trim() || !empId.trim()) return;
     setAutosaveStatus('saving');
     const data = collectData(idRecords);
@@ -788,7 +812,7 @@ export default function AddEmployee() {
 
   // ── Debounced autosave: 2.5 s after last field change ────────────────────
   const formFingerprint = [
-    empName, empId, nationality, maritalStatus,
+    empName, empId, nationality, maritalStatus, gender, dob,
     mobile, businessEmail, personalEmail,
     designation, deptId, managerId, hireDate, endDate, probationEnd,
     workCountry, workLocation,
@@ -865,7 +889,7 @@ export default function AddEmployee() {
       employeeId: empId.trim(),
       name: empName.trim(),
       photo,
-      nationality, maritalStatus,
+      nationality, maritalStatus, gender, dob,
       countryCode, mobile: mobile.trim(),
       businessEmail: businessEmail.trim(),
       personalEmail: personalEmail.trim(),
@@ -886,13 +910,15 @@ export default function AddEmployee() {
     const errors: string[] = [];
 
     // ── employee_personal (upsert) ───────────────────────────────────────
-    if (data.nationality || data.maritalStatus || data.photo) {
+    if (data.nationality || data.maritalStatus || data.gender || data.dob || data.photo) {
       const { error: personalErr } = await supabase
         .from('employee_personal')
         .upsert({
           employee_id:    empUUID,
           nationality:    data.nationality    || null,
           marital_status: data.maritalStatus  || null,
+          gender:         data.gender         || null,
+          dob:            data.dob            || null,
           photo_url:      data.photo          || null,
         }, { onConflict: 'employee_id' });
       if (personalErr) { console.error('[saveExtendedData] employee_personal:', personalErr); errors.push(`Personal: ${personalErr.message}`); }
@@ -1060,6 +1086,8 @@ export default function AddEmployee() {
     if (pers) {
       setNationality(  pers.nationality    || '');
       setMaritalStatus(pers.marital_status || '');
+      setGender(       pers.gender         || '');
+      setDob(          pers.dob            || '');
       setPhoto(        pers.photo_url      || '');
     }
 
@@ -1101,6 +1129,8 @@ export default function AddEmployee() {
         if (!empId.trim())   errs.empId   = 'Employee ID is required.';
         if (!nationality)    errs.nationality = 'Nationality is required.';
         if (!maritalStatus)  errs.maritalStatus = 'Marital status is required.';
+        if (!gender)         errs.gender = 'Gender is required.';
+        if (!dob)            errs.dob = 'Date of birth is required.';
         break;
       case 'contact':
         if (!mobile.trim()) errs.mobile = 'Mobile number is required.';
@@ -1214,6 +1244,12 @@ export default function AddEmployee() {
 
   // ── Activate employee ────────────────────────────────────────────────────
   async function handleActivate() {
+    // Block all autosave writes (debounced and periodic) for the duration of
+    // activation. doAutosave checks isActivatingRef before touching the DB.
+    isActivatingRef.current = true;
+    // Also cancel any pending debounced autosave timer.
+    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+
     // Validate all non-optional sections
     const allErrors: Record<string, string> = {};
     const requiredSections = SECTIONS.filter(s => !s.optional).map(s => s.id);
@@ -1270,6 +1306,77 @@ export default function AddEmployee() {
       console.error('[handleActivate] extended data errors:', extErrors);
       showToast(`Activated but some data failed to save: ${extErrors[0]}`, 'error');
     }
+
+    // ── Send welcome email + link profile → employee ──────────────────────
+    const businessEmail = (data.businessEmail ?? '').trim();
+    if (businessEmail) {
+      // 1. Send the welcome / magic-link email via Supabase Auth.
+      //    shouldCreateUser: true creates the auth user if not yet present.
+      //    The Invite email template should use:
+      //    {{ .SiteURL }}/reset-password?token_hash={{ .TokenHash }}&type=invite
+      const { error: otpError } = await supabase.auth.signInWithOtp({
+        email: businessEmail,
+        options: {
+          shouldCreateUser: true,
+          emailRedirectTo: `${window.location.origin}/reset-password`,
+          data: { full_name: data.name },
+        },
+      });
+
+      if (otpError) {
+        console.error('[handleActivate] signInWithOtp error:', otpError.message);
+        showToast(`Employee activated but welcome email failed: ${otpError.message}`, 'error');
+      } else {
+        // 2. Link the auth profile → employee + grant ESS.
+        //    The auth user may not exist yet if the email hasn't been delivered,
+        //    so we call this with a short retry tolerance (the RPC handles it).
+        const { data: rpcData, error: rpcError } = await supabase.rpc(
+          'link_profile_to_employee',
+          { p_email: businessEmail }
+        );
+
+        if (rpcError) {
+          console.warn('[handleActivate] link_profile_to_employee RPC error:', rpcError.message);
+          // Non-fatal — the handle_new_user trigger will link on first sign-in
+        } else if (rpcData && !(rpcData as { ok: boolean }).ok) {
+          const reason = (rpcData as { ok: boolean; reason?: string }).reason ?? '';
+          // "auth user not found" is expected before the user clicks the link — not an error
+          if (!reason.includes('auth user not found')) {
+            console.warn('[handleActivate] link_profile_to_employee:', reason);
+          }
+        }
+
+        // 3. Record the invite in employee_invites audit table
+        //    (get the latest attempt_no first)
+        const { data: lastInvite } = await supabase
+          .from('employee_invites')
+          .select('attempt_no')
+          .eq('employee_id', empUUID!)
+          .order('attempt_no', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        const nextAttempt = lastInvite ? (lastInvite.attempt_no ?? 0) + 1 : 1;
+
+        await supabase.from('employee_invites').insert({
+          employee_id: empUUID!,
+          attempt_no:  nextAttempt,
+          sent_at:     new Date().toISOString(),
+          status:      'sent',
+        });
+
+        // 4. Stamp invite_sent_at on the employee row
+        await supabase
+          .from('employees')
+          .update({ invite_sent_at: new Date().toISOString() })
+          .eq('id', empUUID!);
+
+        showToast('Employee activated and welcome email sent!', 'success');
+      }
+    } else {
+      showToast('Employee activated (no email address — invite not sent).', 'warning');
+    }
+
     refetchEmployees();
     resetForm();
     navigate('/admin/employee-details');
@@ -1472,6 +1579,31 @@ export default function AddEmployee() {
               </select>
               <FieldError msg={errors.maritalStatus} />
             </div>
+            <div className={`form-group ${errors.gender ? 'form-group--error' : ''}`}>
+              <label><i className="fa-solid fa-venus-mars fa-fw" /> Gender</label>
+              <select value={gender} onChange={e => setGender(e.target.value)} required>
+                <option value="">-- Select --</option>
+                <option value="Male">Male</option>
+                <option value="Female">Female</option>
+              </select>
+              <FieldError msg={errors.gender} />
+            </div>
+            <div className={`form-group ${errors.dob ? 'form-group--error' : ''}`}>
+              <label><i className="fa-solid fa-cake-candles fa-fw" /> Date of Birth</label>
+              <input
+                type="date"
+                value={dob}
+                onChange={e => setDob(e.target.value)}
+                max={new Date().toISOString().slice(0, 10)}
+              />
+              <FieldError msg={errors.dob} />
+            </div>
+            {dob && (
+              <div className="form-group">
+                <label><i className="fa-solid fa-hourglass-half fa-fw" /> Age</label>
+                <input type="text" value={calcAge(dob) !== null ? `${calcAge(dob)} years` : ''} readOnly />
+              </div>
+            )}
           </div>
         </div>
       );

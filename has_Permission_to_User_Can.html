@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>has_Permission → user_can() Migration Reference</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; color: #1a1a1a; background: #f8f8f6; line-height: 1.6; }
+  .header { background: #1a1a1a; color: #fff; padding: 2rem 2.5rem; }
+  .header h1 { font-size: 1.5rem; font-weight: 600; margin-bottom: 0.25rem; }
+  .header p { font-size: 0.875rem; color: #999; }
+  .container { max-width: 1100px; margin: 0 auto; padding: 2rem 2.5rem; }
+  .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 2rem; }
+  .stat { background: #fff; border: 0.5px solid #e0e0d8; border-radius: 8px; padding: 1rem 1.25rem; }
+  .stat .num { font-size: 2rem; font-weight: 600; color: #1a1a1a; }
+  .stat .lbl { font-size: 0.75rem; color: #888; text-transform: uppercase; letter-spacing: 0.06em; }
+  .section { margin-bottom: 2.5rem; }
+  .section-title { font-size: 0.7rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #888; margin-bottom: 0.75rem; padding-bottom: 0.5rem; border-bottom: 0.5px solid #e0e0d8; }
+  .card { background: #fff; border: 0.5px solid #e0e0d8; border-radius: 8px; margin-bottom: 0.75rem; overflow: hidden; }
+  .card-header { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; background: #fafaf8; border-bottom: 0.5px solid #e0e0d8; }
+  .change-num { font-size: 0.7rem; font-weight: 600; background: #1a1a1a; color: #fff; border-radius: 4px; padding: 2px 7px; white-space: nowrap; }
+  .card-title { font-weight: 500; font-size: 0.875rem; flex: 1; }
+  .file-tag { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.7rem; color: #555; background: #f0f0ec; border-radius: 4px; padding: 2px 6px; white-space: nowrap; }
+  .card-body { padding: 0.875rem 1rem; }
+  .tables-row { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 0.75rem; }
+  .tag { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; border: 0.5px solid #e0e0d8; background: #f5f5f2; color: #444; white-space: nowrap; }
+  .tag.module { background: #e8f0fe; border-color: #b8ccf8; color: #1a4b8c; }
+  .tag.perm-new { background: #e6f4ea; border-color: #a8d5b0; color: #1e6b33; }
+  .tag.perm-exist { background: #f5f5f2; border-color: #d0d0c8; color: #666; font-style: italic; }
+  .tag.special { background: #fef3e2; border-color: #f0c67a; color: #7a4f00; }
+  .diff-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; margin-top: 0.5rem; }
+  .diff-table th { text-align: left; padding: 5px 8px; font-size: 0.68rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: #888; background: #fafaf8; border-bottom: 0.5px solid #e0e0d8; }
+  .diff-table td { padding: 5px 8px; border-bottom: 0.5px solid #f0f0ec; vertical-align: top; }
+  .diff-table tr:last-child td { border-bottom: none; }
+  .diff-table code { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.72rem; }
+  .before { color: #c0392b; }
+  .after { color: #1e6b33; }
+  .note { font-size: 0.75rem; color: #666; font-style: italic; margin-top: 0.35rem; }
+  .badge { display: inline-block; font-size: 0.65rem; font-weight: 600; border-radius: 4px; padding: 2px 6px; white-space: nowrap; }
+  .badge-drop { background: #fde8e8; color: #a32d2d; }
+  .badge-keep { background: #e8f0fe; color: #1a4b8c; }
+  .badge-new { background: #e6f4ea; color: #1e6b33; }
+  .badge-super { background: #fef3e2; color: #7a4f00; }
+  .arch-box { background: #fff; border: 0.5px solid #e0e0d8; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; }
+  .arch-box h4 { font-size: 0.8rem; font-weight: 600; margin-bottom: 0.5rem; }
+  .arch-box p, .arch-box li { font-size: 0.8rem; color: #444; }
+  .arch-box ul { padding-left: 1.25rem; }
+  .arch-box li { margin-bottom: 0.2rem; }
+  .highlight { background: #fffbe6; border-left: 3px solid #f0c67a; padding: 0.5rem 0.75rem; border-radius: 0 4px 4px 0; font-size: 0.8rem; margin-top: 0.5rem; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+  @media (max-width: 700px) { .summary-grid { grid-template-columns: 1fr 1fr; } .two-col { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>has_permission / has_role → user_can() Migration Reference</h1>
+  <p>ET-React · Supabase RLS Upgrade · 2026-05-05 · Project: okpnubnswpgybpzgwgtr</p>
+</div>
+
+<div class="container">
+
+  <div class="summary-grid">
+    <div class="stat"><div class="num">20</div><div class="lbl">Migrations written</div></div>
+    <div class="stat"><div class="num">30+</div><div class="lbl">Tables updated</div></div>
+    <div class="stat"><div class="num">18</div><div class="lbl">New permissions seeded</div></div>
+    <div class="stat"><div class="num">1</div><div class="lbl">New module (sys_audit_log)</div></div>
+  </div>
+
+  <!-- ARCHITECTURAL DECISIONS -->
+  <div class="section">
+    <div class="section-title">Architectural Decisions</div>
+    <div class="two-col">
+      <div class="arch-box">
+        <h4>Why user_can() everywhere</h4>
+        <p>Both <code>has_role('admin')</code> and <code>has_permission(code)</code> read from either <code>user_roles</code> or <code>role_permissions</code>. Since migration 107, <code>role_permissions</code> is no longer written to — <code>has_permission()</code> silently returns false for everyone. <code>user_can()</code> reads from <code>permission_set_assignments → permission_set_items</code>, which is what the Permission Matrix UI writes to.</p>
+      </div>
+      <div class="arch-box">
+        <h4>No circular dependency</h4>
+        <p><code>user_can()</code> is SECURITY DEFINER — it runs as superuser and bypasses RLS entirely when reading <code>permission_set_assignments</code>, <code>user_roles</code>, <code>target_groups</code>, etc. Gating those tables on <code>user_can()</code> is safe.</p>
+      </div>
+      <div class="arch-box">
+        <h4>Bootstrap guard on permission catalog</h4>
+        <p>The five permission catalog tables use <code>is_super_admin() OR user_can(...)</code> — not <code>user_can()</code> alone. If an admin accidentally revokes their own catalog edit permission, a super admin (UUID allowlist, migration 112) can always recover. Regular <code>user_can()</code> alone would create a lockout scenario.</p>
+      </div>
+      <div class="arch-box">
+        <h4>audit_log immutability</h4>
+        <p>RLS UPDATE/DELETE policies were dropped and replaced with BEFORE triggers that RAISE EXCEPTION. Triggers cannot be bypassed by SECURITY DEFINER functions — only a superuser dropping the trigger can override. RLS alone is insufficient for true immutability.</p>
+      </div>
+    </div>
+    <div class="highlight">Type regen after every migration: <code>npx supabase gen types typescript --project-id okpnubnswpgybpzgwgtr &gt; src/types/database.types.ts</code></div>
+  </div>
+
+  <!-- CHANGE #1 -->
+  <div class="section">
+    <div class="section-title">Expense / Line Items — Orphan Cleanup</div>
+    <div class="card">
+      <div class="card-header">
+        <span class="change-num">#1</span>
+        <span class="card-title">Drop orphaned legacy policies — expense_reports &amp; line_items</span>
+        <span class="file-tag">20260505123_drop_legacy_expense_line_policies.sql</span>
+      </div>
+      <div class="card-body">
+        <div class="tables-row">
+          <span class="tag">expense_reports</span><span class="tag">line_items</span>
+        </div>
+        <p class="note">Migration 084 added rbp_* replacement policies but never dropped the originals. Postgres ORs all policies — the old ones granted unintended bypass access alongside the new rbp_* ones.</p>
+        <table class="diff-table">
+          <tr><th>Action</th><th>Policies</th></tr>
+          <tr><td><span class="badge badge-drop">DROP</span></td><td><code>expense_reports_select, _insert, _update, _delete</code></td></tr>
+          <tr><td><span class="badge badge-drop">DROP</span></td><td><code>line_items_select, _insert, _update, _delete</code></td></tr>
+          <tr><td><span class="badge badge-keep">KEPT</span></td><td><code>rbp_expense_reports_*, rbp_line_items_*</code> — already use user_can()</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- SECURITY SECTION -->
+  <div class="section">
+    <div class="section-title">Security — Target Groups, Role Assignments, Permission Catalog, Profiles</div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="change-num">#2</span>
+        <span class="card-title">target_groups &amp; target_group_members</span>
+        <span class="file-tag">20260505124_target_groups_user_can_rls.sql</span>
+      </div>
+      <div class="card-body">
+        <div class="tables-row">
+          <span class="tag">target_groups</span><span class="tag">target_group_members</span>
+          <span class="tag module">sec_target_groups</span>
+          <span class="tag perm-new">sec_target_groups.edit ★</span>
+        </div>
+        <table class="diff-table">
+          <tr><th>Policy</th><th>Before</th><th>After</th></tr>
+          <tr><td><code>tg_select</code></td><td><code>USING (true)</code></td><td><span class="badge badge-keep">unchanged</span></td></tr>
+          <tr><td><code>tg_insert, tg_update</code></td><td><code class="before">has_role('admin')</code></td><td><code class="after">user_can('sec_target_groups','edit',NULL)</code></td></tr>
+          <tr><td><code>tg_delete</code></td><td><code class="before">has_role('admin') AND NOT is_system</code></td><td><code class="after">user_can(...) AND NOT is_system</code></td></tr>
+          <tr><td><code>tgm_insert, tgm_delete</code></td><td><code class="before">has_role('admin')</code></td><td><code class="after">user_can('sec_target_groups','edit',NULL)</code></td></tr>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="change-num">#3</span>
+        <span class="card-title">user_roles &amp; roles</span>
+        <span class="file-tag">20260505125_role_assignments_user_can_rls.sql</span>
+      </div>
+      <div class="card-body">
+        <div class="tables-row">
+          <span class="tag">user_roles</span><span class="tag">roles</span>
+          <span class="tag module">sec_role_assignments</span>
+          <span class="tag perm-new">sec_role_assignments.edit ★</span>
+        </div>
+        <table class="diff-table">
+          <tr><th>Policy</th><th>Before</th><th>After</th></tr>
+          <tr><td><code>roles_select</code></td><td><code>auth.uid() IS NOT NULL AND active=true</code></td><td><span class="badge badge-keep">unchanged</span></td></tr>
+          <tr><td><code>roles_insert, roles_update</code></td><td><code class="before">has_role('admin')</code></td><td><code class="after">user_can('sec_role_assignments','edit',NULL)</code></td></tr>
+          <tr><td><code>roles_delete</code></td><td><code class="before">has_role('admin') AND is_system=false</code></td><td><code class="after">user_can(...) AND is_system=false</code></td></tr>
+          <tr><td><code>user_roles_select</code></td><td><code class="before">profile_id=auth.uid() OR has_role('admin')</code></td><td><code class="after">profile_id=auth.uid() OR user_can(...)</code></td></tr>
+          <tr><td><code>user_roles_insert, _update, _delete</code></td><td><code class="before">has_role('admin')</code></td><td><code class="after">user_can('sec_role_assignments','edit',NULL)</code></td></tr>
+        </table>
+        <p class="note">has_role() is SECURITY DEFINER — reads user_roles as superuser. No circular dependency.</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="change-num">#4</span>
+        <span class="card-title">Permission catalog tables — with bootstrap guard</span>
+        <span class="file-tag">20260505126_permission_catalog_user_can_rls.sql</span>
+      </div>
+      <div class="card-body">
+        <div class="tables-row">
+          <span class="tag">permissions</span><span class="tag">modules</span><span class="tag">permission_sets</span>
+          <span class="tag">permission_set_items</span><span class="tag">permission_set_assignments</span>
+          <span class="tag module">sec_permission_catalog</span>
+          <span class="tag perm-new">sec_permission_catalog.edit ★</span>
+          <span class="tag special">is_super_admin() guard</span>
+        </div>
+        <table class="diff-table">
+          <tr><th>Table</th><th>Read policy</th><th>Write policy (all tables)</th></tr>
+          <tr><td><code>modules, permissions</code></td><td><code>auth.uid() IS NOT NULL</code> (unchanged)</td><td rowspan="3"><code class="after">is_super_admin() OR user_can('sec_permission_catalog','edit',NULL)</code></td></tr>
+          <tr><td><code>permission_sets, psa</code></td><td><code>USING (true)</code> (unchanged)</td></tr>
+          <tr><td><code>permission_set_items</code></td><td><code>USING (true)</code> (unchanged) — no UPDATE by design</td></tr>
+        </table>
+        <p class="note">All write policies use is_super_admin() OR user_can() — if all admins lose catalog.edit, a super admin can always recover.</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="change-num">#5</span>
+        <span class="card-title">profiles</span>
+        <span class="file-tag">20260505127_profiles_super_admin_rls.sql</span>
+      </div>
+      <div class="card-body">
+        <div class="tables-row">
+          <span class="tag">profiles</span>
+          <span class="tag special">is_super_admin() only — no matrix toggle</span>
+        </div>
+        <table class="diff-table">
+          <tr><th>Policy</th><th>Before</th><th>After</th></tr>
+          <tr><td><code>profiles_select</code></td><td><code class="before">id=auth.uid() OR has_role('admin')</code></td><td><code class="after">id=auth.uid() OR is_super_admin()</code></td></tr>
+          <tr><td><code>profiles_update</code></td><td><code class="before">id=auth.uid() OR has_role('admin')</code></td><td><code class="after">id=auth.uid() OR is_super_admin()</code></td></tr>
+          <tr><td><code>profiles_delete</code></td><td><code class="before">has_role('admin')</code></td><td><code class="after">is_super_admin()</code></td></tr>
+        </table>
+        <p class="note">No INSERT policy — profiles created by handle_new_user auth trigger (SECURITY DEFINER). No Permission Matrix toggle for profiles.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- WORKFLOW SECTION -->
+  <div class="section">
+    <div class="section-title">Workflow</div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="change-num">#6</span>
+        <span class="card-title">workflow_templates, workflow_steps, workflow_step_conditions</span>
+        <span class="file-tag">20260505128_wf_templates_user_can_rls.sql</span>
+      </div>
+      <div class="card-body">
+        <div class="tables-row">
+          <span class="tag">workflow_templates</span><span class="tag">workflow_steps</span><span class="tag">workflow_step_conditions</span>
+          <span class="tag module">wf_templates</span>
+          <span class="tag perm-new">wf_templates.edit ★</span>
+        </div>
+        <table class="diff-table">
+          <tr><th>Dropped</th><th>Replaced with</th></tr>
+          <tr><td><code class="before">wf_templates_admin_all FOR ALL has_role('admin')</code></td><td><code class="after">wf_templates_insert/update/delete → user_can('wf_templates','edit',NULL)</code></td></tr>
+          <tr><td><code class="before">wf_steps_admin_all FOR ALL has_role('admin')</code></td><td><code class="after">wf_steps_insert/update/delete → user_can('wf_templates','edit',NULL)</code></td></tr>
+          <tr><td><code class="before">wf_conditions_admin_all FOR ALL has_role('admin')</code></td><td><code class="after">wf_conditions_insert/update/delete → user_can('wf_templates','edit',NULL)</code></td></tr>
+        </table>
+        <p class="note">Open SELECT policies (auth.uid() IS NOT NULL) unchanged on all three tables.</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="change-num">#7</span>
+        <span class="card-title">workflow_instances &amp; workflow_pending_changes</span>
+        <span class="file-tag">20260505129_wf_manage_user_can_rls.sql</span>
+      </div>
+      <div class="card-body">
+        <div class="tables-row">
+          <span class="tag">workflow_instances</span><span class="tag">workflow_pending_changes</span>
+          <span class="tag module">wf_manage</span>
+          <span class="tag perm-new">wf_manage.edit ★</span>
+          <span class="tag perm-exist">wf_manage.view (existed)</span>
+        </div>
+        <table class="diff-table">
+          <tr><th>Table / Policy</th><th>Before</th><th>After</th></tr>
+          <tr><td>wf_instances_select + workflow_instances_select (2 overlapping)</td><td><code class="before">has_role + has_permission</code></td><td><code class="after">submitted_by=auth.uid() OR user_can('wf_manage','view') OR EXISTS(assigned task)</code></td></tr>
+          <tr><td>wf_instances_admin FOR ALL</td><td><code class="before">has_role + has_permission</code></td><td><code class="after">wf_instances_insert/update/delete → user_can('wf_manage','edit')</code></td></tr>
+          <tr><td>wpc_select</td><td><code class="before">submitted_by OR has_role OR has_permission(workflow.*)</code></td><td><code class="after">submitted_by=auth.uid() OR user_can('wf_manage','view')</code></td></tr>
+          <tr><td>wpc_insert</td><td><code>auth.uid() IS NOT NULL</code></td><td><span class="badge badge-keep">unchanged</span></td></tr>
+          <tr><td>wpc_update</td><td><code class="before">has_role + has_permission(workflow.admin)</code></td><td><code class="after">user_can('wf_manage','edit')</code></td></tr>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="change-num">#8</span>
+        <span class="card-title">workflow_action_log &amp; workflow_sla_events (read-only)</span>
+        <span class="file-tag">20260505130_wf_logs_user_can_rls.sql</span>
+      </div>
+      <div class="card-body">
+        <div class="tables-row">
+          <span class="tag">workflow_action_log</span><span class="tag">workflow_sla_events</span>
+          <span class="tag module">wf_manage</span>
+          <span class="tag perm-exist">wf_manage.view (existed)</span>
+        </div>
+        <table class="diff-table">
+          <tr><th>Policy</th><th>Before</th><th>After</th></tr>
+          <tr><td>wf_action_log_select</td><td><code class="before">has_role + has_permission(workflow.admin)</code></td><td><code class="after">user_can('wf_manage','view') OR actor_id=auth.uid() OR EXISTS(submitter/assignee of instance)</code></td></tr>
+          <tr><td>wf_sla_select</td><td><code class="before">has_role('admin')</code></td><td><code class="after">user_can('wf_manage','view') OR EXISTS(assigned task)</code></td></tr>
+        </table>
+        <p class="note">Both tables are append-only logs written by SECURITY DEFINER triggers. No INSERT/UPDATE/DELETE RLS policies exist or are needed.</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="change-num">#9</span>
+        <span class="card-title">workflow_tasks, workflow_assignments, workflow_assignment_audit</span>
+        <span class="file-tag">20260505131_wf_assignments_user_can_rls.sql</span>
+      </div>
+      <div class="card-body">
+        <div class="tables-row">
+          <span class="tag">workflow_tasks</span><span class="tag">workflow_assignments</span><span class="tag">workflow_assignment_audit</span>
+          <span class="tag module">wf_assignments</span>
+          <span class="tag perm-new">wf_assignments.edit ★</span>
+          <span class="tag perm-exist">wf_assignments.view (existed)</span>
+        </div>
+        <table class="diff-table">
+          <tr><th>Table / Policy</th><th>Before</th><th>After</th></tr>
+          <tr><td>wf_tasks_select</td><td><code class="before">has_role + has_permission</code></td><td><code class="after">assigned_to=auth.uid() OR user_can('wf_assignments','view') OR EXISTS(submitter)</code></td></tr>
+          <tr><td>wf_tasks_admin FOR ALL</td><td><code class="before">has_role + has_permission</code></td><td><code class="after">wf_tasks_insert/update/delete → user_can('wf_assignments','edit')</code></td></tr>
+          <tr><td>wa_select</td><td><code>auth.uid() IS NOT NULL</code></td><td><span class="badge badge-keep">unchanged</span> — needed for submission resolution</td></tr>
+          <tr><td>wa_admin FOR ALL</td><td><code class="before">has_role + has_permission</code></td><td><code class="after">wa_insert/update/delete → user_can('wf_assignments','edit')</code></td></tr>
+          <tr><td>waa_admin FOR ALL</td><td><code class="before">has_role + has_permission</code></td><td><code class="after">waa_select → user_can('wf_assignments','view')</code> — trigger-written, SELECT only</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="change-num">#10</span>
+        <span class="card-title">workflow_delegations</span>
+        <span class="file-tag">20260505132_wf_delegations_user_can_rls.sql</span>
+      </div>
+      <div class="card-body">
+        <div class="tables-row">
+          <span class="tag">workflow_delegations</span>
+          <span class="tag module">wf_delegations</span>
+          <span class="tag perm-new">wf_delegations.edit ★</span>
+        </div>
+        <p class="note">5 policies existed (including orphaned wf_delegations_admin FOR ALL from migration 030 never dropped by migration 057). All dropped and replaced with 4 clean policies.</p>
+        <table class="diff-table">
+          <tr><th>Policy</th><th>Access</th></tr>
+          <tr><td>wf_delegations_select</td><td><code class="after">delegator_id=auth.uid() OR delegate_id=auth.uid() OR user_can('wf_delegations','view')</code></td></tr>
+          <tr><td>wf_delegations_insert</td><td><code class="after">delegator_id=auth.uid() OR user_can('wf_delegations','edit')</code></td></tr>
+          <tr><td>wf_delegations_update</td><td><code class="after">delegator_id=auth.uid() OR user_can('wf_delegations','edit')</code></td></tr>
+          <tr><td>wf_delegations_delete</td><td><code class="after">delegator_id=auth.uid() OR user_can('wf_delegations','edit')</code></td></tr>
+        </table>
+        <p class="note">Self-service preserved — users manage their own delegations without needing a matrix grant.</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="change-num">#11</span>
+        <span class="card-title">workflow_notification_templates &amp; workflow_notification_queue</span>
+        <span class="file-tag">20260505133_wf_notifications_user_can_rls.sql</span>
+      </div>
+      <div class="card-body">
+        <div class="tables-row">
+          <span class="tag">workflow_notification_templates</span><span class="tag">workflow_notification_queue</span>
+          <span class="tag module">wf_notifications</span>
+          <span class="tag perm-new">wf_notifications.edit ★</span>
+          <span class="tag perm-exist">wf_notifications.view (existed)</span>
+        </div>
+        <table class="diff-table">
+          <tr><th>Table / Policy</th><th>Before</th><th>After</th></tr>
+          <tr><td>wf_notif_tmpl_select</td><td><code>auth.uid() IS NOT NULL</code></td><td><span class="badge badge-keep">unchanged</span></td></tr>
+          <tr><td>wf_notif_tmpl_admin FOR ALL</td><td><code class="before">has_role('admin')</code></td><td><code class="after">wf_notif_tmpl_insert/update/delete → user_can('wf_notifications','edit')</code></td></tr>
+          <tr><td>wf_notif_queue_admin FOR ALL</td><td><code class="before">has_role + has_permission(workflow.admin)</code></td><td><code class="after">queue_select → user_can(...,'view') / queue_insert/update → user_can(...,'edit')</code></td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- HR SECTION -->
+  <div class="section">
+    <div class="section-title">HR / Employee</div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="change-num">#12</span>
+        <span class="card-title">departments &amp; department_heads</span>
+        <span class="file-tag">20260505134_departments_user_can_rls.sql</span>
+      </div>
+      <div class="card-body">
+        <div class="tables-row">
+          <span class="tag">departments</span><span class="tag">department_heads</span>
+          <span class="tag module">departments</span>
+          <span class="tag perm-new">departments.view ★</span>
+          <span class="tag perm-new">departments.edit ★</span>
+        </div>
+        <p class="note">6 granular has_permission('department.*') codes collapsed into 2 matrix toggles. departments_select also preserves deleted_at IS NULL soft-delete filter.</p>
+        <table class="diff-table">
+          <tr><th>Before</th><th>After</th></tr>
+          <tr><td><code class="before">has_permission('department.view')</code></td><td><code class="after">user_can('departments','view',NULL)</code></td></tr>
+          <tr><td><code class="before">has_permission('department.create/edit/delete/manage_heads')</code></td><td><code class="after">user_can('departments','edit',NULL)</code></td></tr>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="change-num">#13</span>
+        <span class="card-title">employee_invites only (others already migrated in 098 &amp; 109)</span>
+        <span class="file-tag">20260505135_employee_invites_user_can_rls.sql</span>
+      </div>
+      <div class="card-body">
+        <div class="tables-row">
+          <span class="tag">employee_invites</span>
+          <span class="tag module">employee_details</span>
+          <span class="tag perm-exist">employee_details.edit (existed)</span>
+        </div>
+        <p class="note">employees, employee_addresses, emergency_contacts, identity_records, passports were already fully migrated to user_can() in migrations 098 and 109. Only employee_invites remained.</p>
+        <table class="diff-table">
+          <tr><th>Policy</th><th>Before</th><th>After</th></tr>
+          <tr><td>emp_invites_admin_select/insert/update</td><td><code class="before">has_role('admin') OR has_permission('hr.manage_employees')</code></td><td><code class="after">user_can('employee_details','edit',NULL)</code></td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- REFERENCE DATA SECTION -->
+  <div class="section">
+    <div class="section-title">Reference Data / Finance</div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="change-num">#14</span>
+        <span class="card-title">currencies &amp; exchange_rates</span>
+        <span class="file-tag">20260505136_exchange_rates_user_can_rls.sql</span>
+      </div>
+      <div class="card-body">
+        <div class="tables-row">
+          <span class="tag">currencies</span><span class="tag">exchange_rates</span>
+          <span class="tag module">exchange_rates_mgmt</span>
+          <span class="tag perm-new">exchange_rates_mgmt.view ★</span>
+          <span class="tag perm-new">exchange_rates_mgmt.edit ★</span>
+        </div>
+        <table class="diff-table">
+          <tr><th>Before</th><th>After</th></tr>
+          <tr><td><code class="before">has_permission('exchange_rate.view')</code></td><td><code class="after">user_can('exchange_rates_mgmt','view',NULL)</code></td></tr>
+          <tr><td><code class="before">has_permission('exchange_rate.create/edit/delete')</code></td><td><code class="after">user_can('exchange_rates_mgmt','edit',NULL)</code></td></tr>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="change-num">#15</span>
+        <span class="card-title">picklists &amp; picklist_values</span>
+        <span class="file-tag">20260505137_reference_data_user_can_rls.sql</span>
+      </div>
+      <div class="card-body">
+        <div class="tables-row">
+          <span class="tag">picklists</span><span class="tag">picklist_values</span>
+          <span class="tag module">reference</span>
+          <span class="tag perm-new">reference.view ★</span>
+          <span class="tag perm-new">reference.edit ★</span>
+        </div>
+        <table class="diff-table">
+          <tr><th>Before</th><th>After</th></tr>
+          <tr><td><code class="before">has_permission('reference.view')</code></td><td><code class="after">user_can('reference','view',NULL)</code></td></tr>
+          <tr><td><code class="before">has_permission('reference.create/edit/delete')</code></td><td><code class="after">user_can('reference','edit',NULL)</code></td></tr>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="change-num">#16</span>
+        <span class="card-title">projects</span>
+        <span class="file-tag">20260505138_projects_user_can_rls.sql</span>
+      </div>
+      <div class="card-body">
+        <div class="tables-row">
+          <span class="tag">projects</span>
+          <span class="tag module">projects_mgmt</span>
+          <span class="tag perm-new">projects_mgmt.view ★</span>
+          <span class="tag perm-new">projects_mgmt.edit ★</span>
+        </div>
+        <table class="diff-table">
+          <tr><th>Before</th><th>After</th></tr>
+          <tr><td><code class="before">has_permission('project.view')</code></td><td><code class="after">user_can('projects_mgmt','view',NULL)</code></td></tr>
+          <tr><td><code class="before">has_permission('project.create/edit/delete')</code></td><td><code class="after">user_can('projects_mgmt','edit',NULL)</code></td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- SYSTEM SECTION -->
+  <div class="section">
+    <div class="section-title">System / Notifications / Audit</div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="change-num">#17</span>
+        <span class="card-title">notifications &amp; notification_attempts</span>
+        <span class="file-tag">20260505139_notifications_user_can_rls.sql</span>
+      </div>
+      <div class="card-body">
+        <div class="tables-row">
+          <span class="tag">notifications</span><span class="tag">notification_attempts</span>
+          <span class="tag module">wf_notifications</span>
+          <span class="tag perm-exist">wf_notifications.view (existed)</span>
+        </div>
+        <table class="diff-table">
+          <tr><th>Policy</th><th>Before</th><th>After</th></tr>
+          <tr><td>notifications_select</td><td><code class="before">profile_id=auth.uid()</code> (clean from migration 011)</td><td><code class="after">profile_id=auth.uid() OR user_can('wf_notifications','view')</code> — admin monitoring added</td></tr>
+          <tr><td>notifications_update</td><td><code>profile_id=auth.uid()</code></td><td><span class="badge badge-keep">unchanged</span> — only recipient marks own as read</td></tr>
+          <tr><td>notif_attempts_admin_select</td><td><code class="before">has_role + has_permission(workflow.admin)</code></td><td><code class="after">user_can('wf_notifications','view')</code></td></tr>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="change-num">#18</span>
+        <span class="card-title">audit_log — with immutability triggers</span>
+        <span class="file-tag">20260505140_audit_log_immutable_user_can_rls.sql</span>
+      </div>
+      <div class="card-body">
+        <div class="tables-row">
+          <span class="tag">audit_log</span>
+          <span class="tag module">sys_audit_log (NEW MODULE)</span>
+          <span class="tag perm-new">sys_audit_log.view ★</span>
+          <span class="tag special">BEFORE triggers — true immutability</span>
+        </div>
+        <table class="diff-table">
+          <tr><th>Policy</th><th>Before</th><th>After</th></tr>
+          <tr><td>audit_log_select</td><td><code class="before">user_id=auth.uid() OR has_role('admin')</code></td><td><code class="after">user_id=auth.uid() OR user_can('sys_audit_log','view')</code></td></tr>
+          <tr><td>audit_log_insert</td><td><code>auth.uid() IS NOT NULL</code></td><td><span class="badge badge-keep">unchanged</span></td></tr>
+          <tr><td>audit_log_update</td><td><code class="before">has_role('admin')</code></td><td><span class="badge badge-drop">DROPPED</span></td></tr>
+          <tr><td>audit_log_delete</td><td><code class="before">has_role('admin')</code></td><td><span class="badge badge-drop">DROPPED</span></td></tr>
+        </table>
+        <div class="highlight">
+          <strong>Immutability triggers added:</strong><br>
+          <code>trg_audit_log_no_update</code> BEFORE UPDATE → RAISE EXCEPTION<br>
+          <code>trg_audit_log_no_delete</code> BEFORE DELETE → RAISE EXCEPTION<br>
+          Cannot be bypassed by SECURITY DEFINER functions. Only a superuser dropping the trigger can override.
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="change-num">#19</span>
+        <span class="card-title">job_run_log</span>
+        <span class="file-tag">20260505141_job_run_log_user_can_rls.sql</span>
+      </div>
+      <div class="card-body">
+        <div class="tables-row">
+          <span class="tag">job_run_log</span>
+          <span class="tag module">jobs_manage</span>
+          <span class="tag perm-exist">jobs_manage.view (existed)</span>
+        </div>
+        <table class="diff-table">
+          <tr><th>Before</th><th>After</th></tr>
+          <tr><td><code class="before">job_run_log_admin FOR ALL → has_role + has_permission(workflow.admin)</code></td><td><code class="after">job_run_log_select FOR SELECT → user_can('jobs_manage','view',NULL)</code></td></tr>
+        </table>
+        <p class="note">FOR ALL dropped and tightened to SELECT-only — rows written by pg_cron / SECURITY DEFINER functions only.</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="change-num">#20</span>
+        <span class="card-title">app_config, module_registry, module_codes — super admin only</span>
+        <span class="file-tag">20260505142_system_tables_super_admin_rls.sql</span>
+      </div>
+      <div class="card-body">
+        <div class="tables-row">
+          <span class="tag">app_config</span><span class="tag">module_registry</span><span class="tag">module_codes</span>
+          <span class="tag special">is_super_admin() only — no matrix toggle</span>
+        </div>
+        <table class="diff-table">
+          <tr><th>Table</th><th>Read policy</th><th>Write policy</th></tr>
+          <tr><td><code>app_config</code></td><td><code class="after">is_super_admin()</code> (tightened from has_role+has_permission)</td><td><code class="after">is_super_admin()</code> — write policies added</td></tr>
+          <tr><td><code>module_codes</code></td><td><code>USING (true)</code> — unchanged (FK resolution)</td><td><code class="after">is_super_admin()</code> — FOR ALL → explicit insert/update/delete</td></tr>
+          <tr><td><code>module_registry</code></td><td><code>USING (true)</code> — unchanged (can_view_module_record)</td><td><code class="after">is_super_admin()</code> — FOR ALL → explicit insert/update/delete</td></tr>
+        </table>
+        <p class="note">System config tables must never be Permission Matrix-togglable. Access requires explicit super admin enrolment in the super_admins UUID table.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- REMAINING WORK -->
+  <div class="section">
+    <div class="section-title">Remaining Work (not yet done)</div>
+    <div class="two-col">
+      <div class="arch-box">
+        <h4>Audit triggers for permission changes</h4>
+        <ul>
+          <li>Every write to <code>user_roles</code> → write to <code>audit_log</code></li>
+          <li>Every write to <code>permission_set_assignments</code> → write to <code>audit_log</code></li>
+          <li>Every write to <code>permission_set_items</code> → write to <code>audit_log</code></li>
+        </ul>
+      </div>
+      <div class="arch-box">
+        <h4>Frontend components to fix</h4>
+        <ul>
+          <li><code>RoleManagement.tsx</code> — reads/writes dead role_permissions; needs permission_set_assignments</li>
+          <li><code>PermissionCatalog.tsx</code> — reads role_permissions for display; needs permission_set_items</li>
+          <li><code>TargetGroups.tsx</code> — reads role_permissions.target_group_id for usage counts</li>
+        </ul>
+      </div>
+      <div class="arch-box">
+        <h4>Drop role_permissions table</h4>
+        <p>Only after all three frontend components above are fixed. role_permissions is no longer written to or read by enforcement functions since migration 107.</p>
+      </div>
+      <div class="arch-box">
+        <h4>employee_audit_log immutability</h4>
+        <p>Same BEFORE trigger pattern as audit_log should be applied to employee_audit_log for consistent immutability enforcement.</p>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,62 @@
+---
+title: Workflow Engine — High Level Schema
+---
+flowchart TD
+
+    subgraph REGISTRY["🗂️  Registry"]
+        MC("**module_codes**\nCanonical module identifiers\ne.g. expense_reports, profile_personal")
+    end
+
+    subgraph CONFIG["📋  Configuration — define the process"]
+        WT("**workflow_templates**\nNamed, versioned approval blueprints\nModule-agnostic since mig 118")
+        WS("**workflow_steps**\nOrdered steps inside a template\nApprover type · SLA · CC flag")
+        WSC("**workflow_step_conditions**\nSkip-logic rules per step\nField path · operator · value")
+        WA("**workflow_assignments**\nMaps module → template\nGLOBAL / ROLE / EMPLOYEE + date range")
+        WD("**workflow_delegations**\nTemporary approval handoff\nDelegator → Delegate · date range")
+        WNT("**workflow_notification_templates**\nEmail templates by code\ne.g. wf.task_assigned · wf.completed")
+    end
+
+    subgraph ENGINE["⚙️  Engine — live execution"]
+        WI("**workflow_instances**\nOne row per submitted record\nTracks current step · status · metadata")
+    end
+
+    subgraph RUNTIME["🔄  Runtime — tasks & audit"]
+        WTK("**workflow_tasks**\nOne task per step per instance\nAssigned approver · status · SLA due_at")
+        WAL("**workflow_action_log**\nImmutable event log\nsubmitted · approved · cc_notified…")
+        WNQ("**workflow_notification_queue**\nOutbound email queue\nProcessed by Edge Function via Resend")
+    end
+
+    %% Registry anchors instances
+    MC -->|"FK: module_code"| WI
+
+    %% Config relationships
+    WT -->|"1 template has many"| WS
+    WS -->|"1 step has many"| WSC
+    WA -->|"maps module_code to"| WT
+    WD -.->|"optionally scoped to"| WT
+    WNT -.->|"optional custom notify on"| WS
+
+    %% Engine spawns runtime
+    WT -->|"snapshot at submit"| WI
+    WI -->|"spawns one task per step"| WTK
+    WI -->|"every action logged in"| WAL
+    WI -->|"queues emails into"| WNQ
+
+    %% Step referenced by task
+    WS -->|"step reference"| WTK
+
+    %% Notification template referenced by queue
+    WNT -.->|"template_code lookup"| WNQ
+
+    classDef registry fill:#f1f5f9,stroke:#94a3b8,color:#334155
+    classDef config   fill:#eff6ff,stroke:#93c5fd,color:#1e3a8a
+    classDef engine   fill:#f0fdf4,stroke:#86efac,color:#14532d
+    classDef runtime  fill:#fdf4ff,stroke:#d8b4fe,color:#4c1d95
+    classDef notify   fill:#fff7ed,stroke:#fdba74,color:#7c2d12
+
+    class MC registry
+    class WT,WS,WSC,WA,WD config
+    class WNT notify
+    class WI engine
+    class WTK,WAL runtime
+    class WNQ notify

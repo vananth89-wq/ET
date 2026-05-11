@@ -8,18 +8,24 @@ export default function ResetPasswordPage() {
   const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState<string | null>(null);
   const [done,     setDone]     = useState(false);
+
+  // Detect whether this is a first-time account activation (type=signup / type=magiclink)
+  // vs a password recovery request — so we can show friendlier messaging.
+  const urlType  = new URLSearchParams(window.location.search).get('type') ?? '';
+  const isNewUser = urlType === 'signup' || urlType === 'magiclink';
   // checking = true while we wait for detectSessionInUrl to finish processing the token/code
   const [checking, setChecking] = useState(true);
 
   const navigate = useNavigate();
 
-  // ── Wait for Supabase to establish the recovery session ──────────────────
-  // detectSessionInUrl: true handles both flows automatically:
-  //   • PKCE  → code=... in query params → exchangeCodeForSession (internal)
-  //   • Hash  → access_token=... in fragment → setSession (internal)
-  // Both fire onAuthStateChange when done. We must NOT call exchangeCodeForSession
-  // ourselves — the code is single-use and would already be consumed by the time
-  // our useEffect runs.
+  // ── Establish the recovery session ───────────────────────────────────────
+  // With PKCE flow, Supabase sends the email link directly to the app:
+  //   /reset-password?token_hash=XXX&type=recovery
+  // We call verifyOtp() with those params — the token is only consumed here
+  // in the browser, so email link scanners can't pre-consume it.
+  //
+  // Fallback: if the URL has a hash-based #error= (e.g. from an old link
+  // sent before PKCE was enabled), we show the error immediately.
   useEffect(() => {
     let resolved = false;
     const subRef = { current: null as ReturnType<typeof supabase.auth.onAuthStateChange>['data']['subscription'] | null };
@@ -28,7 +34,6 @@ export default function ResetPasswordPage() {
       'This reset link has expired or has already been used. ' +
       'Please request a new one from the login page.';
 
-    // Safety net: if no auth event arrives in 8 s, show expired error
     let timer: ReturnType<typeof setTimeout>;
 
     function resolve(err?: string) {
@@ -40,44 +45,51 @@ export default function ResetPasswordPage() {
       setChecking(false);
     }
 
-    // ── Check for server-side error in the URL hash ───────────────────────
-    // Supabase redirects here with #error=... when the token is invalid or
-    // expired before the client even gets to process it.
+    // ── 1. Hash-based error (old implicit flow links) ─────────────────────
     const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
     if (hashParams.get('error')) {
       const desc = hashParams.get('error_description') ?? '';
-      const msg = desc || EXPIRED_MSG;
-      setError(msg);
+      setError(desc || EXPIRED_MSG);
       setChecking(false);
       return;
     }
 
+    // ── 2. PKCE flow — token_hash in query params ─────────────────────────
+    const searchParams = new URLSearchParams(window.location.search);
+    const tokenHash = searchParams.get('token_hash');
+    const type      = searchParams.get('type');
+
+    if (tokenHash && type) {
+      // Exchange the token_hash for a session. This is the only step that
+      // consumes the token — email scanners can't do this.
+      supabase.auth.verifyOtp({ token_hash: tokenHash, type: type as 'recovery' })
+        .then(({ error: err }) => {
+          if (err) {
+            resolve(EXPIRED_MSG);
+          } else {
+            resolve(); // session established, show the form
+          }
+        });
+      return;
+    }
+
+    // ── 3. Fallback — wait for auth event (implicit flow / detectSessionInUrl)
     timer = setTimeout(() => resolve(EXPIRED_MSG), 8_000);
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (resolved) return;
 
       if (event === 'PASSWORD_RECOVERY') {
-        // Explicit recovery event — session is definitely a recovery session
         resolve();
         return;
       }
 
       if (event === 'INITIAL_SESSION') {
-        // onAuthStateChange replays this immediately on subscribe.
-        // If detectSessionInUrl already processed the token before we
-        // subscribed, session will be non-null here.
-        if (session) {
-          resolve(); // session is ready, show the form
-        }
-        // If session is null, init is still in progress — keep waiting
-        // for PASSWORD_RECOVERY to arrive (timer is the fallback).
+        if (session) resolve();
         return;
       }
 
       if (event === 'SIGNED_IN' && session) {
-        // Some Supabase versions fire SIGNED_IN instead of PASSWORD_RECOVERY
-        // for recovery flows.
         resolve();
       }
     });
@@ -137,18 +149,25 @@ export default function ResetPasswordPage() {
           <img src="/logo.png" alt="Prowess" className="login-logo" />
         </div>
 
-        <h1 className="login-title">Set New Password</h1>
+        <h1 className="login-title">
+          {isNewUser ? '👋 Welcome! Set Your Password' : 'Set New Password'}
+        </h1>
+        {isNewUser && (
+          <p style={{ textAlign: 'center', color: '#64748b', fontSize: 14, marginBottom: 16, marginTop: -4 }}>
+            Your account is ready. Choose a password to get started.
+          </p>
+        )}
 
         {done ? (
           <div className="login-sent">
             <i className="fa-solid fa-circle-check" style={{ fontSize: 32, color: '#2E7D32', marginBottom: 8 }} />
-            <p>Password updated successfully! Redirecting…</p>
+            <p>{isNewUser ? 'All set! Taking you to your dashboard…' : 'Password updated successfully! Redirecting…'}</p>
           </div>
 
         ) : checking ? (
           <div className="login-sent">
             <i className="fa-solid fa-spinner fa-spin" style={{ fontSize: 28, color: '#64748b', marginBottom: 8 }} />
-            <p style={{ color: '#64748b' }}>Verifying reset link…</p>
+            <p style={{ color: '#64748b' }}>{isNewUser ? 'Activating your account…' : 'Verifying reset link…'}</p>
           </div>
 
         ) : error && !password ? (
@@ -209,8 +228,8 @@ export default function ResetPasswordPage() {
               disabled={loading || !password || !confirm}
             >
               {loading
-                ? <><i className="fa-solid fa-spinner fa-spin" /> Updating…</>
-                : 'Update Password'
+                ? <><i className="fa-solid fa-spinner fa-spin" /> {isNewUser ? 'Activating…' : 'Updating…'}</>
+                : isNewUser ? 'Activate My Account' : 'Update Password'
               }
             </button>
 

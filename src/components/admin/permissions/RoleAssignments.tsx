@@ -25,9 +25,10 @@
  */
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { supabase }  from '../../../lib/supabase';
-import { useAuth }   from '../../../contexts/AuthContext';
-import ErrorBanner   from '../../shared/ErrorBanner';
+import { supabase }         from '../../../lib/supabase';
+import { useAuth }          from '../../../contexts/AuthContext';
+import ErrorBanner          from '../../shared/ErrorBanner';
+import { usePermissions }   from '../../../hooks/usePermissions';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -433,6 +434,8 @@ function UserRow({
 
 export default function RoleAssignments() {
   const { profile } = useAuth();
+  const { can } = usePermissions();
+  const canEdit = can('sec_role_assignments.edit');
   const { toasts, add: addToast, dismiss: dismissToast } = useToasts();
 
   // ── Top-level state ────────────────────────────────────────────────────────
@@ -722,7 +725,8 @@ export default function RoleAssignments() {
         email: emp.business_email,
         options: {
           shouldCreateUser: true,
-          emailRedirectTo:  `${appUrl}/profile`,
+          emailRedirectTo:  `${appUrl}/reset-password`,
+          data: { full_name: emp.name },
         },
       });
       if (inviteErr) throw inviteErr;
@@ -757,7 +761,7 @@ export default function RoleAssignments() {
       await loadUnlinkedEmployees();
       loadRoles();
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = (err as any)?.message ?? (err instanceof Error ? err.message : String(err));
       addToast(`Failed to invite ${emp.name}: ${msg}`, 'error');
     } finally {
       setInviting(prev => { const n = new Set(prev); n.delete(emp.employee_id); return n; });
@@ -931,7 +935,7 @@ export default function RoleAssignments() {
       // Refresh role list to update count
       loadRoles();
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = (err as any)?.message ?? (err instanceof Error ? err.message : String(err));
       addToast(`Failed to assign role: ${msg}`, 'error');
     } finally {
       setAddingId(null);
@@ -1007,7 +1011,7 @@ export default function RoleAssignments() {
 
       loadRoles();
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = (err as any)?.message ?? (err instanceof Error ? err.message : String(err));
       addToast(`Failed to remove: ${msg}`, 'error');
     } finally {
       setRemovingId(null);
@@ -1028,7 +1032,9 @@ export default function RoleAssignments() {
       const summary = (data ?? {}) as Record<string, { eligible: number; inserted: number; deleted: number }>;
       const entry   = summary[selectedRole.code];
       const msg     = entry
-        ? `Sync complete — ${entry.eligible} eligible, ${entry.inserted} added, ${entry.deleted} removed`
+        ? entry.inserted === 0 && entry.deleted === 0
+          ? `Already in sync — ${entry.eligible} eligible member${entry.eligible !== 1 ? 's' : ''}`
+          : `Sync complete — ${entry.eligible} eligible, ${entry.inserted} added, ${entry.deleted} removed`
         : 'Sync complete';
 
       addToast(msg, 'success');
@@ -1036,7 +1042,7 @@ export default function RoleAssignments() {
       await loadUnlinkedEmployees();   // refresh "not in system" panel too
       loadRoles();
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = (err as any)?.message ?? (err instanceof Error ? err.message : String(err));
       addToast(`Sync failed: ${msg}`, 'error');
     } finally {
       setSyncing(false);
@@ -1077,7 +1083,7 @@ export default function RoleAssignments() {
       // Auto-select the newly created role
       setSelectedRole({ ...data, role_type: 'custom', memberCount: 0 });
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = (err as any)?.message ?? (err instanceof Error ? err.message : String(err));
       addToast(`Failed to create role: ${msg}`, 'error');
     } finally {
       setSavingRole(false);
@@ -1117,10 +1123,24 @@ export default function RoleAssignments() {
     return <ErrorBanner message={error} onRetry={loadRoles} />;
   }
 
-  const canEditRole = selectedRole && selectedRole.role_type !== 'system';
+  // canEditRole: also requires sec_role_assignments.edit (not just non-system role)
+  const canEditRole = canEdit && selectedRole && selectedRole.role_type !== 'system';
 
   return (
     <div className="ar-panel" style={{ position: 'relative' }}>
+      {/* ── View-only banner ─────────────────────────────────────────────── */}
+      {!canEdit && (
+        <div style={{
+          marginBottom: 12, padding: '7px 14px', background: '#FEF3C7',
+          border: '0.5px solid #FDE68A', borderRadius: 8,
+          display: 'flex', alignItems: 'center', gap: 8,
+        }}>
+          <i className="fa-solid fa-eye" style={{ fontSize: 12, color: '#92400E' }} />
+          <span style={{ fontSize: 13, color: '#92400E', fontWeight: 500 }}>
+            View only — you don't have edit access to Role Assignments
+          </span>
+        </div>
+      )}
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <h2 className="page-title">Role Assignments</h2>
       <p className="page-subtitle">
@@ -1158,19 +1178,21 @@ export default function RoleAssignments() {
                 }}
               />
             </div>
-            <button
-              onClick={() => setShowCreate(true)}
-              style={{
-                width: '100%', padding: '7px 12px', borderRadius: 6,
-                border: '1px dashed #93C5FD', background: '#EFF6FF',
-                color: '#2563EB', fontSize: 13, fontWeight: 600,
-                cursor: 'pointer', display: 'flex', alignItems: 'center',
-                justifyContent: 'center', gap: 6,
-              }}
-            >
-              <i className="fa-solid fa-plus" style={{ fontSize: 11 }} />
-              Create Custom Role
-            </button>
+            {canEdit && (
+              <button
+                onClick={() => setShowCreate(true)}
+                style={{
+                  width: '100%', padding: '7px 12px', borderRadius: 6,
+                  border: '1px dashed #93C5FD', background: '#EFF6FF',
+                  color: '#2563EB', fontSize: 13, fontWeight: 600,
+                  cursor: 'pointer', display: 'flex', alignItems: 'center',
+                  justifyContent: 'center', gap: 6,
+                }}
+              >
+                <i className="fa-solid fa-plus" style={{ fontSize: 11 }} />
+                Create Custom Role
+              </button>
+            )}
           </div>
 
           {/* Role list — scrollable */}

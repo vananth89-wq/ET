@@ -17,7 +17,11 @@ export const supabase = createClient<Database>(supabaseUrl, supabaseKey, {
     persistSession: true,
     // Automatically refresh the JWT before it expires
     autoRefreshToken: true,
-    // Detect session from URL hash after OAuth redirect
+    // Detect session from URL after OAuth / magic-link redirect
     detectSessionInUrl: true,
+    // No flowType: 'pkce' — pkce_ tokens require a code_verifier in localStorage
+    // which verifyOtp() cannot use. Instead, email templates are configured to
+    // send token_hash directly to the app URL, bypassing Supabase's verify
+    // endpoint so email scanners cannot consume the token.
   },
 });

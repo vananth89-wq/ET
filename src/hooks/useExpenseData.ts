@@ -140,9 +140,17 @@ function mapReport(
     updatedAt:        row.updated_at,
     submittedAt:      row.submitted_at ?? undefined,
     approvedAt:       row.approved_at  ?? undefined,
-    approvedBy:       approver ? (approver.employeeId ?? approver.name) : (row.approved_by ?? undefined),
+    approvedBy:       approver
+                        ? approver.name
+                          ? `${approver.name} (${approver.employeeId})`
+                          : (approver.employeeId ?? row.approved_by ?? undefined)
+                        : (row.approved_by ?? undefined),
     rejectedAt:       row.rejected_at  ?? undefined,
-    rejectedBy:       rejecter ? (rejecter.employeeId ?? rejecter.name) : (row.rejected_by ?? undefined),
+    rejectedBy:       rejecter
+                        ? rejecter.name
+                          ? `${rejecter.name} (${rejecter.employeeId})`
+                          : (rejecter.employeeId ?? row.rejected_by ?? undefined)
+                        : (row.rejected_by ?? undefined),
     rejectionReason:  row.rejection_reason ?? undefined,
     lineItems:        items,
   };
@@ -169,6 +177,14 @@ export interface UseExpenseDataResult {
   addAttachment:    (reportId: string, itemId: string, file: File) => Promise<Attachment>;
   /** Remove an attachment from Storage + DB and update local state. */
   deleteAttachment: (reportId: string, itemId: string, attId: string) => Promise<void>;
+  /**
+   * Re-fetch line items (and their attachments) for a single report directly
+   * from the DB and replace the local state for that report. Call this after
+   * closing the edit form to reconcile any drift between optimistic state and
+   * what was actually persisted (e.g. if an insert failed but the rollback
+   * didn't fire correctly).
+   */
+  syncReportLineItems: (reportId: string) => Promise<void>;
   /** ESS: draft → submitted. Calls submit_expense() → wf_submit() under the hood. */
   submitReport:     (id: string) => Promise<void>;
   /** ESS: withdraw a submitted report back to draft via the workflow engine. */
@@ -199,45 +215,40 @@ export function useExpenseData(): UseExpenseDataResult {
 
     async function load() {
       try {
-        // 1. Currencies lookup
-        const { data: currRows } = await supabase
-          .from('currencies')
-          .select('id, code');
+        // 1–5. Fire all independent lookups + reports in parallel
+        const [
+          { data: currRows },
+          { data: pvRows },
+          { data: projRows },
+          { data: empRows },
+          { data: rptRows, error: rptErr },
+        ] = await Promise.all([
+          supabase.from('currencies').select('id, code'),
+          supabase.from('picklist_values').select('id, value'),
+          supabase.from('projects').select('id, name'),
+          supabase.from('employees').select('id, employee_id, name').is('deleted_at', null),
+          supabase
+            .from('expense_reports')
+            .select('id, employee_id, name, status, base_currency_id, submitted_at, approved_at, approved_by, rejected_at, rejected_by, rejection_reason, created_at, updated_at')
+            .is('deleted_at', null)
+            .order('updated_at', { ascending: false }),
+        ]);
+
         const currByCode = new Map((currRows ?? []).map((r: any) => [r.code, r.id]));
         const currByUUID = new Map((currRows ?? []).map((r: any) => [r.id, r.code]));
         currByCodeRef.current = currByCode;
         currByUUIDRef.current = currByUUID;
 
-        // 2. Picklist values lookup (for category names)
-        const { data: pvRows } = await supabase
-          .from('picklist_values')
-          .select('id, value');
         const catByUUID = new Map((pvRows ?? []).map((r: any) => [r.id, r.value]));
         catByUUIDRef.current = catByUUID;
 
-        // 3. Projects lookup
-        const { data: projRows } = await supabase
-          .from('projects')
-          .select('id, name');
         const projByUUID = new Map((projRows ?? []).map((r: any) => [r.id, { name: r.name }]));
         projByUUIDRef.current = projByUUID;
 
-        // 4. Employees lookup (for human-readable IDs)
-        const { data: empRows } = await supabase
-          .from('employees')
-          .select('id, employee_id, name')
-          .is('deleted_at', null);
         const empByUUID = new Map((empRows ?? []).map((r: any) => [r.id, { employeeId: r.employee_id, name: r.name }]));
         const empByCode = new Map((empRows ?? []).map((r: any) => [r.employee_id, r.id]));
         empByUUIDRef.current = empByUUID;
         empByCodeRef.current = empByCode;
-
-        // 5. Expense reports (non-deleted)
-        const { data: rptRows, error: rptErr } = await supabase
-          .from('expense_reports')
-          .select('id, employee_id, name, status, base_currency_id, submitted_at, approved_at, approved_by, rejected_at, rejected_by, rejection_reason, created_at, updated_at')
-          .is('deleted_at', null)
-          .order('updated_at', { ascending: false });
 
         if (rptErr) throw rptErr;
 
@@ -294,8 +305,29 @@ export function useExpenseData(): UseExpenseDataResult {
   const createReport = useCallback(async (data: Omit<ExpenseReport, 'id' | 'lineItems'>): Promise<string> => {
     const id = crypto.randomUUID();
     const baseCurrencyId = currByCodeRef.current.get(data.baseCurrencyCode);
-    // Fall back to first currency if code not found yet
-    const fallbackCurrId = baseCurrencyId ?? [...currByCodeRef.current.values()][0] ?? '';
+    // Fall back to first currency in map if code not resolved
+    let fallbackCurrId = baseCurrencyId ?? [...currByCodeRef.current.values()][0] ?? '';
+
+    // If still empty (currencies table not readable via RLS for this role),
+    // read base_currency_id directly from the employee's own record.
+    if (!fallbackCurrId) {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: profileRow } = await supabase
+          .from('profiles')
+          .select('employee_id')
+          .eq('id', user.id)
+          .single();
+        if (profileRow?.employee_id) {
+          const { data: empRow } = await supabase
+            .from('employees')
+            .select('base_currency_id')
+            .eq('id', profileRow.employee_id)
+            .single();
+          fallbackCurrId = empRow?.base_currency_id ?? '';
+        }
+      }
+    }
 
     // Resolve employeeId (human-readable code) → UUID via lookup map.
     // If the map is empty (e.g. employee's profile wasn't linked when the hook
@@ -661,6 +693,50 @@ export function useExpenseData(): UseExpenseDataResult {
     refetch();
   }, [patchReport, refetch, reports]);
 
+  // ── syncReportLineItems ────────────────────────────────────────────────────
+  // Re-reads line items + attachments for a single report from the DB and
+  // replaces the local state for that report. This reconciles any drift caused
+  // by optimistic updates whose DB inserts failed but whose local-state rollback
+  // didn't fire (e.g. mid-flight React Strict Mode double-invoke edge cases).
+  const syncReportLineItems = useCallback(async (reportId: string) => {
+    const { data: liRows, error: liErr } = await supabase
+      .from('line_items')
+      .select('id, report_id, expense_date, amount, exchange_rate_snapshot, converted_amount, note, category_id, currency_id, project_id')
+      .eq('report_id', reportId)
+      .is('deleted_at', null)
+      .order('expense_date', { ascending: true });
+
+    if (liErr) {
+      console.error('[useExpenseData] syncReportLineItems:', liErr.message);
+      return;
+    }
+
+    const rows      = liRows ?? [];
+    const attStore  = await loadAttachments(rows.map((r: any) => r.id as string));
+    const currByUUID = currByUUIDRef.current;
+    const catByUUID  = catByUUIDRef.current;
+    const projByUUID = projByUUIDRef.current;
+
+    const lineItems: LineItem[] = rows.map((li: any) => ({
+      id:              li.id,
+      category:        li.category_id ?? '',
+      categoryName:    li.category_id ? (catByUUID.get(li.category_id) ?? '') : '',
+      date:            li.expense_date ?? '',
+      projectId:       li.project_id ?? undefined,
+      projectName:     li.project_id ? (projByUUID.get(li.project_id)?.name ?? '') : undefined,
+      amount:          Number(li.amount ?? 0),
+      currencyCode:    li.currency_id ? (currByUUID.get(li.currency_id) ?? '') : '',
+      exchangeRate:    Number(li.exchange_rate_snapshot ?? 1),
+      convertedAmount: Number(li.converted_amount ?? 0),
+      note:            li.note ?? undefined,
+      attachments:     attStore[li.id] ?? [],
+    }));
+
+    setReports(prev => prev.map(r =>
+      r.id === reportId ? { ...r, lineItems } : r
+    ));
+  }, []);
+
   // ─────────────────────────────────────────────────────────────────────────
   return {
     reports, loading, error, refetch,
@@ -669,5 +745,6 @@ export function useExpenseData(): UseExpenseDataResult {
     addLineItem, updateLineItem, deleteLineItem,
     addAttachment, deleteAttachment,
     submitReport, recallReport,
+    syncReportLineItems,
   };
 }

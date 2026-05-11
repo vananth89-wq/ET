@@ -1354,8 +1354,9 @@ const LOG_CONFIG: Record<string, { icon: string; color: string; label: string }>
   force_advanced:         { icon: 'fa-forward-step',   color: '#7C3AED', label: 'Force Advanced'         },
   admin_declined:         { icon: 'fa-hand',           color: '#DC2626', label: 'Admin Declined'         },
   returned_to_initiator:  { icon: 'fa-comment-dots',   color: '#D97706', label: 'Returned for Clarif.'  },
-  resubmitted:            { icon: 'fa-reply',          color: '#2563EB', label: 'Resubmitted'            },
-  returned_to_previous_step: { icon: 'fa-backward-step', color: '#374151', label: 'Returned to Prev Step'},
+  resubmitted:              { icon: 'fa-reply',         color: '#2563EB', label: 'Resubmitted'             },
+  updated_and_resubmitted:  { icon: 'fa-pen-to-square', color: '#2563EB', label: 'Updated & Resubmitted'   },
+  returned_to_previous_step: { icon: 'fa-backward-step', color: '#374151', label: 'Returned to Prev Step' },
 };
 
 function actionIconForLog(action: string)  { return LOG_CONFIG[action]?.icon  ?? 'fa-circle'; }

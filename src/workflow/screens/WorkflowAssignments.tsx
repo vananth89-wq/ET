@@ -106,15 +106,15 @@ interface RoleRow {
 }
 
 interface EmpOption {
-  profileId: string;   // profiles.id (used as entity_id in workflow_assignments)
-  name:      string;
-  empCode:   string;
+  employeeId: string;   // employees.id (PK) — stored as entity_id in workflow_assignments
+  name:       string;
+  empCode:    string;
 }
 
 interface EmpRow {
   _key:          string;
   id:            string | null;
-  profileId:     string;
+  employeeId:    string;
   empName:       string;
   wfTemplateId:  string;
   priority:      number;
@@ -332,11 +332,9 @@ export default function WorkflowAssignments() {
 
   const loadModules = useCallback(async () => {
     setLoadingMod(true);
-    const { data: tplData } = await supabase
-      .from('workflow_templates')
-      .select('module_code')
-      .eq('is_active', true);
 
+    // Templates are now module-agnostic — module_code lives only on assignments.
+    // Count active assignments per module to show how many are configured.
     const { data: asnData } = await supabase
       .from('workflow_assignments')
       .select('module_code, assignment_type')
@@ -350,13 +348,14 @@ export default function WorkflowAssignments() {
         .map((a: any) => a.module_code as string)
     );
 
-    const countMap = (tplData ?? []).reduce((acc: Record<string, number>, t: any) => {
-      acc[t.module_code] = (acc[t.module_code] ?? 0) + 1;
+    // Count total active assignments per module (replaces old template count)
+    const countMap = (asnData ?? []).reduce((acc: Record<string, number>, a: any) => {
+      acc[a.module_code] = (acc[a.module_code] ?? 0) + 1;
       return acc;
     }, {});
 
     // Merge registry with live DB data — registry defines what's shown,
-    // DB data fills in template counts and assignment status
+    // DB data fills in assignment counts and global status
     const list: ModuleInfo[] = SYSTEM_MODULES.map(sm => ({
       moduleCode:    sm.code,
       label:         sm.label,
@@ -372,19 +371,27 @@ export default function WorkflowAssignments() {
 
   useEffect(() => { loadModules(); }, [loadModules]);
 
-  // Load employee dropdown once on mount
+  // Load employee dropdown once on mount.
+  // entity_id for EMPLOYEE assignments = employees.id (PK).
+  // Query profiles → employees to get the employees.id plus display fields,
+  // filtering to Active employees only (Draft/Inactive must not be assignable).
   useEffect(() => {
     supabase
-      .from('employees')
-      .select('profile_id, name, emp_code')
+      .from('profiles')
+      .select('id, employee:employees(id, name, employee_id, status)')
       .eq('is_active', true)
-      .order('name')
+      .not('employee_id', 'is', null)
       .then(({ data }) => {
-        setEmpOptions((data ?? []).map((e: any) => ({
-          profileId: e.profile_id,
-          name:      e.name,
-          empCode:   e.emp_code ?? '',
-        })));
+        setEmpOptions(
+          (data ?? [])
+            .filter((p: any) => p.employee?.status === 'Active')
+            .map((p: any) => ({
+              employeeId: p.employee?.id ?? '',   // employees.id — stored as entity_id
+              name:       p.employee?.name ?? '',
+              empCode:    p.employee?.employee_id ?? '',
+            }))
+            .sort((a: any, b: any) => a.name.localeCompare(b.name))
+        );
       });
   }, []);
 
@@ -397,11 +404,11 @@ export default function WorkflowAssignments() {
     setRoleError(null);
 
     const [tplRes, roleRes, asnRes, countRes] = await Promise.all([
-      // Templates for this module
+      // All active templates — templates are now module-agnostic,
+      // any template can be assigned to any module via workflow_assignments
       supabase
         .from('workflow_templates')
         .select('id, code, name')
-        .eq('module_code', moduleCode)
         .eq('is_active', true)
         .order('name'),
 
@@ -410,7 +417,7 @@ export default function WorkflowAssignments() {
         .from('roles')
         .select('id, code, name')
         .eq('is_system', false)
-        .eq('is_active', true)
+        .eq('active', true)
         .order('name'),
 
       // Existing assignments for this module
@@ -419,8 +426,7 @@ export default function WorkflowAssignments() {
         .select(`
           id, module_code, wf_template_id, assignment_type,
           entity_id, priority, effective_from, effective_to, is_active,
-          template:workflow_templates(name),
-          role:roles(name)
+          template:workflow_templates(name)
         `)
         .eq('module_code', moduleCode)
         .eq('is_active', true)
@@ -431,9 +437,13 @@ export default function WorkflowAssignments() {
       supabase.rpc('get_active_transaction_count', { p_module_code: moduleCode }),
     ]);
 
+    const fetchedRoles = (roleRes.data ?? []).map((r: any) => ({ id: r.id, code: r.code, name: r.name }));
     setTemplates((tplRes.data ?? []).map((t: any) => ({ id: t.id, code: t.code, name: t.name })));
-    setRoles((roleRes.data ?? []).map((r: any) => ({ id: r.id, code: r.code, name: r.name })));
+    setRoles(fetchedRoles);
     setActiveCount(countRes.data ?? 0);
+
+    // Build a lookup map for role names (entity_id → role name for ROLE assignments)
+    const roleNameById = Object.fromEntries(fetchedRoles.map(r => [r.id, r.name]));
 
     const mapped: Assignment[] = (asnRes.data ?? []).map((a: any) => ({
       id:             a.id,
@@ -442,7 +452,7 @@ export default function WorkflowAssignments() {
       templateName:   a.template?.name ?? '—',
       assignmentType: a.assignment_type,
       entityId:       a.entity_id,
-      entityName:     a.role?.name ?? null,
+      entityName:     a.assignment_type === 'ROLE' ? (roleNameById[a.entity_id] ?? null) : null,
       priority:       a.priority,
       effectiveFrom:  a.effective_from,
       effectiveTo:    a.effective_to,
@@ -476,24 +486,36 @@ export default function WorkflowAssignments() {
     );
 
     // Populate EMPLOYEE rows draft
-    // entity_id for EMPLOYEE = profiles.id; join employees for display name
+    // entity_id for EMPLOYEE = profiles.id (no FK — resolve names via targeted query)
     const empAsnData = await supabase
       .from('workflow_assignments')
-      .select(`
-        id, wf_template_id, entity_id, priority, effective_from, effective_to,
-        emp:employees!employees_profile_id_fkey(name, emp_code)
-      `)
+      .select('id, wf_template_id, entity_id, priority, effective_from, effective_to')
       .eq('module_code', moduleCode)
       .eq('assignment_type', 'EMPLOYEE')
       .eq('is_active', true)
       .order('priority');
 
+    const empAsnRows = empAsnData.data ?? [];
+    const employeeIds = empAsnRows.map((a: any) => a.entity_id).filter(Boolean);
+
+    // entity_id for EMPLOYEE = employees.id — direct lookup, no profiles join needed
+    let empNameById: Record<string, string> = {};
+    if (employeeIds.length > 0) {
+      const { data: empData } = await supabase
+        .from('employees')
+        .select('id, name')
+        .in('id', employeeIds);
+      empNameById = Object.fromEntries(
+        (empData ?? []).map((e: any) => [e.id, e.name])
+      );
+    }
+
     setEmpRows(
-      (empAsnData.data ?? []).map((a: any) => ({
+      empAsnRows.map((a: any) => ({
         _key:          a.id,
         id:            a.id,
-        profileId:     a.entity_id ?? '',
-        empName:       a.emp?.name ?? a.entity_id ?? '',
+        employeeId:    a.entity_id ?? '',
+        empName:       empNameById[a.entity_id] ?? a.entity_id ?? '',
         wfTemplateId:  a.wf_template_id,
         priority:      a.priority,
         effectiveFrom: a.effective_from,
@@ -662,7 +684,7 @@ export default function WorkflowAssignments() {
     const key = `new-${Date.now()}`;
     setEmpRows(r => [...r, {
       _key: key, id: null,
-      profileId: '', empName: '',
+      employeeId: '', empName: '',
       wfTemplateId: globalTemplate || (templates[0]?.id ?? ''),
       priority: empRows.length,
       effectiveFrom: today(), effectiveTo: '',
@@ -696,7 +718,7 @@ export default function WorkflowAssignments() {
     setEmpSaving(true);
 
     for (const row of empRows.filter(r => r.dirty)) {
-      if (!row.profileId)    { setEmpError('Please select an employee for all rows.'); setEmpSaving(false); return; }
+      if (!row.employeeId)   { setEmpError('Please select an employee for all rows.'); setEmpSaving(false); return; }
       if (!row.wfTemplateId) { setEmpError('Please select a workflow for all rows.');  setEmpSaving(false); return; }
 
       const { data, error } = await supabase.rpc('save_workflow_assignment', {
@@ -704,7 +726,7 @@ export default function WorkflowAssignments() {
         p_module_code:     selectedCode,
         p_wf_template_id:  row.wfTemplateId,
         p_assignment_type: 'EMPLOYEE',
-        p_entity_id:       row.profileId,
+        p_entity_id:       row.employeeId,
         p_priority:        row.priority,
         p_effective_from:  row.effectiveFrom,
         p_effective_to:    row.effectiveTo || null,
@@ -799,7 +821,7 @@ export default function WorkflowAssignments() {
                     </span>
                   )}
                   <span style={{ fontSize: 11, color: C.faint }}>
-                    {m?.templateCount ?? 0} template{(m?.templateCount ?? 0) !== 1 ? 's' : ''}
+                    {m?.templateCount ?? 0} assignment{(m?.templateCount ?? 0) !== 1 ? 's' : ''}
                   </span>
                 </div>
               </div>
@@ -1026,8 +1048,8 @@ export default function WorkflowAssignments() {
                                   `${o.name}${o.empCode ? ` (${o.empCode})` : ''}` === typed
                                 );
                                 updateEmpRow(row._key, {
-                                  empName:   typed,
-                                  profileId: match?.profileId ?? '',
+                                  empName:    typed,
+                                  employeeId: match?.employeeId ?? '',
                                 });
                               }}
                               placeholder="Type to search employee…"
@@ -1036,7 +1058,7 @@ export default function WorkflowAssignments() {
                             <datalist id={`emp-list-${row._key}`}>
                               {empOptions.map(o => (
                                 <option
-                                  key={o.profileId}
+                                  key={o.employeeId}
                                   value={`${o.name}${o.empCode ? ` (${o.empCode})` : ''}`}
                                 />
                               ))}

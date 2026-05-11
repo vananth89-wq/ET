@@ -121,7 +121,7 @@ export default function MyReports() {
         <h2 className="exp-panel-title">
           <i className="fa-solid fa-wallet" /> My Reports
         </h2>
-        {can('expense.create') && (
+        {can('expense_reports.create') && (
           <button className="exp-btn-new-report" onClick={openCreate} disabled={creating}>
             {creating
               ? <><i className="fa-solid fa-spinner fa-spin" /> Creating…</>
@@ -223,7 +223,7 @@ export default function MyReports() {
                 <td>
                   <div className="exp-report-name-cell">
                     <span className="exp-report-name-text">{r.name}</span>
-                    {r.status === 'draft' && can('expense.delete') && (
+                    {r.status === 'draft' && can('expense_reports.delete') && (
                       <>
                         <button
                           className="exp-rename-btn"

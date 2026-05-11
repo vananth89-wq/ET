@@ -1,0 +1,152 @@
+---
+title: Workflow Engine - Detailed Field-Level Schema
+---
+erDiagram
+
+    module_codes {
+        text   code        PK "Canonical module id e.g. expense_reports - FK anchor for instances"
+        text   label          "NOT NULL - Human-readable name shown in UI"
+        text   description    "Optional longer description"
+    }
+
+    workflow_templates {
+        uuid        id           PK "Auto-generated primary key"
+        text        code            "NOT NULL UNIQUE - Machine code e.g. EXPENSE_APPROVAL"
+        text        name            "NOT NULL - Human-readable template name"
+        text        description     "Optional description"
+        text        module_code     "NULLED mig 118 - templates are now module-agnostic"
+        boolean     is_active       "NOT NULL - soft-disable without deleting"
+        integer     version         "NOT NULL - incremented on publish, snapshot stored on instance"
+        timestamptz created_at      "Row creation timestamp"
+        timestamptz updated_at      "Last modification timestamp"
+    }
+
+    workflow_steps {
+        uuid        id                       PK "Auto-generated primary key"
+        uuid        template_id              FK "NOT NULL - workflow_templates.id (cascade delete)"
+        integer     step_order                  "NOT NULL UNIQUE per template - engine uses to find next step"
+        text        name                        "NOT NULL - shown in approver inbox"
+        text        approver_type               "NOT NULL CHECK - MANAGER|ROLE|DEPT_HEAD|SPECIFIC_USER|RULE_BASED"
+        text        approver_role               "Role code when approver_type=ROLE"
+        uuid        approver_profile_id      FK "profiles.id - fixed approver when approver_type=SPECIFIC_USER"
+        integer     sla_hours                   "NULL=no SLA. Creates due_at on task. Not applied to CC steps"
+        boolean     allow_delegation            "NOT NULL - false blocks delegation on this step"
+        boolean     allow_edit                  "Mig 085 - approver can edit record inline before approving"
+        boolean     is_cc                       "NOT NULL - mig 093 - notify-only, auto-approved immediately"
+        uuid        notification_template_id FK "Mig 093 - custom notif; NULL falls back to wf.task_assigned"
+        boolean     is_active                   "NOT NULL - inactive steps skipped by engine"
+        timestamptz created_at                  "Row creation timestamp"
+    }
+
+    workflow_step_conditions {
+        uuid        id          PK "Auto-generated primary key"
+        uuid        step_id     FK "NOT NULL - workflow_steps.id (cascade delete)"
+        text        field_path     "NOT NULL - key path into instance.metadata jsonb e.g. amount"
+        text        operator       "NOT NULL CHECK - gt|gte|lt|lte|eq|neq|in|not_in"
+        text        value          "NOT NULL - comparison value as text, numeric cast at runtime"
+        boolean     skip_step      "NOT NULL - true=skip this step when condition matches"
+        timestamptz created_at     "Row creation timestamp"
+    }
+
+    workflow_assignments {
+        uuid        id               PK "Auto-generated primary key"
+        text        module_code         "NOT NULL - module this assignment applies to"
+        uuid        wf_template_id   FK "NOT NULL - workflow_templates.id - template to use"
+        text        assignment_type     "NOT NULL CHECK - GLOBAL|ROLE|EMPLOYEE"
+        uuid        entity_id           "NULL for GLOBAL; role UUID or profile UUID for ROLE/EMPLOYEE"
+        integer     priority            "NOT NULL - lower number wins (EMPLOYEE 0 > ROLE 10 > GLOBAL 100)"
+        date        effective_from      "NOT NULL - assignment active from this date"
+        date        effective_to        "NULL=open-ended; set to auto-expire assignment"
+        boolean     is_active           "NOT NULL - manual on/off toggle"
+        uuid        created_by       FK "profiles.id - admin who created this"
+        timestamptz created_at          "Row creation timestamp"
+        timestamptz updated_at          "Last modification timestamp"
+    }
+
+    workflow_delegations {
+        uuid        id            PK "Auto-generated primary key"
+        uuid        delegator_id  FK "NOT NULL - profiles.id - approver handing off tasks"
+        uuid        delegate_id   FK "NOT NULL - profiles.id - person receiving delegated tasks"
+        uuid        template_id   FK "workflow_templates.id - NULL means all templates"
+        date        from_date        "NOT NULL - delegation active from this date"
+        date        to_date          "NOT NULL - delegation expires after this date"
+        text        reason           "Optional reason e.g. Annual Leave"
+        boolean     is_active        "NOT NULL - engine checks is_active and date range before routing"
+        uuid        created_by    FK "profiles.id - admin or user who created this"
+        timestamptz created_at       "Row creation timestamp"
+    }
+
+    workflow_notification_templates {
+        uuid        id          PK "Auto-generated primary key"
+        text        code           "NOT NULL UNIQUE - e.g. wf.task_assigned, wf.completed"
+        text        title_tmpl     "NOT NULL - email subject with variable substitution"
+        text        body_tmpl      "NOT NULL - email body with variable substitution"
+        timestamptz created_at     "Row creation timestamp"
+        timestamptz updated_at     "Last modification timestamp"
+    }
+
+    workflow_instances {
+        uuid        id               PK "Primary key - returned by wf_submit()"
+        uuid        template_id      FK "NOT NULL - snapshot of template used at submission"
+        integer     template_version    "NOT NULL - template version at submission time"
+        text        module_code      FK "NOT NULL - module_codes.code - which module this is for"
+        uuid        record_id           "NOT NULL - UUID of the specific record e.g. expense report id"
+        uuid        submitted_by     FK "NOT NULL - profiles.id - person who submitted"
+        integer     current_step        "NOT NULL - step order of active step, advanced by engine"
+        text        status              "NOT NULL CHECK - in_progress|approved|rejected|withdrawn|cancelled"
+        jsonb       metadata            "NOT NULL - payload at submission e.g. proposed_data, amount"
+        timestamptz created_at          "Submission timestamp"
+        timestamptz updated_at          "Last engine update"
+        timestamptz completed_at        "Set when workflow reaches a terminal status"
+    }
+
+    workflow_tasks {
+        uuid        id           PK "Auto-generated primary key"
+        uuid        instance_id  FK "NOT NULL - workflow_instances.id (cascade delete)"
+        uuid        step_id      FK "NOT NULL - workflow_steps.id"
+        integer     step_order      "NOT NULL - denormalised for fast inbox queries"
+        uuid        assigned_to  FK "NOT NULL - profiles.id - resolved by wf_resolve_approver()"
+        text        status          "NOT NULL CHECK - pending|approved|rejected|reassigned|skipped|cancelled"
+        text        notes           "Approver comment; CC tasks auto-set to CC - auto-notified"
+        timestamptz acted_at        "When action was taken; auto-set for CC steps"
+        timestamptz due_at          "SLA deadline from sla_hours; NULL for CC steps and no-SLA steps"
+        timestamptz created_at      "Task creation timestamp"
+    }
+
+    workflow_action_log {
+        uuid        id           PK "Auto-generated primary key"
+        uuid        instance_id  FK "NOT NULL - workflow_instances.id"
+        uuid        task_id      FK "workflow_tasks.id - NULL for instance-level events like completed"
+        uuid        actor_id     FK "NOT NULL - profiles.id - who triggered this event"
+        text        action          "NOT NULL - submitted|approved|rejected|withdrawn|completed|cc_notified|step_advanced"
+        integer     step_order      "Step this event occurred at"
+        text        notes           "Human note or system message"
+        jsonb       metadata        "Extra payload e.g. template_code on submitted events"
+        timestamptz created_at      "Immutable event timestamp"
+    }
+
+    workflow_notification_queue {
+        uuid        id              PK "Auto-generated primary key"
+        uuid        instance_id     FK "NOT NULL - workflow_instances.id (cascade delete)"
+        text        template_code      "NOT NULL - matched against notification_templates.code"
+        uuid        target_profile  FK "NOT NULL - profiles.id - Edge Function looks up email here"
+        jsonb       payload            "NOT NULL - variables merged into template"
+        text        status             "NOT NULL CHECK - pending|sent|failed"
+        text        error_message      "Resend error detail when status=failed"
+        timestamptz created_at         "When notification was queued"
+        timestamptz processed_at       "When Edge Function attempted delivery"
+    }
+
+    %% Relationships
+    module_codes                 ||--o{ workflow_instances             : "module_code"
+    workflow_templates           ||--o{ workflow_steps                 : "has steps"
+    workflow_templates           ||--o{ workflow_assignments           : "assigned via"
+    workflow_templates           ||--o{ workflow_instances             : "snapshot on submit"
+    workflow_templates           o|--o{ workflow_delegations           : "optionally scoped to"
+    workflow_steps               ||--o{ workflow_step_conditions       : "has conditions"
+    workflow_steps               ||--o{ workflow_tasks                 : "step reference"
+    workflow_steps               o|--|| workflow_notification_templates : "custom notify"
+    workflow_instances           ||--o{ workflow_tasks                 : "spawns tasks"
+    workflow_instances           ||--o{ workflow_action_log            : "audit trail"
+    workflow_instances           ||--o{ workflow_notification_queue    : "queues notifications"
+    workflow_notification_templates ||--o{ workflow_notification_queue : "template_code lookup"

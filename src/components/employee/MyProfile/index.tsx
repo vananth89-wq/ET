@@ -7,8 +7,9 @@ import { useEmployees } from '../../../hooks/useEmployees';
 import { useCurrencies } from '../../../hooks/useCurrencies';
 import { supabase } from '../../../lib/supabase';
 import { COUNTRIES } from '../../admin/AddEmployee';
-import WorkflowGateBanner           from '../../../workflow/components/WorkflowGateBanner';
 import { useProfileWorkflowGates } from '../../../workflow/hooks/useProfileWorkflowGates';
+import WorkflowSubmitModal          from '../../../workflow/components/WorkflowSubmitModal';
+import ConfirmationModal            from '../../shared/ConfirmationModal';
 
 // ── Phone codes for the mobile country-code picker ─────────────────────────
 
@@ -39,6 +40,17 @@ function fmtDate(val: string | undefined): string {
       day: '2-digit', month: 'short', year: 'numeric',
     });
   } catch { return val; }
+}
+
+function calcAge(dobStr: string): number | null {
+  if (!dobStr) return null;
+  const birth = new Date(dobStr);
+  if (isNaN(birth.getTime())) return null;
+  const today = new Date();
+  let age = today.getFullYear() - birth.getFullYear();
+  const m = today.getMonth() - birth.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+  return age;
 }
 
 function Field({ label, value }: { label: string; value?: string | null }) {
@@ -79,10 +91,28 @@ function MobileField({ countryCode, mobile }: { countryCode?: string; mobile?: s
   );
 }
 
-function SectionTitle({ icon, text }: { icon: string; text: string }) {
+function SectionTitle({ icon, text, pending }: { icon: string; text: string; pending?: number }) {
   return (
-    <div className="ev-section-title">
+    <div className="ev-section-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
       <i className={`fa-solid ${icon}`} /> {text}
+      {(pending ?? 0) > 0 && (
+        <span style={{
+          display:     'inline-flex',
+          alignItems:  'center',
+          gap:         4,
+          background:  '#FEF3C7',
+          color:       '#B45309',
+          border:      '1px solid #F59E0B',
+          borderRadius: 10,
+          padding:     '2px 8px',
+          fontSize:    11,
+          fontWeight:  600,
+          lineHeight:  1.4,
+        }}>
+          <i className="fa-solid fa-hourglass-half" style={{ fontSize: 10 }} />
+          {'Workflow Pending Approval'}
+        </span>
+      )}
     </div>
   );
 }
@@ -151,26 +181,35 @@ function EditButton({ onClick }: { onClick: () => void }) {
 }
 
 function SaveCancelRow({
-  onSave, onCancel, saving, error,
+  onSave, onCancel, saving, error, gated = false, isDirty = true,
 }: {
   onSave: () => void; onCancel: () => void;
   saving: boolean; error: string | null;
+  /** When true, changes the button label to "Submit for approval" */
+  gated?: boolean;
+  /** When false, disables the primary button — no changes detected */
+  isDirty?: boolean;
 }) {
+  const disabled = saving || !isDirty;
   return (
     <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
       <button
         onClick={onSave}
-        disabled={saving}
+        disabled={disabled}
         style={{
           display: 'inline-flex', alignItems: 'center', gap: 6,
-          padding: '7px 18px', borderRadius: 6, cursor: saving ? 'not-allowed' : 'pointer',
+          padding: '7px 18px', borderRadius: 6,
+          cursor: disabled ? 'not-allowed' : 'pointer',
           border: 'none', background: '#2563EB', color: '#fff',
-          fontSize: 13, fontWeight: 600, opacity: saving ? 0.7 : 1,
+          fontSize: 13, fontWeight: 600, opacity: disabled ? 0.45 : 1,
+          transition: 'opacity 0.15s',
         }}
       >
         {saving
-          ? <><i className="fa-solid fa-spinner fa-spin" /> Saving…</>
-          : <><i className="fa-solid fa-check" /> Save Changes</>}
+          ? <><i className="fa-solid fa-spinner fa-spin" /> {gated ? 'Submitting…' : 'Saving…'}</>
+          : gated
+            ? <><i className="fa-solid fa-paper-plane" /> Submit for approval</>
+            : <><i className="fa-solid fa-check" /> Save Changes</>}
       </button>
       <button
         onClick={onCancel}
@@ -196,6 +235,7 @@ function SaveCancelRow({
 
 export default function MyProfile() {
   const { employee: authEmployee, roles, profileLoading, refetchProfile } = useAuth();
+
   const { can }                          = usePermissions();
   const { picklistValues }               = usePicklistValues();
   const { departments }                  = useDepartments();
@@ -203,8 +243,9 @@ export default function MyProfile() {
   const { currencies }                   = useCurrencies();
   const [activeSection, setActiveSection] = useState('personal');
 
-  // Single batched query for all profile section workflow gates + pending counts
-  const { activeGates, pendingCounts } = useProfileWorkflowGates();
+  // Single RPC for all profile section workflow gates + pending counts.
+  // refetch() is called on edit-mode entry so gates are never stale.
+  const { activeGates, pendingCounts, refetch: refetchGates } = useProfileWorkflowGates();
   const scrollRef  = useRef<HTMLDivElement>(null);
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
 
@@ -214,9 +255,26 @@ export default function MyProfile() {
   // Edit mode state
   const [editingSection, setEditingSection] = useState<string | null>(null);
   const [formData,       setFormData]       = useState<Record<string, string>>({});
+  const [originalData,   setOriginalData]   = useState<Record<string, string>>({});
   const [saving,         setSaving]         = useState(false);
   const [saveError,      setSaveError]      = useState<string | null>(null);
   const [saveSuccess,    setSaveSuccess]    = useState<string | null>(null);
+  const [wfErrorToast,   setWfErrorToast]  = useState<string | null>(null);
+
+  // True when any field differs from the snapshot taken when edit mode opened.
+  const isDirty = Object.keys(formData).some(k => formData[k] !== (originalData[k] ?? ''));
+
+  // ── Workflow submission confirmation modal ─────────────────────────────
+  const [confirmPending, setConfirmPending] = useState<{
+    moduleCode:   string;
+    title:        string;
+    recordId:     string | null;
+    proposedData: Record<string, string | null>;
+    successMsg:   string;
+  } | null>(null);
+
+  // ── Pending-block modal — shown when section already has a pending workflow ─
+  const [pendingBlockSection, setPendingBlockSection] = useState<string | null>(null);
 
   // Avatar upload state
   const [localPhoto,      setLocalPhoto]      = useState<string | null>(null);
@@ -264,6 +322,8 @@ export default function MyProfile() {
     if (personalRow) {
       patch.nationality    = personalRow.nationality    ?? null;
       patch.maritalStatus  = personalRow.marital_status ?? null;
+      patch.gender         = personalRow.gender         ?? null;
+      patch.dob            = personalRow.dob            ?? null;
       patch.photo          = personalRow.photo_url      ?? null;
     }
 
@@ -396,13 +456,16 @@ export default function MyProfile() {
   function startEdit(section: string, values: Record<string, string>) {
     setEditingSection(section);
     setFormData(values);
+    setOriginalData(values);   // snapshot for dirty check
     setSaveError(null);
     setSaveSuccess(null);
+    refetchGates();            // always fetch fresh gates on edit-mode entry
   }
 
   function cancelEdit() {
     setEditingSection(null);
     setFormData({});
+    setOriginalData({});
     setSaveError(null);
     setSaveSuccess(null);
   }
@@ -412,27 +475,94 @@ export default function MyProfile() {
     setTimeout(() => setSaveSuccess(null), 3000);
   }
 
+  function showWfError(msg: string) {
+    setWfErrorToast(msg);
+    setTimeout(() => setWfErrorToast(null), 7000);
+  }
+
+  // ── Workflow submission helper ─────────────────────────────────────────
+  // Calls submit_change_request RPC instead of writing directly to the DB.
+  // Returns true on success (caller should cancelEdit + showSuccess),
+  // or throws on failure (caller catches and sets saveError).
+  async function submitViaWorkflow(
+    moduleCode:   string,
+    recordId:     string | null,
+    proposedData: Record<string, string | null>,
+    comment?:     string,
+  ): Promise<void> {
+    const { data, error } = await supabase.rpc('submit_change_request', {
+      p_module_code:   moduleCode,
+      p_record_id:     recordId   ?? null,
+      p_proposed_data: proposedData,
+      p_action:        'update',
+      p_comment:       comment?.trim() || null,
+    });
+    if (error) throw error;
+    if (data && !data.ok) throw new Error(data.error ?? 'Workflow submission failed.');
+  }
+
+  // Executes the actual gated submit after the user confirms in WorkflowSubmitModal.
+  // comment is forwarded to submit_change_request → wf_submit → action_log.notes.
+  async function executeGatedSubmit(comment: string) {
+    if (!confirmPending) return;
+    const pending = confirmPending;
+    setSaving(true); setSaveError(null);
+    try {
+      await submitViaWorkflow(pending.moduleCode, pending.recordId, pending.proposedData, comment);
+      setConfirmPending(null);
+      cancelEdit();
+      showSuccess(pending.successMsg);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[WorkflowSubmit] submit failed:', msg, err);
+      setSaveError(msg);
+      showWfError(msg);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   // ── Save: Personal ─────────────────────────────────────────────────────
   async function savePersonal() {
     if (!authEmployee?.id) return;
+    const nat = fd('nationality');
+    const ms  = fd('maritalStatus');
+    const gen = fd('gender');
+    const dob = fd('dob');
+
+    const proposedPersonal = { nationality: nat || null, marital_status: ms || null, gender: gen || null, dob: dob || null };
+
+    if ((pendingCounts['profile_personal'] ?? 0) > 0) {
+      setPendingBlockSection('Personal Information');
+      return;
+    }
+    if (activeGates.has('profile_personal')) {
+      setConfirmPending({
+        moduleCode:   'profile_personal',
+        title:        'Personal Information',
+        recordId:     authEmployee.id,
+        proposedData: proposedPersonal,
+        successMsg:   'Personal details submitted for approval.',
+      });
+      return;
+    }
+
     setSaving(true); setSaveError(null);
     try {
-      const nat = fd('nationality');
-      const ms  = fd('maritalStatus');
-
+      // ── Direct save path ─────────────────────────────────────────────────
       const { error } = await supabase
         .from('employee_personal')
         .upsert({
           employee_id:    authEmployee.id,
           nationality:    nat || null,
           marital_status: ms  || null,
+          gender:         gen || null,
+          dob:            dob || null,
         }, { onConflict: 'employee_id' });
       if (error) throw error;
 
-      // Mirror into extData immediately so `emp` reflects the change without
-      // waiting for AuthContext to re-fetch (which is non-blocking anyway).
-      setExtData(prev => ({ ...prev, nationality: nat, maritalStatus: ms }));
-      refetchProfile(); // sync AuthContext in the background
+      setExtData(prev => ({ ...prev, nationality: nat, maritalStatus: ms, gender: gen, dob }));
+      refetchProfile();
       cancelEdit();
       showSuccess('Personal details saved.');
     } catch (err: unknown) {
@@ -445,12 +575,30 @@ export default function MyProfile() {
   // ── Save: Contact ──────────────────────────────────────────────────────
   async function saveContact() {
     if (!authEmployee?.id) return;
+    const cc  = fd('countryCode');
+    const mob = fd('mobile');
+    const pe  = fd('personalEmail');
+
+    const proposedContact = { country_code: cc || null, mobile: mob || null, personal_email: pe || null };
+
+    if ((pendingCounts['profile_contact'] ?? 0) > 0) {
+      setPendingBlockSection('Contact Information');
+      return;
+    }
+    if (activeGates.has('profile_contact')) {
+      setConfirmPending({
+        moduleCode:   'profile_contact',
+        title:        'Contact Information',
+        recordId:     authEmployee.id,
+        proposedData: proposedContact,
+        successMsg:   'Contact details submitted for approval.',
+      });
+      return;
+    }
+
     setSaving(true); setSaveError(null);
     try {
-      const cc  = fd('countryCode');
-      const mob = fd('mobile');
-      const pe  = fd('personalEmail');
-
+      // ── Direct save path ─────────────────────────────────────────────────
       const { error } = await supabase
         .from('employee_contact')
         .upsert({
@@ -461,7 +609,6 @@ export default function MyProfile() {
         }, { onConflict: 'employee_id' });
       if (error) throw error;
 
-      // Mirror into extData so emp reflects the change immediately
       setExtData(prev => ({ ...prev, countryCode: cc, mobile: mob, personalEmail: pe }));
       refetchProfile();
       cancelEdit();
@@ -476,20 +623,36 @@ export default function MyProfile() {
   // ── Save: Address ──────────────────────────────────────────────────────
   async function saveAddress() {
     if (!authEmployee?.id) return;
+    const proposed = {
+      line1:    fd('addrLine1')    || null,
+      line2:    fd('addrLine2')    || null,
+      landmark: fd('addrLandmark') || null,
+      city:     fd('addrCity')     || null,
+      district: fd('addrDistrict') || null,
+      state:    fd('addrState')    || null,
+      pin:      fd('addrPin')      || null,
+      country:  fd('addrCountry')  || null,
+    };
+
+    if ((pendingCounts['profile_address'] ?? 0) > 0) {
+      setPendingBlockSection('Address Information');
+      return;
+    }
+    if (activeGates.has('profile_address')) {
+      setConfirmPending({
+        moduleCode:   'profile_address',
+        title:        'Address Information',
+        recordId:     (extData.addrId as string) || null,
+        proposedData: proposed,
+        successMsg:   'Address changes submitted for approval.',
+      });
+      return;
+    }
+
     setSaving(true); setSaveError(null);
     try {
-      const payload = {
-        employee_id: authEmployee.id,
-        line1:    fd('addrLine1')    || null,
-        line2:    fd('addrLine2')    || null,
-        landmark: fd('addrLandmark') || null,
-        city:     fd('addrCity')     || null,
-        district: fd('addrDistrict') || null,
-        state:    fd('addrState')    || null,
-        pin:      fd('addrPin')      || null,
-        country:  fd('addrCountry')  || null,
-      };
-
+      // ── Direct save path ─────────────────────────────────────────────────
+      const payload = { employee_id: authEmployee.id, ...proposed };
       let error;
       if (extData.addrId) {
         ({ error } = await supabase.from('employee_addresses').update(payload).eq('id', extData.addrId as string));
@@ -523,16 +686,32 @@ export default function MyProfile() {
   // ── Save: Passport ─────────────────────────────────────────────────────
   async function savePassport() {
     if (!authEmployee?.id) return;
+    const proposed = {
+      country:         fd('passportCountry')    || null,
+      passport_number: fd('passportNumber')     || null,
+      issue_date:      fd('passportIssueDate')  || null,
+      expiry_date:     fd('passportExpiryDate') || null,
+    };
+
+    if ((pendingCounts['profile_passport'] ?? 0) > 0) {
+      setPendingBlockSection('Passport Information');
+      return;
+    }
+    if (activeGates.has('profile_passport')) {
+      setConfirmPending({
+        moduleCode:   'profile_passport',
+        title:        'Passport Information',
+        recordId:     (extData.passportId as string) || null,
+        proposedData: proposed,
+        successMsg:   'Passport details submitted for approval.',
+      });
+      return;
+    }
+
     setSaving(true); setSaveError(null);
     try {
-      const payload = {
-        employee_id:     authEmployee.id,
-        country:         fd('passportCountry')    || null,
-        passport_number: fd('passportNumber')     || null,
-        issue_date:      fd('passportIssueDate')  || null,
-        expiry_date:     fd('passportExpiryDate') || null,
-      };
-
+      // ── Direct save path ─────────────────────────────────────────────────
+      const payload = { employee_id: authEmployee.id, ...proposed };
       let error;
       if (extData.passportId) {
         ({ error } = await supabase.from('passports').update(payload).eq('id', extData.passportId as string));
@@ -562,17 +741,33 @@ export default function MyProfile() {
   // ── Save: Emergency Contact ────────────────────────────────────────────
   async function saveEmergency() {
     if (!authEmployee?.id) return;
+    const proposed = {
+      name:         fd('ecName')         || null,
+      relationship: fd('ecRelationship') || null,
+      phone:        fd('ecPhone')        || null,
+      alt_phone:    fd('ecAltPhone')     || null,
+      email:        fd('ecEmail')        || null,
+    };
+
+    if ((pendingCounts['profile_emergency_contact'] ?? 0) > 0) {
+      setPendingBlockSection('Emergency Contact');
+      return;
+    }
+    if (activeGates.has('profile_emergency_contact')) {
+      setConfirmPending({
+        moduleCode:   'profile_emergency_contact',
+        title:        'Emergency Contact',
+        recordId:     (extData.ecId as string) || null,
+        proposedData: proposed,
+        successMsg:   'Emergency contact changes submitted for approval.',
+      });
+      return;
+    }
+
     setSaving(true); setSaveError(null);
     try {
-      const payload = {
-        employee_id:  authEmployee.id,
-        name:         fd('ecName')         || null,
-        relationship: fd('ecRelationship') || null,
-        phone:        fd('ecPhone')        || null,
-        alt_phone:    fd('ecAltPhone')     || null,
-        email:        fd('ecEmail')        || null,
-      };
-
+      // ── Direct save path ─────────────────────────────────────────────────
+      const payload = { employee_id: authEmployee.id, ...proposed };
       let error;
       if (extData.ecId) {
         ({ error } = await supabase.from('emergency_contacts').update(payload as any).eq('id', extData.ecId as string));
@@ -702,14 +897,14 @@ export default function MyProfile() {
   }
 
   const SECTIONS = [
-    { id: 'personal',       label: 'Personal',         icon: 'fa-circle-user'  },
-    { id: 'contact',        label: 'Contact',           icon: 'fa-phone'        },
-    { id: 'employment',     label: 'Employment',        icon: 'fa-briefcase'    },
-    { id: 'address',        label: 'Address',           icon: 'fa-location-dot' },
-    { id: 'passport',       label: 'Passport',          icon: 'fa-passport'     },
-    { id: 'identification', label: 'Identification',    icon: 'fa-id-card-clip' },
-    { id: 'emergency',      label: 'Emergency Contact', icon: 'fa-phone-volume' },
-  ];
+    { id: 'personal',       label: 'Personal',         icon: 'fa-circle-user',   viewPermission: 'personal_info.view'       },
+    { id: 'contact',        label: 'Contact',           icon: 'fa-phone',         viewPermission: 'contact_info.view'        },
+    { id: 'employment',     label: 'Employment',        icon: 'fa-briefcase',     viewPermission: 'employment.view'          },
+    { id: 'address',        label: 'Address',           icon: 'fa-location-dot',  viewPermission: 'address.view'             },
+    { id: 'passport',       label: 'Passport',          icon: 'fa-passport',      viewPermission: 'passport.view'            },
+    { id: 'identification', label: 'Identification',    icon: 'fa-id-card-clip',  viewPermission: 'identity_documents.view'  },
+    { id: 'emergency',      label: 'Emergency Contact', icon: 'fa-phone-volume',  viewPermission: 'emergency_contacts.view'  },
+  ].filter(s => can(s.viewPermission));
 
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const endDate = emp.endDate ? new Date((emp.endDate as string) + 'T00:00:00') : null;
@@ -719,16 +914,17 @@ export default function MyProfile() {
 
   // ── Section header with optional Edit button ──────────────────────────
   function SectionHeader({
-    icon, text, section, permission, editValues,
+    icon, text, section, permission, editValues, pendingCount,
   }: {
     icon: string; text: string; section: string;
     permission?: string; editValues?: Record<string, string>;
+    pendingCount?: number;
   }) {
     const canEdit = permission ? can(permission) : false;
     const isEditing = editingSection === section;
     return (
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-        <SectionTitle icon={icon} text={text} />
+        <SectionTitle icon={icon} text={text} pending={pendingCount} />
         {canEdit && !isEditing && !editingSection && editValues && (
           <EditButton onClick={() => startEdit(section, editValues)} />
         )}
@@ -741,6 +937,31 @@ export default function MyProfile() {
     <div style={{ padding: '0 0 24px' }}>
       <h2 className="page-title">My Profile</h2>
 
+      {/* ── Workflow submission confirmation modal ──────────────────────── */}
+      <WorkflowSubmitModal
+        open={!!confirmPending}
+        onClose={() => { setConfirmPending(null); setSaveError(null); }}
+        onConfirm={comment => executeGatedSubmit(comment)}
+        confirming={saving}
+        submitError={saveError}
+        title={confirmPending?.title ?? ''}
+        moduleCode={confirmPending?.moduleCode ?? ''}
+        employeeName={emp?.name as string | undefined}
+      />
+
+      {/* ── Pending-block modal — fires when section already has a pending workflow ── */}
+      <ConfirmationModal
+        isOpen={!!pendingBlockSection}
+        title="Changes Pending Approval"
+        message={`Your ${pendingBlockSection ?? 'section'} changes are currently awaiting approval. You cannot submit a new request until the existing one is resolved.`}
+        warning="Please check back after your approver has reviewed the pending request."
+        confirmText="OK"
+        cancelText="Dismiss"
+        destructive={false}
+        onConfirm={() => setPendingBlockSection(null)}
+        onCancel={() => setPendingBlockSection(null)}
+      />
+
       {/* Global success toast */}
       {saveSuccess && (
         <div style={{
@@ -751,6 +972,25 @@ export default function MyProfile() {
           boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
         }}>
           <i className="fa-solid fa-circle-check" /> {saveSuccess}
+        </div>
+      )}
+
+      {/* Global workflow error toast — floats above modal overlay (z 9999 > 9000) */}
+      {wfErrorToast && (
+        <div className="emp-toast emp-toast--error">
+          <i className="fa-solid fa-circle-exclamation" />
+          <span>Submission failed: {wfErrorToast}</span>
+          <button
+            onClick={() => setWfErrorToast(null)}
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer',
+              color: 'inherit', fontSize: 14, padding: '0 0 0 6px',
+              lineHeight: 1, opacity: 0.7,
+            }}
+            aria-label="Dismiss"
+          >
+            <i className="fa-solid fa-xmark" />
+          </button>
         </div>
       )}
 
@@ -771,7 +1011,7 @@ export default function MyProfile() {
             />
 
             {/* Hover overlay — darkens the avatar on hover */}
-            {can('employee.edit_own_personal') && (
+            {can('personal_info.edit') && (
               <button
                 onClick={() => { setAvatarError(null); fileInputRef.current?.click(); }}
                 disabled={avatarUploading}
@@ -795,7 +1035,7 @@ export default function MyProfile() {
           </div>
 
           {/* Camera badge — always visible when user can edit; hides during upload */}
-          {can('employee.edit_own_personal') && !avatarUploading && (
+          {can('personal_info.edit') && !avatarUploading && (
             <button
               onClick={() => { setAvatarError(null); fileInputRef.current?.click(); }}
               className="mp-avatar-badge"
@@ -857,14 +1097,16 @@ export default function MyProfile() {
 
             {/* ── Personal ─────────────────────────────────────────── */}
             <section id="mps-personal" ref={el => { sectionRefs.current.personal = el; }} className="mp-section">
-              <WorkflowGateBanner moduleCode="profile_personal" active={activeGates.has('profile_personal')} pendingCount={pendingCounts['profile_personal'] ?? 0} actionLabel="personal info changes" />
               <SectionHeader
                 icon="fa-circle-user" text="Personal Information"
                 section="personal"
-                permission="employee.edit_own_personal"
+                permission="personal_info.edit"
+                pendingCount={pendingCounts['profile_personal'] ?? 0}
                 editValues={{
                   nationality:   (emp.nationality   as string) || '',
                   maritalStatus: (emp.maritalStatus as string) || '',
+                  gender:        (emp.gender        as string) || '',
+                  dob:           (emp.dob           as string) || '',
                 }}
               />
 
@@ -885,8 +1127,43 @@ export default function MyProfile() {
                       onChange={v => setFd('maritalStatus', v)}
                       options={picklistOpts('MARITAL_STATUS')}
                     />
+                    <FormSelect
+                      label="Gender"
+                      value={fd('gender')}
+                      onChange={v => setFd('gender', v)}
+                      options={[{ value: 'Male', label: 'Male' }, { value: 'Female', label: 'Female' }]}
+                    />
+                    <FormInput
+                      label="Date of Birth"
+                      type="date"
+                      value={fd('dob')}
+                      onChange={v => setFd('dob', v)}
+                    />
+                    {fd('dob') && (
+                      <div className="ev-field">
+                        <div className="ev-field-label" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                          Age
+                          <span style={{ fontSize: 10, color: '#9CA3AF', fontWeight: 400, fontStyle: 'italic' }}>
+                            (auto-calculated)
+                          </span>
+                        </div>
+                        <input
+                          type="text"
+                          value={calcAge(fd('dob')) !== null ? `${calcAge(fd('dob'))} years` : ''}
+                          readOnly
+                          tabIndex={-1}
+                          style={{
+                            ...inputStyle,
+                            background: '#F3F4F6',
+                            color: '#9CA3AF',
+                            cursor: 'not-allowed',
+                            borderColor: '#E5E7EB',
+                          }}
+                        />
+                      </div>
+                    )}
                   </div>
-                  <SaveCancelRow onSave={savePersonal} onCancel={cancelEdit} saving={saving} error={saveError} />
+                  <SaveCancelRow onSave={savePersonal} onCancel={cancelEdit} saving={saving} error={saveError} gated={activeGates.has('profile_personal')} isDirty={isDirty} />
                 </>
               ) : (
                 <div className="ev-field-grid ev-grid-2">
@@ -894,17 +1171,20 @@ export default function MyProfile() {
                   <Field label="Employee ID"    value={emp.employeeId as string} />
                   <Field label="Nationality"    value={resolvePicklist('NATIONALITY', emp.nationality as string | undefined)} />
                   <Field label="Marital Status" value={resolvePicklist('MARITAL_STATUS', emp.maritalStatus as string | undefined)} />
+                  <Field label="Gender"         value={(emp.gender as string) || undefined} />
+                  <Field label="Date of Birth"  value={(emp.dob as string) || undefined} />
+                  {emp.dob && <Field label="Age" value={calcAge(emp.dob as string) !== null ? `${calcAge(emp.dob as string)} years` : undefined} />}
                 </div>
               )}
             </section>
 
             {/* ── Contact ──────────────────────────────────────────── */}
             <section id="mps-contact" ref={el => { sectionRefs.current.contact = el; }} className="mp-section">
-              <WorkflowGateBanner moduleCode="profile_contact" active={activeGates.has('profile_contact')} pendingCount={pendingCounts['profile_contact'] ?? 0} actionLabel="contact info changes" />
               <SectionHeader
                 icon="fa-phone" text="Contact Information"
                 section="contact"
-                permission="employee.edit_own_contact"
+                permission="contact_info.edit"
+                pendingCount={pendingCounts['profile_contact'] ?? 0}
                 editValues={{
                   countryCode:   (emp.countryCode   as string) || '+91',
                   mobile:        (emp.mobile        as string) || '',
@@ -947,7 +1227,7 @@ export default function MyProfile() {
                       placeholder="e.g. personal@example.com"
                     />
                   </div>
-                  <SaveCancelRow onSave={saveContact} onCancel={cancelEdit} saving={saving} error={saveError} />
+                  <SaveCancelRow onSave={saveContact} onCancel={cancelEdit} saving={saving} error={saveError} gated={activeGates.has('profile_contact')} isDirty={isDirty} />
                 </>
               ) : (
                 <div className="ev-field-grid ev-grid-2">
@@ -960,8 +1240,7 @@ export default function MyProfile() {
 
             {/* ── Employment (read-only) ───────────────────────────── */}
             <section id="mps-employment" ref={el => { sectionRefs.current.employment = el; }} className="mp-section">
-              <WorkflowGateBanner moduleCode="profile_employment" active={activeGates.has('profile_employment')} pendingCount={pendingCounts['profile_employment'] ?? 0} actionLabel="employment detail changes" />
-              <SectionTitle icon="fa-briefcase" text="Employment Information" />
+              <SectionTitle icon="fa-briefcase" text="Employment Information" pending={pendingCounts['profile_employment'] ?? 0} />
               <div className="ev-field-grid ev-grid-2">
                 <div className="ev-field">
                   <div className="ev-field-label">Status</div>
@@ -989,11 +1268,11 @@ export default function MyProfile() {
 
             {/* ── Address ──────────────────────────────────────────── */}
             <section id="mps-address" ref={el => { sectionRefs.current.address = el; }} className="mp-section">
-              <WorkflowGateBanner moduleCode="profile_address" active={activeGates.has('profile_address')} pendingCount={pendingCounts['profile_address'] ?? 0} actionLabel="address changes" />
               <SectionHeader
                 icon="fa-location-dot" text="Address Information"
                 section="address"
-                permission="employee.edit_own_address"
+                permission="address.edit"
+                pendingCount={pendingCounts['profile_address'] ?? 0}
                 editValues={{
                   addrLine1:    (emp.addrLine1    as string) || '',
                   addrLine2:    (emp.addrLine2    as string) || '',
@@ -1024,7 +1303,7 @@ export default function MyProfile() {
                       placeholder="— Select Country —"
                     />
                   </div>
-                  <SaveCancelRow onSave={saveAddress} onCancel={cancelEdit} saving={saving} error={saveError} />
+                  <SaveCancelRow onSave={saveAddress} onCancel={cancelEdit} saving={saving} error={saveError} gated={activeGates.has('profile_address')} isDirty={isDirty} />
                 </>
               ) : (
                 <div className="ev-field-grid ev-grid-2">
@@ -1042,11 +1321,11 @@ export default function MyProfile() {
 
             {/* ── Passport ─────────────────────────────────────────── */}
             <section id="mps-passport" ref={el => { sectionRefs.current.passport = el; }} className="mp-section">
-              <WorkflowGateBanner moduleCode="profile_passport" active={activeGates.has('profile_passport')} pendingCount={pendingCounts['profile_passport'] ?? 0} actionLabel="passport detail changes" />
               <SectionHeader
                 icon="fa-passport" text="Passport Information"
                 section="passport"
-                permission="employee.edit_own_passport"
+                permission="passport.edit"
+                pendingCount={pendingCounts['profile_passport'] ?? 0}
                 editValues={{
                   passportCountry:    (emp.passportCountry    as string) || '',
                   passportNumber:     (emp.passportNumber     as string) || '',
@@ -1084,14 +1363,14 @@ export default function MyProfile() {
                       type="date"
                     />
                   </div>
-                  <SaveCancelRow onSave={savePassport} onCancel={cancelEdit} saving={saving} error={saveError} />
+                  <SaveCancelRow onSave={savePassport} onCancel={cancelEdit} saving={saving} error={saveError} gated={activeGates.has('profile_passport')} isDirty={isDirty} />
                 </>
               ) : (
                 !emp.passportNumber && !emp.passportCountry ? (
                   <div className="ev-empty-state">
                     <i className="fa-solid fa-passport" />
                     <p>No passport details on file.</p>
-                    {can('employee.edit_own_passport') && !editingSection && (
+                    {can('passport.edit') && !editingSection && (
                       <button
                         onClick={() => startEdit('passport', { passportCountry: '', passportNumber: '', passportIssueDate: '', passportExpiryDate: '' })}
                         style={{ marginTop: 8, padding: '6px 14px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', fontSize: 13, color: '#374151' }}
@@ -1116,8 +1395,7 @@ export default function MyProfile() {
 
             {/* ── Identification (read-only) ───────────────────────── */}
             <section id="mps-identification" ref={el => { sectionRefs.current.identification = el; }} className="mp-section">
-              <WorkflowGateBanner moduleCode="profile_identification" active={activeGates.has('profile_identification')} pendingCount={pendingCounts['profile_identification'] ?? 0} actionLabel="identification changes" />
-              <SectionTitle icon="fa-id-card-clip" text="Identification Details" />
+              <SectionTitle icon="fa-id-card-clip" text="Identification Details" pending={pendingCounts['profile_identification'] ?? 0} />
               {identifications.length === 0 ? (
                 <div className="ev-empty-state">
                   <i className="fa-solid fa-id-card-clip" />
@@ -1153,11 +1431,11 @@ export default function MyProfile() {
 
             {/* ── Emergency Contact ────────────────────────────────── */}
             <section id="mps-emergency" ref={el => { sectionRefs.current.emergency = el; }} className="mp-section">
-              <WorkflowGateBanner moduleCode="profile_emergency_contact" active={activeGates.has('profile_emergency_contact')} pendingCount={pendingCounts['profile_emergency_contact'] ?? 0} actionLabel="emergency contact changes" />
               <SectionHeader
                 icon="fa-phone-volume" text="Emergency Contact Information"
                 section="emergency"
-                permission="employee.edit_own_emergency"
+                permission="emergency_contacts.edit"
+                pendingCount={pendingCounts['profile_emergency_contact'] ?? 0}
                 editValues={{
                   ecName:         (emp.ecName         as string) || '',
                   ecRelationship: (emp.ecRelationship as string) || '',
@@ -1181,14 +1459,14 @@ export default function MyProfile() {
                     <FormInput label="Alternate Phone" value={fd('ecAltPhone')} onChange={v => setFd('ecAltPhone', v)} type="tel" placeholder="Optional" />
                     <FormInput label="Email"           value={fd('ecEmail')}    onChange={v => setFd('ecEmail', v)}    type="email" placeholder="e.g. contact@example.com" />
                   </div>
-                  <SaveCancelRow onSave={saveEmergency} onCancel={cancelEdit} saving={saving} error={saveError} />
+                  <SaveCancelRow onSave={saveEmergency} onCancel={cancelEdit} saving={saving} error={saveError} gated={activeGates.has('profile_emergency_contact')} isDirty={isDirty} />
                 </>
               ) : (
                 !emp.ecName && !emp.ecPhone ? (
                   <div className="ev-empty-state">
                     <i className="fa-solid fa-phone-volume" />
                     <p>No emergency contact on record.</p>
-                    {can('employee.edit_own_emergency') && !editingSection && (
+                    {can('emergency_contacts.edit') && !editingSection && (
                       <button
                         onClick={() => startEdit('emergency', { ecName: '', ecRelationship: '', ecPhone: '', ecAltPhone: '', ecEmail: '' })}
                         style={{ marginTop: 8, padding: '6px 14px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', fontSize: 13, color: '#374151' }}

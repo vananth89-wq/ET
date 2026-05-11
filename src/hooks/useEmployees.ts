@@ -17,6 +17,8 @@ export interface Employee {
   mobile:           string | null;
   nationality:      string | null;
   maritalStatus:    string | null;
+  gender:           string | null;
+  dob:              string | null;
   photo:            string | null;
   countryCode:      string | null;
   // Job (core employees fields)
@@ -62,6 +64,8 @@ export function mapEmployee(row: EmployeeRow): Employee {
     // Personal satellite
     nationality:      personal.nationality    ?? null,
     maritalStatus:    personal.marital_status ?? null,
+    gender:           personal.gender         ?? null,
+    dob:              personal.dob            ?? null,
     photo:            personal.photo_url      ?? null,
     // Core employment fields
     designation:      row.designation,

@@ -73,3 +73,60 @@ export function useCurrencies(activeOnly = true): UseCurrenciesResult {
 
   return { currencies, loading, error, refetch };
 }
+
+
+// ─── Lookup hook (transactional dropdowns) ────────────────────────────────────
+// Queries vw_currencies_lookup — requires currencies.lookup permission (ESS has it).
+// Returns active currencies only. No `active` field — view pre-filters centrally.
+// Use this for currency dropdowns in expense forms, not useCurrencies().
+
+export interface CurrencyLookup {
+  id:     string;   // UUID — store this as FK, not the code string
+  code:   string;   // ISO code e.g. USD, INR, SAR
+  name:   string;   // US Dollar, Indian Rupee
+  symbol: string;   // $, ₹, ﷼
+}
+
+interface UseCurrenciesLookupResult {
+  currencies: CurrencyLookup[];
+  loading:    boolean;
+  error:      string | null;
+}
+
+export function useCurrenciesLookup(): UseCurrenciesLookupResult {
+  const [currencies, setCurrencies] = useState<CurrencyLookup[]>([]);
+  const [loading,    setLoading]    = useState(true);
+  const [error,      setError]      = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    setLoading(true);
+    setError(null);
+
+    supabase
+      .from('vw_currencies_lookup')
+      .select('id, code, name, symbol')
+      .order('name', { ascending: true })
+      .then(({ data, error: err }) => {
+        if (!mounted) return;
+        if (err) {
+          setError(err.message);
+          setCurrencies([]);
+        } else {
+          setCurrencies(
+            (data ?? []).map(row => ({
+              id:     row.id,
+              code:   row.code,
+              name:   row.name,
+              symbol: row.symbol,
+            }))
+          );
+        }
+        setLoading(false);
+      });
+
+    return () => { mounted = false; };
+  }, []);
+
+  return { currencies, loading, error };
+}

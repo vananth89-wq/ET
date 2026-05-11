@@ -25,3 +25,6 @@ dist-ssr
 
 # Supabase local state
 supabase/.temp/
+
+# AI assistant memory (local only, not project code)
+.claude/

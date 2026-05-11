@@ -29,8 +29,9 @@ const ACTION_CONFIG: Record<string, { icon: string; iconColor: string; label: st
   step_advanced:            { icon: 'fa-chevron-right',  iconColor: '#2563EB', label: 'Forwarded'                },
   // Return / clarification actions (migration 048)
   returned_to_initiator:    { icon: 'fa-comment-dots',   iconColor: '#B45309', label: 'Returned for Clarification' },
-  resubmitted:              { icon: 'fa-reply',          iconColor: '#2563EB', label: 'Submitter Responded'      },
-  returned_to_previous_step:{ icon: 'fa-backward-step',  iconColor: '#374151', label: 'Returned to Previous Step'},
+  resubmitted:              { icon: 'fa-reply',          iconColor: '#2563EB', label: 'Submitter Responded'           },
+  updated_and_resubmitted:  { icon: 'fa-pen-to-square',  iconColor: '#2563EB', label: 'Submitter Updated & Responded' },
+  returned_to_previous_step:{ icon: 'fa-backward-step',  iconColor: '#374151', label: 'Returned to Previous Step'    },
 };
 
 function formatDate(iso: string) {
@@ -75,7 +76,7 @@ export function WorkflowTimeline({
 
       {/* History events */}
       {history
-        .filter(h => h.action !== 'step_advanced') // hide internal advance events
+        .filter(h => h.action !== 'step_advanced' && h.action !== 'completed') // hide internal/system events
         .map(event => {
           const cfg = ACTION_CONFIG[event.action] ??
             { icon: 'fa-circle', iconColor: '#9CA3AF', label: event.action };
@@ -126,11 +127,30 @@ export function WorkflowTimeline({
                 </div>
                 {event.notes && (
                   <div style={{
-                    marginTop: 6, fontSize: 12, color: '#374151',
-                    background: '#F9FAFB', border: '1px solid #E5E7EB',
-                    borderRadius: 6, padding: '6px 10px',
+                    marginTop: 8,
+                    borderLeft: `3px solid ${cfg.iconColor}22`,
+                    paddingLeft: 10,
+                    background: '#F8FAFC',
+                    borderRadius: '0 4px 4px 0',
+                    padding: '7px 10px 7px 10px',
+                    borderLeftWidth: 3,
+                    borderLeftStyle: 'solid',
+                    borderLeftColor: cfg.iconColor,
+                    opacity: 0.95,
                   }}>
-                    {event.notes}
+                    <div style={{
+                      fontSize: 10, fontWeight: 600, color: '#9CA3AF',
+                      textTransform: 'uppercase', letterSpacing: '0.05em',
+                      marginBottom: 3,
+                    }}>
+                      💬 Comment
+                    </div>
+                    <div style={{
+                      fontSize: 13, color: '#374151', lineHeight: 1.5,
+                      cursor: 'default', userSelect: 'text',
+                    }}>
+                      {event.notes}
+                    </div>
                   </div>
                 )}
               </div>

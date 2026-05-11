@@ -56,32 +56,42 @@ interface RoleOption {
 }
 
 interface WfTemplate {
-  id:            string;
-  code:          string;
-  name:          string;
-  description:   string | null;
-  moduleCode:    string;
-  isActive:      boolean;
-  version:       number;
-  parentVersion: number | null;
-  effectiveFrom: string | null;
-  publishedAt:   string | null;
-  createdAt:     string;
+  id:                     string;
+  code:                   string;
+  name:                   string;
+  description:            string | null;
+  isActive:               boolean;
+  version:                number;
+  parentVersion:          number | null;
+  effectiveFrom:          string | null;
+  publishedAt:            string | null;
+  createdAt:              string;
+  skipDuplicateApprover:   boolean;
+  removeDuplicateApprover: boolean;
 }
 
 interface WfStep {
-  id:                 string;
-  stepOrder:          number;
-  name:               string;
-  approverType:       string;
-  approverRole:       string | null;
-  approverProfileId:  string | null;
-  slaHours:           number | null;
-  reminderAfterHours: number | null;
-  escalationAfterHours: number | null;
-  allowDelegation:    boolean;
-  isMandatory:        boolean;
-  isActive:           boolean;
+  id:                       string;
+  stepOrder:                number;
+  name:                     string;
+  approverType:             string;
+  approverRole:             string | null;
+  approverProfileId:        string | null;
+  slaHours:                 number | null;
+  reminderAfterHours:       number | null;
+  escalationAfterHours:     number | null;
+  allowDelegation:          boolean;
+  isMandatory:              boolean;
+  allowEdit:                boolean;
+  isCc:                     boolean;
+  notificationTemplateId:   string | null;
+  isActive:                 boolean;
+}
+
+interface NotifTemplate {
+  id:   string;
+  code: string;
+  name: string; // derived from title_tmpl for display
 }
 
 interface WfCondition {
@@ -106,16 +116,7 @@ const APPROVER_TYPES = [
   { value: 'RULE_BASED',    label: 'Dynamic Rule',    icon: 'fa-diagram-next' },
 ];
 
-const MODULES = [
-  { value: 'expense_reports',  label: 'Expense Reports'  },
-  { value: 'leave_requests',   label: 'Leave Requests'   },
-  { value: 'travel_requests',  label: 'Travel Requests'  },
-  { value: 'purchase_orders',  label: 'Purchase Orders'  },
-  { value: 'employee_changes', label: 'Employee Changes' },
-  { value: 'general',          label: 'General'          },
-];
-
-// Metadata fields available for condition evaluation (keyed by module)
+// Metadata fields available for condition evaluation
 const CONDITION_FIELDS: Record<string, { value: string; label: string; type: 'numeric' | 'text' }[]> = {
   expense_reports: [
     { value: 'total_amount',  label: 'Total Amount',   type: 'numeric' },
@@ -159,6 +160,9 @@ const EMPTY_STEP: Omit<WfStep, 'id' | 'stepOrder' | 'isActive'> = {
   escalationAfterHours: null,
   allowDelegation: true,
   isMandatory: true,
+  allowEdit: false,
+  isCc: false,
+  notificationTemplateId: null,
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -181,9 +185,6 @@ function approverIcon(type: string) {
   return APPROVER_TYPES.find(t => t.value === type)?.icon ?? 'fa-user';
 }
 
-function moduleLabel(code: string) {
-  return MODULES.find(m => m.value === code)?.label ?? code.replace(/_/g, ' ');
-}
 
 // Group templates by code, sorted: active first then by version desc within each group
 function groupTemplates(templates: WfTemplate[]): Map<string, WfTemplate[]> {
@@ -281,8 +282,9 @@ export default function WorkflowTemplates() {
 
   // Forms
   const [newTpl, setNewTpl] = useState({
-    name: '', code: '', moduleCode: 'expense_reports',
-    description: '', effectiveFrom: '',
+    name: '', code: '', description: '', effectiveFrom: '',
+    skipDuplicateApprover: false,
+    removeDuplicateApprover: false,
   });
   const [stepDraft, setStepDraft] = useState<typeof EMPTY_STEP & { stepOrder: number }>({
     ...EMPTY_STEP, stepOrder: 1,
@@ -293,6 +295,9 @@ export default function WorkflowTemplates() {
 
   // Roles for approver dropdown (loaded once on mount)
   const [roleOptions, setRoleOptions] = useState<RoleOption[]>([]);
+
+  // Notification templates for step template dropdown (loaded once on mount)
+  const [notifTemplates, setNotifTemplates] = useState<NotifTemplate[]>([]);
 
   // Condition counts per step (shown as chips on step cards)
   const [conditionCounts, setConditionCounts] = useState<Map<string, number>>(new Map());
@@ -378,17 +383,18 @@ export default function WorkflowTemplates() {
     if (error) showToast('err', error.message);
     else {
       const mapped: WfTemplate[] = (data ?? []).map(t => ({
-        id:            t.id,
-        code:          t.code,
-        name:          t.name,
-        description:   t.description,
-        moduleCode:    t.module_code,
-        isActive:      t.is_active,
-        version:       t.version,
-        parentVersion: t.parent_version,
-        effectiveFrom: t.effective_from,
-        publishedAt:   t.published_at,
-        createdAt:     t.created_at,
+        id:                    t.id,
+        code:                  t.code,
+        name:                  t.name,
+        description:           t.description,
+        isActive:              t.is_active,
+        version:               t.version,
+        parentVersion:         t.parent_version,
+        effectiveFrom:         t.effective_from,
+        publishedAt:           t.published_at,
+        createdAt:             t.created_at,
+        skipDuplicateApprover:   t.skip_duplicate_approver  ?? false,
+        removeDuplicateApprover: t.remove_duplicate_approver ?? false,
       }));
       setTemplates(mapped);
       // Auto-expand all groups
@@ -406,10 +412,25 @@ export default function WorkflowTemplates() {
       .from('roles')
       .select('code, name')
       .eq('is_system', false)
-      .eq('is_active', true)
+      .eq('active', true)
       .order('name')
       .then(({ data }) => {
         setRoleOptions((data ?? []).map(r => ({ code: r.code, name: r.name })));
+      });
+  }, []);
+
+  // Load notification templates for the step notification dropdown
+  useEffect(() => {
+    supabase
+      .from('workflow_notification_templates')
+      .select('id, code, title_tmpl')
+      .order('code')
+      .then(({ data }) => {
+        setNotifTemplates((data ?? []).map(t => ({
+          id:   t.id,
+          code: t.code,
+          name: t.title_tmpl ?? t.code,
+        })));
       });
   }, []);
 
@@ -433,9 +454,12 @@ export default function WorkflowTemplates() {
         slaHours:             s.sla_hours,
         reminderAfterHours:   s.reminder_after_hours,
         escalationAfterHours: s.escalation_after_hours,
-        allowDelegation:      s.allow_delegation,
-        isMandatory:          s.is_mandatory,
-        isActive:             s.is_active,
+        allowDelegation:          s.allow_delegation,
+        isMandatory:              s.is_mandatory,
+        allowEdit:                s.allow_edit ?? false,
+        isCc:                     s.is_cc ?? false,
+        notificationTemplateId:   s.notification_template_id ?? null,
+        isActive:                 s.is_active,
       }));
       setSteps(mapped);
 
@@ -474,19 +498,20 @@ export default function WorkflowTemplates() {
     }
     setSaving(true);
     const { error } = await supabase.from('workflow_templates').insert({
-      name:          newTpl.name.trim(),
-      code:          newTpl.code.trim().toUpperCase().replace(/\s+/g, '_'),
-      module_code:   newTpl.moduleCode,
-      description:   newTpl.description.trim() || null,
-      effective_from:newTpl.effectiveFrom || null,
-      is_active:     false,
-      version:       1,
+      name:                   newTpl.name.trim(),
+      code:                   newTpl.code.trim().toUpperCase().replace(/\s+/g, '_'),
+      description:            newTpl.description.trim() || null,
+      effective_from:         newTpl.effectiveFrom || null,
+      is_active:              false,
+      version:                1,
+      skip_duplicate_approver:   newTpl.skipDuplicateApprover,
+      remove_duplicate_approver: newTpl.removeDuplicateApprover,
     });
     setSaving(false);
     if (error) { showToast('err', error.message); return; }
     showToast('ok', 'Template created as Draft.');
     setShowNewTpl(false);
-    setNewTpl({ name: '', code: '', moduleCode: 'expense_reports', description: '', effectiveFrom: '' });
+    setNewTpl({ name: '', code: '', description: '', effectiveFrom: '', skipDuplicateApprover: false, removeDuplicateApprover: false });
     await loadTemplates();
   }
 
@@ -524,6 +549,32 @@ export default function WorkflowTemplates() {
     }
   }
 
+  async function toggleSkipDuplicate() {
+    if (!selected) return;
+    const next = !selected.skipDuplicateApprover;
+    const { error } = await supabase.from('workflow_templates')
+      .update({ skip_duplicate_approver: next, updated_at: new Date().toISOString() })
+      .eq('id', selected.id);
+    if (error) showToast('err', error.message);
+    else {
+      showToast('ok', next ? 'Duplicate approver skip (visible) enabled.' : 'Duplicate approver skip (visible) disabled.');
+      await loadTemplates();
+    }
+  }
+
+  async function toggleRemoveDuplicate() {
+    if (!selected) return;
+    const next = !selected.removeDuplicateApprover;
+    const { error } = await supabase.from('workflow_templates')
+      .update({ remove_duplicate_approver: next, updated_at: new Date().toISOString() })
+      .eq('id', selected.id);
+    if (error) showToast('err', error.message);
+    else {
+      showToast('ok', next ? 'Duplicate step removal enabled.' : 'Duplicate step removal disabled.');
+      await loadTemplates();
+    }
+  }
+
   async function saveStep() {
     if (!selectedId || !stepDraft.name.trim()) {
       showToast('err', 'Step name is required.'); return;
@@ -535,6 +586,15 @@ export default function WorkflowTemplates() {
       showToast('err', 'Please select a user for this step.'); setSaving(false); return;
     }
 
+    // Validation: sequence number must be unique within the template (add only)
+    if (!editingStepId) {
+      const conflict = steps.find(s => s.stepOrder === stepDraft.stepOrder);
+      if (conflict) {
+        showToast('err', `Sequence ${stepDraft.stepOrder} is already used by "${conflict.name}". Choose a different sequence number.`);
+        setSaving(false); return;
+      }
+    }
+
     const roleValue       = stepDraft.approverType === 'ROLE' || stepDraft.approverType === 'RULE_BASED'
       ? (stepDraft.approverRole ?? null) : null;
     const profileIdValue  = stepDraft.approverType === 'SPECIFIC_USER'
@@ -543,15 +603,18 @@ export default function WorkflowTemplates() {
     if (editingStepId) {
       // Update
       const { error } = await supabase.from('workflow_steps').update({
-        name:                  stepDraft.name.trim(),
-        approver_type:         stepDraft.approverType,
-        approver_role:         roleValue,
-        approver_profile_id:   profileIdValue,
-        sla_hours:             stepDraft.slaHours,
-        reminder_after_hours:  stepDraft.reminderAfterHours,
-        escalation_after_hours:stepDraft.escalationAfterHours,
-        allow_delegation:      stepDraft.allowDelegation,
-        is_mandatory:          stepDraft.isMandatory,
+        name:                       stepDraft.name.trim(),
+        approver_type:              stepDraft.approverType,
+        approver_role:              roleValue,
+        approver_profile_id:        profileIdValue,
+        sla_hours:                  stepDraft.isCc ? null : stepDraft.slaHours,
+        reminder_after_hours:       stepDraft.isCc ? null : stepDraft.reminderAfterHours,
+        escalation_after_hours:     stepDraft.isCc ? null : stepDraft.escalationAfterHours,
+        allow_delegation:           stepDraft.allowDelegation,
+        is_mandatory:               stepDraft.isMandatory,
+        allow_edit:                 stepDraft.allowEdit,
+        is_cc:                      stepDraft.isCc,
+        notification_template_id:   stepDraft.notificationTemplateId,
       }).eq('id', editingStepId);
       if (error) { showToast('err', error.message); setSaving(false); return; }
     } else {
@@ -566,10 +629,27 @@ export default function WorkflowTemplates() {
         p_sla_hours:           stepDraft.slaHours,
         p_reminder_hours:      stepDraft.reminderAfterHours,
         p_escalation_hours:    stepDraft.escalationAfterHours,
-        p_allow_delegation:    stepDraft.allowDelegation,
-        p_is_mandatory:        stepDraft.isMandatory,
+        p_allow_delegation:          stepDraft.allowDelegation,
+        p_is_mandatory:              stepDraft.isMandatory,
+        p_is_cc:                     stepDraft.isCc,
+        p_notification_template_id:  stepDraft.notificationTemplateId,
       });
       if (error) { showToast('err', error.message); setSaving(false); return; }
+
+      // Patch allow_edit (wf_add_step RPC pre-dates this column; migration 093 adds it properly via RPC)
+      if (stepDraft.allowEdit) {
+        const { data: newStepId } = await supabase
+          .from('workflow_steps')
+          .select('id')
+          .eq('template_id', selectedId)
+          .eq('step_order', stepDraft.stepOrder)
+          .single();
+        if (newStepId) {
+          await supabase.from('workflow_steps')
+            .update({ allow_edit: true })
+            .eq('id', newStepId.id);
+        }
+      }
 
       // If conditions were queued, look up the new step ID and persist them
       if (pendingConditions.length > 0) {
@@ -676,16 +756,19 @@ export default function WorkflowTemplates() {
 
   function openEditStep(step: WfStep) {
     setStepDraft({
-      name:                step.name,
-      approverType:        step.approverType,
-      approverRole:        step.approverRole,
-      approverProfileId:   step.approverProfileId,
-      slaHours:            step.slaHours,
-      reminderAfterHours:  step.reminderAfterHours,
-      escalationAfterHours:step.escalationAfterHours,
-      allowDelegation:     step.allowDelegation,
-      isMandatory:         step.isMandatory,
-      stepOrder:           step.stepOrder,
+      name:                    step.name,
+      approverType:            step.approverType,
+      approverRole:            step.approverRole,
+      approverProfileId:       step.approverProfileId,
+      slaHours:                step.slaHours,
+      reminderAfterHours:      step.reminderAfterHours,
+      escalationAfterHours:    step.escalationAfterHours,
+      allowDelegation:         step.allowDelegation,
+      isMandatory:             step.isMandatory,
+      allowEdit:               step.allowEdit,
+      isCc:                    step.isCc,
+      notificationTemplateId:  step.notificationTemplateId,
+      stepOrder:               step.stepOrder,
     });
     setEditingStepId(step.id);
     // If editing a SPECIFIC_USER step, pre-load the user name
@@ -725,8 +808,7 @@ export default function WorkflowTemplates() {
   const filteredTemplates = search.trim()
     ? templates.filter(t =>
         t.name.toLowerCase().includes(search.toLowerCase()) ||
-        t.code.toLowerCase().includes(search.toLowerCase()) ||
-        t.moduleCode.toLowerCase().includes(search.toLowerCase()))
+        t.code.toLowerCase().includes(search.toLowerCase()))
     : templates;
 
   const groups = groupTemplates(filteredTemplates);
@@ -912,7 +994,6 @@ export default function WorkflowTemplates() {
                     {selected.description ?? 'No description'}
                   </p>
                   <div style={{ display: 'flex', gap: 16, marginTop: 10, flexWrap: 'wrap' }}>
-                    <MetaTag icon="fa-cube"       label={moduleLabel(selected.moduleCode)} />
                     <MetaTag icon="fa-code"        label={selected.code} mono />
                     {selected.effectiveFrom && (
                       <MetaTag icon="fa-calendar"  label={`Effective ${fmtDate(selected.effectiveFrom)}`} />
@@ -923,6 +1004,54 @@ export default function WorkflowTemplates() {
                     {selected.parentVersion && (
                       <MetaTag icon="fa-code-branch" label={`Cloned from v${selected.parentVersion}`} />
                     )}
+                  </div>
+                  {/* Skip duplicate approver toggle (visible in Activity) */}
+                  <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div
+                      onClick={toggleSkipDuplicate}
+                      title="Skip consecutive duplicate approver (visible in Activity)"
+                      style={{
+                        width: 36, height: 20, borderRadius: 10, cursor: 'pointer', flexShrink: 0,
+                        background: selected.skipDuplicateApprover ? C.blue : C.border,
+                        transition: 'background 0.2s', position: 'relative',
+                      }}
+                    >
+                      <div style={{
+                        position: 'absolute', top: 2, borderRadius: '50%', width: 16, height: 16,
+                        background: '#fff', transition: 'left 0.2s',
+                        left: selected.skipDuplicateApprover ? 18 : 2,
+                      }} />
+                    </div>
+                    <span style={{ fontSize: 12, color: selected.skipDuplicateApprover ? C.blue : C.muted }}>
+                      <i className="fas fa-user-slash" style={{ marginRight: 5 }} />
+                      {selected.skipDuplicateApprover
+                        ? 'Skip duplicate approver (visible) — ON'
+                        : 'Skip duplicate approver (visible) — OFF'}
+                    </span>
+                  </div>
+                  {/* Remove duplicate approver toggle (silent, no task created) */}
+                  <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div
+                      onClick={toggleRemoveDuplicate}
+                      title="Silently remove consecutive duplicate approver step at workflow creation"
+                      style={{
+                        width: 36, height: 20, borderRadius: 10, cursor: 'pointer', flexShrink: 0,
+                        background: selected.removeDuplicateApprover ? '#7C3AED' : C.border,
+                        transition: 'background 0.2s', position: 'relative',
+                      }}
+                    >
+                      <div style={{
+                        position: 'absolute', top: 2, borderRadius: '50%', width: 16, height: 16,
+                        background: '#fff', transition: 'left 0.2s',
+                        left: selected.removeDuplicateApprover ? 18 : 2,
+                      }} />
+                    </div>
+                    <span style={{ fontSize: 12, color: selected.removeDuplicateApprover ? '#7C3AED' : C.muted }}>
+                      <i className="fas fa-trash-alt" style={{ marginRight: 5 }} />
+                      {selected.removeDuplicateApprover
+                        ? 'Remove duplicate approver step (silent) — ON'
+                        : 'Remove duplicate approver step (silent) — OFF'}
+                    </span>
                   </div>
                 </div>
 
@@ -1064,6 +1193,9 @@ export default function WorkflowTemplates() {
                               {step.allowDelegation && (
                                 <StepChip icon="fa-rotate" label="Delegation OK" />
                               )}
+                              {step.allowEdit && (
+                                <StepChip icon="fa-pen-to-square" label="Edit Gate ON" color={C.green ?? '#065F46'} bg={C.greenL ?? '#D1FAE5'} />
+                              )}
                               {(conditionCounts.get(step.id) ?? 0) > 0 && (
                                 <StepChip
                                   icon="fa-filter"
@@ -1141,11 +1273,6 @@ export default function WorkflowTemplates() {
               style={{ ...iStyle, fontFamily: 'monospace' }}
             />
           </ModalRow>
-          <ModalRow label="Linked Module *">
-            <select value={newTpl.moduleCode} onChange={e => setNewTpl(d => ({ ...d, moduleCode: e.target.value }))} style={iStyle}>
-              {MODULES.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
-            </select>
-          </ModalRow>
           <ModalRow label="Description">
             <textarea
               value={newTpl.description}
@@ -1162,6 +1289,50 @@ export default function WorkflowTemplates() {
               onChange={e => setNewTpl(d => ({ ...d, effectiveFrom: e.target.value }))}
               style={iStyle}
             />
+          </ModalRow>
+          <ModalRow label="Skip Duplicate Approver" hint="Visible skip — same approver at back-to-back steps shown as skipped in Activity">
+            <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', paddingTop: 6 }}>
+              <div
+                onClick={() => setNewTpl(d => ({ ...d, skipDuplicateApprover: !d.skipDuplicateApprover }))}
+                style={{
+                  width: 40, height: 22, borderRadius: 11, cursor: 'pointer', flexShrink: 0,
+                  background: newTpl.skipDuplicateApprover ? C.blue : C.border,
+                  transition: 'background 0.2s',
+                  position: 'relative',
+                }}
+              >
+                <div style={{
+                  position: 'absolute', top: 3, borderRadius: '50%', width: 16, height: 16,
+                  background: '#fff', transition: 'left 0.2s',
+                  left: newTpl.skipDuplicateApprover ? 21 : 3,
+                }} />
+              </div>
+              <span style={{ fontSize: 13, color: newTpl.skipDuplicateApprover ? C.text : C.muted }}>
+                {newTpl.skipDuplicateApprover ? 'Enabled — step shown as skipped in Activity feed' : 'Disabled'}
+              </span>
+            </label>
+          </ModalRow>
+          <ModalRow label="Remove Duplicate Approver" hint="Silent removal — consecutive duplicate step omitted entirely at workflow creation">
+            <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', paddingTop: 6 }}>
+              <div
+                onClick={() => setNewTpl(d => ({ ...d, removeDuplicateApprover: !d.removeDuplicateApprover }))}
+                style={{
+                  width: 40, height: 22, borderRadius: 11, cursor: 'pointer', flexShrink: 0,
+                  background: newTpl.removeDuplicateApprover ? '#7C3AED' : C.border,
+                  transition: 'background 0.2s',
+                  position: 'relative',
+                }}
+              >
+                <div style={{
+                  position: 'absolute', top: 3, borderRadius: '50%', width: 16, height: 16,
+                  background: '#fff', transition: 'left 0.2s',
+                  left: newTpl.removeDuplicateApprover ? 21 : 3,
+                }} />
+              </div>
+              <span style={{ fontSize: 13, color: newTpl.removeDuplicateApprover ? C.text : C.muted }}>
+                {newTpl.removeDuplicateApprover ? 'Enabled — step silently removed, invisible to users' : 'Disabled'}
+              </span>
+            </label>
           </ModalRow>
           <div style={{
             padding: '10px 12px', borderRadius: 6, background: C.blueL,
@@ -1370,10 +1541,18 @@ export default function WorkflowTemplates() {
           </div>
 
           <Divider />
-          <p style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 12px' }}>
-            SLA &amp; Escalation
-          </p>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12 }}>
+            <p style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0 }}>
+              SLA &amp; Escalation
+            </p>
+            {stepDraft.isCc && (
+              <span style={{ fontSize: 11, color: C.amber, display: 'flex', alignItems: 'center', gap: 5 }}>
+                <i className="fas fa-ban" style={{ fontSize: 11 }} />
+                Not applicable for CC steps
+              </span>
+            )}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14, opacity: stepDraft.isCc ? 0.38 : 1, pointerEvents: stepDraft.isCc ? 'none' : undefined }}>
             <ModalRow label="SLA (hours)" hint="Deadline for action">
               <input
                 type="number" min={1}
@@ -1381,6 +1560,7 @@ export default function WorkflowTemplates() {
                 onChange={e => setStepDraft(d => ({ ...d, slaHours: e.target.value ? Number(e.target.value) : null }))}
                 placeholder="48"
                 style={iStyle}
+                disabled={stepDraft.isCc}
               />
             </ModalRow>
             <ModalRow label="Remind After (hours)" hint="Send reminder if not acted">
@@ -1390,6 +1570,7 @@ export default function WorkflowTemplates() {
                 onChange={e => setStepDraft(d => ({ ...d, reminderAfterHours: e.target.value ? Number(e.target.value) : null }))}
                 placeholder="24"
                 style={iStyle}
+                disabled={stepDraft.isCc}
               />
             </ModalRow>
             <ModalRow label="Escalate After (hours)" hint="Auto-escalate if overdue">
@@ -1399,6 +1580,7 @@ export default function WorkflowTemplates() {
                 onChange={e => setStepDraft(d => ({ ...d, escalationAfterHours: e.target.value ? Number(e.target.value) : null }))}
                 placeholder="72"
                 style={iStyle}
+                disabled={stepDraft.isCc}
               />
             </ModalRow>
           </div>
@@ -1407,29 +1589,129 @@ export default function WorkflowTemplates() {
           <p style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 12px' }}>
             Behaviour
           </p>
-          <div style={{ display: 'flex', gap: 24 }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: C.text }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            {/* Mandatory */}
+            <label style={{
+              display: 'flex', alignItems: 'flex-start', gap: 10,
+              padding: '10px 12px', borderRadius: 8,
+              background: C.bg, border: `1px solid ${C.border}`,
+              cursor: 'pointer', transition: 'border-color 0.15s',
+            }}
+              onMouseEnter={e => (e.currentTarget.style.borderColor = C.blue)}
+              onMouseLeave={e => (e.currentTarget.style.borderColor = C.border)}
+            >
               <input
                 type="checkbox"
                 checked={stepDraft.isMandatory}
                 onChange={e => setStepDraft(d => ({ ...d, isMandatory: e.target.checked }))}
+                style={{ width: 16, height: 16, accentColor: C.blue, cursor: 'pointer', flexShrink: 0, marginTop: 1 }}
               />
-              <span>
-                <strong>Mandatory</strong>
-                <span style={{ color: C.faint, marginLeft: 4 }}>— cannot be skipped by submitter</span>
-              </span>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Mandatory</div>
+                <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>Cannot be skipped by submitter</div>
+              </div>
             </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: C.text }}>
+
+            {/* Allow Delegation */}
+            <label style={{
+              display: 'flex', alignItems: 'flex-start', gap: 10,
+              padding: '10px 12px', borderRadius: 8,
+              background: C.bg, border: `1px solid ${C.border}`,
+              cursor: 'pointer', transition: 'border-color 0.15s',
+            }}
+              onMouseEnter={e => (e.currentTarget.style.borderColor = C.blue)}
+              onMouseLeave={e => (e.currentTarget.style.borderColor = C.border)}
+            >
               <input
                 type="checkbox"
                 checked={stepDraft.allowDelegation}
                 onChange={e => setStepDraft(d => ({ ...d, allowDelegation: e.target.checked }))}
+                style={{ width: 16, height: 16, accentColor: C.blue, cursor: 'pointer', flexShrink: 0, marginTop: 1 }}
               />
-              <span>
-                <strong>Allow Delegation</strong>
-                <span style={{ color: C.faint, marginLeft: 4 }}>— approver can hand off</span>
-              </span>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Allow Delegation</div>
+                <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>Approver can hand off to another</div>
+              </div>
             </label>
+
+            {/* Allow Mid-flight Edit */}
+            <label style={{
+              display: 'flex', alignItems: 'flex-start', gap: 10,
+              padding: '10px 12px', borderRadius: 8,
+              background: C.bg, border: `1px solid ${C.border}`,
+              cursor: 'pointer', transition: 'border-color 0.15s',
+            }}
+              onMouseEnter={e => (e.currentTarget.style.borderColor = C.blue)}
+              onMouseLeave={e => (e.currentTarget.style.borderColor = C.border)}
+            >
+              <input
+                type="checkbox"
+                checked={stepDraft.allowEdit}
+                onChange={e => setStepDraft(d => ({ ...d, allowEdit: e.target.checked }))}
+                style={{ width: 16, height: 16, accentColor: C.blue, cursor: 'pointer', flexShrink: 0, marginTop: 1 }}
+              />
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Allow Mid-flight Edit</div>
+                <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>Approver can edit record data (edit permission required)</div>
+              </div>
+            </label>
+
+            {/* CC (Notify Only) */}
+            <label style={{
+              display: 'flex', alignItems: 'flex-start', gap: 10,
+              padding: '10px 12px', borderRadius: 8,
+              background: stepDraft.isCc ? '#FFF7ED' : C.bg,
+              border: `1px solid ${stepDraft.isCc ? '#FED7AA' : C.border}`,
+              cursor: 'pointer', transition: 'border-color 0.15s, background 0.15s',
+            }}
+              onMouseEnter={e => { if (!stepDraft.isCc) e.currentTarget.style.borderColor = C.blue; }}
+              onMouseLeave={e => { if (!stepDraft.isCc) e.currentTarget.style.borderColor = C.border; }}
+            >
+              <input
+                type="checkbox"
+                checked={stepDraft.isCc}
+                onChange={e => setStepDraft(d => ({
+                  ...d,
+                  isCc: e.target.checked,
+                  // Clear SLA fields when CC mode is enabled
+                  slaHours:             e.target.checked ? null : d.slaHours,
+                  reminderAfterHours:   e.target.checked ? null : d.reminderAfterHours,
+                  escalationAfterHours: e.target.checked ? null : d.escalationAfterHours,
+                }))}
+                style={{ width: 16, height: 16, accentColor: C.amber, cursor: 'pointer', flexShrink: 0, marginTop: 1 }}
+              />
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: stepDraft.isCc ? C.amber : C.text }}>CC (Notify Only)</div>
+                <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>Notifies only — no approval action, SLA, or skip conditions</div>
+              </div>
+            </label>
+          </div>
+          {stepDraft.isCc && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, fontSize: 11, color: C.amber }}>
+              <i className="fas fa-circle-exclamation" style={{ fontSize: 12 }} />
+              CC steps skip approval action, SLA timers and skip conditions — notification only.
+            </div>
+          )}
+
+          {/* ── Notification Template ─────────────────────────────────────── */}
+          <Divider />
+          <p style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 4px' }}>
+            Notification
+          </p>
+          <p style={{ fontSize: 11, color: C.faint, margin: '0 0 12px' }}>
+            Template sent to the approver / CC recipient when this step is assigned or completed.
+          </p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <select
+              value={stepDraft.notificationTemplateId ?? ''}
+              onChange={e => setStepDraft(d => ({ ...d, notificationTemplateId: e.target.value || null }))}
+              style={{ ...iStyle, flex: 1 }}
+            >
+              <option value="">System Default</option>
+              {notifTemplates.map(t => (
+                <option key={t.id} value={t.id}>{t.name} ({t.code})</option>
+              ))}
+            </select>
           </div>
 
           {/* ── Skip Conditions — available for both new and existing steps ── */}
@@ -1443,7 +1725,7 @@ export default function WorkflowTemplates() {
               : pendingConditions.map((c, i) => ({ key: `pending-${i}`, fieldPath: c.fieldPath, operator: c.operator, value: c.value, skipStep: c.skipStep, pendingIdx: i }));
 
             const selectedTpl   = templates.find(t => t.id === selectedId);
-            const availableFields = CONDITION_FIELDS[selectedTpl?.moduleCode ?? ''] ?? CONDITION_FIELDS['_default'];
+            const availableFields = CONDITION_FIELDS['_default'];
             const selectedField   = availableFields.find(f => f.value === conditionDraft.fieldPath) ?? availableFields[0];
             const availableOps    = CONDITION_OPERATORS.filter(o => o.types.includes(selectedField?.type ?? 'text'));
 
@@ -1452,9 +1734,17 @@ export default function WorkflowTemplates() {
                 <Divider />
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                   <div>
-                    <p style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0 }}>
-                      Skip Conditions
-                    </p>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <p style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0 }}>
+                        Skip Conditions
+                      </p>
+                      {stepDraft.isCc && (
+                        <span style={{ fontSize: 11, color: C.amber, display: 'flex', alignItems: 'center', gap: 5 }}>
+                          <i className="fas fa-ban" style={{ fontSize: 11 }} />
+                          Not applicable for CC steps
+                        </span>
+                      )}
+                    </div>
                     <p style={{ fontSize: 11, color: C.faint, margin: '3px 0 0' }}>
                       If ALL conditions match the submission data, this step is automatically skipped.
                       {!editingStepId && pendingConditions.length > 0 && (
@@ -1462,15 +1752,18 @@ export default function WorkflowTemplates() {
                       )}
                     </p>
                   </div>
-                  <Btn
-                    label="+ Add"
-                    small
-                    variant="outline"
-                    onClick={() => { setShowCondForm(true); setConditionDraft(EMPTY_CONDITION); }}
-                  />
+                  {!stepDraft.isCc && (
+                    <Btn
+                      label="+ Add"
+                      small
+                      variant="outline"
+                      onClick={() => { setShowCondForm(true); setConditionDraft(EMPTY_CONDITION); }}
+                    />
+                  )}
                 </div>
 
-                {/* Conditions list */}
+                {/* Conditions list — greyed out when CC mode is on */}
+                <div style={{ opacity: stepDraft.isCc ? 0.35 : 1, pointerEvents: stepDraft.isCc ? 'none' : undefined }}>
                 {displayConditions.length > 0 && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
                     {displayConditions.map(c => {
@@ -1517,8 +1810,13 @@ export default function WorkflowTemplates() {
                 )}
 
                 {displayConditions.length === 0 && !showCondForm && (
-                  <div style={{ fontSize: 12, color: C.faint, fontStyle: 'italic', marginBottom: 8 }}>
-                    No conditions — this step always runs.
+                  <div style={{
+                    border: `1px solid ${C.border}`, borderRadius: 8,
+                    padding: '12px 14px', marginBottom: 8,
+                  }}>
+                    <div style={{ fontSize: 13, color: C.faint, fontStyle: 'italic' }}>
+                      No conditions — this step always runs.
+                    </div>
                   </div>
                 )}
 
@@ -1594,6 +1892,7 @@ export default function WorkflowTemplates() {
                     </label>
                   </div>
                 )}
+                </div>{/* end CC opacity wrapper */}
               </>
             );
           })()}

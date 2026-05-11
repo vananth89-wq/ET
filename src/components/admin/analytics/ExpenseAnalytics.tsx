@@ -406,7 +406,7 @@ export default function ExpenseAnalytics() {
         <>
           {/* ── KPI row ─────────────────────────────────────────────────── */}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 24 }}>
-            <KpiCard label="Approved Spend"      value={fmtAmount(kpis?.approved_spend ?? 0, 'USD')} icon="fa-coins"          color="#2F77B5" />
+            <KpiCard label="Approved Spend"      value={fmt(kpis?.approved_spend ?? 0, 2)}          icon="fa-coins"          color="#2F77B5" />
             <KpiCard label="Reports Submitted"   value={fmt(kpis?.total_submitted)}                  icon="fa-paper-plane"    color="#6366F1" />
             <KpiCard label="Approved"            value={fmt(kpis?.total_approved)}                   icon="fa-circle-check"   color="#10B981" />
             <KpiCard label="Pending Approval"    value={fmt(kpis?.total_pending)}                    icon="fa-clock"          color="#F59E0B" />

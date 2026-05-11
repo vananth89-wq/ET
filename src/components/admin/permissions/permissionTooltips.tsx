@@ -64,10 +64,6 @@ export const PERMISSION_TOOLTIPS: Record<string, PermTooltipData> = {
     portlet: 'Expense Reports — All',
     fields: ['View all expense reports organisation-wide', 'Finance / admin full access'],
   },
-  'expense.approve': {
-    portlet: 'Approval Queue — Manager',
-    fields: ['Approve expense reports', 'Reject expense reports', 'Add approval comments'],
-  },
   'expense.edit_approval': {
     portlet: 'Approval Queue',
     fields: ['Manager-level approve / reject', 'Finance-level approve / reject', 'Approval history'],
@@ -296,12 +292,39 @@ export const PERMISSION_TOOLTIPS: Record<string, PermTooltipData> = {
   },
 
   // ── Admin portal gate ────────────────────────────────────────────────────────
-  'admin.access': {
+  'sec_admin_access.view': {
     portlet: 'Admin Panel',
     fields: [
       'Admin nav link visibility',
       'Entry to all /admin/* pages',
       'Required in addition to any page-specific permission',
+    ],
+  },
+
+  // ── Workflow Engine ───────────────────────────────────────────────────────────
+  'workflow.submit': {
+    portlet: 'My Expenses / Workflow',
+    fields: ['Submit expense report for approval', 'Start any supported workflow process'],
+  },
+  'workflow.approve': {
+    portlet: 'Workflow Inbox',
+    fields: ['Approve or reject assigned tasks', 'Add approval comments', 'Self-service delegation setup'],
+  },
+  'workflow.admin': {
+    portlet: 'Workflow Administration',
+    fields: ['View all workflow instances', 'Reassign tasks', 'Cancel instances', 'Manage templates'],
+  },
+  'workflow.report_view': {
+    portlet: 'Workflow Analytics',
+    fields: ['KPI dashboards', 'Approval performance reports', 'SLA tracking'],
+  },
+  'workflow.rbp_troubleshoot': {
+    portlet: 'RBP Troubleshooting',
+    fields: [
+      'Search any user by name, email, or employee ID',
+      'View all active roles and permissions for that user',
+      'Quick permission check (has / does not have)',
+      '⚠ Grants read-only visibility into other users\' access',
     ],
   },
 
