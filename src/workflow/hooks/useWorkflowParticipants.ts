@@ -32,6 +32,12 @@
 import { useState, useEffect } from 'react';
 import { supabase }            from '../../lib/supabase';
 
+/** A single active member of a ROLE-type step (mig 205). */
+export interface WfRoleMember {
+  name:     string;
+  jobTitle: string | null;
+}
+
 export interface WfParticipant {
   stepOrder:            number;
   stepName:             string;
@@ -40,12 +46,26 @@ export interface WfParticipant {
   resolvedName?:        string;
   resolvedDesignation?: string;
   isCC:                 boolean;
-  /** True when the RPC resolved the step to a specific named employee.
-   *  profile → always true.
-   *  role    → true if an active role holder was found.
-   *  manager → true if p_profile_id was supplied and the submitter has a manager.
-   *  self    → always false. */
+  /** True when the RPC resolved the step to a specific named employee. */
   hasResolvedPerson?:   boolean;
+  /**
+   * True when this MANAGER/DEPT_HEAD step will be auto-skipped at submission
+   * because the submitter has no manager in the org structure (mig 336/337).
+   */
+  willBeSkipped?:       boolean;
+  /**
+   * 'ALL_OF' — all role members must approve before step advances.
+   * null     — ROLE: first to approve wins (auto fan-out). Others: single task.
+   * (mig 204: ANY_OF removed, auto fan-out is now the default for ROLE type)
+   */
+  approvalMode?:        'ALL_OF' | null;
+  /**
+   * mig 205: Active role members for ROLE-type steps.
+   * UI renders stacked avatars for ≤4 members, generic icon for 5+.
+   * Hover tooltip always shows the full list.
+   * null for all other approver types.
+   */
+  roleMembers?:         WfRoleMember[] | null;
 }
 
 interface UseWorkflowParticipantsResult {

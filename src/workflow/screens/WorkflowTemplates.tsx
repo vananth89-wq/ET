@@ -86,6 +86,10 @@ interface WfStep {
   isCc:                     boolean;
   notificationTemplateId:   string | null;
   isActive:                 boolean;
+  /** All-of mode. null = default routing (ROLE fans out first-wins; others single). */
+  approvalMode:             'ALL_OF' | null;
+  /** For JOB_RELATIONSHIP steps: which of the 6 matrix-manager codes to resolve. */
+  relationshipCode:         string | null;
 }
 
 interface NotifTemplate {
@@ -108,12 +112,33 @@ type ConditionDraft = Omit<WfCondition, 'id' | 'stepId'>;
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const APPROVER_TYPES = [
-  { value: 'MANAGER',       label: 'Line Manager',    icon: 'fa-user-tie'     },
-  { value: 'DEPT_HEAD',     label: 'Department Head', icon: 'fa-building'     },
-  { value: 'ROLE',          label: 'Role',            icon: 'fa-users-gear'   },
-  { value: 'SPECIFIC_USER', label: 'Specific User',   icon: 'fa-user-check'   },
-  { value: 'SELF',          label: 'Self (Submitter)', icon: 'fa-user-circle' },
-  { value: 'RULE_BASED',    label: 'Dynamic Rule',    icon: 'fa-diagram-next' },
+  { value: 'MANAGER',          label: 'Line Manager',     icon: 'fa-user-tie'      },
+  { value: 'DEPT_HEAD',        label: 'Department Head',  icon: 'fa-building'      },
+  { value: 'ROLE',             label: 'Role',             icon: 'fa-users-gear'    },
+  { value: 'SPECIFIC_USER',    label: 'Specific User',    icon: 'fa-user-check'    },
+  { value: 'SELF',             label: 'Self (Submitter)', icon: 'fa-user-circle'   },
+  { value: 'RULE_BASED',       label: 'Dynamic Rule',     icon: 'fa-diagram-next'  },
+  { value: 'JOB_RELATIONSHIP', label: 'Job Relationship', icon: 'fa-sitemap'       },
+];
+
+// Types available for CC (Notify Only) steps — simpler set, includes Subject Employee
+const CC_NOTIFY_TYPES = [
+  { value: 'SUBJECT_EMPLOYEE', label: 'Subject Employee',  icon: 'fa-user',        hint: 'The employee this workflow is about' },
+  { value: 'SELF',             label: 'Self (Submitter)',  icon: 'fa-user-circle', hint: 'The person who submitted this workflow' },
+  { value: 'MANAGER',          label: 'Line Manager',      icon: 'fa-user-tie',    hint: "Submitter's line manager" },
+  { value: 'DEPT_HEAD',        label: 'Department Head',   icon: 'fa-building',    hint: "Submitter's department head" },
+  { value: 'ROLE',             label: 'Role',              icon: 'fa-users-gear',  hint: 'All users with a specific role' },
+  { value: 'SPECIFIC_USER',    label: 'Specific User',     icon: 'fa-user-check',  hint: 'A fixed named user' },
+];
+
+// Fixed JR codes — labels are the defaults; admins relabel via the picklist management UI
+const JR_CODES = [
+  { value: 'PM01', label: 'PM01 — Project Manager'        },
+  { value: 'PM02', label: 'PM02 — Programme Manager'      },
+  { value: 'PM03', label: 'PM03 — Practice Manager'       },
+  { value: 'OM01', label: 'OM01 — Operations Manager'     },
+  { value: 'OM02', label: 'OM02 — Operations Lead'        },
+  { value: 'OM03', label: 'OM03 — Operations Coordinator' },
 ];
 
 // Metadata fields available for condition evaluation
@@ -155,6 +180,7 @@ const EMPTY_STEP: Omit<WfStep, 'id' | 'stepOrder' | 'isActive'> = {
   approverType: 'MANAGER',
   approverRole: null,
   approverProfileId: null,
+  relationshipCode: null,
   slaHours: null,
   reminderAfterHours: null,
   escalationAfterHours: null,
@@ -163,6 +189,7 @@ const EMPTY_STEP: Omit<WfStep, 'id' | 'stepOrder' | 'isActive'> = {
   allowEdit: false,
   isCc: false,
   notificationTemplateId: null,
+  approvalMode: null,
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -178,6 +205,7 @@ function approverLabel(step: WfStep, resolvedName?: string) {
   if (step.approverType === 'ROLE' && step.approverRole) return `${base} · ${step.approverRole}`;
   if (step.approverType === 'SPECIFIC_USER') return resolvedName ? `${base} · ${resolvedName}` : base;
   if (step.approverType === 'RULE_BASED' && step.approverRole) return `${base} · ${step.approverRole}`;
+  if (step.approverType === 'JOB_RELATIONSHIP' && step.relationshipCode) return `${base} · ${step.relationshipCode}`;
   return base;
 }
 
@@ -262,6 +290,69 @@ function Divider() {
   return <div style={{ borderTop: `1px solid ${C.border}`, margin: '16px 0' }} />;
 }
 
+// ─── Confirm Modal ────────────────────────────────────────────────────────────
+
+function ConfirmModal({ title, message, confirmLabel = 'Confirm', variant = 'danger', onConfirm, onCancel }: {
+  title:         string;
+  message:       string;
+  confirmLabel?: string;
+  variant?:      'danger' | 'primary';
+  onConfirm:     () => void;
+  onCancel:      () => void;
+}) {
+  const btnBg    = variant === 'danger' ? C.red    : C.blue;
+  const btnHover = variant === 'danger' ? '#B91C1C' : '#1D5F9A';
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 1000,
+      background: 'rgba(0,0,0,0.35)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+    }}
+      onClick={e => { if (e.target === e.currentTarget) onCancel(); }}
+    >
+      <div style={{
+        background: '#fff', borderRadius: 12,
+        boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
+        width: 420, padding: '28px 28px 24px',
+        display: 'flex', flexDirection: 'column', gap: 12,
+      }}>
+        {/* Icon + Title */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+          <div style={{
+            flexShrink: 0, width: 40, height: 40, borderRadius: 10,
+            background: variant === 'danger' ? C.redL : C.blueL,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <i className={`fas ${variant === 'danger' ? 'fa-triangle-exclamation' : 'fa-circle-info'}`}
+              style={{ fontSize: 18, color: variant === 'danger' ? C.red : C.blue }} />
+          </div>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: C.text, marginBottom: 4 }}>{title}</div>
+            <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.5 }}>{message}</div>
+          </div>
+        </div>
+
+        {/* Buttons */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8 }}>
+          <button onClick={onCancel} style={{
+            padding: '8px 18px', borderRadius: 7, fontSize: 13, fontWeight: 500,
+            border: `1px solid ${C.border}`, background: '#fff', color: C.text,
+            cursor: 'pointer',
+          }}>Cancel</button>
+          <button onClick={onConfirm}
+            onMouseEnter={e => (e.currentTarget.style.background = btnHover)}
+            onMouseLeave={e => (e.currentTarget.style.background = btnBg)}
+            style={{
+              padding: '8px 18px', borderRadius: 7, fontSize: 13, fontWeight: 600,
+              border: 'none', background: btnBg, color: '#fff',
+              cursor: 'pointer',
+            }}>{confirmLabel}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function WorkflowTemplates() {
@@ -279,6 +370,29 @@ export default function WorkflowTemplates() {
   const [showNewTpl,   setShowNewTpl]   = useState(false);
   const [showStepModal,setShowStepModal]= useState(false);
   const [editingStepId,setEditingStepId]= useState<string | null>(null);
+
+  // Confirm modal (replaces native browser confirm())
+  const [confirmModal, setConfirmModal] = useState<{
+    title:         string;
+    message:       string;
+    confirmLabel:  string;
+    variant:       'danger' | 'primary';
+    onConfirm:     () => void;
+  } | null>(null);
+
+  function showConfirm(opts: {
+    title: string; message: string;
+    confirmLabel?: string; variant?: 'danger' | 'primary';
+    onConfirm: () => void;
+  }) {
+    setConfirmModal({
+      title:        opts.title,
+      message:      opts.message,
+      confirmLabel: opts.confirmLabel ?? 'Confirm',
+      variant:      opts.variant ?? 'danger',
+      onConfirm:    opts.onConfirm,
+    });
+  }
 
   // Forms
   const [newTpl, setNewTpl] = useState({
@@ -315,6 +429,9 @@ export default function WorkflowTemplates() {
   const [userLoading, setUserLoading] = useState(false);
   const [selectedUser,setSelectedUser]= useState<UserOption | null>(null);
   const userSearchTimer = useRef<number | null>(null);
+
+  // ── All-of mode state ────────────────────────────────────────────────────────
+  const [approvalModeDraft, setApprovalModeDraft] = useState<'ALL_OF' | null>(null);
 
   function showToast(type: 'ok' | 'err', msg: string) {
     setToast({ type, msg });
@@ -460,6 +577,8 @@ export default function WorkflowTemplates() {
         isCc:                     s.is_cc ?? false,
         notificationTemplateId:   s.notification_template_id ?? null,
         isActive:                 s.is_active,
+        approvalMode:             (s as any).approval_mode ?? null,
+        relationshipCode:         (s as any).relationship_code ?? null,
       }));
       setSteps(mapped);
 
@@ -528,24 +647,42 @@ export default function WorkflowTemplates() {
 
   async function publishTemplate() {
     if (!selectedId) return;
-    if (!confirm('Publish this version as the active template? The current active version will be deactivated.')) return;
-    setSaving(true);
-    const { error } = await supabase.rpc('wf_publish_template', { p_template_id: selectedId });
-    setSaving(false);
-    if (error) { showToast('err', error.message); return; }
-    showToast('ok', 'Template published and is now active.');
-    await loadTemplates();
+    const id = selectedId;
+    showConfirm({
+      title:        'Publish template',
+      message:      'Publish this version as the active template? The current active version will be deactivated.',
+      confirmLabel: 'Publish',
+      variant:      'primary',
+      onConfirm: async () => {
+        setConfirmModal(null);
+        setSaving(true);
+        const { error } = await supabase.rpc('wf_publish_template', { p_template_id: id });
+        setSaving(false);
+        if (error) { showToast('err', error.message); return; }
+        showToast('ok', 'Template published and is now active.');
+        await loadTemplates();
+      },
+    });
   }
 
   async function toggleTemplateActive() {
     if (!selected) return;
     if (selected.isActive) {
-      if (!confirm('Deactivate this template? No new submissions will be accepted until another version is published.')) return;
-      const { error } = await supabase.from('workflow_templates')
-        .update({ is_active: false, updated_at: new Date().toISOString() })
-        .eq('id', selected.id);
-      if (error) showToast('err', error.message);
-      else { showToast('ok', 'Template deactivated.'); await loadTemplates(); }
+      const id = selected.id;
+      showConfirm({
+        title:        'Deactivate template',
+        message:      'Deactivate this template? No new submissions will be accepted until another version is published.',
+        confirmLabel: 'Deactivate',
+        variant:      'danger',
+        onConfirm: async () => {
+          setConfirmModal(null);
+          const { error } = await supabase.from('workflow_templates')
+            .update({ is_active: false, updated_at: new Date().toISOString() })
+            .eq('id', id);
+          if (error) showToast('err', error.message);
+          else { showToast('ok', 'Template deactivated.'); await loadTemplates(); }
+        },
+      });
     }
   }
 
@@ -586,6 +723,11 @@ export default function WorkflowTemplates() {
       showToast('err', 'Please select a user for this step.'); setSaving(false); return;
     }
 
+    // Validation: JOB_RELATIONSHIP requires a relationship code
+    if (stepDraft.approverType === 'JOB_RELATIONSHIP' && !stepDraft.relationshipCode) {
+      showToast('err', 'Please select a relationship code for this step.'); setSaving(false); return;
+    }
+
     // Validation: sequence number must be unique within the template (add only)
     if (!editingStepId) {
       const conflict = steps.find(s => s.stepOrder === stepDraft.stepOrder);
@@ -599,6 +741,11 @@ export default function WorkflowTemplates() {
       ? (stepDraft.approverRole ?? null) : null;
     const profileIdValue  = stepDraft.approverType === 'SPECIFIC_USER'
       ? (stepDraft.approverProfileId ?? null) : null;
+
+    // Validation: ROLE + ALL_OF requires a role to be selected
+    if (approvalModeDraft === 'ALL_OF' && stepDraft.approverType === 'ROLE' && !stepDraft.approverRole) {
+      showToast('err', 'Select a role for the All-of step.'); setSaving(false); return;
+    }
 
     if (editingStepId) {
       // Update
@@ -615,6 +762,8 @@ export default function WorkflowTemplates() {
         allow_edit:                 stepDraft.allowEdit,
         is_cc:                      stepDraft.isCc,
         notification_template_id:   stepDraft.notificationTemplateId,
+        approval_mode:              approvalModeDraft ?? null,
+        relationship_code:          stepDraft.approverType === 'JOB_RELATIONSHIP' ? (stepDraft.relationshipCode ?? null) : null,
       }).eq('id', editingStepId);
       if (error) { showToast('err', error.message); setSaving(false); return; }
     } else {
@@ -636,18 +785,22 @@ export default function WorkflowTemplates() {
       });
       if (error) { showToast('err', error.message); setSaving(false); return; }
 
-      // Patch allow_edit (wf_add_step RPC pre-dates this column; migration 093 adds it properly via RPC)
-      if (stepDraft.allowEdit) {
-        const { data: newStepId } = await supabase
-          .from('workflow_steps')
-          .select('id')
-          .eq('template_id', selectedId)
-          .eq('step_order', stepDraft.stepOrder)
-          .single();
-        if (newStepId) {
-          await supabase.from('workflow_steps')
-            .update({ allow_edit: true })
-            .eq('id', newStepId.id);
+      // Patch allow_edit + approval_mode (wf_add_step RPC pre-dates these columns)
+      const { data: newStepRow } = await supabase
+        .from('workflow_steps')
+        .select('id')
+        .eq('template_id', selectedId)
+        .eq('step_order', stepDraft.stepOrder)
+        .single();
+
+      if (newStepRow) {
+        const patch: Record<string, unknown> = {};
+        if (stepDraft.allowEdit)   patch.allow_edit    = true;
+        if (approvalModeDraft)     patch.approval_mode = approvalModeDraft;
+        if (stepDraft.approverType === 'JOB_RELATIONSHIP' && stepDraft.relationshipCode)
+          patch.relationship_code = stepDraft.relationshipCode;
+        if (Object.keys(patch).length > 0) {
+          await supabase.from('workflow_steps').update(patch).eq('id', newStepRow.id);
         }
       }
 
@@ -680,14 +833,23 @@ export default function WorkflowTemplates() {
     setShowStepModal(false);
     setEditingStepId(null);
     resetUserSearch();
+    setApprovalModeDraft(null);
     await loadSteps(selectedId);
   }
 
   async function deleteStep(stepId: string, stepName: string) {
-    if (!confirm(`Delete step "${stepName}"? This cannot be undone.`)) return;
-    const { error } = await supabase.rpc('wf_delete_step', { p_step_id: stepId });
-    if (error) showToast('err', error.message);
-    else { showToast('ok', 'Step deleted.'); if (selectedId) await loadSteps(selectedId); }
+    showConfirm({
+      title:        'Delete step',
+      message:      `Delete "${stepName}"? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      variant:      'danger',
+      onConfirm: async () => {
+        setConfirmModal(null);
+        const { error } = await supabase.rpc('wf_delete_step', { p_step_id: stepId });
+        if (error) showToast('err', error.message);
+        else { showToast('ok', 'Step deleted.'); if (selectedId) await loadSteps(selectedId); }
+      },
+    });
   }
 
   async function loadConditions(stepId: string) {
@@ -751,6 +913,7 @@ export default function WorkflowTemplates() {
     setShowCondForm(false);
     setConditionDraft(EMPTY_CONDITION);
     resetUserSearch();
+    setApprovalModeDraft(null);
     setShowStepModal(true);
   }
 
@@ -769,6 +932,7 @@ export default function WorkflowTemplates() {
       isCc:                    step.isCc,
       notificationTemplateId:  step.notificationTemplateId,
       stepOrder:               step.stepOrder,
+      relationshipCode:        step.relationshipCode,
     });
     setEditingStepId(step.id);
     // If editing a SPECIFIC_USER step, pre-load the user name
@@ -800,6 +964,8 @@ export default function WorkflowTemplates() {
     setShowCondForm(false);
     setConditionDraft(EMPTY_CONDITION);
     loadConditions(step.id);
+    // All-of mode state
+    setApprovalModeDraft(step.approvalMode ?? null);
     setShowStepModal(true);
   }
 
@@ -1165,9 +1331,6 @@ export default function WorkflowTemplates() {
                               <span style={{ fontWeight: 700, fontSize: 14, color: C.navy }}>
                                 {step.name}
                               </span>
-                              {!step.isMandatory && (
-                                <Pill label="Optional" bg={C.purpleL} color={C.purple} />
-                              )}
                               {!step.isActive && (
                                 <Pill label="Disabled" bg="#F3F4F6" color={C.faint} />
                               )}
@@ -1175,12 +1338,21 @@ export default function WorkflowTemplates() {
 
                             {/* Step meta chips */}
                             <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                              {step.approvalMode ? (
+                                <StepChip
+                                  icon="fa-users"
+                                  label="All-of Approvers"
+                                  color={C.purple}
+                                  bg={C.purpleL}
+                                />
+                              ) : (
                               <StepChip
                                 icon={approverIcon(step.approverType)}
                                 label={approverLabel(step)}
                                 color={C.blue}
                                 bg={C.blueL}
                               />
+                              )}
                               {step.slaHours != null && (
                                 <StepChip icon="fa-clock" label={`SLA ${step.slaHours}h`} />
                               )}
@@ -1190,7 +1362,7 @@ export default function WorkflowTemplates() {
                               {step.escalationAfterHours != null && (
                                 <StepChip icon="fa-arrow-trend-up" label={`Escalate ${step.escalationAfterHours}h`} color={C.red} bg={C.redL} />
                               )}
-                              {step.allowDelegation && (
+                              {!step.approvalMode && step.allowDelegation && (
                                 <StepChip icon="fa-rotate" label="Delegation OK" />
                               )}
                               {step.allowEdit && (
@@ -1239,6 +1411,20 @@ export default function WorkflowTemplates() {
       </div>
 
       {/* ════════════════════════════════════════════════════════
+          CONFIRM MODAL
+      ════════════════════════════════════════════════════════ */}
+      {confirmModal && (
+        <ConfirmModal
+          title={confirmModal.title}
+          message={confirmModal.message}
+          confirmLabel={confirmModal.confirmLabel}
+          variant={confirmModal.variant}
+          onConfirm={confirmModal.onConfirm}
+          onCancel={() => setConfirmModal(null)}
+        />
+      )}
+
+      {/* ════════════════════════════════════════════════════════
           MODAL — New Template
       ════════════════════════════════════════════════════════ */}
       {showNewTpl && (
@@ -1284,7 +1470,7 @@ export default function WorkflowTemplates() {
           </ModalRow>
           <ModalRow label="Effective From">
             <input
-              type="date"
+              type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31"
               value={newTpl.effectiveFrom}
               onChange={e => setNewTpl(d => ({ ...d, effectiveFrom: e.target.value }))}
               style={iStyle}
@@ -1376,61 +1562,248 @@ export default function WorkflowTemplates() {
                 style={iStyle}
               />
             </ModalRow>
+          </div>
 
-            <ModalRow label="Approver Type *">
-              <select
-                value={stepDraft.approverType}
-                onChange={e => {
-                  const t = e.target.value;
-                  setStepDraft(d => ({ ...d, approverType: t, approverRole: null, approverProfileId: null }));
-                  if (t !== 'SPECIFIC_USER') resetUserSearch();
-                }}
-                style={iStyle}
-              >
-                {APPROVER_TYPES.map(t => (
-                  <option key={t.value} value={t.value}>{t.label}</option>
-                ))}
-              </select>
-            </ModalRow>
+          {/* ── Who Approves / CC Recipient ────────────────────────────────── */}
+          <>
+            <Divider />
+            <p style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 10px' }}>
+              {stepDraft.isCc ? 'Notify Recipient *' : 'Who Approves *'}
+            </p>
 
-            {stepDraft.approverType === 'ROLE' && (
-              <ModalRow label="Role *" hint="Select an existing role">
-                {roleOptions.length > 0 ? (
-                  <select
-                    value={stepDraft.approverRole ?? ''}
-                    onChange={e => setStepDraft(d => ({ ...d, approverRole: e.target.value || null }))}
-                    style={iStyle}
-                  >
-                    <option value="">— choose a role —</option>
-                    {roleOptions.map(r => (
-                      <option key={r.code} value={r.code}>{r.name}</option>
-                    ))}
-                  </select>
-                ) : (
-                  /* Fallback: no custom roles exist yet — allow freetext entry */
-                  <input
-                    value={stepDraft.approverRole ?? ''}
-                    onChange={e => setStepDraft(d => ({ ...d, approverRole: e.target.value }))}
-                    placeholder="No custom roles found — type role code"
-                    style={{ ...iStyle, fontFamily: 'monospace' }}
-                  />
-                )}
-              </ModalRow>
-            )}
-
-            {stepDraft.approverType === 'RULE_BASED' && (
-              <ModalRow label="Rule Description" hint="Documents the routing logic" span={2}>
-                <input
-                  value={stepDraft.approverRole ?? ''}
-                  onChange={e => setStepDraft(d => ({ ...d, approverRole: e.target.value }))}
-                  placeholder="e.g. Route to dept head if amount > 10,000"
+          {stepDraft.isCc && (
+            /* Editable notify-recipient selector for CC steps */
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 10 }}>
+              <ModalRow label="Notify Recipient *">
+                <select
+                  value={stepDraft.approverType}
+                  onChange={e => {
+                    const t = e.target.value;
+                    setStepDraft(d => ({
+                      ...d,
+                      approverType:      t,
+                      approverRole:      null,
+                      approverProfileId: null,
+                      relationshipCode:  null,
+                    }));
+                    if (t !== 'SPECIFIC_USER') resetUserSearch();
+                  }}
                   style={iStyle}
-                />
+                >
+                  {CC_NOTIFY_TYPES.map(t => (
+                    <option key={t.value} value={t.value}>{t.label}</option>
+                  ))}
+                </select>
+                {(() => {
+                  const hint = CC_NOTIFY_TYPES.find(t => t.value === stepDraft.approverType)?.hint;
+                  return hint
+                    ? <div style={{ fontSize: 11, color: C.muted, marginTop: 3 }}>{hint}</div>
+                    : null;
+                })()}
               </ModalRow>
-            )}
 
-            {stepDraft.approverType === 'SPECIFIC_USER' && (
-              <ModalRow label="Select User *" hint="Search by name" span={2}>
+              {/* Role picker — shown when CC notify type is ROLE */}
+              {stepDraft.approverType === 'ROLE' && (
+                <ModalRow label="Role *" hint="Select an existing role">
+                  {roleOptions.length > 0 ? (
+                    <select
+                      value={stepDraft.approverRole ?? ''}
+                      onChange={e => setStepDraft(d => ({ ...d, approverRole: e.target.value || null }))}
+                      style={iStyle}
+                    >
+                      <option value="">— choose a role —</option>
+                      {roleOptions.map(r => (
+                        <option key={r.code} value={r.code}>{r.name}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      value={stepDraft.approverRole ?? ''}
+                      onChange={e => setStepDraft(d => ({ ...d, approverRole: e.target.value }))}
+                      placeholder="role code"
+                      style={iStyle}
+                    />
+                  )}
+                </ModalRow>
+              )}
+            </div>
+          )}
+
+          {/* SPECIFIC_USER search — shown in both CC and non-CC modes */}
+          {stepDraft.approverType === 'SPECIFIC_USER' && stepDraft.isCc && (
+            <ModalRow label="Select User *" hint="Search by name">
+              <div style={{ position: 'relative' }}>
+                {selectedUser ? (
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    padding: '8px 10px', border: `1px solid ${C.blue}`,
+                    borderRadius: 6, background: C.blueL,
+                  }}>
+                    <div style={{
+                      width: 30, height: 30, borderRadius: '50%',
+                      background: C.blue, color: '#fff',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 12, fontWeight: 700, flexShrink: 0,
+                    }}>
+                      {selectedUser.name.charAt(0).toUpperCase()}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: C.navy }}>{selectedUser.name}</div>
+                      <div style={{ fontSize: 11, color: C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {selectedUser.jobTitle ? `${selectedUser.jobTitle} · ` : ''}{selectedUser.email}
+                      </div>
+                    </div>
+                    <button
+                      onClick={clearUserSelection}
+                      style={{ border: 'none', background: 'none', cursor: 'pointer', color: C.muted, fontSize: 14, padding: '0 2px', lineHeight: 1 }}
+                      title="Clear selection"
+                    >
+                      <i className="fas fa-xmark" />
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ position: 'relative' }}>
+                      <i className="fas fa-magnifying-glass" style={{
+                        position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)',
+                        color: C.faint, fontSize: 12, pointerEvents: 'none',
+                      }} />
+                      <input
+                        value={userQuery}
+                        onChange={e => searchUsers(e.target.value)}
+                        placeholder="Type a name to search…"
+                        style={{ ...iStyle, paddingLeft: 30 }}
+                        autoComplete="off"
+                      />
+                      {userLoading && (
+                        <i className="fas fa-spinner fa-spin" style={{
+                          position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
+                          color: C.faint, fontSize: 12,
+                        }} />
+                      )}
+                    </div>
+                    {userResults.length > 0 && (
+                      <div style={{
+                        position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50,
+                        background: '#fff', border: `1px solid ${C.border}`,
+                        borderRadius: 6, boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
+                        marginTop: 3, maxHeight: 240, overflowY: 'auto',
+                      }}>
+                        {userResults.map(u => (
+                          <button
+                            key={u.profileId}
+                            onClick={() => selectUser(u)}
+                            style={{
+                              width: '100%', display: 'flex', alignItems: 'center', gap: 10,
+                              padding: '9px 12px', border: 'none', background: 'none',
+                              cursor: 'pointer', textAlign: 'left',
+                              borderBottom: `1px solid ${C.border}`,
+                            }}
+                            onMouseEnter={e => (e.currentTarget.style.background = C.blueL)}
+                            onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                          >
+                            <div style={{
+                              width: 28, height: 28, borderRadius: '50%',
+                              background: C.navy, color: '#fff',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              fontSize: 11, fontWeight: 700, flexShrink: 0,
+                            }}>
+                              {u.name.charAt(0).toUpperCase()}
+                            </div>
+                            <div>
+                              <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{u.name}</div>
+                              <div style={{ fontSize: 11, color: C.muted }}>
+                                {u.jobTitle ? `${u.jobTitle} · ` : ''}{u.email}
+                              </div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </ModalRow>
+          )}
+
+          {!stepDraft.isCc && (
+            <>
+              {/* ── Approver config ─────────────────────────────────────────── */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                  <ModalRow label="Approver Type *">
+                    <select
+                      value={stepDraft.approverType}
+                      onChange={e => {
+                        const t = e.target.value;
+                        setStepDraft(d => ({
+                          ...d,
+                          approverType: t,
+                          approverRole: null,
+                          approverProfileId: null,
+                          relationshipCode: null,
+                        }));
+                        if (t !== 'SPECIFIC_USER') resetUserSearch();
+                      }}
+                      style={iStyle}
+                    >
+                      {APPROVER_TYPES.map(t => (
+                        <option key={t.value} value={t.value}>{t.label}</option>
+                      ))}
+                    </select>
+                  </ModalRow>
+
+                  {stepDraft.approverType === 'ROLE' && (
+                    <ModalRow label="Role *" hint="Select an existing role">
+                      {roleOptions.length > 0 ? (
+                        <select
+                          value={stepDraft.approverRole ?? ''}
+                          onChange={e => setStepDraft(d => ({ ...d, approverRole: e.target.value || null }))}
+                          style={iStyle}
+                        >
+                          <option value="">— choose a role —</option>
+                          {roleOptions.map(r => (
+                            <option key={r.code} value={r.code}>{r.name}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          value={stepDraft.approverRole ?? ''}
+                          onChange={e => setStepDraft(d => ({ ...d, approverRole: e.target.value }))}
+                          placeholder="No custom roles found — type role code"
+                          style={{ ...iStyle, fontFamily: 'monospace' }}
+                        />
+                      )}
+                    </ModalRow>
+                  )}
+
+                  {stepDraft.approverType === 'RULE_BASED' && (
+                    <ModalRow label="Rule Description" hint="Documents the routing logic" span={2}>
+                      <input
+                        value={stepDraft.approverRole ?? ''}
+                        onChange={e => setStepDraft(d => ({ ...d, approverRole: e.target.value }))}
+                        placeholder="e.g. Route to dept head if amount > 10,000"
+                        style={iStyle}
+                      />
+                    </ModalRow>
+                  )}
+
+                  {stepDraft.approverType === 'JOB_RELATIONSHIP' && (
+                    <ModalRow label="Relationship Code *" hint="Which matrix-manager role to resolve">
+                      <select
+                        value={stepDraft.relationshipCode ?? ''}
+                        onChange={e => setStepDraft(d => ({ ...d, relationshipCode: e.target.value || null }))}
+                        style={iStyle}
+                      >
+                        <option value="">— choose a code —</option>
+                        {JR_CODES.map(c => (
+                          <option key={c.value} value={c.value}>{c.label}</option>
+                        ))}
+                      </select>
+                    </ModalRow>
+                  )}
+
+                  {stepDraft.approverType === 'SPECIFIC_USER' && (
+                    <ModalRow label="Select User *" hint="Search by name" span={2}>
                 <div style={{ position: 'relative' }}>
                   {/* Selected user chip */}
                   {selectedUser ? (
@@ -1536,9 +1909,40 @@ export default function WorkflowTemplates() {
                     </>
                   )}
                 </div>
-              </ModalRow>
-            )}
-          </div>
+                    </ModalRow>
+                  )}
+                </div>
+
+              {/* All-of mode checkbox — only relevant for ROLE type */}
+              {stepDraft.approverType === 'ROLE' && (
+                <label style={{
+                  display: 'flex', alignItems: 'flex-start', gap: 10,
+                  marginTop: 10, padding: '10px 12px', borderRadius: 8,
+                  background: approvalModeDraft === 'ALL_OF' ? C.purpleL : C.bg,
+                  border: `1px solid ${approvalModeDraft === 'ALL_OF' ? C.purple : C.border}`,
+                  cursor: 'pointer', transition: 'border-color 0.15s, background 0.15s',
+                }}>
+                  <input
+                    type="checkbox"
+                    checked={approvalModeDraft === 'ALL_OF'}
+                    onChange={e => setApprovalModeDraft(e.target.checked ? 'ALL_OF' : null)}
+                    style={{ width: 16, height: 16, accentColor: C.purple, cursor: 'pointer', flexShrink: 0, marginTop: 1 }}
+                  />
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: approvalModeDraft === 'ALL_OF' ? C.purple : C.text }}>
+                      Require ALL role members to approve
+                    </div>
+                    <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
+                      By default the first member to approve advances the step (fan-out). Enable this to require every active member to sign off.
+                    </div>
+                  </div>
+                </label>
+              )}
+
+            </>
+          )}
+
+          </>
 
           <Divider />
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12 }}>
@@ -1589,44 +1993,23 @@ export default function WorkflowTemplates() {
           <p style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 12px' }}>
             Behaviour
           </p>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            {/* Mandatory */}
-            <label style={{
-              display: 'flex', alignItems: 'flex-start', gap: 10,
-              padding: '10px 12px', borderRadius: 8,
-              background: C.bg, border: `1px solid ${C.border}`,
-              cursor: 'pointer', transition: 'border-color 0.15s',
-            }}
-              onMouseEnter={e => (e.currentTarget.style.borderColor = C.blue)}
-              onMouseLeave={e => (e.currentTarget.style.borderColor = C.border)}
-            >
-              <input
-                type="checkbox"
-                checked={stepDraft.isMandatory}
-                onChange={e => setStepDraft(d => ({ ...d, isMandatory: e.target.checked }))}
-                style={{ width: 16, height: 16, accentColor: C.blue, cursor: 'pointer', flexShrink: 0, marginTop: 1 }}
-              />
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Mandatory</div>
-                <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>Cannot be skipped by submitter</div>
-              </div>
-            </label>
-
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, opacity: stepDraft.isCc ? 0.38 : 1, pointerEvents: stepDraft.isCc ? 'none' : undefined }}>
             {/* Allow Delegation */}
             <label style={{
               display: 'flex', alignItems: 'flex-start', gap: 10,
               padding: '10px 12px', borderRadius: 8,
               background: C.bg, border: `1px solid ${C.border}`,
-              cursor: 'pointer', transition: 'border-color 0.15s',
+              cursor: stepDraft.isCc ? 'not-allowed' : 'pointer', transition: 'border-color 0.15s',
             }}
-              onMouseEnter={e => (e.currentTarget.style.borderColor = C.blue)}
-              onMouseLeave={e => (e.currentTarget.style.borderColor = C.border)}
+              onMouseEnter={e => { if (!stepDraft.isCc) e.currentTarget.style.borderColor = C.blue; }}
+              onMouseLeave={e => { if (!stepDraft.isCc) e.currentTarget.style.borderColor = C.border; }}
             >
               <input
                 type="checkbox"
                 checked={stepDraft.allowDelegation}
                 onChange={e => setStepDraft(d => ({ ...d, allowDelegation: e.target.checked }))}
-                style={{ width: 16, height: 16, accentColor: C.blue, cursor: 'pointer', flexShrink: 0, marginTop: 1 }}
+                disabled={stepDraft.isCc}
+                style={{ width: 16, height: 16, accentColor: C.blue, cursor: stepDraft.isCc ? 'not-allowed' : 'pointer', flexShrink: 0, marginTop: 1 }}
               />
               <div>
                 <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Allow Delegation</div>
@@ -1639,16 +2022,17 @@ export default function WorkflowTemplates() {
               display: 'flex', alignItems: 'flex-start', gap: 10,
               padding: '10px 12px', borderRadius: 8,
               background: C.bg, border: `1px solid ${C.border}`,
-              cursor: 'pointer', transition: 'border-color 0.15s',
+              cursor: stepDraft.isCc ? 'not-allowed' : 'pointer', transition: 'border-color 0.15s',
             }}
-              onMouseEnter={e => (e.currentTarget.style.borderColor = C.blue)}
-              onMouseLeave={e => (e.currentTarget.style.borderColor = C.border)}
+              onMouseEnter={e => { if (!stepDraft.isCc) e.currentTarget.style.borderColor = C.blue; }}
+              onMouseLeave={e => { if (!stepDraft.isCc) e.currentTarget.style.borderColor = C.border; }}
             >
               <input
                 type="checkbox"
                 checked={stepDraft.allowEdit}
                 onChange={e => setStepDraft(d => ({ ...d, allowEdit: e.target.checked }))}
-                style={{ width: 16, height: 16, accentColor: C.blue, cursor: 'pointer', flexShrink: 0, marginTop: 1 }}
+                disabled={stepDraft.isCc}
+                style={{ width: 16, height: 16, accentColor: C.blue, cursor: stepDraft.isCc ? 'not-allowed' : 'pointer', flexShrink: 0, marginTop: 1 }}
               />
               <div>
                 <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Allow Mid-flight Edit</div>
@@ -1673,10 +2057,17 @@ export default function WorkflowTemplates() {
                 onChange={e => setStepDraft(d => ({
                   ...d,
                   isCc: e.target.checked,
-                  // Clear SLA fields when CC mode is enabled
+                  // Default notify recipient to Subject Employee when CC is first enabled
+                  approverType:         e.target.checked ? 'SUBJECT_EMPLOYEE' : d.approverType,
+                  approverRole:         e.target.checked ? null : d.approverRole,
+                  approverProfileId:    e.target.checked ? null : d.approverProfileId,
+                  relationshipCode:     e.target.checked ? null : d.relationshipCode,
+                  // Clear SLA + behaviour fields when CC mode is enabled
                   slaHours:             e.target.checked ? null : d.slaHours,
                   reminderAfterHours:   e.target.checked ? null : d.reminderAfterHours,
                   escalationAfterHours: e.target.checked ? null : d.escalationAfterHours,
+                  allowDelegation:      e.target.checked ? false : d.allowDelegation,
+                  allowEdit:            e.target.checked ? false : d.allowEdit,
                 }))}
                 style={{ width: 16, height: 16, accentColor: C.amber, cursor: 'pointer', flexShrink: 0, marginTop: 1 }}
               />

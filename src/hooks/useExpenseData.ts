@@ -21,6 +21,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import type { ExpenseReport, LineItem, Attachment } from '../types';
+import { randomUUID } from '../utils/randomUUID';
 
 const BUCKET = 'expense-attachments';
 
@@ -34,7 +35,7 @@ async function uploadToStorage(
   file: File,
 ): Promise<string> {
   const ext      = file.name.split('.').pop() ?? 'bin';
-  const safeName = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}.${ext}`;
+  const safeName = `${Date.now()}-${randomUUID().slice(0, 8)}.${ext}`;
   const path     = `${employeeUUID}/${reportId}/${lineItemId}/${safeName}`;
 
   const { error } = await supabase.storage.from(BUCKET).upload(path, file, {
@@ -303,7 +304,7 @@ export function useExpenseData(): UseExpenseDataResult {
   // ── Create report ──────────────────────────────────────────────────────────
 
   const createReport = useCallback(async (data: Omit<ExpenseReport, 'id' | 'lineItems'>): Promise<string> => {
-    const id = crypto.randomUUID();
+    const id = randomUUID();
     const baseCurrencyId = currByCodeRef.current.get(data.baseCurrencyCode);
     // Fall back to first currency in map if code not resolved
     let fallbackCurrId = baseCurrencyId ?? [...currByCodeRef.current.values()][0] ?? '';
@@ -566,7 +567,7 @@ export function useExpenseData(): UseExpenseDataResult {
     const storagePath = await uploadToStorage(employeeUUID, reportId, itemId, file);
 
     // 2. Insert attachments row
-    const attId = crypto.randomUUID();
+    const attId = randomUUID();
     const { error: dbErr } = await supabase.from('attachments').insert({
       id:           attId,
       line_item_id: itemId,

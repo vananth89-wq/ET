@@ -235,8 +235,9 @@ export default function RbpTroubleshoot() {
     if (val.trim().length < 2) { setUResults([]); setUShowDrop(false); return; }
     debounceRef.current = setTimeout(async () => {
       setUSearching(true);
-      const { data } = await supabase.rpc('search_users_for_rbp', { p_query: val.trim() });
+      const { data, error } = await supabase.rpc('search_users_for_rbp', { p_query: val.trim() });
       setUSearching(false);
+      if (error) { setUError(error.message); setUResults([]); setUShowDrop(false); return; }
       setUResults((data ?? []) as UserResult[]);
       setUShowDrop(true);
     }, 300);
@@ -258,6 +259,13 @@ export default function RbpTroubleshoot() {
     setULoading(true); setUError(null);
     setPermRows([]); setRoles([]);
     setPermFilter(''); setCheckCode(''); setCheckResult(null); setCollapsed(new Set());
+
+    // Employee exists but has never logged in → no profile → no permissions to show
+    if (!user.profile_id) {
+      setULoading(false);
+      setUError('This employee has no login account yet — they have not signed in for the first time.');
+      return;
+    }
 
     const [permsRes, rolesRes] = await Promise.all([
       supabase.rpc('get_user_permissions', { p_profile_id: user.profile_id }),

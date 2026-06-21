@@ -1,5 +1,5 @@
-import { useState, useMemo, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useMemo, useRef, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import type { ExpenseStatus, ExpenseReport } from '../../../types';
 import { useExpenseData } from '../../../hooks/useExpenseData';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -14,6 +14,7 @@ type Filter = 'all' | ExpenseStatus;
 
 export default function MyReports() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { reports, createReport, deleteReport } = useExpenseData();
   const { employee: authEmployee } = useAuth();
   const { currencies } = useCurrencies();
@@ -27,6 +28,16 @@ export default function MyReports() {
   const [createError,  setCreateError]  = useState<string | null>(null);
   const [creating,     setCreating]     = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
+
+  // Auto-open create modal when navigated from "Create Expense Report" shortcut
+  useEffect(() => {
+    if (searchParams.get('action') === 'new' && can('expense_reports.create')) {
+      openCreate();
+      // Clean the param from the URL without re-rendering
+      navigate('/expense', { replace: true });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Filter to current employee's reports
   const myEmployeeId = authEmployee?.employeeId ?? '';

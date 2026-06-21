@@ -19,10 +19,10 @@
  *   />
  */
 
-import { useState }  from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { useAuth }   from '../../contexts/AuthContext';
 import { useWorkflowParticipants } from '../hooks/useWorkflowParticipants';
-import type { WfParticipant }       from '../hooks/useWorkflowParticipants';
+import type { WfParticipant, WfRoleMember } from '../hooks/useWorkflowParticipants';
 
 /* ── Avatar helpers ────────────────────────────────────────────────────────── */
 
@@ -50,16 +50,56 @@ function StepBubble({
   participant: WfParticipant;
   stepNumber: number;
 }) {
+  const skipped = participant.willBeSkipped === true;
   const name    = participant.resolvedName ?? participant.stepName;
-  // approver_type is stored UPPERCASE in the DB (ROLE, MANAGER, SPECIFIC_USER, etc.)
   const isRole  = participant.approverType === 'ROLE' || participant.approverType === 'RULE_BASED';
   const isMgr   = participant.approverType === 'MANAGER' || participant.approverType === 'DEPT_HEAD';
-
-  // For role-type steps: if the RPC resolved a specific employee, render them
-  // like a profile (initials avatar). Otherwise fall back to the amber icon.
   const showAsGenericRole = isRole && !participant.hasResolvedPerson;
+  const bg = skipped ? '#d1d5db' : (showAsGenericRole || isMgr) ? '#d97706' : avatarBg(name);
 
-  const bg = (showAsGenericRole || isMgr) ? '#d97706' : avatarBg(name);
+  if (skipped) {
+    return (
+      <div style={{
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        gap: 6, maxWidth: 80, opacity: 0.65,
+      }}>
+        <div style={{ position: 'relative' }}>
+          <div style={{
+            width: 48, height: 48, borderRadius: '50%',
+            background: '#f3f4f6', border: '2px dashed #d1d5db',
+            color: '#9ca3af',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 18, flexShrink: 0,
+          }}>
+            <i className="fa-solid fa-ban" />
+          </div>
+          <div style={{
+            position: 'absolute', bottom: 0, right: 0,
+            width: 16, height: 16, borderRadius: '50%',
+            background: '#9ca3af', border: '2px solid #f6f7f8',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <span style={{ fontSize: 8, fontWeight: 700, color: '#fff' }}>{stepNumber}</span>
+          </div>
+        </div>
+        <div style={{
+          fontSize: 11, fontWeight: 500, textAlign: 'center',
+          lineHeight: 1.3, color: '#6b7280', maxWidth: 80,
+          textDecoration: 'line-through',
+        }}>
+          {name}
+        </div>
+        <div style={{
+          fontSize: 10, color: '#9ca3af', textAlign: 'center',
+          lineHeight: 1.3, maxWidth: 80,
+          background: '#f3f4f6', borderRadius: 4, padding: '1px 5px',
+          fontWeight: 500,
+        }}>
+          Skipped
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{
@@ -104,9 +144,7 @@ function StepBubble({
         fontSize: 10, color: '#6b7280', textAlign: 'center',
         lineHeight: 1.3, maxWidth: 80,
       }}>
-        {showAsGenericRole
-          ? 'Any member'
-          : (participant.resolvedDesignation ?? (isMgr ? 'Auto-resolved' : ''))}
+        {participant.resolvedDesignation ?? (isMgr ? 'Auto-resolved' : (showAsGenericRole ? 'Any member' : ''))}
       </div>
     </div>
   );
@@ -121,6 +159,210 @@ function Arrow() {
       color: '#d1d5db', fontSize: 18, lineHeight: 1, padding: '0 2px',
     }}>
       <i className="fa-solid fa-arrow-right" />
+    </div>
+  );
+}
+
+/* ── Role group bubble (mig 205) ───────────────────────────────────────────── */
+
+/** Deterministic color per avatar index. */
+const ROLE_AVATAR_COLORS = [
+  '#7C3AED', '#059669', '#0891b2', '#d97706',
+  '#dc2626', '#0875e1', '#9333ea', '#16a34a',
+];
+
+const STACKED_LIMIT = 4; // ≤ this → show individual avatars; > this → generic icon
+
+function RoleGroupBubble({
+  participant,
+  stepNumber,
+}: {
+  participant: WfParticipant;
+  stepNumber:  number;
+}) {
+  const members: WfRoleMember[] = participant.roleMembers ?? [];
+  const count   = members.length;
+  const stacked = count > 0 && count <= STACKED_LIMIT;
+  const roleName = participant.resolvedName ?? participant.stepName;
+
+  // Tooltip position: fixed, anchored to the avatar group via getBoundingClientRect.
+  const [tooltipStyle, setTooltipStyle] = useState<React.CSSProperties | null>(null);
+  const groupRef = useRef<HTMLDivElement>(null);
+
+  const showTip = useCallback(() => {
+    if (!groupRef.current) return;
+    const r = groupRef.current.getBoundingClientRect();
+    setTooltipStyle({
+      position: 'fixed',
+      bottom:   window.innerHeight - r.top + 8,
+      left:     r.left + r.width / 2,
+      transform: 'translateX(-50%)',
+      zIndex:   9999,
+    });
+  }, []);
+
+  const hideTip = useCallback(() => setTooltipStyle(null), []);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, maxWidth: 110 }}>
+
+      {/* Avatar area */}
+      <div
+        ref={groupRef}
+        style={{ position: 'relative', cursor: count > 0 ? 'default' : undefined }}
+        onMouseEnter={count > 0 ? showTip : undefined}
+        onMouseLeave={count > 0 ? hideTip : undefined}
+      >
+        {stacked ? (
+          /* ── Stacked individual avatars (≤ 4 members) ── */
+          <div style={{ display: 'flex', alignItems: 'center', position: 'relative' }}>
+            {members.map((m, i) => (
+              <div
+                key={i}
+                style={{
+                  width: 40, height: 40, borderRadius: '50%',
+                  background: ROLE_AVATAR_COLORS[i % ROLE_AVATAR_COLORS.length],
+                  color: '#fff', fontSize: 12, fontWeight: 500,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  border: '2px solid #f6f7f8',
+                  marginLeft: i > 0 ? -12 : 0,
+                  position: 'relative', zIndex: count - i,
+                  flexShrink: 0,
+                }}
+              >
+                {initials(m.name)}
+              </div>
+            ))}
+            {/* Step number badge */}
+            <div style={{
+              position: 'absolute', bottom: -2, right: -4,
+              width: 16, height: 16, borderRadius: '50%',
+              background: '#f0732b', border: '2px solid #f6f7f8',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              zIndex: count + 1,
+            }}>
+              <span style={{ fontSize: 8, fontWeight: 700, color: '#fff' }}>{stepNumber}</span>
+            </div>
+          </div>
+        ) : (
+          /* ── Generic role icon (5+ members or no data yet) ── */
+          <div style={{ position: 'relative' }}>
+            <div style={{
+              width: 48, height: 48, borderRadius: '50%',
+              background: '#d97706', color: '#fff',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 20,
+            }}>
+              <i className="fa-solid fa-users" />
+            </div>
+            <div style={{
+              position: 'absolute', bottom: 0, right: 0,
+              width: 16, height: 16, borderRadius: '50%',
+              background: '#f0732b', border: '2px solid #f6f7f8',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <span style={{ fontSize: 8, fontWeight: 700, color: '#fff' }}>{stepNumber}</span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Role name */}
+      <div style={{
+        fontSize: 11, fontWeight: 500, textAlign: 'center',
+        lineHeight: 1.3, color: '#1f2937', maxWidth: 90, wordBreak: 'break-word',
+      }}>
+        {roleName}
+      </div>
+
+      {/* Member count badge */}
+      {count > 0 && (
+        <div style={{
+          fontSize: 9, background: '#F5F3FF', color: '#7C3AED',
+          border: '1px solid #DDD6FE', borderRadius: 999,
+          padding: '2px 7px', whiteSpace: 'nowrap',
+        }}>
+          {count} member{count !== 1 ? 's' : ''}
+        </div>
+      )}
+
+      {/* Designation line */}
+      <div style={{
+        fontSize: 10, color: '#6b7280', textAlign: 'center',
+        lineHeight: 1.3, maxWidth: 90,
+      }}>
+        {participant.resolvedDesignation}
+      </div>
+
+      {/* ── Tooltip (fixed-positioned, portal-like) ── */}
+      {tooltipStyle && count > 0 && (
+        <div style={{
+          ...tooltipStyle,
+          background: '#fff',
+          border: '1px solid #e5e7eb',
+          borderRadius: 10,
+          padding: '10px 12px',
+          minWidth: 200,
+          boxShadow: '0 4px 24px rgba(0,0,0,0.14)',
+          pointerEvents: 'none',
+        }}>
+          {/* Header */}
+          <div style={{
+            fontSize: 10, fontWeight: 600, color: '#7C3AED',
+            textTransform: 'uppercase', letterSpacing: '0.05em',
+            marginBottom: 8,
+            display: 'flex', alignItems: 'center', gap: 5,
+          }}>
+            <i className="fa-solid fa-users" style={{ fontSize: 11 }} />
+            {roleName} — {count} member{count !== 1 ? 's' : ''}
+          </div>
+
+          {/* Member list */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+            {members.map((m, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{
+                  width: 28, height: 28, borderRadius: '50%',
+                  background: ROLE_AVATAR_COLORS[i % ROLE_AVATAR_COLORS.length],
+                  color: '#fff', fontSize: 10, fontWeight: 600,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  flexShrink: 0,
+                }}>
+                  {initials(m.name)}
+                </div>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 500, color: '#1f2937' }}>{m.name}</div>
+                  {m.jobTitle && (
+                    <div style={{ fontSize: 11, color: '#6b7280' }}>{m.jobTitle}</div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Footer — approval mode hint */}
+          <div style={{
+            borderTop: '1px solid #f3f4f6', marginTop: 8, paddingTop: 6,
+            fontSize: 10, color: '#6b7280',
+            display: 'flex', alignItems: 'center', gap: 4,
+          }}>
+            <i className={`fa-solid ${participant.approvalMode === 'ALL_OF' ? 'fa-check-double' : 'fa-bolt'}`}
+               style={{ fontSize: 10, color: '#7C3AED' }} />
+            {participant.approvalMode === 'ALL_OF'
+              ? 'All members must approve'
+              : 'First to approve advances the step'}
+          </div>
+
+          {/* Caret */}
+          <div style={{
+            position: 'absolute', bottom: -5, left: '50%',
+            transform: 'translateX(-50%) rotate(45deg)',
+            width: 8, height: 8, background: '#fff',
+            borderRight: '1px solid #e5e7eb',
+            borderBottom: '1px solid #e5e7eb',
+          }} />
+        </div>
+      )}
     </div>
   );
 }
@@ -277,7 +519,10 @@ export default function WorkflowSubmitModal({
                 {approvers.map((p, i) => (
                   <div key={p.stepOrder} style={{ display: 'flex', alignItems: 'flex-start', gap: 4 }}>
                     <Arrow />
-                    <StepBubble participant={p} stepNumber={i + 1} />
+                    {p.approverType === 'ROLE'
+                      ? <RoleGroupBubble participant={p} stepNumber={i + 1} />
+                      : <StepBubble      participant={p} stepNumber={i + 1} />
+                    }
                   </div>
                 ))}
 

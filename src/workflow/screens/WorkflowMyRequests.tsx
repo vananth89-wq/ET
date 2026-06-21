@@ -31,6 +31,8 @@ interface MyRequest {
   templateCode:            string;
   templateName:            string;
   currentStep:             number | null;
+  currentStepName:         string | null;
+  pendingTaskCount:        number;
   submittedAt:             string;
   updatedAt:               string;
   completedAt:             string | null;
@@ -40,6 +42,8 @@ interface MyRequest {
   clarificationMessage:    string | null;
   clarificationFrom:       string | null;
   clarificationAt:         string | null;
+  initiatedByActorId:      string | null;
+  initiatedByActorName:    string | null;
 }
 
 type SortKey = 'newest' | 'oldest' | 'status';
@@ -55,6 +59,7 @@ const MODULE_DISPLAY_NAMES: Record<string, string> = {
   profile_identification:    'Identification Details',
   profile_emergency_contact: 'Emergency Contact',
   expense_reports:           'Expense Report',
+  employee_hire:             'New Hire',
 };
 
 const MODULE_ICONS: Record<string, string> = {
@@ -66,6 +71,7 @@ const MODULE_ICONS: Record<string, string> = {
   profile_identification:    'fa-id-card',
   profile_emergency_contact: 'fa-phone',
   expense_reports:           'fa-receipt',
+  employee_hire:             'fa-user-plus',
 };
 
 function requestTitle(moduleCode: string, templateName: string): string {
@@ -124,6 +130,7 @@ export default function WorkflowMyRequests() {
   const [withdrawReason, setWithdrawReason] = useState('');
   const [withdrawing,    setWithdrawing]    = useState(false);
 
+
   // ── Respond & Resume state ───────────────────────────────────────────────────
   const [respondId,   setRespondId]   = useState<string | null>(null);
   const [respondText, setRespondText] = useState('');
@@ -151,6 +158,8 @@ export default function WorkflowMyRequests() {
         templateCode:         r.template_code,
         templateName:         r.template_name,
         currentStep:          r.current_step,
+        currentStepName:      (r as any).current_step_name  ?? null,
+        pendingTaskCount:     (r as any).pending_task_count ?? 0,
         submittedAt:          r.submitted_at,
         updatedAt:            r.updated_at,
         completedAt:          r.completed_at,
@@ -160,6 +169,8 @@ export default function WorkflowMyRequests() {
         clarificationMessage: r.clarification_message ?? null,
         clarificationFrom:    r.clarification_from    ?? null,
         clarificationAt:      r.clarification_at      ?? null,
+        initiatedByActorId:   (r as any).initiated_by_actor_id   ?? null,
+        initiatedByActorName: (r as any).initiated_by_actor_name ?? null,
       })));
     }
     setLoading(false);
@@ -200,7 +211,10 @@ export default function WorkflowMyRequests() {
   }, [requests, keyword, filterPortlet, filterStatus,
       submittedFrom, submittedTo, completedFrom, completedTo, sort]);
 
-  const needsInputCount = requests.filter(r => r.status === 'awaiting_clarification').length;
+  // Items in the Sent Back inbox: sent-back (awaiting_clarification) + rejected hires
+  const needsInputCount = requests.filter(r =>
+    r.status === 'awaiting_clarification' || r.status === 'rejected'
+  ).length;
 
   // ── Active filter chips ───────────────────────────────────────────────────────
   const activeFilters: { label: string; clear: () => void }[] = [];
@@ -286,10 +300,10 @@ export default function WorkflowMyRequests() {
         >
           <i className="fas fa-bell" style={{ color: '#B45309', fontSize: 13 }} />
           <span style={{ fontSize: 13, fontWeight: 600, color: '#92400E' }}>
-            {needsInputCount} request{needsInputCount !== 1 ? 's need' : ' needs'} your input
+            {needsInputCount} request{needsInputCount !== 1 ? 's need' : ' needs'} your attention
           </span>
           <span style={{ fontSize: 12, color: '#B45309', marginLeft: 4 }}>
-            — an approver has returned a request asking for clarification
+            — sent back for clarification or rejected
           </span>
           <span style={{ marginLeft: 'auto', fontSize: 11, color: '#B45309', fontWeight: 600 }}>
             View →
@@ -395,11 +409,11 @@ export default function WorkflowMyRequests() {
             <div style={{ display: 'flex', gap: 8 }}>
               <div style={{ flex: 1 }}>
                 <span style={dateRangeLabelStyle}>From</span>
-                <input type="date" value={submittedFrom} onChange={e => setSubmittedFrom(e.target.value)} style={dateInputStyle} />
+                <input type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31" value={submittedFrom} onChange={e => setSubmittedFrom(e.target.value)} style={dateInputStyle} />
               </div>
               <div style={{ flex: 1 }}>
                 <span style={dateRangeLabelStyle}>To</span>
-                <input type="date" value={submittedTo} onChange={e => setSubmittedTo(e.target.value)} style={dateInputStyle} />
+                <input type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31" value={submittedTo} onChange={e => setSubmittedTo(e.target.value)} style={dateInputStyle} />
               </div>
             </div>
           </div>
@@ -412,11 +426,11 @@ export default function WorkflowMyRequests() {
             <div style={{ display: 'flex', gap: 8 }}>
               <div style={{ flex: 1 }}>
                 <span style={dateRangeLabelStyle}>From</span>
-                <input type="date" value={completedFrom} onChange={e => setCompletedFrom(e.target.value)} style={dateInputStyle} />
+                <input type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31" value={completedFrom} onChange={e => setCompletedFrom(e.target.value)} style={dateInputStyle} />
               </div>
               <div style={{ flex: 1 }}>
                 <span style={dateRangeLabelStyle}>To</span>
-                <input type="date" value={completedTo} onChange={e => setCompletedTo(e.target.value)} style={dateInputStyle} />
+                <input type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31" value={completedTo} onChange={e => setCompletedTo(e.target.value)} style={dateInputStyle} />
               </div>
             </div>
           </div>
@@ -551,6 +565,18 @@ export default function WorkflowMyRequests() {
                             <span style={{ marginLeft: 8, color: '#D1D5DB' }}>·</span>
                             <span style={{ marginLeft: 8, color: '#9CA3AF' }}>{req.templateName}</span>
                           </div>
+                          {req.initiatedByActorId && req.initiatedByActorName && (
+                            <div style={{
+                              display: 'inline-flex', alignItems: 'center', gap: 5,
+                              fontSize: 11, color: '#7C3AED',
+                              background: '#F5F3FF', border: '1px solid #DDD6FE',
+                              borderRadius: 4, padding: '2px 7px', marginTop: 4,
+                            }}>
+                              <i className="fa-solid fa-user-shield" style={{ fontSize: 10 }} />
+                              Submitted by <strong style={{ marginLeft: 2 }}>{req.initiatedByActorName}</strong>
+                              &nbsp;on your behalf
+                            </div>
+                          )}
                         </div>
 
                         {/* Actions */}
@@ -562,13 +588,25 @@ export default function WorkflowMyRequests() {
                             </button>
                           )}
                           {needsInput && !isResponding && (
-                            <button
-                              onClick={() => { setRespondId(req.id); setRespondText(''); setRespondErr(null); }}
-                              style={{ ...outlineBtn, borderColor: '#FCA5A5', background: '#FFFBEB', color: '#B45309' }}
-                            >
-                              <i className="fas fa-reply" style={{ fontSize: 10 }} />
-                              Respond &amp; Resume
-                            </button>
+                            req.moduleCode === 'employee_hire' ? (
+                              <button
+                                onClick={() => navigate(
+                                  `/workflow/review/${req.recordId}?role=initiator&module=employee_hire`
+                                )}
+                                style={{ ...outlineBtn, borderColor: '#FCA5A5', background: '#FFFBEB', color: '#B45309' }}
+                              >
+                                <i className="fas fa-arrow-up-right-from-square" style={{ fontSize: 10 }} />
+                                Review &amp; Resubmit
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => { setRespondId(req.id); setRespondText(''); setRespondErr(null); }}
+                                style={{ ...outlineBtn, borderColor: '#FCA5A5', background: '#FFFBEB', color: '#B45309' }}
+                              >
+                                <i className="fas fa-reply" style={{ fontSize: 10 }} />
+                                Respond &amp; Resume
+                              </button>
+                            )
                           )}
                           {req.status === 'in_progress' && (
                             <button
@@ -577,6 +615,16 @@ export default function WorkflowMyRequests() {
                             >
                               <i className="fas fa-rotate-left" style={{ fontSize: 10 }} />
                               Withdraw
+                            </button>
+                          )}
+                          {/* Rejected hire — user handles this via the Sent Back inbox (Withdraw button) */}
+                          {req.status === 'rejected' && req.moduleCode === 'employee_hire' && (
+                            <button
+                              onClick={() => navigate('/workflow/inbox?tab=sent_back')}
+                              style={{ ...outlineBtn, borderColor: '#FECACA', background: '#FEF2F2', color: '#DC2626' }}
+                            >
+                              <i className="fas fa-inbox" style={{ fontSize: 10 }} />
+                              View in Inbox
                             </button>
                           )}
                         </div>
@@ -656,9 +704,12 @@ export default function WorkflowMyRequests() {
                         {req.status === 'in_progress' && (
                           <>
                             <InfoChip icon="fa-shoe-prints" label={`Step ${req.currentStep}`} />
-                            {req.currentApproverName && (
-                              <InfoChip icon="fa-user-check" label={`Awaiting: ${req.currentApproverName}`} />
-                            )}
+                            {req.pendingTaskCount > 1
+                              ? <InfoChip icon="fa-users" label={`Awaiting: ${req.currentStepName ?? 'Approvers'}`} />
+                              : req.currentApproverName
+                                ? <InfoChip icon="fa-user-check" label={`Awaiting: ${req.currentApproverName}`} />
+                                : null
+                            }
                             {req.currentTaskDue && (
                               <InfoChip
                                 icon="fa-clock"

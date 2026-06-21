@@ -1,4 +1,7 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { validateMobile, mobilePlaceholder, mobileHint } from '../../utils/validateMobile';
+import { validatePassportNumber, validatePassportValidity, passportNumberPlaceholder, passportNumberHint, passportValidityHint } from '../../utils/validatePassport';
+import { validateIdentityNumber, idNumberPlaceholder, idNumberHint, defaultExpiryDate, idValidityLabel } from '../../utils/validateIdentity';
 import { supabase } from '../../lib/supabase';
 import WorkflowGateBanner from '../../workflow/components/WorkflowGateBanner';
 import { useEmployees } from '../../hooks/useEmployees';
@@ -7,6 +10,14 @@ import { useDepartments } from '../../hooks/useDepartments';
 import { useCurrencies } from '../../hooks/useCurrencies';
 import type { FullEmployee } from './AddEmployee';
 import { COUNTRIES } from './AddEmployee';
+import BankAccountsPortlet from '../shared/BankAccountsPortlet';
+import DependentsPortlet from '../shared/DependentsPortlet';
+import JobRelationshipsPortlet from '../shared/JobRelationshipsPortlet';
+import EducationPortlet        from '../shared/EducationPortlet';
+import TerminationPortlet      from '../shared/TerminationPortlet';
+import DeactivationImpactModal from './DeactivationImpactModal';
+import ConfirmationModal        from '../shared/ConfirmationModal';
+import { usePermissions } from '../../hooks/usePermissions';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -38,14 +49,19 @@ const PHONE_CODES = [
 ];
 
 const SECTIONS = [
-  { id: 'personal',   label: 'Personal Information',    icon: 'fa-circle-user',   optional: false },
-  { id: 'contact',    label: 'Phone',                   icon: 'fa-phone',          optional: false },
-  { id: 'email',      label: 'Email',                   icon: 'fa-envelope',       optional: false },
-  { id: 'employment', label: 'Employment',              icon: 'fa-briefcase',      optional: false },
-  { id: 'identity',   label: 'Employee Identification', icon: 'fa-id-card-clip',   optional: true  },
-  { id: 'passport',   label: 'Passport Information',    icon: 'fa-passport',       optional: true  },
-  { id: 'address',    label: 'Address',                 icon: 'fa-location-dot',   optional: false },
-  { id: 'emergency',  label: 'Emergency Contact',       icon: 'fa-phone-volume',   optional: false },
+  { id: 'personal',   label: 'Personal Information',    icon: 'fa-circle-user',       optional: false },
+  { id: 'contact',    label: 'Phone',                   icon: 'fa-phone',             optional: false },
+  { id: 'email',      label: 'Email',                   icon: 'fa-envelope',          optional: false },
+  { id: 'employment', label: 'Employment',              icon: 'fa-briefcase',         optional: false },
+  { id: 'identity',   label: 'Employee Identification', icon: 'fa-id-card-clip',      optional: true  },
+  { id: 'passport',   label: 'Passport Information',    icon: 'fa-passport',          optional: true  },
+  { id: 'address',    label: 'Address',                 icon: 'fa-location-dot',      optional: false },
+  { id: 'emergency',  label: 'Emergency Contact',       icon: 'fa-phone-volume',      optional: false },
+  { id: 'bank',              label: 'Bank Accounts',     icon: 'fa-building-columns',  optional: false },
+  { id: 'dependents',       label: 'Dependents',        icon: 'fa-people-group',      optional: false },
+  { id: 'job_relationships', label: 'Job Relationships', icon: 'fa-sitemap',           optional: false },
+  { id: 'education',         label: 'Education',         icon: 'fa-graduation-cap',    optional: false },
+  { id: 'termination',       label: 'Termination',        icon: 'fa-user-slash',        optional: true  },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -78,8 +94,22 @@ function SummaryRow({ label, value }: { label: string; value?: string }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Main Component
 // ─────────────────────────────────────────────────────────────────────────────
+// Maps profile module codes → EmployeeEditPanel section IDs
+const MODULE_TO_SECTION: Record<string, string> = {
+  profile_personal:          'personal',
+  profile_contact:           'contact',
+  profile_employment:        'employment',
+  profile_address:           'address',
+  profile_passport:          'passport',
+  profile_identification:    'identity',
+  profile_emergency_contact: 'emergency',
+  profile_bank:              'bank',
+  profile_dependents:        'dependents',
+};
+
 export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
   // ── Supabase data ─────────────────────────────────────────────────────────
+  const { can }                          = usePermissions();
   const { employees }                    = useEmployees();
   const { picklistValues: picklistVals } = usePicklistValues();
   const { departments }                  = useDepartments();
@@ -89,9 +119,48 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
   const [liveEmp, setLiveEmp] = useState<FullEmployee>(emp);
   const [saving,  setSaving]  = useState(false);
 
+  // Personal info history panel
+  const [piHistOpen,    setPiHistOpen]    = useState(false);
+  const [piHistRows,    setPiHistRows]    = useState<Record<string, unknown>[]>([]);
+  const [piHistLoading, setPiHistLoading] = useState(false);
+  const [piHistSelIdx,  setPiHistSelIdx]  = useState(0);
+
+  async function loadPiHistory(empId: string) {
+    setPiHistLoading(true);
+    const { data } = await supabase.rpc('get_personal_info_history', { p_employee_id: empId });
+    setPiHistRows((data as Record<string, unknown>[] | null) ?? []);
+    setPiHistSelIdx(0);
+    setPiHistLoading(false);
+  }
+
   // Suppresses auto-derive effects (probation, currency) while loading saved data
   // into the employment form so they don't overwrite the existing DB values.
   const isLoadingEmploymentRef = useRef(false);
+
+  // ── Pending profile-change warnings ──────────────────────────────────────
+  // Set of section IDs (e.g. 'personal', 'contact', 'bank', 'dependents') that
+  // have an active workflow_pending_changes record submitted by this employee.
+  const [pendingSections, setPendingSections] = useState<Set<string>>(new Set());
+
+  const refetchPendingSections = useCallback(async () => {
+    // SECURITY DEFINER RPC — works for any caller with hire_employee.view,
+    // not just wf_manage.view holders (direct table query would return empty
+    // for HR analysts without wf_manage.view, silently leaving sections editable).
+    const { data: moduleCodes } = await supabase.rpc(
+      'get_employee_pending_sections',
+      { p_employee_id: emp.id }
+    );
+    if (!moduleCodes) return;
+    setPendingSections(new Set(
+      (moduleCodes as string[]).map(code => MODULE_TO_SECTION[code]).filter(Boolean)
+    ));
+  }, [emp.id]);
+
+  useEffect(() => {
+    let mounted = true;
+    refetchPendingSections().finally(() => { if (!mounted) return; });
+    return () => { mounted = false; };
+  }, [refetchPendingSections]);
 
   // ── Section open state ────────────────────────────────────────────────────
   const [openSection,  setOpenSection]  = useState<string | null>(null);
@@ -108,6 +177,27 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
   const [dDob,         setDDob]         = useState('');
   const [dPhoto,       setDPhoto]       = useState('');
   const photoRef = useRef<HTMLInputElement>(null);
+  // Bank accounts — parent-controlled save for inline edit mode
+  const bankSaveAllRef = useRef<(() => Promise<boolean>) | null>(null);
+  const [bankSaving, setBankSaving] = useState(false);
+  // Dependents — parent-controlled save for inline edit mode
+  const depSaveAllRef = useRef<(() => Promise<boolean>) | null>(null);
+  const [depSaving, setDepSaving] = useState(false);
+
+  const jrSaveAllRef = useRef<(() => Promise<boolean>) | null>(null);
+  const [jrSaving, setJrSaving] = useState(false);
+
+  // ── Deactivation impact modal ─────────────────────────────────────────────
+  const [deactivationModal, setDeactivationModal] = useState<{
+    open: boolean;
+    pendingAction: (() => void) | null;
+  }>({ open: false, pendingAction: null });
+
+  // ── Delete-primary-with-secondary modal ───────────────────────────────────
+  const [deletePrimaryModal, setDeletePrimaryModal] = useState<{ open: boolean; index: number }>({ open: false, index: -1 });
+
+  // ── Identity record error modal ───────────────────────────────────────────
+  const [sectionErrorModal, setSectionErrorModal] = useState<{ open: boolean; message: string }>({ open: false, message: '' });
 
   // Phone
   const [dCountryCode, setDCountryCode] = useState('+91');
@@ -121,9 +211,9 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
   const [dDesig,      setDDesig]      = useState('');
   const [dDeptId,     setDDeptId]     = useState('');
   const [dManagerId,  setDManagerId]  = useState('');
-  const [dHireDate,   setDHireDate]   = useState('');
-  const [dEndDate,    setDEndDate]    = useState('9999-12-31');
-  const [dProbation,  setDProbation]  = useState('');
+  const [dHireDate,          setDHireDate]          = useState('');
+  const [dNoticePeriodDays,  setDNoticePeriodDays]  = useState(30);
+  const [dProbation,         setDProbation]         = useState('');
   const [dWorkCountry,setDWorkCountry]= useState('');
   const [dWorkLoc,    setDWorkLoc]    = useState('');
   const [dCurrency,   setDCurrency]   = useState('');
@@ -136,12 +226,14 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
   const [idRecordType, setIdRecordType]= useState('');
   const [idNumber,     setIdNumber]    = useState('');
   const [idExpiry,     setIdExpiry]    = useState('');
+  const [idCountryPending, setIdCountryPending] = useState<string | null>(null);
 
   // Passport
-  const [dPassCountry,   setDPassCountry]   = useState('');
-  const [dPassNumber,    setDPassNumber]    = useState('');
-  const [dPassIssueDate, setDPassIssueDate] = useState('');
-  const [dPassExpiry,    setDPassExpiry]    = useState('');
+  const [dPassCountry,        setDPassCountry]        = useState('');
+  const [dPassNumber,         setDPassNumber]         = useState('');
+  const [dPassIssueDate,      setDPassIssueDate]      = useState('');
+  const [dPassExpiry,         setDPassExpiry]         = useState('');
+  const [passportCountryPending, setPassportCountryPending] = useState<string | null>(null);
 
   // Address
   const [dAddrLine1,    setDAddrLine1]    = useState('');
@@ -292,6 +384,8 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
   // ── Open a section for editing ────────────────────────────────────────────
   function requestOpen(sectionId: string) {
     if (openSection === sectionId) return;
+    // Blocked while employee has a pending change request for this section
+    if (pendingSections.has(sectionId)) return;
     if (isDirty) { setDirtyTarget(sectionId); return; }
     doOpen(sectionId);
   }
@@ -323,7 +417,7 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
         isLoadingEmploymentRef.current = true;
         setDDesig((e.designation as string) || ''); setDDeptId((e.deptId as string) || '');
         setDManagerId((e.managerId as string) || ''); setDHireDate((e.hireDate as string) || '');
-        setDEndDate((e.endDate as string) || '9999-12-31'); setDProbation((e.probationEndDate as string) || '');
+        setDNoticePeriodDays((e.noticePeriodDays as number | undefined) ?? 30); setDProbation((e.probationEndDate as string) || '');
         setDWorkCountry((e.workCountry as string) || ''); setDWorkLoc((e.workLocation as string) || '');
         setDCurrency((e.baseCurrencyId as string) || '');
         // Clear the flag after effects have had a chance to run (next tick)
@@ -369,8 +463,7 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
         if (!dDob)         errs.dob = 'Date of birth is required.';
         break;
       case 'contact':
-        if (!dMobile.trim()) errs.mobile = 'Mobile number is required.';
-        else if (!/^\d{7,15}$/.test(dMobile.trim())) errs.mobile = 'Enter 7–15 digits only.';
+        { const mErr = validateMobile(dCountryCode, dMobile); if (mErr) errs.mobile = mErr; }
         break;
       case 'email':
         if (!dBizEmail.trim())
@@ -381,6 +474,13 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
           errs.personalEmail = 'Personal email is required.';
         else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(dPersEmail.trim()))
           errs.personalEmail = 'Enter a valid email address.';
+        // Domain check only for Active employees — Draft/Incomplete/Pending are
+        // provisional records; enforce domain rule once employee is live.
+        else if (
+          (liveEmp.status as string) === 'Active' &&
+          dPersEmail.trim().toLowerCase().includes('@prowessinfotech.co.in')
+        )
+          errs.personalEmail = 'Personal email cannot use the company email domain (@prowessinfotech.co.in). Please provide a personal email address.';
         if (dBizEmail.trim() && dPersEmail.trim() &&
             dBizEmail.trim().toLowerCase() === dPersEmail.trim().toLowerCase())
           errs.personalEmail = 'Personal email cannot be the same as business email.';
@@ -390,19 +490,33 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
         if (!dDeptId)   errs.deptId      = 'Department is required.';
         if (!dHireDate) errs.hireDate    = 'Hire date is required.';
         if (!dProbation)errs.probation   = 'Probation end date is required.';
-        if (!dWorkCountry) errs.workCountry = 'Country of work is required.';
+        // end_date removed (mig 487) — no longer validated here
+        if (dProbation && dHireDate && dProbation < dHireDate)
+          errs.probation = 'Probation End Date cannot be before Hire Date.';
+        if (!dWorkCountry)   errs.workCountry = 'Country of work is required.';
+        else if (!dCurrency) errs.workCountry = 'No default currency is configured for this country. Ask your administrator to set a Default Currency in Reference Data → ID Country.';
         if (!dWorkLoc)  errs.workLocation = 'Location is required.';
         break;
       case 'passport':
         if (dPassCountry) {
-          if (!dPassNumber.trim()) errs.passportNumber = 'Passport Number is required.';
-          if (!dPassIssueDate)     errs.passportIssueDate = 'Issue Date is required.';
-          if (!dPassExpiry)        errs.passportExpiry = 'Expiry Date is required.';
+          const passCountryName = idCountries.find(c => String(c.id) === dPassCountry)?.value ?? '';
+          if (!dPassNumber.trim()) {
+            errs.passportNumber = 'Passport Number is required.';
+          } else {
+            const numErr = validatePassportNumber(passCountryName, dPassNumber);
+            if (numErr) errs.passportNumber = numErr;
+          }
+          if (!dPassIssueDate) errs.passportIssueDate = 'Issue Date is required.';
+          if (!dPassExpiry)    errs.passportExpiry    = 'Expiry Date is required.';
+          if (dPassIssueDate && dPassExpiry) {
+            const valErr = validatePassportValidity(passCountryName, dPassIssueDate, dPassExpiry);
+            if (valErr) errs.passportExpiry = valErr;
+          }
         }
         break;
       case 'address':
         if (!dAddrLine1.trim()) errs.addrLine1 = 'Address line 1 is required.';
-        if (!dAddrLine2.trim()) errs.addrLine2 = 'Address line 2 is required.';
+        // addrLine2 is optional
         if (!dAddrCity.trim())  errs.addrCity  = 'City is required.';
         if (!dAddrPin.trim())   errs.addrPin   = 'PIN / ZIP code is required.';
         if (!dAddrCountry)      errs.addrCountry = 'Country is required.';
@@ -428,8 +542,10 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
     switch (sectionId) {
       case 'personal':
         frontendPatch = { name: dName.trim(), nationality: dNationality, maritalStatus: dMarital, gender: dGender, dob: dDob, photo: dPhoto };
-        // name stays in employees core; personal attributes go to employee_personal satellite
-        dbPatch = { name: dName.trim() };
+        // name is now synced to employees via upsert_personal_info RPC (mig 315/316).
+        // Direct UPDATE employees SET name=... is blocked by trg_guard_employee_name_sync
+        // for Active employees. The RPC handles the sync internally using the session flag.
+        dbPatch = {};
         break;
       case 'contact':
         frontendPatch = { countryCode: dCountryCode, mobile: dMobile.trim() };
@@ -444,20 +560,13 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
       case 'employment':
         frontendPatch = {
           designation: dDesig, deptId: dDeptId, managerId: dManagerId,
-          hireDate: dHireDate, endDate: dEndDate, probationEndDate: dProbation,
+          hireDate: dHireDate, noticePeriodDays: dNoticePeriodDays, probationEndDate: dProbation,
           workCountry: dWorkCountry, workLocation: dWorkLoc, baseCurrencyId: dCurrency,
         };
-        // Core employment fields stay in employees; probation_end_date goes to employee_employment
-        dbPatch = {
-          designation:      dDesig || null,
-          dept_id:          dDeptId || null,
-          manager_id:       dManagerId || null,
-          hire_date:        dHireDate || null,
-          end_date:         dEndDate || null,
-          work_country:     dWorkCountry || null,
-          work_location:    dWorkLoc || null,
-          base_currency_id: dCurrency || null,
-        };
+        // Employment fields are now owned by the employee_employment satellite
+        // (mig 351-352). upsert_employment_info handles the mirror sync on
+        // employees — no direct employees UPDATE needed for these fields.
+        dbPatch = {};
         break;
       default: {
         // identity / passport / address / emergency — related tables
@@ -479,6 +588,16 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
             if (idType && !idRecordType)    pendingErrs.idRecordType = 'Record Type is required.';
             if (idType && !idNumber.trim()) pendingErrs.idNumber     = 'ID Number is required.';
             if (idType && !idExpiry)        pendingErrs.idExpiry     = 'Expiry Date is required.';
+            if (idType && idNumber.trim()) {
+              const _cn = idCountries.find(c => String(c.id) === idCountry)?.value ?? '';
+              const _tn = picklistVals.find(p => String(p.id) === idType)?.value ?? '';
+              const _fe = validateIdentityNumber(_cn, _tn, idNumber.trim());
+              if (_fe) pendingErrs.idNumber = _fe;
+            }
+            if (idExpiry) {
+              const _today = new Date().toISOString().slice(0, 10);
+              if (idExpiry <= _today) pendingErrs.idExpiry = 'Expiry Date must be a future date.';
+            }
             if (Object.keys(pendingErrs).length) {
               setSaving(false);
               setErrors(pendingErrs);
@@ -500,74 +619,79 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
             }];
           }
 
+          // Atomic replace via SECURITY DEFINER RPC (mig 433 — no partial-write window)
           frontendPatch = { idRecords: recordsToSave };
-          const { error: delErr } = await supabase.from('identity_records').delete().eq('employee_id', empUUID);
-          if (delErr) { extError = delErr.message; }
-          else if (recordsToSave.length > 0) {
-            const { error: insErr } = await supabase.from('identity_records').insert(
-              recordsToSave.map(r => ({
-                employee_id: empUUID,
+          {
+            const { error: rpcErr } = await supabase.rpc('replace_identity_records', {
+              p_employee_id: empUUID,
+              p_records: recordsToSave.map(r => ({
                 country:     r.country    || null,
                 id_type:     r.idType     || null,
                 record_type: r.recordType || null,
                 id_number:   r.idNumber   || null,
                 expiry:      r.expiry     || null,
-              }))
-            );
-            if (insErr) extError = insErr.message;
+              })),
+            });
+            if (rpcErr) {
+              const msg = rpcErr.message
+                .replace(/^replace_identity_records:\s*/i, '')
+                .replace(/^ERROR:\s*/i, '');
+              setSectionErrorModal({ open: true, message: msg });
+              return;
+            }
           }
         } else if (sectionId === 'passport') {
+          // Atomic UPSERT via SECURITY DEFINER RPC (mig 433 — no partial-write window)
           frontendPatch = { passportCountry: dPassCountry, passportNumber: dPassNumber, passportIssueDate: dPassIssueDate, passportExpiryDate: dPassExpiry };
-          const { error: passDel } = await supabase.from('passports').delete().eq('employee_id', empUUID);
-          if (passDel) { extError = passDel.message; }
-          else if (dPassCountry || dPassNumber) {
-            const { error: insErr } = await supabase.from('passports').insert({
-              employee_id:     empUUID,
-              country:         dPassCountry   || null,
-              passport_number: dPassNumber    || null,
-              issue_date:      dPassIssueDate || null,
-              expiry_date:     dPassExpiry    || null,
+          {
+            const { error: rpcErr } = await supabase.rpc('upsert_passport', {
+              p_employee_id: empUUID,
+              p_country:     dPassCountry   || null,
+              p_number:      dPassNumber    || null,
+              p_issue_date:  dPassIssueDate || null,
+              p_expiry:      dPassExpiry    || null,
             });
-            if (insErr) extError = insErr.message;
+            if (rpcErr) extError = rpcErr.message;
           }
         } else if (sectionId === 'address') {
+          // Atomic UPSERT via SECURITY DEFINER RPC (mig 433 — no partial-write window)
           frontendPatch = { addrLine1: dAddrLine1, addrLine2: dAddrLine2, addrLandmark: dAddrLandmark, addrCity: dAddrCity, addrDistrict: dAddrDistrict, addrState: dAddrState, addrPin: dAddrPin, addrCountry: dAddrCountry };
-          const { error: addrDel } = await supabase.from('employee_addresses').delete().eq('employee_id', empUUID);
-          if (addrDel) { extError = addrDel.message; }
-          else if (dAddrLine1 || dAddrCity) {
-            const { error: insErr } = await supabase.from('employee_addresses').insert({
-              employee_id: empUUID,
-              line1:       dAddrLine1    || null,
-              line2:       dAddrLine2    || null,
-              landmark:    dAddrLandmark || null,
-              city:        dAddrCity     || null,
-              district:    dAddrDistrict || null,
-              state:       dAddrState    || null,
-              pin:         dAddrPin      || null,
-              country:     dAddrCountry  || null,
+          {
+            const { error: rpcErr } = await supabase.rpc('upsert_employee_address', {
+              p_employee_id: empUUID,
+              p_line1:       dAddrLine1    || null,
+              p_line2:       dAddrLine2    || null,
+              p_landmark:    dAddrLandmark || null,
+              p_city:        dAddrCity     || null,
+              p_district:    dAddrDistrict || null,
+              p_state:       dAddrState    || null,
+              p_pin:         dAddrPin      || null,
+              p_country:     dAddrCountry  || null,
             });
-            if (insErr) extError = insErr.message;
+            if (rpcErr) extError = rpcErr.message;
           }
         } else {
-          // emergency
+          // emergency — atomic UPSERT via SECURITY DEFINER RPC (mig 433 — no partial-write window)
           frontendPatch = { ecName: dEcName, ecRelationship: dEcRel, ecPhone: dEcPhone, ecAltPhone: dEcAlt, ecEmail: dEcEmail };
-          const { error: ecDel } = await supabase.from('emergency_contacts').delete().eq('employee_id', empUUID);
-          if (ecDel) { extError = ecDel.message; }
-          else if (dEcName || dEcPhone) {
-            const { error: insErr } = await supabase.from('emergency_contacts').insert({
-              employee_id:  empUUID,
-              name:         dEcName || '',
-              relationship: dEcRel  || null,
-              phone:        dEcPhone || null,
-              alt_phone:    dEcAlt  || null,
-              email:        dEcEmail || null,
+          {
+            const { error: rpcErr } = await supabase.rpc('upsert_emergency_contact', {
+              p_employee_id:  empUUID,
+              p_name:         dEcName  || null,
+              p_relationship: dEcRel   || null,
+              p_phone:        dEcPhone || null,
+              p_alt_phone:    dEcAlt   || null,
+              p_email:        dEcEmail || null,
             });
-            if (insErr) extError = insErr.message;
+            if (rpcErr) extError = rpcErr.message;
           }
         }
 
         setSaving(false);
-        if (extError) { setErrors({ _global: extError }); return; }
+        if (extError) {
+          const msg = extError.replace(/^[a-z_]+:\s*/i, '').replace(/^ERROR:\s*/i, '') || extError;
+          setSectionErrorModal({ open: true, message: msg });
+          return;
+        }
         setLiveEmp(prev => ({ ...prev, ...frontendPatch, _savedAt: new Date().toISOString() }));
         onSaved?.();
         cancelEdit();
@@ -596,17 +720,21 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
     let satelliteError: string | null = null;
 
     if (sectionId === 'personal') {
-      const { error } = await supabase
-        .from('employee_personal')
-        .upsert({
-          employee_id:    empUUID,
-          nationality:    dNationality || null,
-          marital_status: dMarital     || null,
-          gender:         dGender      || null,
-          dob:            dDob         || null,
-          photo_url:      dPhoto       || null,
-        }, { onConflict: 'employee_id' });
+      const today = new Date().toISOString().split('T')[0];
+      const { data: piResult, error } = await supabase.rpc('upsert_personal_info', {
+        p_employee_id:    empUUID,
+        p_proposed_data: {
+          name:           dName.trim()  || null,
+          nationality:    dNationality  || null,
+          marital_status: dMarital      || null,
+          gender:         dGender       || null,
+          dob:            dDob          || null,
+          photo_url:      dPhoto        || null,
+        },
+        p_effective_from: today,
+      });
       if (error) satelliteError = error.message;
+      else if (piResult && !piResult.ok) satelliteError = piResult.error ?? 'Personal info save failed';
     }
 
     if (sectionId === 'contact') {
@@ -621,23 +749,44 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
     }
 
     if (sectionId === 'email') {
+      // Write both personal_email and business_email (denormalized copy, mig 410)
       const { error } = await supabase
         .from('employee_contact')
         .upsert({
           employee_id:    empUUID,
           personal_email: dPersEmail.trim() || null,
+          business_email: dBizEmail.trim()  || null,
         }, { onConflict: 'employee_id' });
       if (error) satelliteError = error.message;
     }
 
     if (sectionId === 'employment') {
-      const { error } = await supabase
-        .from('employee_employment')
-        .upsert({
-          employee_id:       empUUID,
-          probation_end_date: dProbation || null,
-        }, { onConflict: 'employee_id' });
-      if (error) satelliteError = error.message;
+      // Route through upsert_employment_info — handles effective-dated slice
+      // creation, mirror sync, manager role sync, currency derivation, cycle detection.
+      // end_date removed (mig 487); deactivation now via Termination workflow.
+      const today = new Date().toISOString().split('T')[0];
+      const { data: eeResult, error: eeErr } = await supabase.rpc('upsert_employment_info', {
+        p_employee_id:    empUUID,
+        p_proposed_data:  {
+          designation:        dDesig             || null,
+          dept_id:            dDeptId            || null,
+          manager_id:         dManagerId         || null,
+          hire_date:          dHireDate          || null,
+          notice_period_days: dNoticePeriodDays,
+          work_country:       dWorkCountry       || null,
+          work_location:      dWorkLoc           || null,
+          probation_end_date: dProbation         || null,
+        },
+        p_effective_from: today,
+      });
+      if (eeErr) satelliteError = eeErr.message;
+      else if (eeResult && !eeResult.ok) {
+        if (eeResult.error === 'CYCLE_DETECTED') {
+          satelliteError = eeResult.message ?? 'Assigning this manager would create a reporting cycle.';
+        } else {
+          satelliteError = eeResult.error ?? 'Employment save failed';
+        }
+      }
     }
 
     setSaving(false);
@@ -663,6 +812,16 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
     if (idType && !idRecordType)    errs.idRecordType = 'Record Type is required.';
     if (idType && !idNumber.trim()) errs.idNumber     = 'ID Number is required.';
     if (idType && !idExpiry)        errs.idExpiry     = 'Expiry Date is required.';
+    if (idType && idNumber.trim()) {
+      const countryName = idCountries.find(c => String(c.id) === idCountry)?.value ?? '';
+      const typeName    = picklistVals.find(p => String(p.id) === idType)?.value ?? '';
+      const fmtErr = validateIdentityNumber(countryName, typeName, idNumber.trim());
+      if (fmtErr) errs.idNumber = fmtErr;
+    }
+    if (idExpiry) {
+      const today = new Date().toISOString().slice(0, 10);
+      if (idExpiry <= today) errs.idExpiry = 'Expiry Date must be a future date.';
+    }
     if (Object.keys(errs).length) { setErrors(errs); return; }
 
     if (idRecordType === 'primary' && dIdRecords.some(r => r.recordType === 'primary')) {
@@ -779,6 +938,55 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
           <SummaryRow label="Phone" value={e.ecPhone as string} />
         </div>
       );
+      case 'bank': return (
+        <BankAccountsPortlet
+          employeeId={liveEmp.id as string}
+          hireDate={liveEmp.hireDate as string | undefined}
+          isNewHire={false}
+          readOnly
+          canCreate={false}
+          canEdit={false}
+          canDelete={false}
+        />
+      );
+      case 'dependents': return (
+        <DependentsPortlet
+          employeeId={liveEmp.id as string}
+          hireDate={liveEmp.hireDate as string | undefined}
+          isNewHire={false}
+          readOnly
+          canEdit={false}
+          canDelete={false}
+        />
+      );
+      case 'job_relationships': return (
+        <JobRelationshipsPortlet
+          employeeId={liveEmp.id as string}
+          readOnly
+          canEdit={false}
+          canDelete={false}
+        />
+      );
+      case 'education': return (
+        <EducationPortlet
+          employeeId={liveEmp.id as string}
+          readOnly
+          canCreate={false}
+          canEdit={false}
+          canDelete={false}
+          pendingCount={pendingSections.has('education') ? 1 : 0}
+        />
+      );
+      case 'termination': return (
+        <TerminationPortlet
+          employeeId={liveEmp.id as string}
+          employeeName={liveEmp.name as string}
+          isSelfService={false}
+          readOnly
+          canEdit={false}
+          canHistory={can('termination.history')}
+        />
+      );
       default: return null;
     }
   }
@@ -789,6 +997,99 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
       // ── Personal ───────────────────────────────────────────────────────────
       case 'personal': return (
         <div className="emp-section">
+          {/* History button */}
+          {can('personal_info.history') && (
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+              <button
+                onClick={() => {
+                  if (!piHistOpen) loadPiHistory(liveEmp.id as string);
+                  setPiHistOpen(v => !v);
+                }}
+                style={{
+                  background: piHistOpen ? '#EEF2FF' : 'none',
+                  border: `1px solid ${piHistOpen ? '#A5B4FC' : '#E5E7EB'}`,
+                  borderRadius: 6, padding: '5px 12px', cursor: 'pointer',
+                  color: piHistOpen ? '#4F46E5' : '#6B7280',
+                  fontSize: 12, fontWeight: 500,
+                  display: 'flex', alignItems: 'center', gap: 6,
+                }}
+              >
+                <i className="fa-solid fa-clock-rotate-left" style={{ fontSize: 11 }} />
+                {piHistOpen ? 'Close History' : 'View History'}
+              </button>
+            </div>
+          )}
+
+          {/* History Panel */}
+          {piHistOpen && (
+            <div style={{ marginBottom: 20, border: '1px solid #E0E7FF', borderRadius: 10, overflow: 'hidden' }}>
+              <div style={{ background: '#EEF2FF', padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid #E0E7FF' }}>
+                <i className="fa-solid fa-clock-rotate-left" style={{ color: '#4F46E5', fontSize: 13 }} />
+                <span style={{ fontWeight: 600, fontSize: 13, color: '#3730A3' }}>Personal Info — Change History</span>
+                <span style={{ marginLeft: 'auto', fontSize: 12, color: '#6B7280' }}>
+                  {piHistRows.length} record{piHistRows.length !== 1 ? 's' : ''}
+                </span>
+              </div>
+              {piHistLoading ? (
+                <div style={{ padding: 20, textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>
+                  <i className="fa-solid fa-spinner fa-spin" style={{ marginRight: 6 }} />Loading…
+                </div>
+              ) : piHistRows.length === 0 ? (
+                <div style={{ padding: 20, textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>No history available.</div>
+              ) : (
+                <div style={{ display: 'flex', minHeight: 160 }}>
+                  {/* Date list */}
+                  <div style={{ width: 145, borderRight: '1px solid #E0E7FF', overflowY: 'auto' }}>
+                    {piHistRows.map((h, i) => {
+                      const isCurrent = h.effective_to === '9999-12-31' && h.is_active === true;
+                      return (
+                        <button key={i} onClick={() => setPiHistSelIdx(i)} style={{
+                          width: '100%', textAlign: 'left', padding: '10px 12px',
+                          background: piHistSelIdx === i ? '#EEF2FF' : 'none',
+                          border: 'none', borderBottom: '1px solid #F3F4F6',
+                          cursor: 'pointer', fontSize: 12,
+                          color: piHistSelIdx === i ? '#4F46E5' : '#374151',
+                        }}>
+                          <div style={{ fontWeight: 600 }}>{h.effective_from as string}</div>
+                          <div style={{ color: '#9CA3AF', fontSize: 11 }}>
+                            {isCurrent ? 'Current' : `→ ${h.effective_to as string}`}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {/* Detail */}
+                  {(() => {
+                    const h = piHistRows[piHistSelIdx];
+                    if (!h) return null;
+                    const isCurrent = h.effective_to === '9999-12-31' && h.is_active === true;
+                    return (
+                      <div style={{ flex: 1, padding: '14px 16px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                          <span style={{ fontSize: 12, fontWeight: 600, color: '#6B7280' }}>
+                            {h.effective_from as string} — {isCurrent ? 'Present' : h.effective_to as string}
+                          </span>
+                          {isCurrent && (
+                            <span style={{ fontSize: 11, fontWeight: 600, background: '#D1FAE5', color: '#065F46', borderRadius: 4, padding: '2px 7px' }}>Current</span>
+                          )}
+                        </div>
+                        <div className="emp-field-grid emp-grid-2" style={{ gap: 8, fontSize: 13 }}>
+                          {h.name           && <><span style={{ color: '#6B7280' }}>Full Name</span><span>{h.name as string}</span></>}
+                          {h.nationality    && <><span style={{ color: '#6B7280' }}>Nationality</span><span>{h.nationality as string}</span></>}
+                          {h.marital_status && <><span style={{ color: '#6B7280' }}>Marital Status</span><span>{h.marital_status as string}</span></>}
+                          {h.gender         && <><span style={{ color: '#6B7280' }}>Gender</span><span>{h.gender as string}</span></>}
+                          {h.dob            && <><span style={{ color: '#6B7280' }}>Date of Birth</span><span>{h.dob as string}</span></>}
+                          {h.middle_name    && <><span style={{ color: '#6B7280' }}>Middle Name</span><span>{h.middle_name as string}</span></>}
+                          {h.preferred_name && <><span style={{ color: '#6B7280' }}>Preferred Name</span><span>{h.preferred_name as string}</span></>}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Avatar */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20 }}>
             <div className="emp-form-avatar-wrap" style={{ position: 'relative', width: 72, height: 72, cursor: 'pointer' }}
@@ -840,7 +1141,7 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
             <div className={`form-group ${errors.dob ? 'form-group--error' : ''}`}>
               <label><i className="fa-solid fa-cake-candles fa-fw" /> Date of Birth</label>
               <input
-                type="date"
+                type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31"
                 value={dDob}
                 onChange={e => { setDDob(e.target.value); setIsDirty(true); setErrors(p => ({ ...p, dob: '' })); }}
                 max={new Date().toISOString().slice(0, 10)}
@@ -864,11 +1165,26 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
             <div className={`form-group phone-group ${errors.mobile ? 'form-group--error' : ''}`}>
               <label><i className="fa-solid fa-phone fa-fw" /> Mobile Number</label>
               <div className="phone-row">
-                <select value={dCountryCode} onChange={e => { setDCountryCode(e.target.value); setIsDirty(true); }} style={{ width: 100, flexShrink: 0 }}>
+                <select value={dCountryCode} onChange={e => {
+                  setDCountryCode(e.target.value); setIsDirty(true);
+                  if (dMobile) {
+                    const err = validateMobile(e.target.value, dMobile);
+                    setErrors(p => ({ ...p, mobile: err ?? '' }));
+                  }
+                }} style={{ width: 100, flexShrink: 0 }}>
                   {PHONE_CODES.map(p => <option key={p.code} value={p.code}>{p.label}</option>)}
                 </select>
-                <input type="tel" value={dMobile} onChange={e => { setDMobile(e.target.value); setIsDirty(true); setErrors(p => ({ ...p, mobile: '' })); }} placeholder="e.g. 9876543210" required />
+                <input type="tel" value={dMobile} onChange={e => {
+                  const val = e.target.value;
+                  setDMobile(val); setIsDirty(true);
+                  const err = val ? validateMobile(dCountryCode, val) : '';
+                  setErrors(p => ({ ...p, mobile: err ?? '' }));
+                }} placeholder={mobilePlaceholder(dCountryCode)} required />
               </div>
+              {!errors.mobile && (() => {
+                const hint = mobileHint(dCountryCode);
+                return hint ? <div style={{ fontSize: 11, color: '#6B7280', marginTop: 3 }}><i className="fa-solid fa-circle-info" style={{ marginRight: 4 }} />{hint}</div> : null;
+              })()}
               <FieldError msg={errors.mobile} />
             </div>
           </div>
@@ -948,18 +1264,24 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
             </div>
             <div className={`form-group ${errors.hireDate ? 'form-group--error' : ''}`}>
               <label><i className="fa-solid fa-calendar-day fa-fw" /> Hire Date</label>
-              <input type="date" value={dHireDate} onChange={e => { setDHireDate(e.target.value); setIsDirty(true); setErrors(p => ({ ...p, hireDate: '' })); }} required />
+              <input type="date" min="1900-01-01" max="2100-12-31" value={dHireDate} onChange={e => {
+                setDHireDate(e.target.value); setIsDirty(true);
+                setErrors(p => ({ ...p, hireDate: '' }));
+              }} required />
               <FieldError msg={errors.hireDate} />
             </div>
             <div className={`form-group ${errors.probation ? 'form-group--error' : ''}`}>
               <label><i className="fa-solid fa-hourglass-half fa-fw" /> Probation End Date</label>
-              <input type="date" value={dProbation} onChange={e => { handleProbationChange(e.target.value); }} required />
+              <input type="date" min="1900-01-01" max="2100-12-31" value={dProbation} onChange={e => { handleProbationChange(e.target.value); }} required />
               <FieldError msg={errors.probation} />
             </div>
             <div className="form-group">
-              <label><i className="fa-solid fa-calendar-check fa-fw" /> Contract End Date</label>
-              <input type="date" value={dEndDate === '9999-12-31' ? '' : dEndDate}
-                onChange={e => { setDEndDate(e.target.value || '9999-12-31'); setIsDirty(true); }} />
+              <label><i className="fa-solid fa-clock fa-fw" /> Notice Period</label>
+              <select value={dNoticePeriodDays} onChange={e => { setDNoticePeriodDays(Number(e.target.value)); setIsDirty(true); }}>
+                <option value={30}>30 days</option>
+                <option value={90}>90 days</option>
+                <option value={120}>120 days</option>
+              </select>
             </div>
             <div className={`form-group ${errors.workCountry ? 'form-group--error' : ''}`}>
               <label><i className="fa-solid fa-earth-americas fa-fw" /> Country of Work</label>
@@ -1010,7 +1332,16 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
                       <td><span style={{ fontSize: 11, background: '#EFF6FF', color: '#1D4ED8', borderRadius: 4, padding: '2px 6px' }}>{r.recordType}</span></td>
                       <td>
                         <button style={{ background: 'none', border: 'none', color: '#EF4444', cursor: 'pointer' }}
-                          onClick={() => { setDIdRecords(p => p.filter((_, j) => j !== i)); setIsDirty(true); }}>
+                          onClick={() => {
+                            const rec = dIdRecords[i];
+                            const hasSecondary = dIdRecords.some((r, j) => j !== i && r.recordType === 'secondary');
+                            if (rec.recordType === 'primary' && hasSecondary) {
+                              setDeletePrimaryModal({ open: true, index: i });
+                            } else {
+                              setDIdRecords(p => p.filter((_, j) => j !== i));
+                              setIsDirty(true);
+                            }
+                          }}>
                           <i className="fa-solid fa-trash" />
                         </button>
                       </td>
@@ -1024,7 +1355,16 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
             <div className="emp-field-grid emp-id-grid-top">
               <div className={`form-group ${errors.idCountry ? 'form-group--error' : ''}`}>
                 <label><i className="fa-solid fa-earth-americas fa-fw" /> Country</label>
-                <select value={idCountry} onChange={e => { setIdCountry(e.target.value); setIdType(''); setErrors(p => ({ ...p, idCountry: '' })); }}>
+                <select value={idCountry} onChange={e => {
+                  const next = e.target.value;
+                  const hasFilled = idType || idRecordType || idNumber || idExpiry;
+                  if (hasFilled && next !== idCountry) {
+                    setIdCountryPending(next);
+                  } else {
+                    setIdCountry(next); setIdType('');
+                    setErrors(p => ({ ...p, idCountry: '', idType: '', idRecordType: '', idNumber: '', idExpiry: '' }));
+                  }
+                }}>
                   <option value="">-- Select Country --</option>
                   {idCountries.map(c => <option key={String(c.id)} value={String(c.id)}>{c.value}</option>)}
                 </select>
@@ -1036,7 +1376,16 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
                   const v = e.target.value;
                   setIdType(v);
                   if (v && dIdRecords.some(r => r.idType === v)) setErrors(p => ({ ...p, idType: 'This ID type has already been added.' }));
-                  else setErrors(p => ({ ...p, idType: '' }));
+                  else setErrors(p => ({ ...p, idType: '', idExpiry: '' }));
+                  // Auto-default expiry date based on ID type validity
+                  if (v) {
+                    const countryName = idCountries.find(c => String(c.id) === idCountry)?.value ?? '';
+                    const typeName    = picklistVals.find(p => String(p.id) === v)?.value ?? '';
+                    const def = defaultExpiryDate(countryName, typeName);
+                    if (def) setIdExpiry(def);
+                  } else {
+                    setIdExpiry('');
+                  }
                 }} disabled={!idCountry}>
                   <option value="">{idCountry ? '-- Select --' : '-- Select Country First --'}</option>
                   {idTypes.map(t => <option key={String(t.id)} value={String(t.id)}>{t.value}</option>)}
@@ -1050,7 +1399,9 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
                   <option value="primary" disabled={dIdRecords.some(r => r.recordType === 'primary')}>
                     {dIdRecords.some(r => r.recordType === 'primary') ? '⭐ Primary (already assigned)' : '⭐ Primary'}
                   </option>
-                  <option value="secondary">Secondary</option>
+                  <option value="secondary" disabled={!dIdRecords.some(r => r.recordType === 'primary')}>
+                    {!dIdRecords.some(r => r.recordType === 'primary') ? 'Secondary (add primary first)' : 'Secondary'}
+                  </option>
                 </select>
                 <FieldError msg={errors.idRecordType} />
               </div>
@@ -1058,12 +1409,43 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
             <div className="emp-field-grid emp-id-grid-bottom">
               <div className={`form-group ${errors.idNumber ? 'form-group--error' : ''}`}>
                 <label><i className="fa-solid fa-hashtag fa-fw" /> ID Number</label>
-                <input type="text" value={idNumber} onChange={e => { setIdNumber(e.target.value); setErrors(p => ({ ...p, idNumber: '' })); }} placeholder="e.g. 1234-5678-9012" required={!!idType} />
+                <input type="text" value={idNumber} onChange={e => {
+                  const val = e.target.value;
+                  setIdNumber(val);
+                  const countryName = idCountries.find(c => String(c.id) === idCountry)?.value ?? '';
+                  const typeName    = picklistVals.find(p => String(p.id) === idType)?.value ?? '';
+                  const err = val ? validateIdentityNumber(countryName, typeName, val) : '';
+                  setErrors(p => ({ ...p, idNumber: err ?? '' }));
+                }}
+                placeholder={idNumberPlaceholder(
+                  idCountries.find(c => String(c.id) === idCountry)?.value ?? '',
+                  picklistVals.find(p => String(p.id) === idType)?.value ?? '',
+                )} required={!!idType} />
+                {!errors.idNumber && idType && (() => {
+                  const hint = idNumberHint(
+                    idCountries.find(c => String(c.id) === idCountry)?.value ?? '',
+                    picklistVals.find(p => String(p.id) === idType)?.value ?? '',
+                  );
+                  return hint ? <div style={{ fontSize: 11, color: '#6B7280', marginTop: 3 }}><i className="fa-solid fa-circle-info" style={{ marginRight: 4 }} />{hint}</div> : null;
+                })()}
                 <FieldError msg={errors.idNumber} />
               </div>
               <div className={`form-group ${errors.idExpiry ? 'form-group--error' : ''}`}>
                 <label><i className="fa-solid fa-calendar-xmark fa-fw" /> Expiry Date</label>
-                <input type="date" value={idExpiry} onChange={e => { setIdExpiry(e.target.value); setErrors(p => ({ ...p, idExpiry: '' })); }} required={!!idType} />
+                <input type="date" min="1900-01-01" max="2100-12-31" value={idExpiry} onChange={e => {
+                  const v = e.target.value;
+                  setIdExpiry(v);
+                  const today = new Date().toISOString().slice(0, 10);
+                  if (v && v <= today) setErrors(p => ({ ...p, idExpiry: 'Expiry Date must be a future date.' }));
+                  else setErrors(p => ({ ...p, idExpiry: '' }));
+                }} required={!!idType} />
+                {!errors.idExpiry && idType && (() => {
+                  const lbl = idValidityLabel(
+                    idCountries.find(c => String(c.id) === idCountry)?.value ?? '',
+                    picklistVals.find(p => String(p.id) === idType)?.value ?? '',
+                  );
+                  return lbl ? <div style={{ fontSize: 11, color: '#6B7280', marginTop: 3 }}><i className="fa-solid fa-clock" style={{ marginRight: 4 }} />{lbl}</div> : null;
+                })()}
                 <FieldError msg={errors.idExpiry} />
               </div>
             </div>
@@ -1080,24 +1462,62 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
           <div className="emp-field-grid emp-grid-4">
             <div className="form-group">
               <label><i className="fa-solid fa-globe fa-fw" /> Issue Country</label>
-              <select value={dPassCountry} onChange={e => { setDPassCountry(e.target.value); setIsDirty(true); }}>
+              <select value={dPassCountry} onChange={e => {
+                const next = e.target.value;
+                const hasFilled = dPassNumber || dPassIssueDate || dPassExpiry;
+                if (hasFilled && next !== dPassCountry) {
+                  setPassportCountryPending(next);
+                } else {
+                  setDPassCountry(next); setIsDirty(true);
+                  setErrors(p => ({ ...p, passportNumber: '', passportIssueDate: '', passportExpiry: '' }));
+                }
+              }}>
                 <option value="">-- Select --</option>
                 {idCountries.map(c => <option key={String(c.id)} value={String(c.id)}>{c.value}</option>)}
               </select>
             </div>
             <div className={`form-group ${errors.passportNumber ? 'form-group--error' : ''}`}>
               <label><i className="fa-solid fa-passport fa-fw" /> Passport Number</label>
-              <input value={dPassNumber} onChange={e => { setDPassNumber(e.target.value); setIsDirty(true); setErrors(p => ({ ...p, passportNumber: '' })); }} placeholder="e.g. A1234567" required={!!dPassCountry} />
+              <input value={dPassNumber} onChange={e => {
+                const val = e.target.value;
+                setDPassNumber(val); setIsDirty(true);
+                const countryName = idCountries.find(c => String(c.id) === dPassCountry)?.value ?? '';
+                const err = val ? validatePassportNumber(countryName, val) : '';
+                setErrors(p => ({ ...p, passportNumber: err ?? '' }));
+              }} placeholder={passportNumberPlaceholder(idCountries.find(c => String(c.id) === dPassCountry)?.value ?? '')} required={!!dPassCountry} />
+              {!errors.passportNumber && dPassCountry && (() => {
+                const hint = passportNumberHint(idCountries.find(c => String(c.id) === dPassCountry)?.value ?? '');
+                return hint ? <div style={{ fontSize: 11, color: '#6B7280', marginTop: 3 }}><i className="fa-solid fa-circle-info" style={{ marginRight: 4 }} />{hint}</div> : null;
+              })()}
               <FieldError msg={errors.passportNumber} />
             </div>
             <div className={`form-group ${errors.passportIssueDate ? 'form-group--error' : ''}`}>
               <label><i className="fa-solid fa-calendar-plus fa-fw" /> Issue Date</label>
-              <input type="date" value={dPassIssueDate} onChange={e => { setDPassIssueDate(e.target.value); setIsDirty(true); setErrors(p => ({ ...p, passportIssueDate: '' })); }} required={!!dPassCountry} />
+              <input type="date" min="1900-01-01" max="2100-12-31" value={dPassIssueDate} onChange={e => {
+                const val = e.target.value;
+                setDPassIssueDate(val); setIsDirty(true);
+                setErrors(p => ({ ...p, passportIssueDate: '' }));
+                if (dPassExpiry) {
+                  const countryName = idCountries.find(c => String(c.id) === dPassCountry)?.value ?? '';
+                  const err = validatePassportValidity(countryName, val, dPassExpiry);
+                  setErrors(p => ({ ...p, passportExpiry: err ?? '' }));
+                }
+              }} required={!!dPassCountry} />
               <FieldError msg={errors.passportIssueDate} />
             </div>
             <div className={`form-group ${errors.passportExpiry ? 'form-group--error' : ''}`}>
               <label><i className="fa-solid fa-calendar-xmark fa-fw" /> Expiry Date</label>
-              <input type="date" value={dPassExpiry} onChange={e => { setDPassExpiry(e.target.value); setIsDirty(true); setErrors(p => ({ ...p, passportExpiry: '' })); }} required={!!dPassCountry} />
+              <input type="date" min="1900-01-01" max="2100-12-31" value={dPassExpiry} onChange={e => {
+                const val = e.target.value;
+                setDPassExpiry(val); setIsDirty(true);
+                const countryName = idCountries.find(c => String(c.id) === dPassCountry)?.value ?? '';
+                const err = dPassIssueDate ? validatePassportValidity(countryName, dPassIssueDate, val) : null;
+                setErrors(p => ({ ...p, passportExpiry: err ?? '' }));
+              }} required={!!dPassCountry} />
+              {!errors.passportExpiry && dPassCountry && (() => {
+                const hint = passportValidityHint(idCountries.find(c => String(c.id) === dPassCountry)?.value ?? '');
+                return hint ? <div style={{ fontSize: 11, color: '#6B7280', marginTop: 3 }}><i className="fa-solid fa-clock" style={{ marginRight: 4 }} />{hint}</div> : null;
+              })()}
               <FieldError msg={errors.passportExpiry} />
             </div>
           </div>
@@ -1115,7 +1535,7 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
             </div>
             <div className={`form-group ${errors.addrLine2 ? 'form-group--error' : ''}`}>
               <label><i className="fa-solid fa-road fa-fw" /> Address Line 2</label>
-              <input value={dAddrLine2} onChange={e => { setDAddrLine2(e.target.value); setIsDirty(true); setErrors(p => ({ ...p, addrLine2: '' })); }} placeholder="Street / Area" required />
+              <input value={dAddrLine2} onChange={e => { setDAddrLine2(e.target.value); setIsDirty(true); setErrors(p => ({ ...p, addrLine2: '' })); }} placeholder="Street / Area" />
               <FieldError msg={errors.addrLine2} />
             </div>
             <div className="form-group">
@@ -1184,6 +1604,78 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
             </div>
           </div>
         </div>
+      );
+
+      // ── Bank Accounts ─────────────────────────────────────────────────────────
+      case 'bank': return (
+        <BankAccountsPortlet
+          employeeId={liveEmp.id as string}
+          hireDate={liveEmp.hireDate as string | undefined}
+          isNewHire={false}
+          canCreate={can('bank_accounts.create')}
+          canEdit={can('bank_accounts.edit')}
+          canDelete={can('bank_accounts.delete')}
+          editMode={can('bank_accounts.create') || can('bank_accounts.edit') || can('bank_accounts.delete')}
+          pendingCount={pendingSections.has('bank') ? 1 : 0}
+          isBankException={true}
+          saveAllRef={bankSaveAllRef}
+          onChanged={refetchPendingSections}
+        />
+      );
+
+      // ── Dependents ────────────────────────────────────────────────────────────
+      case 'dependents': return (
+        <DependentsPortlet
+          employeeId={liveEmp.id as string}
+          hireDate={liveEmp.hireDate as string | undefined}
+          isNewHire={false}
+          canEdit={can('dependents.edit')}
+          canDelete={can('dependents.delete')}
+          editMode={can('dependents.edit')}
+          pendingCount={pendingSections.has('dependents') ? 1 : 0}
+          saveAllRef={depSaveAllRef}
+          onChanged={refetchPendingSections}
+        />
+      );
+
+      // ── Job Relationships ─────────────────────────────────────────────────
+      case 'job_relationships': return (
+        <JobRelationshipsPortlet
+          employeeId={liveEmp.id as string}
+          canCreate={can('job_relationships.create')}
+          canEdit={can('job_relationships.edit')}
+          canDelete={can('job_relationships.delete')}
+          editMode={can('job_relationships.create') || can('job_relationships.edit')}
+          pendingCount={pendingSections.has('job_relationships') ? 1 : 0}
+          saveAllRef={jrSaveAllRef}
+          onChanged={refetchPendingSections}
+        />
+      );
+
+      // ── Education ─────────────────────────────────────────────────────────
+      case 'education': return (
+        <EducationPortlet
+          employeeId={liveEmp.id as string}
+          canCreate={can('education.create')}
+          canEdit={can('education.edit')}
+          canDelete={can('education.delete')}
+
+          pendingCount={pendingSections.has('education') ? 1 : 0}
+          onChanged={refetchPendingSections}
+        />
+      );
+
+      case 'termination': return (
+        <TerminationPortlet
+          employeeId={liveEmp.id as string}
+          employeeName={liveEmp.name as string}
+          isSelfService={false}
+          readOnly={!can('termination.edit')}
+          canEdit={can('termination.edit')}
+          canHistory={can('termination.history')}
+          onChanged={refetchPendingSections}
+          sectionTitle={{ icon: 'fa-user-slash', text: 'Termination' }}
+        />
       );
 
       default: return null;
@@ -1258,6 +1750,19 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
         </div>
       )}
 
+      {/* ── Deactivation impact modal ───────────────────────────────────────── */}
+      {deactivationModal.open && (
+        <DeactivationImpactModal
+          employeeId={liveEmp.id as string}
+          employeeName={liveEmp.name as string}
+          onCancel={() => setDeactivationModal({ open: false, pendingAction: null })}
+          onConfirm={() => {
+            setDeactivationModal({ open: false, pendingAction: null });
+            deactivationModal.pendingAction?.();
+          }}
+        />
+      )}
+
       {/* ── Section cards ───────────────────────────────────────────────────── */}
       <div className="emp-edit-sections">
         {SECTIONS.map(sec => {
@@ -1270,14 +1775,28 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
                   <i className={`fa-solid ${sec.icon}`} />
                   <span>{sec.label}</span>
                   {sec.optional && <span className="section-optional-tag">Optional</span>}
+                  {pendingSections.has(sec.id) && (
+                    <span title="Employee has a pending change request for this section" style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 4,
+                      background: '#FEF3C7', color: '#D97706',
+                      fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 10,
+                    }}>
+                      <i className="fa-solid fa-clock" /> Pending request
+                    </span>
+                  )}
                 </div>
-                {!isOpen
-                  ? <button className="emp-edit-btn-edit" onClick={e => { e.stopPropagation(); requestOpen(sec.id); }}>
-                      <i className="fa-solid fa-pen-to-square" /> Edit
-                    </button>
-                  : <button className="emp-edit-btn-close" onClick={e => { e.stopPropagation(); cancelEdit(); }}>
-                      <i className="fa-solid fa-xmark" />
-                    </button>
+                {pendingSections.has(sec.id)
+                  ? <span style={{ fontSize: 12, color: '#D97706', display: 'flex', alignItems: 'center', gap: 5, fontWeight: 600 }}>
+                      <i className="fa-solid fa-lock" /> Under review
+                    </span>
+                  : (!isOpen
+                      ? <button className="emp-edit-btn-edit" onClick={e => { e.stopPropagation(); requestOpen(sec.id); }}>
+                          <i className="fa-solid fa-pen-to-square" /> Edit
+                        </button>
+                      : <button className="emp-edit-btn-close" onClick={e => { e.stopPropagation(); cancelEdit(); }}>
+                          <i className="fa-solid fa-xmark" />
+                        </button>
+                    )
                 }
               </div>
 
@@ -1285,9 +1804,107 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
               <div className="emp-edit-card-body">
                 {isOpen ? (
                   <>
+                    {sec.id === 'bank' ? (
+                      <>
+                        <div style={{ padding: '16px 20px' }}>
+                          {editForm(sec.id)}
+                        </div>
+                        {can('bank_accounts.edit') && (
+                          <div className="emp-edit-card-footer">
+                            <button className="emp-btn-ghost" onClick={cancelEdit}>
+                              <i className="fa-solid fa-xmark" /> Cancel
+                            </button>
+                            <button
+                              className="emp-btn-primary"
+                              disabled={bankSaving}
+                              onClick={async () => {
+                                setBankSaving(true);
+                                const ok = await bankSaveAllRef.current?.() ?? true;
+                                setBankSaving(false);
+                                if (ok) cancelEdit();
+                              }}
+                            >
+                              {bankSaving
+                                ? <><i className="fa-solid fa-spinner fa-spin" /> Saving…</>
+                                : <><i className="fa-solid fa-check" /> Done Editing</>
+                              }
+                            </button>
+                          </div>
+                        )}
+                      </>
+                    ) : sec.id === 'dependents' ? (
+                      <>
+                        <div style={{ padding: '16px 20px' }}>
+                          {editForm(sec.id)}
+                        </div>
+                        {can('dependents.edit') && (
+                          <div className="emp-edit-card-footer">
+                            <button className="emp-btn-ghost" onClick={cancelEdit}>
+                              <i className="fa-solid fa-xmark" /> Cancel
+                            </button>
+                            <button
+                              className="emp-btn-primary"
+                              disabled={depSaving}
+                              onClick={async () => {
+                                setDepSaving(true);
+                                const ok = await depSaveAllRef.current?.() ?? true;
+                                setDepSaving(false);
+                                if (ok) cancelEdit();
+                              }}
+                            >
+                              {depSaving
+                                ? <><i className="fa-solid fa-spinner fa-spin" /> Saving…</>
+                                : <><i className="fa-solid fa-check" /> Done Editing</>
+                              }
+                            </button>
+                          </div>
+                        )}
+                      </>
+                    ) : sec.id === 'job_relationships' ? (
+                      <>
+                        <div style={{ padding: '16px 20px' }}>
+                          {editForm(sec.id)}
+                        </div>
+                        {can('job_relationships.edit') && (
+                          <div className="emp-edit-card-footer">
+                            <button className="emp-btn-ghost" onClick={cancelEdit}>
+                              <i className="fa-solid fa-xmark" /> Cancel
+                            </button>
+                            <button
+                              className="emp-btn-primary"
+                              disabled={jrSaving}
+                              onClick={async () => {
+                                setJrSaving(true);
+                                const ok = await jrSaveAllRef.current?.() ?? true;
+                                setJrSaving(false);
+                                if (ok) cancelEdit();
+                              }}
+                            >
+                              {jrSaving
+                                ? <><i className="fa-solid fa-spinner fa-spin" /> Saving…</>
+                                : <><i className="fa-solid fa-check" /> Done Editing</>
+                              }
+                            </button>
+                          </div>
+                        )}
+                      </>
+                    ) : sec.id === 'education' ? (
+                      <>
+                        <div style={{ padding: '16px 20px' }}>
+                          {editForm(sec.id)}
+                        </div>
+                        <div className="emp-edit-card-footer">
+                          <button className="emp-btn-ghost" onClick={cancelEdit}>
+                            <i className="fa-solid fa-xmark" /> Close
+                          </button>
+                        </div>
+                      </>
+                    ) : (
                     <div className="emp-form-card">
                       {editForm(sec.id)}
                     </div>
+                    )}
+                    {sec.id !== 'bank' && sec.id !== 'dependents' && sec.id !== 'job_relationships' && (
                     <div className="emp-edit-card-footer">
                       <button className="emp-btn-ghost" onClick={cancelEdit}>
                         <i className="fa-solid fa-xmark" /> Cancel
@@ -1304,7 +1921,20 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
                         }
                       </button>
                     </div>
+                    )}
                   </>
+                ) : pendingSections.has(sec.id) ? (
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    padding: '12px 16px', fontSize: 13, color: '#92400E',
+                    background: '#FFFBEB', borderTop: '1px solid #FEF3C7',
+                  }}>
+                    <i className="fa-solid fa-clock" style={{ color: '#D97706', flexShrink: 0 }} />
+                    <span>
+                      A change request from this employee is currently under workflow review.
+                      Editing is blocked until the request is resolved.
+                    </span>
+                  </div>
                 ) : (
                   <div className="emp-edit-card-summary">
                     {readSummary(sec.id)}
@@ -1315,6 +1945,91 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
           );
         })}
       </div>
+
+      {/* ── Identity country-change confirmation ─────────────────────────── */}
+      <ConfirmationModal
+        isOpen={idCountryPending !== null}
+        title="Change Identity Country?"
+        message="Changing the Country will clear the ID Type, Record Type, ID Number, and Expiry Date. Do you want to continue?"
+        confirmText="Yes, Clear"
+        cancelText="Cancel"
+        destructive={false}
+        onConfirm={() => {
+          if (idCountryPending !== null) {
+            setIdCountry(idCountryPending);
+            setIdType(''); setIdRecordType(''); setIdNumber(''); setIdExpiry('');
+            setIsDirty(true);
+            setErrors(p => ({ ...p, idCountry: '', idType: '', idRecordType: '', idNumber: '', idExpiry: '' }));
+          }
+          setIdCountryPending(null);
+        }}
+        onCancel={() => setIdCountryPending(null)}
+      />
+
+      {/* ── Passport country-change confirmation ─────────────────────────── */}
+      <ConfirmationModal
+        isOpen={passportCountryPending !== null}
+        title="Change Issue Country?"
+        message="Changing the Issue Country will clear the Passport Number, Issue Date, and Expiry Date. Do you want to continue?"
+        confirmText="Yes, Clear"
+        cancelText="Cancel"
+        destructive={false}
+        onConfirm={() => {
+          if (passportCountryPending !== null) {
+            setDPassCountry(passportCountryPending);
+            setDPassNumber('');
+            setDPassIssueDate('');
+            setDPassExpiry('');
+            setIsDirty(true);
+            setErrors(p => ({ ...p, passportNumber: '', passportIssueDate: '', passportExpiry: '' }));
+          }
+          setPassportCountryPending(null);
+        }}
+        onCancel={() => setPassportCountryPending(null)}
+      />
+
+      {/* ── Delete primary ID — auto-demote secondary modal ─────────────── */}
+      <ConfirmationModal
+        isOpen={deletePrimaryModal.open}
+        title="Delete Primary ID Record?"
+        message="This employee also has a secondary ID record. Deleting the primary will automatically promote the secondary to primary."
+        warning="The secondary record will become the new primary. You can add a new secondary record afterwards if needed."
+        confirmText="Delete & Promote"
+        cancelText="Cancel"
+        destructive={false}
+        onConfirm={() => {
+          setDIdRecords(prev =>
+            prev
+              .filter((_, j) => j !== deletePrimaryModal.index)
+              .map(r => r.recordType === 'secondary' ? { ...r, recordType: 'primary' } : r)
+          );
+          setIsDirty(true);
+          setDeletePrimaryModal({ open: false, index: -1 });
+        }}
+        onCancel={() => setDeletePrimaryModal({ open: false, index: -1 })}
+      />
+
+      {/* ── Section save error modal (identity, passport, address, emergency) ── */}
+      {sectionErrorModal.open && (
+        <div className="modal-overlay" onClick={() => setSectionErrorModal({ open: false, message: '' })}>
+          <div className="modal-box" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <i className="fa-solid fa-triangle-exclamation modal-icon" style={{ color: '#D97706' }} />
+              <h3>Save Error</h3>
+            </div>
+            <div className="modal-body" style={{ whiteSpace: 'pre-line' }}>{sectionErrorModal.message}</div>
+            <div className="modal-actions">
+              <button
+                className="emp-btn-primary"
+                style={{ padding: '9px 28px', fontSize: 13.5 }}
+                onClick={() => setSectionErrorModal({ open: false, message: '' })}
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 

@@ -171,19 +171,21 @@ function Page2({ picklist, vals, employees, onBack, picklistRowId, onRefetch }: 
     setTimeout(() => firstInputRef.current?.focus(), 50);
   }
 
-  /** Generates a unique 4-char alphanumeric ref_id scoped to this picklist's existing values. */
+  /** Generates a sequential ref_id like R001, R002 using the picklist's first letter as prefix. */
   function generateRefId(): string {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    const prefix  = picklist.id[0].toUpperCase();
+    const pattern = new RegExp(`^${prefix}(\\d{3})$`);
     const existing = new Set(pickVals.map(v => v.refId).filter(Boolean) as string[]);
-    let id = '';
-    let attempts = 0;
-    do {
-      id = Array.from({ length: 4 }, () =>
-        chars[Math.floor(Math.random() * chars.length)]
-      ).join('');
-      attempts++;
-    } while (existing.has(id) && attempts < 500);
-    return id;
+    // Find the highest existing sequential number for this prefix
+    let max = 0;
+    for (const id of existing) {
+      const m = id.match(pattern);
+      if (m) max = Math.max(max, parseInt(m[1], 10));
+    }
+    // Find next unused slot (handles gaps)
+    let next = max + 1;
+    while (existing.has(`${prefix}${String(next).padStart(3, '0')}`)) next++;
+    return `${prefix}${String(next).padStart(3, '0')}`;
   }
 
   async function saveValue() {

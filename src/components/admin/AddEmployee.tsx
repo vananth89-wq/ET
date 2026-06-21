@@ -1,11 +1,21 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
+import { usePermissions } from '../../hooks/usePermissions';
 import WorkflowGateBanner from '../../workflow/components/WorkflowGateBanner';
 import { supabase } from '../../lib/supabase';
 import { useEmployees } from '../../hooks/useEmployees';
 import { usePicklistValues } from '../../hooks/usePicklistValues';
 import { useDepartments } from '../../hooks/useDepartments';
 import { useCurrencies } from '../../hooks/useCurrencies';
+import { PHONE_CODES } from '../../constants/phoneCodes';
+import { validateMobile, mobilePlaceholder, mobileHint } from '../../utils/validateMobile';
+import { validatePassportNumber, validatePassportValidity, passportNumberPlaceholder, passportNumberHint, passportValidityHint } from '../../utils/validatePassport';
+import { validateIdentityNumber, idNumberPlaceholder, idNumberHint, defaultExpiryDate, idValidityLabel } from '../../utils/validateIdentity';
+import BankAccountsPortlet from '../shared/BankAccountsPortlet';
+import DependentsPortlet from '../shared/DependentsPortlet';
+import EducationPortlet  from '../shared/EducationPortlet';
+import ConfirmationModal  from '../shared/ConfirmationModal';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -67,8 +77,9 @@ export interface FullEmployee {
   ecEmail?: string;
   photo?: string;
   role?: string;
-  status?: 'Draft' | 'Incomplete' | 'Active' | 'Inactive';
-  _completedSections?: string[];
+  status?: 'Draft' | 'Incomplete' | 'Pending' | 'Active' | 'Inactive' | 'Rejected';
+  locked?: boolean;
+  // _completedSections removed — tick state is always data-derived, never persisted
   [key: string]: unknown;
 }
 
@@ -84,38 +95,12 @@ const SECTIONS = [
   { id: 'passport',   label: 'Passport',   icon: 'fa-passport',       optional: true  },
   { id: 'address',    label: 'Address',    icon: 'fa-location-dot',   optional: false },
   { id: 'emergency',  label: 'Emergency',  icon: 'fa-phone-volume',   optional: false },
+  { id: 'education',  label: 'Education',  icon: 'fa-graduation-cap',  optional: true  },
+  { id: 'bank',       label: 'Bank',       icon: 'fa-building-columns', optional: false },
+  { id: 'dependents', label: 'Dependents', icon: 'fa-people-group',    optional: true  },
 ];
 
-const PHONE_CODES = [
-  { code: '+1',   flag: '🇺🇸', label: '+1' },
-  { code: '+7',   flag: '🇷🇺', label: '+7' },
-  { code: '+27',  flag: '🇿🇦', label: '+27' },
-  { code: '+33',  flag: '🇫🇷', label: '+33' },
-  { code: '+34',  flag: '🇪🇸', label: '+34' },
-  { code: '+39',  flag: '🇮🇹', label: '+39' },
-  { code: '+44',  flag: '🇬🇧', label: '+44' },
-  { code: '+49',  flag: '🇩🇪', label: '+49' },
-  { code: '+52',  flag: '🇲🇽', label: '+52' },
-  { code: '+55',  flag: '🇧🇷', label: '+55' },
-  { code: '+60',  flag: '🇲🇾', label: '+60' },
-  { code: '+61',  flag: '🇦🇺', label: '+61' },
-  { code: '+62',  flag: '🇮🇩', label: '+62' },
-  { code: '+63',  flag: '🇵🇭', label: '+63' },
-  { code: '+64',  flag: '🇳🇿', label: '+64' },
-  { code: '+65',  flag: '🇸🇬', label: '+65' },
-  { code: '+66',  flag: '🇹🇭', label: '+66' },
-  { code: '+81',  flag: '🇯🇵', label: '+81' },
-  { code: '+82',  flag: '🇰🇷', label: '+82' },
-  { code: '+84',  flag: '🇻🇳', label: '+84' },
-  { code: '+86',  flag: '🇨🇳', label: '+86' },
-  { code: '+91',  flag: '🇮🇳', label: '+91' },
-  { code: '+92',  flag: '🇵🇰', label: '+92' },
-  { code: '+94',  flag: '🇱🇰', label: '+94' },
-  { code: '+880', flag: '🇧🇩', label: '+880' },
-  { code: '+966', flag: '🇸🇦', label: '+966' },
-  { code: '+971', flag: '🇦🇪', label: '+971' },
-  { code: '+977', flag: '🇳🇵', label: '+977' },
-];
+// PHONE_CODES imported from src/constants/phoneCodes.ts
 
 export const COUNTRIES = [
   'Afghanistan','Albania','Algeria','Argentina','Australia','Austria','Bangladesh','Belgium',
@@ -128,6 +113,8 @@ export const COUNTRIES = [
   'Vietnam','Zimbabwe',
 ];
 
+// generateEmpId is kept as a local fallback only — the canonical ID is always
+// fetched from the server via generate_employee_id() RPC (collision-safe sequence).
 function generateEmpId(employees: FullEmployee[]): string {
   const nums = employees
     .map(e => parseInt((e.employeeId || '').replace(/\D/g, ''), 10))
@@ -142,6 +129,15 @@ function getAvatar(emp?: Partial<FullEmployee>): string {
   return `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=2F77B5&color=fff&size=80`;
 }
 
+/** Strips raw DB function-name prefixes from identity record error messages. */
+function cleanIdError(msg: string): string {
+  return msg
+    .replace(/^replace_identity_records:\s*/i, '')
+    .replace(/^add_hire_identity_record:\s*/i, '')
+    .replace(/^ERROR:\s*/i, '')
+    || msg;
+}
+
 function fmtDate(val?: string): string {
   if (!val) return '—';
   return new Date(val + 'T00:00:00').toLocaleDateString('en-GB', {
@@ -154,23 +150,26 @@ function fmtDate(val?: string): string {
 // ─────────────────────────────────────────────────────────────────────────────
 // Progress Tracker
 // ─────────────────────────────────────────────────────────────────────────────
-function ProgressTracker({ activeSection, completedSections, onJump }: {
+function ProgressTracker({ activeSection, completedSections, onJump, baseAllDone }: {
   activeSection: string;
   completedSections: Set<string>;
   onJump: (id: string) => void;
+  baseAllDone: boolean;
 }) {
   return (
     <div className="emp-form-progress">
       {SECTIONS.map((s, i) => {
         const isActive    = s.id === activeSection;
         const isCompleted = completedSections.has(s.id);
+        const BASE_IDS = ['personal', 'contact', 'email', 'employment'];
+        const isLocked = !baseAllDone && !BASE_IDS.includes(s.id);
         return (
           <div key={s.id} style={{ display: 'flex', alignItems: 'center' }}>
             <div
-              className={`efp-step ${isActive ? 'efp-active' : ''} ${isCompleted ? 'efp-done' : ''} ${s.optional ? 'efp-optional' : ''}`}
+              className={`efp-step ${isActive ? 'efp-active' : ''} ${isCompleted ? 'efp-done' : ''} ${s.optional ? 'efp-optional' : ''} ${isLocked ? 'efp-locked' : ''}`}
               title={`${s.label}${s.optional ? ' (Optional)' : ''}`}
               onClick={() => onJump(s.id)}
-              style={{ cursor: 'pointer' }}
+              style={{ cursor: isLocked ? 'not-allowed' : 'pointer' }}
             >
               <div className="efp-icon">
                 {isCompleted
@@ -179,6 +178,11 @@ function ProgressTracker({ activeSection, completedSections, onJump }: {
                 }
               </div>
               <span className="efp-label">{s.label}</span>
+              {isLocked && (
+                <span className="efp-lock-badge">
+                  <i className="fa-solid fa-lock" />
+                </span>
+              )}
             </div>
             {i < SECTIONS.length - 1 && <div className="efp-connector" />}
           </div>
@@ -203,14 +207,27 @@ function FieldError({ msg }: { msg?: string }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // New Hires Table (Draft / Incomplete)
 // ─────────────────────────────────────────────────────────────────────────────
-function NewHiresTable({ employees, onContinue, onDelete, picklistVals, departments }: {
+function NewHiresTable({ employees, onContinue, onDelete, picklistVals, departments, currentUserId, canViewAll }: {
   employees: FullEmployee[];
   onContinue: (emp: FullEmployee) => void;
   onDelete: (id: string) => void;
   picklistVals: PicklistValue[];
   departments: { deptId: string; name: string }[];
+  currentUserId: string | null;
+  canViewAll: boolean;
 }) {
-  const drafts = employees.filter(e => e.status === 'Draft' || e.status === 'Incomplete');
+  const drafts = employees.filter(e => {
+    const isPipeline = e.status === 'Draft' || e.status === 'Incomplete' || e.status === 'Pending' || e.status === 'Rejected';
+    if (!isPipeline) return false;
+    // Ownership filter for all pipeline statuses — belt-and-suspenders on top of RLS.
+    // Note: RLS keeps Pending open so workflow approvers can read via WorkflowReview,
+    // but in this table we only show records the current user owns or has view_all
+    // permission for. Approvers reach pending hires through ApproverInbox, not here.
+    if (canViewAll) return true;
+    const createdBy = (e as { createdBy?: string | null }).createdBy;
+    // Legacy records (createdBy === null, pre-mig 253) remain visible to all analysts.
+    return createdBy == null || createdBy === currentUserId;
+  });
   if (drafts.length === 0) return null;
 
   function resolveLabel(picklistId: string, val?: unknown): string {
@@ -233,7 +250,7 @@ function NewHiresTable({ employees, onContinue, onDelete, picklistVals, departme
           background: '#FEF3C7', color: '#92400E', borderRadius: 20,
           padding: '2px 10px', fontSize: 11.5, fontWeight: 600,
         }}>
-          {drafts.length} pending
+          {drafts.length} {drafts.length === 1 ? 'record' : 'records'}
         </span>
       </div>
       <div className="table-wrapper">
@@ -253,7 +270,11 @@ function NewHiresTable({ employees, onContinue, onDelete, picklistVals, departme
             {drafts.map((emp, idx) => {
               const sc = emp.status === 'Draft'
                 ? { bg: '#FEF9C3', color: '#92400E' }
-                : { bg: '#FFF7ED', color: '#C2410C' };
+                : emp.status === 'Pending'
+                  ? { bg: '#DBEAFE', color: '#1E40AF' }
+                  : emp.status === 'Rejected'
+                    ? { bg: '#FEF2F2', color: '#DC2626' }
+                    : { bg: '#FFF7ED', color: '#C2410C' };
               return (
                 <tr key={emp.employeeId}>
                   <td className="emp-th-num" style={{ color: '#9CA3AF', fontSize: 12 }}>{idx + 1}</td>
@@ -283,19 +304,41 @@ function NewHiresTable({ employees, onContinue, onDelete, picklistVals, departme
                   </td>
                   <td>
                     <div className="emp-action-btns" style={{ display: 'flex', gap: 6 }}>
-                      <button
-                        className="btn-edit" title="Continue filling"
-                        style={{ color: '#2563EB' }}
-                        onClick={() => onContinue(emp)}
-                      >
-                        <i className="fa-solid fa-pen-to-square" />
-                      </button>
-                      <button
-                        className="btn-delete" title="Discard draft"
-                        onClick={() => onDelete(emp.employeeId)}
-                      >
-                        <i className="fa-solid fa-trash" />
-                      </button>
+                      {emp.status === 'Pending' ? (
+                        /* Pending records are locked — open in read mode only */
+                        <button
+                          className="btn-edit" title="View (awaiting approval)"
+                          style={{ color: '#6B7280' }}
+                          onClick={() => onContinue(emp)}
+                        >
+                          <i className="fa-solid fa-eye" />
+                        </button>
+                      ) : emp.status === 'Rejected' ? (
+                        /* Rejected records — view is read-only; direct to Sent Back inbox */
+                        <button
+                          className="btn-edit" title="View rejection reason in Sent Back inbox"
+                          style={{ color: '#DC2626' }}
+                          onClick={() => onContinue(emp)}
+                        >
+                          <i className="fa-solid fa-eye" />
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            className="btn-edit" title="Continue filling"
+                            style={{ color: '#2563EB' }}
+                            onClick={() => onContinue(emp)}
+                          >
+                            <i className="fa-solid fa-pen-to-square" />
+                          </button>
+                          <button
+                            className="btn-delete" title="Discard draft"
+                            onClick={() => onDelete(emp.employeeId)}
+                          >
+                            <i className="fa-solid fa-trash" />
+                          </button>
+                        </>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -315,6 +358,60 @@ export default function AddEmployee() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const editId = searchParams.get('edit');
+  // mode=edit  → opened by approver via Edit-in-Flight (Update button in WorkflowReview)
+  // reviewMode → where to return after saving in edit mode
+  const isApproverEditMode = searchParams.get('mode') === 'edit';
+  const returnTo = searchParams.get('returnTo');
+
+  // ── Hire Submission Mode ────────────────────────────────────────────────
+  // Calls get_hire_submission_mode() which wraps resolve_workflow_for_submission,
+  // the exact same logic the backend uses in submit_hire and wf_activate_employee.
+  // 'workflow' → show "Submit for Approval"  (workflow is configured)
+  // 'direct'   → show "Activate Employee"    (no workflow configured)
+  // Using the RPC ensures frontend and backend are always in sync.
+  const [hasHireWorkflow,  setHasHireWorkflow]  = useState(false);
+  const [hireGateLoading,  setHireGateLoading]  = useState(true);
+
+  // Re-usable fetcher — called on mount AND before Submit/Activate clicks (G-B fix).
+  // Prevents stale config from showing the wrong action button after a workflow
+  // assignment changes while the form is open.
+  const refreshHireMode = async () => {
+    try {
+      const { data } = await supabase.rpc('get_hire_submission_mode');
+      setHasHireWorkflow(data === 'workflow');
+    } catch {
+      setHasHireWorkflow(false);
+    } finally {
+      setHireGateLoading(false);
+    }
+  };
+
+  useEffect(() => { refreshHireMode(); }, []);
+
+  // ── Lock state — mirrors the DB locked column of the loaded employee ────
+  // Locked records are read-only until the approver acts on them.
+  const [isLocked, setIsLocked] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [submittingForApproval, setSubmittingForApproval] = useState(false);
+  const [incompleteSectionsModal, setIncompleteSectionsModal] = useState<string[]>([]);
+
+  // ── Approver return comment (shown when status=Incomplete) ────────────────
+  const [returnComment, setReturnComment] = useState<{
+    message: string; fromName: string; at: string;
+  } | null>(null);
+
+  // ── Optimistic locking — track updated_at of last-loaded employee row ─────
+  // useRef instead of useState so the token can be read and written synchronously
+  // within a single async function. upsert_employment_info mirrors fields back to
+  // the employees table (updating updated_at) before performSave runs — if this
+  // were state, the new token wouldn't be visible in the same async call.
+  const loadedEmpUpdatedAtRef = useRef<string | null>(null);
+
+  const { user: authUser, isAdmin: isSuperAdmin } = useAuth();
+  const { can }                                   = usePermissions();
+  // HR Head (view_all_pending) and System Admins can see all pipeline records;
+  // regular analysts only see their own.
+  const canViewAllPipeline = can('employee_hire.view_all_pending') || isSuperAdmin;
 
   const { employees: allEmployees, refetch: refetchEmployees } = useEmployees();
   // Bridge to FullEmployee[] for backward-compat usage inside this component
@@ -336,21 +433,28 @@ export default function AddEmployee() {
   // ── Photo ───────────────────────────────────────────────────────────────
   const [photo, setPhoto] = useState<string>('');
   const photoRef         = useRef<HTMLInputElement>(null);
-  const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const doAutosaveRef    = useRef<() => void>(() => {});
-  const didMountRef      = useRef(false);
-  // Set to true during handleActivate to block any in-flight or periodic autosave
-  // from overwriting the newly-written 'Active' status back to 'Draft'.
-  const isActivatingRef  = useRef(false);
 
   // ── Editing state ───────────────────────────────────────────────────────
-  const [editingEmpId,  setEditingEmpId]  = useState<string | null>(null);
+  const [editingEmpId,    setEditingEmpId]    = useState<string | null>(null);
+  // Status of the employee loaded into the form ('Draft', 'Incomplete',
+  // 'Pending', 'Active', …). null = brand-new record not yet saved.
+  // Used to pick the correct action button: Submit for Approval (hire pipeline)
+  // vs Activate Employee (direct path when no workflow is configured).
+  const [loadedEmpStatus, setLoadedEmpStatus] = useState<string | null>(null);
   // DB UUID of the employee currently being added/edited — used to exclude
   // them from the Manager dropdown even when empId doesn't match their record.
   const [currentEmpUUID, setCurrentEmpUUID] = useState<string | null>(null);
 
+  // Ref to bank form's save fn — called before submit/save-draft in new hire mode
+  const bankSaveTriggerRef = useRef<(() => Promise<boolean>) | null>(null);
+  // Ref to dependents form's save fn — called before submit/save-draft in new hire mode
+  const depSaveTriggerRef = useRef<(() => Promise<boolean>) | null>(null);
+  const eduSaveTriggerRef = useRef<(() => Promise<boolean>) | null>(null);
+
   // ── Section 1: Personal ─────────────────────────────────────────────────
-  const [empName,        setEmpName]        = useState('');
+  const [firstName,      setFirstName]      = useState('');
+  const [middleName,     setMiddleName]     = useState('');
+  const [lastName,       setLastName]       = useState('');
   const [empId,          setEmpId]          = useState('');
   const [nationality,    setNationality]    = useState('');
   const [maritalStatus,  setMaritalStatus]  = useState('');
@@ -370,6 +474,7 @@ export default function AddEmployee() {
   const [passportNumber,    setPassportNumber]     = useState('');
   const [passportIssueDate, setPassportIssueDate] = useState('');
   const [passportExpiry,    setPassportExpiry]     = useState('');
+  const [passportCountryPending, setPassportCountryPending] = useState<string | null>(null);
 
   // ── Section 5: Identity ─────────────────────────────────────────────────
   const [idRecords,    setIdRecords]    = useState<IdRecord[]>([]);
@@ -378,11 +483,14 @@ export default function AddEmployee() {
   const [idRecordType, setIdRecordType] = useState('');
   const [idNumber,     setIdNumber]     = useState('');
   const [idExpiry,     setIdExpiry]     = useState('');
+  const [idCountryPending, setIdCountryPending] = useState<string | null>(null);
 
   // ── Section 6: Employment ───────────────────────────────────────────────
   const [designation,    setDesignation]    = useState('');
   const [deptId,         setDeptId]         = useState('');
   const [managerId,      setManagerId]      = useState('');
+  const [managerSearch,  setManagerSearch]  = useState('');
+  const [managerOpen,    setManagerOpen]    = useState(false);
   const [hireDate,       setHireDate]       = useState('');
   const [endDate,        setEndDate]        = useState('9999-12-31');
   const [probationEnd,   setProbationEnd]   = useState('');
@@ -407,16 +515,20 @@ export default function AddEmployee() {
   const [ecAltPhone, setEcAltPhone] = useState('');
   const [ecEmail,    setEcEmail]    = useState('');
 
+  // ── Section 9: Bank ──────────────────────────────────────────────────────
+  // BankAccountsPortlet manages its own data; we just track whether ≥1 account saved
+  const [bankSectionDone,       setBankSectionDone]       = useState(false);
+  // ── Section 10 & 11: Education / Dependents (optional portlets) ──────────
+  // Driven by onRecordCountChange — true only when portlet confirms ≥1 live record
+  const [educationHasRecords,   setEducationHasRecords]   = useState(false);
+  const [dependentsHasRecords,  setDependentsHasRecords]  = useState(false);
+
   // ── Delete confirmation ─────────────────────────────────────────────────
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // ── Cancel & Exit confirmation modal ────────────────────────────────────
   const [exitModal, setExitModal] = useState(false);
-
-  // ── Autosave indicators ─────────────────────────────────────────────────
-  const [autosaveStatus, setAutosaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
-  const [lastAutoSaved,  setLastAutoSaved]  = useState<Date | null>(null);
-  const [, setTick]                         = useState(0); // refreshes "X mins ago" every minute
+  const [gateMsg, setGateMsg] = useState(false);
 
   // ── Toast notification ───────────────────────────────────────────────────
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -430,6 +542,22 @@ export default function AddEmployee() {
   const [probationWarning, setProbationWarning] = useState<{
     open: boolean; pendingDate: string;
   }>({ open: false, pendingDate: '' });
+
+  // ── Delete-primary-with-secondary modal ──────────────────────────────────
+  // Fires when user deletes the primary ID record while a secondary exists.
+  // On confirm: auto-demotes secondary → primary, removes the deleted primary.
+  const [deletePrimaryModal, setDeletePrimaryModal] = useState<{ open: boolean; index: number }>({ open: false, index: -1 });
+
+  // ── Duplicate business-email modal ───────────────────────────────────────
+  // type 'block'  → Active / Pending / Inactive  (hard block, single OK button)
+  // type 'warn'   → Draft / Incomplete           (soft warn, View existing + Continue)
+  const [dupEmailModal, setDupEmailModal] = useState<{
+    open: boolean;
+    type: 'block' | 'warn';
+    title: string;
+    message: string;
+    existingId: string;
+  }>({ open: false, type: 'block', title: '', message: '', existingId: '' });
 
   // ── Picklist helpers ────────────────────────────────────────────────────
   const designations = useMemo(
@@ -510,7 +638,7 @@ export default function AddEmployee() {
   // Self-exclusion: by UUID (most reliable), by empId code, and by editingEmpId.
   const managers = useMemo(
     () => employees.filter(e => {
-      if (e.status === 'Draft' || e.status === 'Incomplete') return false;
+      if (e.status === 'Draft' || e.status === 'Incomplete' || e.status === 'Pending') return false;
       if (currentEmpUUID && (e as unknown as { id: string }).id === currentEmpUUID) return false;
       if (editingEmpId && e.employeeId === editingEmpId) return false;
       if (empId.trim() && e.employeeId === empId.trim()) return false;
@@ -522,10 +650,15 @@ export default function AddEmployee() {
   // ── Load employee into form when editId param changes ───────────────────
   function loadEmployee(emp: FullEmployee) {
     setEditingEmpId(emp.employeeId);
+    setLoadedEmpStatus(emp.status ?? null);
+    loadedEmpUpdatedAtRef.current = (emp as any).updatedAt ?? null;
+    setReturnComment(null); // cleared on each load; fetched below if Incomplete
     const empUUID = (emp as unknown as { id: string }).id || null;
     setCurrentEmpUUID(empUUID);
     setPhoto(emp.photo || '');
-    setEmpName(emp.name || '');
+    setFirstName((emp as any).firstName || '');
+    setMiddleName((emp as any).middleName || '');
+    setLastName((emp as any).lastName || '');
     setEmpId(emp.employeeId || '');
     setNationality(emp.nationality || '');
     setMaritalStatus(emp.maritalStatus || '');
@@ -543,6 +676,7 @@ export default function AddEmployee() {
     setDesignation(emp.designation || '');
     setDeptId(emp.deptId || '');
     setManagerId(emp.managerId || '');
+    setManagerSearch(emp.managerId ? (employees.find(e => (e as any).id === emp.managerId)?.name ?? '') : '');
     setHireDate(emp.hireDate || '');
     setEndDate(emp.endDate || '9999-12-31');
     setProbationEnd(emp.probationEndDate || '');
@@ -562,13 +696,20 @@ export default function AddEmployee() {
     setEcPhone(emp.ecPhone || '');
     setEcAltPhone(emp.ecAltPhone || '');
     setEcEmail(emp.ecEmail || '');
+    // Reflect lock state from the loaded employee (locked col now mapped in useEmployees)
+    setIsLocked(emp.locked ?? false);
+
     setErrors({});
     setActiveSection('personal');
 
-    // Restore completed sections: start from persisted set, then overlay data-based checks
-    const done = new Set<string>(emp._completedSections || []);
-    // Data-based checks ensure required sections reflect actual data (overrides stale persisted state)
-    if (emp.name && emp.employeeId) done.add('personal');    else done.delete('personal');
+    // Derive completed sections entirely from live satellite data.
+    // _completedSections was a phantom field (never persisted to DB) — removed.
+    // Every section is checked against actual data below; no seed needed.
+    const done = new Set<string>();
+    // Data-based checks ensure required sections reflect actual data.
+    // Use firstName (from employee_personal satellite) not emp.name (always set on employees master).
+    // This prevents a false-positive tick when employee_personal has no row yet.
+    if ((emp as any).firstName && emp.employeeId) done.add('personal'); else done.delete('personal');
     if (emp.mobile) done.add('contact');                     else done.delete('contact');
     if (emp.businessEmail && emp.personalEmail) done.add('email'); else done.delete('email');
     if (emp.designation && emp.deptId && emp.hireDate && emp.probationEndDate && emp.workLocation) done.add('employment'); else done.delete('employment');
@@ -582,30 +723,110 @@ export default function AddEmployee() {
     // Load extended data (passport, addresses, emergency, identity records) from DB.
     // useEmployees only fetches the employees table — extended tables must be fetched separately.
     if (empUUID) loadExtendedData(empUUID);
+
+    // Load approver return comment when status=Incomplete.
+    // Primary: vw_wf_my_requests (scoped to submitted_by = auth.uid()).
+    // Fallback: direct workflow_instances + workflow_action_log query for HR Heads
+    //   who have view_all_pending and are viewing someone else's hire (G-C fix).
+    if (emp.status === 'Incomplete' && empUUID) {
+      supabase
+        .from('vw_wf_my_requests')
+        .select('clarification_message, clarification_from, clarification_at')
+        .eq('record_id', empUUID)
+        .eq('status', 'awaiting_clarification')
+        .order('clarification_at', { ascending: false })
+        .limit(1)
+        .then(async ({ data }) => {
+          const row = data?.[0];
+          if (row?.clarification_message) {
+            setReturnComment({
+              message:  row.clarification_message,
+              fromName: row.clarification_from ?? 'Approver',
+              at:       row.clarification_at ?? '',
+            });
+            return;
+          }
+
+          // Fallback for HR Heads viewing a hire they did not submit themselves.
+          // workflow_instances RLS allows wf_manage.view users to see all instances.
+          if (!canViewAllPipeline) return;
+
+          const { data: instances } = await supabase
+            .from('workflow_instances')
+            .select('id')
+            .eq('module_code', 'employee_hire')
+            .eq('record_id', empUUID)
+            .eq('status', 'awaiting_clarification')
+            .order('created_at', { ascending: false })
+            .limit(1);
+
+          const instanceId = instances?.[0]?.id;
+          if (!instanceId) return;
+
+          const { data: logRows } = await supabase
+            .from('workflow_action_log')
+            .select('notes, created_at, profiles!actor_id(name, employees!employee_id(name))')
+            .eq('instance_id', instanceId)
+            .eq('action', 'returned_to_initiator')
+            .order('created_at', { ascending: false })
+            .limit(1);
+
+          const logRow = logRows?.[0] as any;
+          if (logRow?.notes) {
+            const actorEmployee = logRow?.profiles?.employees;
+            setReturnComment({
+              message:  logRow.notes,
+              fromName: actorEmployee?.name ?? logRow?.profiles?.name ?? 'Approver',
+              at:       logRow.created_at ?? '',
+            });
+          }
+        });
+    }
   }
 
   useEffect(() => {
     if (editId) {
-      const emp = employees.find(e => e.employeeId === editId);
+      // Try EMP-format match first (normal edit flow: ?edit=EMP001).
+      // Fall back to UUID match (approver edit-in-flight: ?edit=<uuid>).
+      const emp =
+        employees.find(e => e.employeeId === editId) ??
+        employees.find(e => (e as unknown as { id: string }).id === editId);
       if (emp) {
         loadEmployee(emp); // loadEmployee now also calls loadExtendedData internally
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editId]);
+  }, [editId, employees.length]); // employees.length: re-run if hook loads more records
+
+  // ── Fetch a server-assigned employee ID (collision-safe) ─────────────────
+  // Calls the generate_employee_id() RPC which increments emp_id_seq atomically.
+  // Falls back to the client-side generator if the RPC fails (network error, etc.).
+  async function fetchNewEmpId(): Promise<string> {
+    const { data, error } = await supabase.rpc('generate_employee_id');
+    if (error || !data) {
+      console.warn('[fetchNewEmpId] RPC failed, using local fallback:', error);
+      return generateEmpId(employees);
+    }
+    return data as string;
+  }
 
   // ── Reset form ──────────────────────────────────────────────────────────
   function resetForm() {
     setEditingEmpId(null);
+    setLoadedEmpStatus(null);
     setCurrentEmpUUID(null);
+    loadedEmpUpdatedAtRef.current = null;
+    setReturnComment(null);
     setPhoto('');
-    setEmpName(''); setEmpId(generateEmpId(employees));
+    // Clear ID first (shows blank briefly), then fetch server-assigned ID async
+    setFirstName(''); setMiddleName(''); setLastName(''); setEmpId('');
+    fetchNewEmpId().then(id => setEmpId(id));
     setNationality(''); setMaritalStatus(''); setGender(''); setDob('');
     setCountryCode('+91'); setMobile('');
     setBusinessEmail(''); setPersonalEmail('');
     setPassportCountry(''); setPassportNumber(''); setPassportIssueDate(''); setPassportExpiry('');
     setIdRecords([]);
-    setDesignation(''); setDeptId(''); setManagerId('');
+    setDesignation(''); setDeptId(''); setManagerId(''); setManagerSearch(''); setManagerOpen(false);
     setHireDate(''); setEndDate('9999-12-31'); setProbationEnd('');
     setWorkCountry(''); setWorkLocation(''); setBaseCurrency('');
     setAddrLine1(''); setAddrLine2(''); setAddrLandmark(''); setAddrCity('');
@@ -614,21 +835,9 @@ export default function AddEmployee() {
     setErrors({});
     setCompleted(new Set());
     setActiveSection('personal');
-    // Reset autosave state so the new-form fingerprint doesn't trigger immediately
-    setLastAutoSaved(null);
-    setAutosaveStatus('idle');
-    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
-    isActivatingRef.current = false;   // allow autosave again for the next employee
-    didMountRef.current = false;
+    setIsLocked(false);
+    setSubmittingForApproval(false);
     navigate('/admin/add-employee', { replace: true });
-  }
-
-  // ── Utility: relative time label ────────────────────────────────────────
-  function getRelativeTime(date: Date): string {
-    const mins = Math.round((Date.now() - date.getTime()) / 60000);
-    if (mins < 1)   return 'just now';
-    if (mins === 1) return '1 min ago';
-    return `${mins} mins ago`;
   }
 
   // ── Utility: brief toast notification ───────────────────────────────────
@@ -640,9 +849,11 @@ export default function AddEmployee() {
   // ── Utility: detect unsaved changes (lazy, called only at exit time) ────
   function hasUnsavedChanges(): boolean {
     const existing = employees.find(e => e.employeeId === empId.trim());
-    if (!existing) return empName.trim().length > 0; // new employee with content
+    if (!existing) return firstName.trim().length > 0; // new employee with content
     return (
-      empName       !== (existing.name            || '') ||
+      firstName     !== ((existing as any).firstName  || '') ||
+      middleName    !== ((existing as any).middleName || '') ||
+      lastName      !== ((existing as any).lastName   || '') ||
       nationality   !== (existing.nationality     || '') ||
       maritalStatus !== (existing.maritalStatus   || '') ||
       mobile        !== (existing.mobile          || '') ||
@@ -667,32 +878,89 @@ export default function AddEmployee() {
     );
   }
 
+  // ── Duplicate business-email check (fires on blur) ──────────────────────
+  async function checkDuplicateEmail(email: string) {
+    const trimmed = email.trim().toLowerCase();
+    if (!trimmed || !trimmed.endsWith('@prowessinfotech.co.in')) return;
+
+    const { data } = await supabase
+      .from('employees')
+      .select('id, name, status')
+      .eq('business_email', trimmed)
+      .in('status', ['Active', 'Pending', 'Draft', 'Incomplete', 'Inactive'])
+      .limit(1)
+      .maybeSingle();
+
+    if (!data) return; // no match — all clear
+
+    const { id, name, status } = data as { id: string; name: string; status: string };
+
+    if (status === 'Active') {
+      setDupEmailModal({
+        open: true, type: 'block', existingId: id,
+        title: 'Employee already active',
+        message: `${name || 'An employee'} is already active with this email address. A new hire record cannot be created.`,
+      });
+      setErrors(p => ({ ...p, businessEmail: 'This email belongs to an active employee.' }));
+    } else if (status === 'Pending') {
+      setDupEmailModal({
+        open: true, type: 'block', existingId: id,
+        title: 'Hire record pending approval',
+        message: `A hire record for ${name || 'this email'} is currently pending approval. A duplicate cannot be created until the existing one is resolved.`,
+      });
+      setErrors(p => ({ ...p, businessEmail: 'A pending hire record already exists for this email.' }));
+    } else if (status === 'Inactive') {
+      setDupEmailModal({
+        open: true, type: 'block', existingId: id,
+        title: 'Former employee email',
+        message: `This email belongs to ${name || 'a former employee'} whose record is inactive. For a re-hire, please use a new business email address.`,
+      });
+      setErrors(p => ({ ...p, businessEmail: 'This email belongs to a former employee — use a new email for re-hire.' }));
+    } else if (status === 'Draft') {
+      setDupEmailModal({
+        open: true, type: 'warn', existingId: id,
+        title: 'Existing draft hire form',
+        message: `An incomplete hire form for ${name || 'this email'} already exists (Status: Draft). You can open it to continue, or create a new one.`,
+      });
+    } else if (status === 'Incomplete') {
+      setDupEmailModal({
+        open: true, type: 'warn', existingId: id,
+        title: 'Existing hire record',
+        message: `A hire record for ${name || 'this email'} was returned for correction (Status: Incomplete). You can open it to fix and resubmit, or create a new one.`,
+      });
+    }
+  }
+
   // ── Core manual save (flush + recompute status + toast) ─────────────────
-  async function performSave(thenExit = false): Promise<boolean> {
+  // Returns the employee UUID on success, null on failure.
+  // Callers must use the returned UUID rather than reading currentEmpUUID state
+  // because React state updates are async and would still be stale on the same tick.
+  // Pass silent=true to suppress the "Draft saved" success toast (used by auto-save on section nav).
+  async function performSave(thenExit = false, silent = false): Promise<string | null> {
     const effectiveIdRecords = activeSection === 'identity' ? flushPendingIdRecord() : idRecords;
     const data = collectData(effectiveIdRecords);
     const requiredSections = SECTIONS.filter(s => !s.optional).map(s => s.id);
     const nowCompleted = new Set([...completed, activeSection]);
     if (!effectiveIdRecords.length) nowCompleted.delete('identity');
     if (!passportNumber.trim())     nowCompleted.delete('passport');
+    // Bank tick: only if at least one account was confirmed saved this session
+    if (bankSectionDone)      nowCompleted.add('bank');       else nowCompleted.delete('bank');
+    // Optional portlet ticks: driven by live record count from onRecordCountChange
+    if (educationHasRecords)  nowCompleted.add('education');  else nowCompleted.delete('education');
+    if (dependentsHasRecords) nowCompleted.add('dependents'); else nowCompleted.delete('dependents');
     setCompleted(nowCompleted);
     const allRequired = requiredSections.every(id => nowCompleted.has(id));
     const status: 'Draft' | 'Incomplete' = allRequired ? 'Incomplete' : 'Draft';
 
-    // Build the DB payload — only core employees table columns
-    // personal/contact/employment satellite columns are saved via saveExtendedData
+    // Build the DB payload — only core employees table columns.
+    // Employment mirror fields (designation, dept_id, manager_id, hire_date,
+    // end_date, work_country, work_location, base_currency_id) are now owned by
+    // the employee_employment satellite and written via saveExtendedData →
+    // upsert_employment_info (mig 352). Do NOT include them here.
     const dbPayload: Record<string, unknown> = {
       employee_id:      data.employeeId,
       name:             data.name,
-      business_email:   data.businessEmail      || null,
-      designation:      data.designation        || null,
-      dept_id:          data.deptId             || null,
-      manager_id:       data.managerId          || null,
-      hire_date:        data.hireDate           || null,
-      end_date:         data.endDate            || null,
-      work_country:     data.workCountry        || null,
-      work_location:    data.workLocation       || null,
-      base_currency_id: (data as {baseCurrency?: string}).baseCurrency || null,
+      business_email:   data.businessEmail || null,
       status,
     };
 
@@ -702,146 +970,113 @@ export default function AddEmployee() {
     let empUUID: string;
 
     if (knownUUID) {
-      const { error: dbErr } = await supabase
+      // Optimistic locking: include updated_at in WHERE so a concurrent save is
+      // detected rather than silently overwritten (last-write-wins).
+      let updateQuery = supabase
         .from('employees')
         .update(dbPayload as any)
         .eq('id', knownUUID);
-      if (dbErr) { showToast(`Save failed: ${dbErr.message}`, 'error'); return false; }
+
+      if (loadedEmpUpdatedAtRef.current) {
+        updateQuery = updateQuery.eq('updated_at', loadedEmpUpdatedAtRef.current) as typeof updateQuery;
+      }
+
+      const { data: updated, error: dbErr } = await (updateQuery as any)
+        .select('id, updated_at')
+        .single();
+
+      if (dbErr) {
+        // PGRST116 = 0 rows — row was modified by someone else since we loaded it
+        if ((dbErr as any).code === 'PGRST116') {
+          showToast(
+            'This record was modified by someone else while you were editing. Please reload and re-apply your changes.',
+            'error',
+          );
+        } else {
+          showToast(`Save failed: ${dbErr.message}`, 'error');
+        }
+        return null;
+      }
+
+      // Stamp the new updated_at so the next save uses the correct optimistic lock token
+      if (updated?.updated_at) loadedEmpUpdatedAtRef.current = updated.updated_at;
       empUUID = knownUUID;
     } else {
       const { data: inserted, error: dbErr } = await supabase
         .from('employees')
         .insert(dbPayload as any)
-        .select('id')
+        .select('id, updated_at')
         .single();
-      if (dbErr || !inserted) { showToast(`Save failed: ${dbErr?.message ?? 'unknown error'}`, 'error'); return false; }
+      if (dbErr || !inserted) { showToast(`Save failed: ${dbErr?.message ?? 'unknown error'}`, 'error'); return null; }
       empUUID = inserted.id;
       setCurrentEmpUUID(empUUID);
+      if (inserted.updated_at) loadedEmpUpdatedAtRef.current = inserted.updated_at;
     }
 
     const extErrors = await saveExtendedData(empUUID, data);
+
+    // upsert_employment_info (inside upsert_hire_satellites) mirrors employment
+    // fields back to the employees base table, firing trg_employees_updated_at
+    // and changing employees.updated_at. Refresh the lock token here so the
+    // NEXT performSave / optimistic lock check uses the actual current value.
+    {
+      const { data: fresh } = await supabase
+        .from('employees').select('updated_at').eq('id', empUUID).single();
+      if (fresh?.updated_at) loadedEmpUpdatedAtRef.current = fresh.updated_at;
+    }
+
     refetchEmployees();
     if (extErrors.length > 0) {
-      showToast(`Saved with errors: ${extErrors[0]}`, 'error');
+      if (!silent) setInfoModal({
+        open: true,
+        title: 'Save Error',
+        message: extErrors.map(e => cleanIdError(e)).join('\n'),
+        type: 'warning',
+      });
     } else {
-      showToast('Draft saved', 'success');
+      if (!silent) showToast('Draft saved', 'success');
     }
     if (thenExit) resetForm();
-    return true;
+    return empUUID;   // return UUID so callers don't read stale state
   }
 
-  // ── Silent autosave (no validation, no flush, preserves status) ──────────
-  async function doAutosave() {
-    // Block autosave while activation is in progress — otherwise an in-flight
-    // or periodic autosave could overwrite the 'Active' status back to 'Draft'.
-    if (isActivatingRef.current) return;
-    if (!empName.trim() || !empId.trim()) return;
-    setAutosaveStatus('saving');
-    const data = collectData(idRecords);
-
-    // Prefer currentEmpUUID (already-captured UUID from a prior autosave) so we
-    // don't have to depend on allEmployees having refreshed yet — avoids the race
-    // condition where a stale list causes a duplicate INSERT attempt.
-    const existingRow = allEmployees.find(e => e.employeeId === (editingEmpId || data.employeeId));
-    const knownUUID   = currentEmpUUID || existingRow?.id;
-
-    // Autosave payload — core employees columns only (satellite tables via saveExtendedData)
-    const dbPayload: Record<string, unknown> = {
-      employee_id:      data.employeeId,
-      name:             data.name,
-      business_email:   data.businessEmail      || null,
-      designation:      data.designation        || null,
-      dept_id:          data.deptId             || null,
-      manager_id:       data.managerId          || null,
-      hire_date:        data.hireDate           || null,
-      end_date:         data.endDate            || null,
-      work_country:     data.workCountry        || null,
-      work_location:    data.workLocation       || null,
-      base_currency_id: (data as {baseCurrency?: string}).baseCurrency || null,
-      status:           existingRow?.status ?? 'Draft',
-    };
-
-    let empUUID: string | undefined;
-    if (knownUUID) {
-      // Employee already exists — UPDATE by primary key (no stale-list dependency)
-      await supabase.from('employees').update(dbPayload as any).eq('id', knownUUID);
-      empUUID = knownUUID;
-    } else {
-      // First autosave for a brand-new employee — INSERT
-      const { data: inserted } = await supabase.from('employees').insert(dbPayload as any).select('id').single();
-      empUUID = inserted?.id;
-    }
-
-    if (empUUID) {
-      setCurrentEmpUUID(empUUID);
-      const extErrors = await saveExtendedData(empUUID, data);
-      if (extErrors.length > 0) {
-        console.warn('[doAutosave] extended data errors:', extErrors);
-      }
-    }
-    refetchEmployees();
-    setLastAutoSaved(new Date());
-    setTimeout(() => setAutosaveStatus('saved'), 400);
-    setTimeout(() => setAutosaveStatus('idle'), 3400);
+  // ── Refresh optimistic lock token ────────────────────────────────────────
+  // Must be called after any satellite save that may mirror fields back to the
+  // employees base table (e.g. upsert_employment_info updates employees.updated_at
+  // via trigger). If the token is stale when performSave runs, it will see 0 rows
+  // and raise a false-positive "modified by someone else" error.
+  async function refreshLockToken() {
+    const uuid = currentEmpUUID;
+    if (!uuid) return;
+    const { data } = await supabase
+      .from('employees')
+      .select('updated_at')
+      .eq('id', uuid)
+      .single();
+    if (data?.updated_at) loadedEmpUpdatedAtRef.current = data.updated_at;
   }
 
   // ── Cancel & Exit ────────────────────────────────────────────────────────
   function handleCancelExit() {
-    if (hasUnsavedChanges()) { setExitModal(true); } else { resetForm(); }
+    // Locked records are read-only — nothing can be changed, so skip the
+    // unsaved-changes check and close immediately.
+    if (isLocked || !hasUnsavedChanges()) { resetForm(); } else { setExitModal(true); }
   }
 
-  // ── Auto-generate employee ID once employees list has loaded ─────────────
-  // Runs whenever `employees` changes, but only updates empId if:
-  //   1. We're not editing an existing employee (no editId / editingEmpId)
-  //   2. The field hasn't been manually changed (still blank OR still matches a generated ID)
+  // ── Fetch server-assigned employee ID on initial load (new hire only) ─────
+  // Fires once when the component mounts for a fresh hire (no editId/editingEmpId).
+  // Uses the generate_employee_id() RPC (backed by emp_id_seq) to guarantee
+  // collision-safety across concurrent sessions.
   useEffect(() => {
-    if (editId || editingEmpId) return;          // don't overwrite while editing
-    if (employees.length === 0) return;           // wait until list arrives from Supabase
-    const generated = generateEmpId(employees);
-    setEmpId(prev => {
-      // Only overwrite if field is blank or looks like an auto-generated value
-      if (!prev || /^EMP\d+$/.test(prev)) return generated;
-      return prev;
+    if (editId || editingEmpId) return;    // don't overwrite while editing an existing record
+    fetchNewEmpId().then(id => {
+      setEmpId(prev => {
+        // Only set if blank or still showing a prior auto-generated value
+        if (!prev || /^EMP[-\d]+$/.test(prev)) return id;
+        return prev;
+      });
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [employees]);
-
-  // ── Keep doAutosaveRef pointing at the latest closure ────────────────────
-  // (standard pattern to avoid stale state in setInterval callbacks)
-  useEffect(() => { doAutosaveRef.current = doAutosave; }); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Debounced autosave: 2.5 s after last field change ────────────────────
-  const formFingerprint = [
-    empName, empId, nationality, maritalStatus, gender, dob,
-    mobile, businessEmail, personalEmail,
-    designation, deptId, managerId, hireDate, endDate, probationEnd,
-    workCountry, workLocation,
-    addrLine1, addrLine2, addrLandmark, addrCity, addrDistrict, addrState, addrPin, addrCountry,
-    ecName, ecRel, ecPhone, ecAltPhone, ecEmail,
-    passportCountry, passportNumber, passportIssueDate, passportExpiry,
-    JSON.stringify(idRecords),
-  ].join('|');
-
-  useEffect(() => {
-    if (!didMountRef.current) { didMountRef.current = true; return; }
-    if (!empName.trim() || !empId.trim()) return;
-    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
-    autosaveTimerRef.current = setTimeout(() => doAutosaveRef.current(), 2500);
-  }, [formFingerprint]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Periodic autosave fallback: every 45 s ───────────────────────────────
-  useEffect(() => {
-    const id = setInterval(() => doAutosaveRef.current(), 45000);
-    return () => {
-      clearInterval(id);
-      if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
-    };
-  }, []);
-
-  // ── Clock tick: refresh "X mins ago" label every 60 s ───────────────────
-  useEffect(() => {
-    const id = setInterval(() => setTick(t => t + 1), 60000);
-    return () => clearInterval(id);
   }, []);
 
   // ── Compute effective idRecords, flushing any fully-filled pending form entry ─
@@ -852,7 +1087,15 @@ export default function AddEmployee() {
       idCountry && idType && idRecordType && idNumber.trim() && idExpiry;
     if (!pendingComplete) return idRecords;
 
-    // Run same validations as addIdRecord before auto-flushing
+    // Run same validations as addIdRecord before auto-flushing (including format + expiry future)
+    const _countryName = idCountries.find(c => String(c.id) === idCountry)?.value ?? '';
+    const _typeName    = picklistVals.find(p => String(p.id) === idType)?.value ?? '';
+    const _fmtErr = validateIdentityNumber(_countryName, _typeName, idNumber.trim());
+    if (_fmtErr) { setErrors(p => ({ ...p, idNumber: _fmtErr })); return idRecords; }
+    if (idExpiry) {
+      const _today = new Date().toISOString().slice(0, 10);
+      if (idExpiry <= _today) { setErrors(p => ({ ...p, idExpiry: 'Expiry Date must be a future date.' })); return idRecords; }
+    }
     if (idRecords.some(r => r.idType === idType)) {
       setErrors(p => ({ ...p, idType: 'This ID type has already been added for this employee.' }));
       return idRecords;
@@ -885,9 +1128,19 @@ export default function AddEmployee() {
 
   // ── Collect current data into object ────────────────────────────────────
   function collectData(idRecordsOverride?: IdRecord[]): Partial<FullEmployee> {
+    const fn = firstName.trim();
+    const mn = middleName.trim();
+    const ln = lastName.trim();
+    const computedName = fn && mn && ln ? `${fn} ${mn} ${ln}`
+                       : fn && ln       ? `${fn} ${ln}`
+                       : fn && mn       ? `${fn} ${mn}`
+                       : fn             || '';
     return {
       employeeId: empId.trim(),
-      name: empName.trim(),
+      name: computedName,
+      firstName: fn,
+      middleName: mn || undefined,
+      lastName: ln || undefined,
       photo,
       nationality, maritalStatus, gender, dob,
       countryCode, mobile: mobile.trim(),
@@ -906,116 +1159,88 @@ export default function AddEmployee() {
 
   // ── Save extended data to related tables ───────────────────────────────
   // Returns an array of error messages (empty = all succeeded).
+  // ── saveExtendedData — single-transaction satellite write (mig 439) ────────
+  // All 7 satellite writes are delegated to upsert_hire_satellites(), which
+  // executes them in one PL/pgSQL body (one implicit Postgres transaction).
+  // A failure in any section rolls back all writes in the call.
   async function saveExtendedData(empUUID: string, data: Partial<FullEmployee>): Promise<string[]> {
-    const errors: string[] = [];
+    const d = data as any;
+    // Effective date = hire date.  If hire date is not yet filled (personal
+    // section saved before employment section), pass null so the backend skips
+    // the effective-dated writes rather than using today's date and creating a
+    // spurious historical slice later when the real hire date is entered.
+    const effectiveFrom     = data.hireDate || null;
+    const idRecs            = (data.idRecords as IdRecord[] | undefined) ?? [];
 
-    // ── employee_personal (upsert) ───────────────────────────────────────
-    if (data.nationality || data.maritalStatus || data.gender || data.dob || data.photo) {
-      const { error: personalErr } = await supabase
-        .from('employee_personal')
-        .upsert({
-          employee_id:    empUUID,
-          nationality:    data.nationality    || null,
-          marital_status: data.maritalStatus  || null,
-          gender:         data.gender         || null,
-          dob:            data.dob            || null,
-          photo_url:      data.photo          || null,
-        }, { onConflict: 'employee_id' });
-      if (personalErr) { console.error('[saveExtendedData] employee_personal:', personalErr); errors.push(`Personal: ${personalErr.message}`); }
-    }
+    // Sections are passed as JSON null when no meaningful data exists so the
+    // RPC's IS NOT NULL guard skips the upsert entirely, preventing spurious
+    // all-null rows from being written on early autosaves.
+    const personalData = (d.firstName || data.nationality || data.maritalStatus || data.gender || data.dob || data.photo)
+      ? { first_name: d.firstName || null, middle_name: d.middleName || null, last_name: d.lastName || null, nationality: data.nationality || null, marital_status: data.maritalStatus || null, gender: data.gender || null, dob: data.dob || null, photo_url: data.photo || null }
+      : null;
 
-    // ── employee_contact (upsert) ────────────────────────────────────────
-    if (data.countryCode || data.mobile || data.personalEmail) {
-      const { error: contactErr } = await supabase
-        .from('employee_contact')
-        .upsert({
-          employee_id:    empUUID,
-          country_code:   data.countryCode    || null,
-          mobile:         data.mobile         || null,
-          personal_email: data.personalEmail  || null,
-        }, { onConflict: 'employee_id' });
-      if (contactErr) { console.error('[saveExtendedData] employee_contact:', contactErr); errors.push(`Contact: ${contactErr.message}`); }
-    }
+    const contactData = (data.countryCode || data.mobile || data.personalEmail || data.businessEmail)
+      ? { country_code: data.countryCode || null, mobile: data.mobile || null, personal_email: data.personalEmail || null, business_email: data.businessEmail || null }
+      : null;
 
-    // ── employee_employment (upsert) ─────────────────────────────────────
-    if (data.probationEndDate) {
-      const { error: employmentErr } = await supabase
-        .from('employee_employment')
-        .upsert({
-          employee_id:        empUUID,
-          probation_end_date: data.probationEndDate || null,
-        }, { onConflict: 'employee_id' });
-      if (employmentErr) { console.error('[saveExtendedData] employee_employment:', employmentErr); errors.push(`Employment: ${employmentErr.message}`); }
-    }
+    const employmentData = (data.designation || data.deptId || data.managerId || data.hireDate || data.workCountry || data.workLocation || data.probationEndDate)
+      ? { designation: data.designation || null, dept_id: data.deptId || null, manager_id: data.managerId || null, hire_date: data.hireDate || null, end_date: data.endDate || null, work_country: data.workCountry || null, work_location: data.workLocation || null, probation_end_date: data.probationEndDate || null }
+      : null;
 
-    // ── Passport (delete-then-insert, at most one row) ──────────────────
-    const { error: passDel } = await supabase.from('passports').delete().eq('employee_id', empUUID);
-    if (passDel) { console.error('[saveExtendedData] passport delete:', passDel); errors.push(`Passport: ${passDel.message}`); }
-    else if (data.passportCountry || data.passportNumber || data.passportIssueDate || data.passportExpiryDate) {
-      const { error: passIns } = await supabase.from('passports').insert({
-        employee_id:     empUUID,
-        country:         data.passportCountry    || null,
-        passport_number: data.passportNumber     || null,
-        issue_date:      data.passportIssueDate  || null,
-        expiry_date:     data.passportExpiryDate || null,
-      });
-      if (passIns) { console.error('[saveExtendedData] passport insert:', passIns); errors.push(`Passport: ${passIns.message}`); }
-    }
-
-    // ── Address ─────────────────────────────────────────────────────────
-    const { error: addrDel } = await supabase.from('employee_addresses').delete().eq('employee_id', empUUID);
-    if (addrDel) { console.error('[saveExtendedData] address delete:', addrDel); errors.push(`Address: ${addrDel.message}`); }
-    else if (data.addrLine1 || data.addrCity || data.addrCountry) {
-      const { error: addrIns } = await supabase.from('employee_addresses').insert({
-        employee_id: empUUID,
-        line1:       data.addrLine1    || null,
-        line2:       data.addrLine2    || null,
-        landmark:    data.addrLandmark || null,
-        city:        data.addrCity     || null,
-        district:    data.addrDistrict || null,
-        state:       data.addrState    || null,
-        pin:         data.addrPin      || null,
-        country:     data.addrCountry  || null,
-      });
-      if (addrIns) { console.error('[saveExtendedData] address insert:', addrIns); errors.push(`Address: ${addrIns.message}`); }
-    }
-
-    // ── Emergency contact ────────────────────────────────────────────────
-    const { error: ecDel } = await supabase.from('emergency_contacts').delete().eq('employee_id', empUUID);
-    if (ecDel) { console.error('[saveExtendedData] emergency_contact delete:', ecDel); errors.push(`Emergency contact: ${ecDel.message}`); }
-    else if (data.ecName || data.ecPhone) {
-      const { error: ecIns } = await supabase.from('emergency_contacts').insert({
-        employee_id:  empUUID,
-        name:         data.ecName         || '',
+    const payload = {
+      personal:                  personalData,
+      personal_effective_from:   effectiveFrom,
+      contact:                   contactData,
+      employment:                employmentData,
+      employment_effective_from: effectiveFrom,
+      passport: {
+        country:    data.passportCountry    || null,
+        number:     data.passportNumber     || null,
+        issue_date: data.passportIssueDate  || null,
+        expiry:     data.passportExpiryDate || null,
+      },
+      address: {
+        line1:    data.addrLine1    || null,
+        line2:    data.addrLine2    || null,
+        landmark: data.addrLandmark || null,
+        city:     data.addrCity     || null,
+        district: data.addrDistrict || null,
+        state:    data.addrState    || null,
+        pin:      data.addrPin      || null,
+        country:  data.addrCountry  || null,
+      },
+      emergency: {
+        name:         data.ecName         || null,
         relationship: data.ecRelationship || null,
         phone:        data.ecPhone        || null,
         alt_phone:    data.ecAltPhone     || null,
         email:        data.ecEmail        || null,
-      });
-      if (ecIns) { console.error('[saveExtendedData] emergency_contact insert:', ecIns); errors.push(`Emergency contact: ${ecIns.message}`); }
+      },
+      identity_records: idRecs.map(r => ({
+        country:     r.country     || null,
+        id_type:     r.idType      || null,
+        record_type: r.recordType  || null,
+        id_number:   r.idNumber    || null,
+        expiry:      r.expiry      || null,
+      })),
+    };
+
+    const { data: result, error: rpcErr } = await supabase.rpc('upsert_hire_satellites', {
+      p_employee_id: empUUID,
+      p_data: payload,
+    });
+
+    if (rpcErr) {
+      console.error('[saveExtendedData] upsert_hire_satellites:', rpcErr);
+      return [`Save failed: ${rpcErr.message}`];
     }
 
-    // ── Identity records (replace all) ───────────────────────────────────
-    const { error: idDel } = await supabase.from('identity_records').delete().eq('employee_id', empUUID);
-    if (idDel) { console.error('[saveExtendedData] identity_records delete:', idDel); errors.push(`Identity records: ${idDel.message}`); }
-    else {
-      const idRecs = (data.idRecords as IdRecord[] | undefined) ?? [];
-      if (idRecs.length > 0) {
-        const { error: idIns } = await supabase.from('identity_records').insert(
-          idRecs.map(r => ({
-            employee_id:  empUUID,
-            country:      r.country     || null,
-            id_type:      r.idType      || null,
-            record_type:  r.recordType  || null,
-            id_number:    r.idNumber    || null,
-            expiry:       r.expiry      || null,
-          }))
-        );
-        if (idIns) { console.error('[saveExtendedData] identity_records insert:', idIns); errors.push(`Identity records: ${idIns.message}`); }
-      }
+    const res = result as { ok: boolean; errors: { section: string; error: string }[] } | null;
+    if (!res?.ok && res?.errors?.length) {
+      return res.errors.map(e => `${e.section}: ${e.error}`);
     }
 
-    return errors;
+    return [];
   }
 
   // ── Load extended data from related tables into form state ──────────────
@@ -1028,14 +1253,20 @@ export default function AddEmployee() {
       { data: personalRow },
       { data: contactRow },
       { data: employmentRow },
+      { data: depRows },
+      { data: eduData },
     ] = await Promise.all([
       supabase.from('passports').select('*').eq('employee_id', empUUID).limit(1),
       supabase.from('employee_addresses').select('*').eq('employee_id', empUUID).limit(1),
       supabase.from('emergency_contacts').select('*').eq('employee_id', empUUID).limit(1),
       supabase.from('identity_records').select('*').eq('employee_id', empUUID),
-      supabase.from('employee_personal').select('*').eq('employee_id', empUUID).limit(1),
+      supabase.rpc('get_current_personal_info', { p_employee_id: empUUID }),
       supabase.from('employee_contact').select('*').eq('employee_id', empUUID).limit(1),
       supabase.from('employee_employment').select('*').eq('employee_id', empUUID).limit(1),
+      // Set-snapshot model: check employee_dependent_set (Phase 3 migration)
+      supabase.from('employee_dependent_set').select('id').eq('employee_id', empUUID).eq('is_active', true).limit(1),
+      // Education: count active records
+      supabase.rpc('get_employee_education', { p_employee_id: empUUID, p_include_inactive: false }),
     ]);
 
     // Passport
@@ -1081,14 +1312,19 @@ export default function AddEmployee() {
       })));
     }
 
-    // employee_personal satellite
-    const pers = personalRow?.[0];
+    // employee_personal — RPC returns single jsonb object (mig 315 multi-row)
+    const pers = personalRow;
     if (pers) {
+      if (pers.first_name)  setFirstName(pers.first_name);
+      if (pers.middle_name) setMiddleName(pers.middle_name);
+      if (pers.last_name)   setLastName(pers.last_name);
       setNationality(  pers.nationality    || '');
       setMaritalStatus(pers.marital_status || '');
       setGender(       pers.gender         || '');
       setDob(          pers.dob            || '');
       setPhoto(        pers.photo_url      || '');
+      // Tick the personal section now that we have confirmed data from employee_personal
+      if (pers.first_name) setCompleted(prev => new Set([...prev, 'personal']));
     }
 
     // employee_contact satellite
@@ -1099,11 +1335,25 @@ export default function AddEmployee() {
       setPersonalEmail(cont.personal_email || '');
     }
 
-    // employee_employment satellite
+    // employee_employment satellite — now multi-row; pick the current open slice
+    // loadExtendedData reads: .select('*').eq('employee_id', empUUID).limit(1)
+    // which is fine for the hire wizard (we only care about probation_end_date here;
+    // the 10 main fields are already in state from the form or employees master).
     const emp = employmentRow?.[0];
     if (emp) {
       setProbationEnd(emp.probation_end_date || '');
     }
+
+    // Check bank accounts via set-snapshot RPC (Phase 4+)
+    const { data: bankSetData } = await supabase.rpc('get_employee_bank_account_set', { p_employee_id: empUUID });
+    const hasBankAccounts  = !!(bankSetData as any)?.items?.length;
+    const hasEducation     = !!((eduData as any)?.education?.length);
+    const hasDependents    = !!(depRows && depRows.length > 0);
+
+    // Sync portlet-level state flags so performSave guards stay accurate
+    setBankSectionDone(hasBankAccounts);
+    setEducationHasRecords(hasEducation);
+    setDependentsHasRecords(hasDependents);
 
     // Update completed-section tick marks based on what was actually found in DB.
     setCompleted(prev => {
@@ -1116,25 +1366,34 @@ export default function AddEmployee() {
       if (ec?.name && ec?.phone) done.add('emergency'); else done.delete('emergency');
       // Identity: at least one record
       if (idRows && idRows.length > 0) done.add('identity'); else done.delete('identity');
+      // Bank: at least one active account
+      if (hasBankAccounts)  done.add('bank');       else done.delete('bank');
+      // Education: at least one active record
+      if (hasEducation)     done.add('education');  else done.delete('education');
+      // Dependents: at least one active dependent
+      if (hasDependents)    done.add('dependents'); else done.delete('dependents');
       return done;
     });
   }
 
   // ── Validate section ────────────────────────────────────────────────────
-  function validateSection(sectionId: string): Record<string, string> {
+  // preSaved: sections whose portlet save trigger just returned true in the
+  // same async call. React state updates (bankSectionDone, etc.) are batched
+  // and won't be applied yet — preSaved lets us bypass those specific checks.
+  function validateSection(sectionId: string, preSaved?: Set<string>): Record<string, string> {
     const errs: Record<string, string> = {};
     switch (sectionId) {
       case 'personal':
-        if (!empName.trim()) errs.empName = 'Full name is required.';
-        if (!empId.trim())   errs.empId   = 'Employee ID is required.';
+        if (!firstName.trim()) errs.firstName = 'First name is required.';
+        if (!lastName.trim())  errs.lastName  = 'Last name is required.';
+        if (!empId.trim())     errs.empId     = 'Employee ID is required.';
         if (!nationality)    errs.nationality = 'Nationality is required.';
         if (!maritalStatus)  errs.maritalStatus = 'Marital status is required.';
         if (!gender)         errs.gender = 'Gender is required.';
         if (!dob)            errs.dob = 'Date of birth is required.';
         break;
       case 'contact':
-        if (!mobile.trim()) errs.mobile = 'Mobile number is required.';
-        else if (!/^\d{7,15}$/.test(mobile.trim())) errs.mobile = 'Enter 7–15 digits only.';
+        { const mErr = validateMobile(countryCode, mobile); if (mErr) errs.mobile = mErr; }
         break;
       case 'email':
         if (!businessEmail.trim())
@@ -1145,16 +1404,27 @@ export default function AddEmployee() {
           errs.personalEmail = 'Personal email is required.';
         else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(personalEmail.trim()))
           errs.personalEmail = 'Enter a valid email address.';
+        else if (personalEmail.trim().toLowerCase().includes('@prowessinfotech.co.in'))
+          errs.personalEmail = 'Personal email cannot use the company email domain (@prowessinfotech.co.in). Please provide a personal email address.';
         if (businessEmail.trim() && personalEmail.trim() &&
             businessEmail.trim().toLowerCase() === personalEmail.trim().toLowerCase())
           errs.personalEmail = 'Personal email cannot be the same as business email.';
         break;
       case 'passport':
-        // Only validate dependent fields when Issue Country is selected
         if (passportCountry) {
-          if (!passportNumber.trim()) errs.passportNumber    = 'Passport Number is required.';
-          if (!passportIssueDate)     errs.passportIssueDate = 'Issue Date is required.';
-          if (!passportExpiry)        errs.passportExpiry    = 'Expiry Date is required.';
+          const passCountryName = idCountries.find(c => String(c.id) === passportCountry)?.value ?? '';
+          if (!passportNumber.trim()) {
+            errs.passportNumber = 'Passport Number is required.';
+          } else {
+            const numErr = validatePassportNumber(passCountryName, passportNumber);
+            if (numErr) errs.passportNumber = numErr;
+          }
+          if (!passportIssueDate) errs.passportIssueDate = 'Issue Date is required.';
+          if (!passportExpiry)    errs.passportExpiry    = 'Expiry Date is required.';
+          if (passportIssueDate && passportExpiry) {
+            const valErr = validatePassportValidity(passCountryName, passportIssueDate, passportExpiry);
+            if (valErr) errs.passportExpiry = valErr;
+          }
         }
         break;
       case 'employment':
@@ -1162,12 +1432,15 @@ export default function AddEmployee() {
         if (!deptId)        errs.deptId        = 'Department is required.';
         if (!hireDate)      errs.hireDate      = 'Hire date is required.';
         if (!probationEnd)  errs.probationEnd  = 'Probation end date is required.';
-        if (!workCountry)   errs.workCountry   = 'Country of work is required.';
-        if (!workLocation)  errs.workLocation  = 'Location is required.';
+        if (probationEnd && hireDate && probationEnd < hireDate)
+          errs.probationEnd = 'Probation End Date cannot be before Hire Date.';
+        if (!workCountry)            errs.workCountry = 'Country of work is required.';
+        else if (!baseCurrency)     errs.workCountry = 'No default currency is configured for this country. Ask your administrator to set a Default Currency in Reference Data → ID Country.';
+        if (!workLocation)          errs.workLocation = 'Location is required.';
         break;
       case 'address':
         if (!addrLine1.trim()) errs.addrLine1 = 'Address line 1 is required.';
-        if (!addrLine2.trim()) errs.addrLine2 = 'Address line 2 is required.';
+        // addrLine2 is optional
         if (!addrCity.trim())  errs.addrCity  = 'City is required.';
         if (!addrPin.trim())   errs.addrPin   = 'PIN / ZIP code is required.';
         if (!addrCountry)      errs.addrCountry = 'Country is required.';
@@ -1177,13 +1450,31 @@ export default function AddEmployee() {
         if (!ecRel)          errs.ecRel   = 'Relationship is required.';
         if (!ecPhone.trim()) errs.ecPhone = 'Phone number is required.';
         break;
+      case 'bank':
+        // preSaved bypasses this check when the save trigger just returned true
+        // in the same async call — React state (bankSectionDone) hasn't flushed yet.
+        if (!bankSectionDone && !preSaved?.has('bank')) {
+          errs.bank = 'At least one bank account is required.';
+        }
+        break;
+      case 'identity':
+        // Surface inline field errors already set by the field-level validator.
+        // flushPendingIdRecord() runs the full format check and sets errors.idNumber /
+        // errors.idExpiry on failure — we propagate those here so validateSection
+        // is the single gate used by handleNext, handleSaveDraft, and saveSection.
+        if (errors.idNumber) errs.idNumber = errors.idNumber;
+        if (errors.idExpiry) errs.idExpiry = errors.idExpiry;
+        break;
+      case 'dependents':
+        // Dependents is optional — no validation required
+        break;
     }
     return errs;
   }
 
   // ── Save section ─────────────────────────────────────────────────────────
-  function saveSection(sectionId: string) {
-    const errs = validateSection(sectionId);
+  function saveSection(sectionId: string, preSaved?: Set<string>) {
+    const errs = validateSection(sectionId, preSaved);
     if (Object.keys(errs).length > 0) {
       setErrors(errs);
       return false;
@@ -1210,57 +1501,274 @@ export default function AddEmployee() {
   }
 
   // ── Navigate to next section ─────────────────────────────────────────────
-  function handleNext() {
+  async function handleNext() {
+    if (isSaving || submittingForApproval) return;
     // Auto-commit any fully-filled pending ID form before saving
     if (activeSection === 'identity') flushPendingIdRecord();
-    if (!saveSection(activeSection)) return;
 
-    // Immediately flush any pending debounced autosave so data isn't lost
-    // if the user navigates away from the page before the 2.5s timer fires.
-    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
-    doAutosaveRef.current(); // fire-and-forget; component is still mounted
+    // Portlet save triggers must fire BEFORE validateSection.
+    // We also collect which sections were just saved so preSaved can bypass
+    // the bankSectionDone/etc. state checks (React batches those updates and
+    // they won't be flushed until the next render).
+    const preSaved = new Set<string>();
+    if (activeSection === 'bank' && bankSaveTriggerRef.current) {
+      const bankOk = await bankSaveTriggerRef.current();
+      if (!bankOk) return;
+      preSaved.add('bank');
+    }
+    if (activeSection === 'education' && eduSaveTriggerRef.current) {
+      const eduOk = await eduSaveTriggerRef.current();
+      if (!eduOk) return;
+      preSaved.add('education');
+    }
+    if (activeSection === 'dependents' && depSaveTriggerRef.current) {
+      const depOk = await depSaveTriggerRef.current();
+      if (!depOk) return;
+      preSaved.add('dependents');
+    }
+
+    // Refresh token — portlet saves may have updated employees.updated_at via trigger
+    if (preSaved.size > 0) await refreshLockToken();
+
+    if (!saveSection(activeSection, preSaved)) return;
 
     const idx = SECTIONS.findIndex(s => s.id === activeSection);
-    if (idx < SECTIONS.length - 1) {
-      setActiveSection(SECTIONS[idx + 1].id);
+    if (idx >= SECTIONS.length - 1) return;
+
+    const nextSection = SECTIONS[idx + 1].id;
+
+    // Always save silently on Next so data is never lost between sections.
+    // For bank/dependents we additionally require a first name so the portlets
+    // can render against a real employee record.
+    if ((nextSection === 'education' || nextSection === 'bank' || nextSection === 'dependents') && !firstName.trim()) {
+      setErrors({ firstName: 'First name is required before proceeding to bank / dependents.' });
+      setActiveSection('personal');
+      return;
+    }
+
+    await performSave(false, true /* silent */);
+    // performSave sets currentEmpUUID via state — portlet will render on next render cycle
+
+    setActiveSection(nextSection);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  // ── Back ─────────────────────────────────────────────────────────────────
+  // Save the current portlet (bank/education/dependents) before navigating back
+  // so draft changes (attachments, new records) are not lost on unmount.
+  async function handleBack() {
+    if (isSaving || submittingForApproval) return;
+    if (currentSectionIdx <= 0) return;
+    setIsSaving(true);
+    try {
+      if (activeSection === 'bank'       && bankSaveTriggerRef.current) {
+        const ok = await bankSaveTriggerRef.current(); if (!ok) return;
+      }
+      if (activeSection === 'education'  && eduSaveTriggerRef.current)  {
+        const ok = await eduSaveTriggerRef.current();  if (!ok) return;
+      }
+      if (activeSection === 'dependents' && depSaveTriggerRef.current)  {
+        const ok = await depSaveTriggerRef.current();  if (!ok) return;
+      }
+      setActiveSection(SECTIONS[currentSectionIdx - 1].id);
       window.scrollTo({ top: 0, behavior: 'smooth' });
+    } finally {
+      setIsSaving(false);
     }
   }
 
   // ── Save as Draft ────────────────────────────────────────────────────────
   async function handleSaveDraft() {
-    // Validate current section before manual save
+    if (isSaving || submittingForApproval) return;
+    setIsSaving(true);
+    try {
+      // Portlet save triggers must fire BEFORE validateSection.
+      // preSaved bypasses state-dependent checks whose updates haven't flushed yet.
+      // Auto-commit any fully-filled pending ID form — same as handleNext.
+      // Without this, a valid pending entry would be silently discarded on Save Draft.
+      if (activeSection === 'identity') flushPendingIdRecord();
+      const preSaved = new Set<string>();
+      if (bankSaveTriggerRef.current) { const ok = await bankSaveTriggerRef.current(); if (!ok) return; preSaved.add('bank'); }
+      if (eduSaveTriggerRef.current)  { const ok = await eduSaveTriggerRef.current();  if (!ok) return; preSaved.add('education'); }
+      if (depSaveTriggerRef.current)  { const ok = await depSaveTriggerRef.current();  if (!ok) return; preSaved.add('dependents'); }
+      const errs = validateSection(activeSection, preSaved);
+      if (Object.keys(errs).length > 0) { setErrors(errs); return; }
+      setErrors({});
+      // First name is the minimum requirement to save from any section
+      if (!firstName.trim()) {
+        setErrors({ firstName: 'First name is required to save a draft.' });
+        setActiveSection('personal');
+        return;
+      }
+      if (preSaved.size > 0) await refreshLockToken();
+      await performSave();
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  // ── Submit for Approval (workflow path) ─────────────────────────────────
+  // Called when a workflow is configured for employee_hire.
+  // Saves the latest form data first, then routes to either:
+  //   • wf_resubmit  — if there is an existing awaiting_clarification instance
+  //                    (sent-back path: resumes the existing workflow thread)
+  //   • submit_hire  — otherwise (fresh submission: creates a new instance)
+  async function handleSubmitForApproval() {
+    // G-B: re-fetch submission mode so stale config can't show the wrong button.
+    await refreshHireMode();
+
+    // ── Flush portlet forms BEFORE validation; collect preSaved for state bypass ─
+    const preSaved = new Set<string>();
+    if (bankSaveTriggerRef.current) { const ok = await bankSaveTriggerRef.current(); if (!ok) return; preSaved.add('bank'); }
+    if (eduSaveTriggerRef.current)  { const ok = await eduSaveTriggerRef.current();  if (!ok) return; preSaved.add('education'); }
+    if (depSaveTriggerRef.current)  { const ok = await depSaveTriggerRef.current();  if (!ok) return; preSaved.add('dependents'); }
+
+    // ── Save current section (validates + marks complete) ─────────────────
+    if (!saveSection(activeSection, preSaved)) return;
+
+    // ── Guard: all required sections must be complete ─────────────────────
+    // Include preSaved — portlet trigger results haven't flushed to `completed` state yet
+    const effectiveCompleted = new Set([...completed, activeSection, ...preSaved]);
+    const missingSections = requiredSectionIds
+      .filter(id => !effectiveCompleted.has(id))
+      .map(id => SECTIONS.find(s => s.id === id)?.label ?? id);
+    if (missingSections.length > 0) {
+      setIncompleteSectionsModal(missingSections);
+      return;
+    }
+
+    // Refresh token after portlet saves (employment mirror updates employees.updated_at)
+    if (preSaved.size > 0) await refreshLockToken();
+
+    // Always save first so the DB has the latest field values before submitting.
+    const empUUID = await performSave();
+    if (!empUUID) return;   // save failed — error toast already shown
+
+    setSubmittingForApproval(true);
+
+    // ── Detect sent-back resubmit ─────────────────────────────────────────
+    // If an awaiting_clarification instance exists for this employee+module, we
+    // must call wf_resubmit (resumes the existing thread) not submit_hire
+    // (which would create a second parallel instance for the same record).
+    const { data: existingInst } = await supabase
+      .from('workflow_instances')
+      .select('id')
+      .eq('module_code', 'employee_hire')
+      .eq('record_id', empUUID)
+      .eq('status', 'awaiting_clarification')
+      .maybeSingle();
+
+    let rpcError: { message: string } | null = null;
+
+    if (existingInst?.id) {
+      // Sent-back resubmit — resume the existing workflow instance
+      const { error } = await supabase.rpc('wf_resubmit', {
+        p_instance_id: existingInst.id,
+        p_response:    null,
+        p_proposed_data: null,
+      });
+      rpcError = error;
+    } else {
+      // Fresh submission — create a new workflow instance
+      const { error } = await supabase.rpc('submit_hire', { p_employee_id: empUUID });
+      rpcError = error;
+    }
+
+    setSubmittingForApproval(false);
+
+    if (rpcError) {
+      setErrors({ _global: rpcError.message } as Record<string, string>);
+      return;
+    }
+
+    // Lock the form locally — no edits until returned/rejected
+    setIsLocked(true);
+    refetchEmployees();
+    showToast('Submitted for approval successfully!', 'success');
+    setTimeout(() => {
+      resetForm();
+      navigate('/admin/add-employee');
+    }, 1500);
+  }
+
+  // ── Save and return to approver review (Edit-in-Flight) ──────────────────
+  // Called when the approver has opened the form via the Update button.
+  async function handleSaveAndReturn() {
     const errs = validateSection(activeSection);
     if (Object.keys(errs).length > 0) { setErrors(errs); return; }
     setErrors({});
-    // Employee name is the minimum requirement to save from any section
-    if (!empName.trim()) {
-      setErrors({ empName: 'Employee name is required to save a draft.' });
-      setActiveSection('personal');
-      return;
+
+    // G-A: Server-side task ownership check — verify caller holds an active
+    // workflow task for this record before applying the approver-mode save.
+    // Prevents URL-param bypass (anyone constructing ?mode=edit could otherwise
+    // call performSave in approver mode without having an active task).
+    if (isApproverEditMode && currentEmpUUID) {
+      const { data: taskRows, error: taskErr } = await supabase
+        .from('workflow_tasks')
+        .select('id, workflow_instances!instance_id(record_id)')
+        .eq('assigned_to', (await supabase.auth.getUser()).data.user?.id ?? '')
+        .eq('status', 'pending')
+        .limit(20);
+
+      const hasActiveTask = !taskErr && (taskRows as any[])?.some(
+        (t: any) => t.workflow_instances?.record_id === currentEmpUUID
+      );
+
+      if (!hasActiveTask && !isSuperAdmin) {
+        showToast(
+          'You do not have an active approval task for this record. The save was blocked.',
+          'error',
+        );
+        return;
+      }
     }
+
+    if (preSaved.size > 0) await refreshLockToken();
     await performSave();
+    if (returnTo) {
+      navigate(returnTo);
+    } else {
+      navigate('/workflow/inbox');
+    }
   }
 
   // ── Activate employee ────────────────────────────────────────────────────
   async function handleActivate() {
-    // Block all autosave writes (debounced and periodic) for the duration of
-    // activation. doAutosave checks isActivatingRef before touching the DB.
-    isActivatingRef.current = true;
-    // Also cancel any pending debounced autosave timer.
-    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    // G-B: re-fetch submission mode — if a workflow was just added, this will
+    // flip hasHireWorkflow=true and the server guard will still block the wrong path.
+    await refreshHireMode();
 
-    // Validate all non-optional sections
+    // Flush portlet forms before validation; collect preSaved for state bypass
+    const preSaved = new Set<string>();
+    if (bankSaveTriggerRef.current) { const ok = await bankSaveTriggerRef.current(); if (!ok) return; preSaved.add('bank'); }
+    if (eduSaveTriggerRef.current)  { const ok = await eduSaveTriggerRef.current();  if (!ok) return; preSaved.add('education'); }
+    if (depSaveTriggerRef.current)  { const ok = await depSaveTriggerRef.current();  if (!ok) return; preSaved.add('dependents'); }
+
+    // ── Save current section first (same as clicking "Next") ─────────────
+    if (!saveSection(activeSection, preSaved)) return;
+
+    // ── Guard: all required sections must be complete ─────────────────────
+    // Include preSaved — portlet trigger results haven't flushed to `completed` state yet
+    const effectiveCompleted = new Set([...completed, activeSection, ...preSaved]);
+    const missingSections = requiredSectionIds
+      .filter(id => !effectiveCompleted.has(id))
+      .map(id => SECTIONS.find(s => s.id === id)?.label ?? id);
+    if (missingSections.length > 0) {
+      setIncompleteSectionsModal(missingSections);
+      return;
+    }
+
+    // Validate all non-optional sections (pass preSaved so bank/edu/dep checks
+    // use the trigger result rather than stale React state)
     const allErrors: Record<string, string> = {};
     const requiredSections = SECTIONS.filter(s => !s.optional).map(s => s.id);
     for (const sid of requiredSections) {
-      const errs = validateSection(sid);
+      const errs = validateSection(sid, preSaved);
       Object.assign(allErrors, errs);
     }
     if (Object.keys(allErrors).length > 0) {
       setErrors(allErrors);
-      // Navigate to first section with error
-      const firstBad = requiredSections.find(sid => Object.keys(validateSection(sid)).length > 0);
+      const firstBad = requiredSections.find(sid => Object.keys(validateSection(sid, preSaved)).length > 0);
       if (firstBad) setActiveSection(firstBad);
       return;
     }
@@ -1274,46 +1782,82 @@ export default function AddEmployee() {
     const data = collectData();
     const existingRow = editingEmpId ? allEmployees.find(e => e.employeeId === editingEmpId) : null;
 
-    // Activate payload — core employees columns only (satellite via saveExtendedData)
-    const dbPayload: Record<string, unknown> = {
-      employee_id:      data.employeeId,
-      name:             data.name,
-      business_email:   data.businessEmail      || null,
-      designation:      data.designation        || null,
-      dept_id:          data.deptId             || null,
-      manager_id:       data.managerId          || null,
-      hire_date:        data.hireDate           || null,
-      end_date:         data.endDate            || null,
-      work_country:     data.workCountry        || null,
-      work_location:    data.workLocation       || null,
-      base_currency_id: (data as {baseCurrency?: string}).baseCurrency || null,
-      status:           'Active',
+    // ── Step 1: Save core fields WITHOUT changing status ─────────────────
+    // We keep the employee in Draft/Pending so that the hire-pipeline RLS
+    // path (migration 220) still applies for satellite saves in Step 2.
+    // The status transition to Active is handled by wf_activate_employee
+    // (SECURITY DEFINER) in Step 3, which bypasses RLS entirely.
+    // Only core employees columns. Employment mirror fields (designation, dept_id,
+    // manager_id, hire_date, end_date, work_country, work_location, base_currency_id)
+    // are written by Step 2 saveExtendedData → upsert_employment_info (mig 352),
+    // which also mirrors them back to employees. Do NOT duplicate here.
+    const corePayload: Record<string, unknown> = {
+      employee_id:    data.employeeId,
+      name:           data.name,
+      business_email: data.businessEmail || null,
+      // status intentionally omitted — stays as Draft/Incomplete/Pending
     };
 
     let empUUID: string | null = null;
     if (existingRow) {
-      const { error } = await supabase.from('employees').update(dbPayload as any).eq('id', existingRow.id);
-      if (error) { setErrors({ _global: error.message } as Record<string, string>); return; }
+      // Update core fields — include optimistic lock to detect concurrent edits
+      let upd = supabase.from('employees').update(corePayload as any).eq('id', existingRow.id);
+      if (loadedEmpUpdatedAtRef.current) upd = upd.eq('updated_at', loadedEmpUpdatedAtRef.current) as typeof upd;
+      const { data: updRow, error } = await (upd as any).select('id, updated_at').single();
+      if (error) {
+        if ((error as any).code === 'PGRST116') {
+          showToast('This record was modified by someone else. Please reload and re-apply your changes.', 'error');
+        } else {
+          setErrors({ _global: error.message } as Record<string, string>);
+        }
+        return;
+      }
+      if (updRow?.updated_at) loadedEmpUpdatedAtRef.current = updRow.updated_at;
       empUUID = existingRow.id;
     } else {
-      const { data: inserted, error } = await supabase.from('employees').insert(dbPayload as any).select('id').single();
+      // Insert as Draft so the hire-pipeline RLS path covers satellite saves
+      const { data: inserted, error } = await supabase
+        .from('employees')
+        .insert({ ...corePayload, status: 'Draft' } as any)
+        .select('id, updated_at')
+        .single();
       if (error || !inserted) { setErrors({ _global: error?.message ?? 'Insert failed' } as Record<string, string>); return; }
       empUUID = inserted.id;
+      if (inserted.updated_at) loadedEmpUpdatedAtRef.current = inserted.updated_at;
     }
 
+    // ── Step 2: Save non-portlet satellites (portlet triggers already saved
+    // bank/education/dependents above; saveExtendedData covers personal,
+    // contact, employment, passport, address, emergency, identity).
+    // refreshLockToken keeps the optimistic lock token current after the
+    // employment mirror may have updated employees.updated_at.
+    if (preSaved.size > 0) await refreshLockToken();
     const extErrors = await saveExtendedData(empUUID!, data);
     if (extErrors.length > 0) {
       console.error('[handleActivate] extended data errors:', extErrors);
-      showToast(`Activated but some data failed to save: ${extErrors[0]}`, 'error');
+      showToast(`Save failed before activation: ${extErrors[0]}`, 'error');
+      return;
     }
 
-    // ── Send welcome email + link profile → employee ──────────────────────
+    // ── Step 3: Activate via SECURITY DEFINER RPC ─────────────────────────
+    // wf_activate_employee sets status=Active, locked=false, records the
+    // invite attempt in employee_invites, and stamps invite_sent_at.
+    // It runs as the postgres role so RLS does not apply.
+    const { error: activateError } = await supabase.rpc(
+      'wf_activate_employee',
+      { p_employee_id: empUUID! }
+    );
+    if (activateError) {
+      setErrors({ _global: activateError.message } as Record<string, string>);
+      return;
+    }
+
+    // ── Step 4: Send welcome email + link profile → employee ──────────────
+    // The invite record and invite_sent_at stamp are already handled by the
+    // RPC above. We only need to trigger the auth OTP and link the profile.
     const businessEmail = (data.businessEmail ?? '').trim();
     if (businessEmail) {
       // 1. Send the welcome / magic-link email via Supabase Auth.
-      //    shouldCreateUser: true creates the auth user if not yet present.
-      //    The Invite email template should use:
-      //    {{ .SiteURL }}/reset-password?token_hash={{ .TokenHash }}&type=invite
       const { error: otpError } = await supabase.auth.signInWithOtp({
         email: businessEmail,
         options: {
@@ -1324,54 +1868,37 @@ export default function AddEmployee() {
       });
 
       if (otpError) {
-        console.error('[handleActivate] signInWithOtp error:', otpError.message);
-        showToast(`Employee activated but welcome email failed: ${otpError.message}`, 'error');
+        // G-D fix: mark the employee_invites row as failed so the audit trail
+        // reflects actual delivery. Same pattern as EmployeeDetails.tsx resend path.
+        await supabase.rpc('mark_invite_failed', {
+          p_employee_id: empUUID!,
+          p_error:       otpError.message,
+        });
+        setInfoModal({
+          open: true,
+          type: 'warning',
+          title: 'Invite Email Not Sent',
+          message: `The employee was activated successfully, but the welcome email could not be sent.\n\nReason: ${otpError.message}\n\nThe employee can still sign in by requesting a magic link from the login page.`,
+        });
       } else {
         // 2. Link the auth profile → employee + grant ESS.
-        //    The auth user may not exist yet if the email hasn't been delivered,
-        //    so we call this with a short retry tolerance (the RPC handles it).
         const { data: rpcData, error: rpcError } = await supabase.rpc(
           'link_profile_to_employee',
           { p_email: businessEmail }
         );
-
-        if (rpcError) {
-          console.warn('[handleActivate] link_profile_to_employee RPC error:', rpcError.message);
-          // Non-fatal — the handle_new_user trigger will link on first sign-in
-        } else if (rpcData && !(rpcData as { ok: boolean }).ok) {
-          const reason = (rpcData as { ok: boolean; reason?: string }).reason ?? '';
-          // "auth user not found" is expected before the user clicks the link — not an error
-          if (!reason.includes('auth user not found')) {
-            console.warn('[handleActivate] link_profile_to_employee:', reason);
-          }
+        const linkReason = (rpcData as { ok?: boolean; reason?: string } | null)?.reason ?? '';
+        const isExpected = linkReason.includes('auth user not found');
+        if (rpcError || (!isExpected && linkReason && !(rpcData as { ok?: boolean })?.ok)) {
+          const detail = rpcError?.message ?? linkReason;
+          setInfoModal({
+            open: true,
+            type: 'warning',
+            title: 'Profile Link Issue',
+            message: `The employee was activated and the welcome email was sent, but linking the auth profile failed.\n\nReason: ${detail}\n\nThis will resolve automatically when the employee first signs in.`,
+          });
+        } else {
+          showToast('Employee activated and welcome email sent!', 'success');
         }
-
-        // 3. Record the invite in employee_invites audit table
-        //    (get the latest attempt_no first)
-        const { data: lastInvite } = await supabase
-          .from('employee_invites')
-          .select('attempt_no')
-          .eq('employee_id', empUUID!)
-          .order('attempt_no', { ascending: false })
-          .limit(1)
-          .maybeSingle();
-
-        const nextAttempt = lastInvite ? (lastInvite.attempt_no ?? 0) + 1 : 1;
-
-        await supabase.from('employee_invites').insert({
-          employee_id: empUUID!,
-          attempt_no:  nextAttempt,
-          sent_at:     new Date().toISOString(),
-          status:      'sent',
-        });
-
-        // 4. Stamp invite_sent_at on the employee row
-        await supabase
-          .from('employees')
-          .update({ invite_sent_at: new Date().toISOString() })
-          .eq('id', empUUID!);
-
-        showToast('Employee activated and welcome email sent!', 'success');
       }
     } else {
       showToast('Employee activated (no email address — invite not sent).', 'warning');
@@ -1384,6 +1911,14 @@ export default function AddEmployee() {
 
   // ── Jump to section ──────────────────────────────────────────────────────
   function jumpToSection(id: string) {
+    const BASE_IDS = ['personal', 'contact', 'email', 'employment'];
+    const isLocked = !baseAllDone && !BASE_IDS.includes(id);
+    if (isLocked) {
+      setGateMsg(true);
+      setTimeout(() => setGateMsg(false), 3500);
+      return;
+    }
+    setGateMsg(false);
     setActiveSection(id);
     setErrors({});
   }
@@ -1412,43 +1947,38 @@ export default function AddEmployee() {
   }
 
   // ── Immediately persist identity records to DB (used by add + remove) ────
+  // Uses the replace_identity_records RPC (mig 437) — a single SECURITY DEFINER
+  // transaction that deletes all existing records then inserts the new set.
+  // Previously used direct DELETE + INSERT which had no transaction boundary,
+  // causing data loss on network failure between the two calls.
   async function saveIdentityNow(records: IdRecord[]) {
     const uuid = currentEmpUUID || allEmployees.find(e => e.employeeId === (editingEmpId || empId.trim()))?.id;
     if (!uuid) {
-      // Employee row doesn't exist yet — debounce autosave will handle it once the row is created
-      showToast('ID record queued — will save with next autosave', 'success');
+      showToast('Please save the form first (Save Draft) before adding identity records', 'error');
       return;
     }
-    setAutosaveStatus('saving');
-    const { error: delErr } = await supabase.from('identity_records').delete().eq('employee_id', uuid);
-    if (delErr) {
-      console.error('[saveIdentityNow] delete:', delErr);
-      showToast(`Failed to save ID record: ${delErr.message}`, 'error');
-      setAutosaveStatus('idle');
+    const payload = records.map(r => ({
+      country:      r.country     || null,
+      id_type:      r.idType      || null,
+      record_type:  r.recordType  || null,
+      id_number:    r.idNumber    || null,
+      expiry:       r.expiry      || null,
+    }));
+    const { error: rpcErr } = await supabase.rpc('replace_identity_records', {
+      p_employee_id: uuid,
+      p_records:     payload,
+    });
+    if (rpcErr) {
+      console.error('[saveIdentityNow] replace_identity_records:', rpcErr);
+      setInfoModal({
+        open: true,
+        title: 'Identity Record Error',
+        message: cleanIdError(rpcErr.message),
+        type: 'warning',
+      });
       return;
     }
-    if (records.length > 0) {
-      const { error: insErr } = await supabase.from('identity_records').insert(
-        records.map(r => ({
-          employee_id:  uuid,
-          country:      r.country     || null,
-          id_type:      r.idType      || null,
-          record_type:  r.recordType  || null,
-          id_number:    r.idNumber    || null,
-          expiry:       r.expiry      || null,
-        }))
-      );
-      if (insErr) {
-        console.error('[saveIdentityNow] insert:', insErr);
-        showToast(`Failed to save ID record: ${insErr.message}`, 'error');
-        setAutosaveStatus('idle');
-        return;
-      }
-    }
-    setLastAutoSaved(new Date());
     showToast(records.length > 0 ? 'ID record saved' : 'ID record removed', 'success');
-    setTimeout(() => setAutosaveStatus('saved'), 400);
-    setTimeout(() => setAutosaveStatus('idle'), 3400);
   }
 
   // ── Add ID record ────────────────────────────────────────────────────────
@@ -1460,6 +1990,18 @@ export default function AddEmployee() {
     if (idType && !idRecordType)    errs.idRecordType = 'Record Type is required.';
     if (idType && !idNumber.trim()) errs.idNumber     = 'ID Number is required.';
     if (idType && !idExpiry)        errs.idExpiry     = 'Expiry Date is required.';
+    // Format validation
+    if (idType && idNumber.trim()) {
+      const countryName = idCountries.find(c => String(c.id) === idCountry)?.value ?? '';
+      const typeName    = picklistVals.find(p => String(p.id) === idType)?.value ?? '';
+      const fmtErr = validateIdentityNumber(countryName, typeName, idNumber.trim());
+      if (fmtErr) errs.idNumber = fmtErr;
+    }
+    // Expiry must be a future date
+    if (idExpiry) {
+      const today = new Date().toISOString().slice(0, 10);
+      if (idExpiry <= today) errs.idExpiry = 'Expiry Date must be a future date.';
+    }
     if (Object.keys(errs).length > 0) { setErrors(errs); return; }
 
     // Only one Primary ID allowed per employee
@@ -1523,9 +2065,16 @@ export default function AddEmployee() {
   }
 
   // ── Determine if all required sections are complete ──────────────────────
-  const allRequiredDone = useMemo(() => {
-    return SECTIONS.filter(s => !s.optional).every(s => completed.has(s.id));
-  }, [completed]);
+  const requiredSectionIds  = useMemo(() => SECTIONS.filter(s => !s.optional).map(s => s.id), []);
+  const requiredTotal       = requiredSectionIds.length;
+  const requiredDoneCount   = useMemo(
+    () => requiredSectionIds.filter(id => completed.has(id)).length,
+    [completed, requiredSectionIds]
+  );
+  const allRequiredDone = requiredDoneCount === requiredTotal;
+
+  const baseSectionIds  = useMemo(() => ['personal', 'contact', 'email', 'employment'], []);
+  const baseAllDone     = baseSectionIds.every(id => completed.has(id));
 
   const currentSectionIdx = SECTIONS.findIndex(s => s.id === activeSection);
   const isLastSection = currentSectionIdx === SECTIONS.length - 1;
@@ -1541,11 +2090,40 @@ export default function AddEmployee() {
         <div className="emp-section">
           <div className="emp-section-label"><i className="fa-solid fa-circle-user" /> Personal Information</div>
           <div className="emp-field-grid emp-grid-4">
-            <div className={`form-group ${errors.empName ? 'form-group--error' : ''}`}>
-              <label><i className="fa-solid fa-user fa-fw" /> Full Name</label>
-              <input type="text" value={empName} onChange={e => setEmpName(e.target.value)}
-                placeholder="e.g. Vijey Ananthan" required />
-              <FieldError msg={errors.empName} />
+            <div className={`form-group ${errors.firstName ? 'form-group--error' : ''}`}>
+              <label><i className="fa-solid fa-user fa-fw" /> First Name</label>
+              <input type="text" value={firstName} onChange={e => setFirstName(e.target.value)}
+                placeholder="e.g. Vijey" required />
+              <FieldError msg={errors.firstName} />
+            </div>
+            <div className="form-group">
+              <label><i className="fa-solid fa-user fa-fw" /> Middle Name</label>
+              <input type="text" value={middleName} onChange={e => setMiddleName(e.target.value)}
+                placeholder="Middle name (optional)" />
+            </div>
+            <div className={`form-group ${errors.lastName ? 'form-group--error' : ''}`}>
+              <label><i className="fa-solid fa-user fa-fw" /> Last Name</label>
+              <input type="text" value={lastName} onChange={e => setLastName(e.target.value)}
+                placeholder="e.g. Ananthan" required />
+              <FieldError msg={errors.lastName} />
+            </div>
+            <div className="form-group">
+              <label><i className="fa-solid fa-id-badge fa-fw" /> Full Name <span style={{ fontSize: 11, color: '#9CA3AF', fontWeight: 400 }}>(auto-computed)</span></label>
+              <input
+                type="text"
+                readOnly
+                tabIndex={-1}
+                value={(() => {
+                  const f = firstName.trim();
+                  const m = middleName.trim();
+                  const l = lastName.trim();
+                  return f && m && l ? `${f} ${m} ${l}`
+                       : f && l       ? `${f} ${l}`
+                       : f && m       ? `${f} ${m}`
+                       : f            || '';
+                })()}
+                style={{ background: '#F9FAFB', color: '#6B7280', cursor: 'not-allowed' }}
+              />
             </div>
             <div className={`form-group ${errors.empId ? 'form-group--error' : ''}`}>
               <label><i className="fa-solid fa-id-card fa-fw" /> Employee ID</label>
@@ -1591,7 +2169,7 @@ export default function AddEmployee() {
             <div className={`form-group ${errors.dob ? 'form-group--error' : ''}`}>
               <label><i className="fa-solid fa-cake-candles fa-fw" /> Date of Birth</label>
               <input
-                type="date"
+                type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31"
                 value={dob}
                 onChange={e => setDob(e.target.value)}
                 max={new Date().toISOString().slice(0, 10)}
@@ -1616,14 +2194,30 @@ export default function AddEmployee() {
             <div className={`form-group phone-group ${errors.mobile ? 'form-group--error' : ''}`}>
               <label><i className="fa-solid fa-mobile-screen fa-fw" /> Mobile No</label>
               <div className="phone-row">
-                <select value={countryCode} onChange={e => setCountryCode(e.target.value)} className="country-code-select">
+                <select value={countryCode} onChange={e => {
+                  setCountryCode(e.target.value);
+                  // Re-validate against new dial code if a number is already entered
+                  if (mobile) {
+                    const err = validateMobile(e.target.value, mobile);
+                    setErrors(p => ({ ...p, mobile: err ?? '' }));
+                  }
+                }} className="country-code-select">
                   {PHONE_CODES.map(p => (
                     <option key={p.code} value={p.code}>{p.flag} {p.label}</option>
                   ))}
                 </select>
-                <input type="tel" value={mobile} onChange={e => setMobile(e.target.value)}
-                  placeholder="e.g. 9876543210" required />
+                <input type="tel" value={mobile} onChange={e => {
+                  const val = e.target.value;
+                  setMobile(val);
+                  const err = val ? validateMobile(countryCode, val) : '';
+                  setErrors(p => ({ ...p, mobile: err ?? '' }));
+                }}
+                  placeholder={mobilePlaceholder(countryCode)} required />
               </div>
+              {!errors.mobile && (() => {
+                const hint = mobileHint(countryCode);
+                return hint ? <div style={{ fontSize: 11, color: '#6B7280', marginTop: 3 }}><i className="fa-solid fa-circle-info" style={{ marginRight: 4 }} />{hint}</div> : null;
+              })()}
               <FieldError msg={errors.mobile} />
             </div>
           </div>
@@ -1652,6 +2246,7 @@ export default function AddEmployee() {
                   else if (personalEmail.trim())
                     setErrors(p => ({ ...p, personalEmail: '' }));
                 }}
+                onBlur={e => checkDuplicateEmail(e.target.value)}
                 placeholder="name@prowessinfotech.co.in" required
               />
               <FieldError msg={errors.businessEmail} />
@@ -1686,7 +2281,16 @@ export default function AddEmployee() {
           <div className="emp-field-grid emp-grid-4">
             <div className="form-group">
               <label><i className="fa-solid fa-earth-americas fa-fw" /> Issue Country</label>
-              <select value={passportCountry} onChange={e => setPassportCountry(e.target.value)}>
+              <select value={passportCountry} onChange={e => {
+                const next = e.target.value;
+                const hasFilled = passportNumber || passportIssueDate || passportExpiry;
+                if (hasFilled && next !== passportCountry) {
+                  setPassportCountryPending(next);
+                } else {
+                  setPassportCountry(next);
+                  setErrors(p => ({ ...p, passportNumber: '', passportIssueDate: '', passportExpiry: '' }));
+                }
+              }}>
                 <option value="">-- Select Country --</option>
                 {idCountries.map(c => (
                   <option key={String(c.id)} value={String(c.id)}>{c.value}</option>
@@ -1699,8 +2303,20 @@ export default function AddEmployee() {
                 {passportCountry && <span style={{ color: '#e53935' }}> *</span>}
               </label>
               <input type="text" value={passportNumber}
-                onChange={e => { setPassportNumber(e.target.value); setErrors(p => ({ ...p, passportNumber: '' })); }}
-                placeholder="e.g. A1234567" />
+                onFocus={() => { if (!passportCountry) setErrors(p => ({ ...p, passportNumber: 'Please select a Country first.' })); }}
+                onChange={e => {
+                  if (!passportCountry) { setErrors(p => ({ ...p, passportNumber: 'Please select a Country first.' })); return; }
+                  const val = e.target.value;
+                  setPassportNumber(val);
+                  const countryName = idCountries.find(c => String(c.id) === passportCountry)?.value ?? '';
+                  const err = val ? validatePassportNumber(countryName, val) : '';
+                  setErrors(p => ({ ...p, passportNumber: err ?? '' }));
+                }}
+                placeholder={passportNumberPlaceholder(idCountries.find(c => String(c.id) === passportCountry)?.value ?? '')} />
+              {!errors.passportNumber && passportCountry && (() => {
+                const hint = passportNumberHint(idCountries.find(c => String(c.id) === passportCountry)?.value ?? '');
+                return hint ? <div style={{ fontSize: 11, color: '#6B7280', marginTop: 3 }}><i className="fa-solid fa-circle-info" style={{ marginRight: 4 }} />{hint}</div> : null;
+              })()}
               <FieldError msg={errors.passportNumber} />
             </div>
             <div className={`form-group ${errors.passportIssueDate ? 'form-group--error' : ''}`}>
@@ -1708,8 +2324,20 @@ export default function AddEmployee() {
                 <i className="fa-solid fa-calendar-plus fa-fw" /> Issue Date
                 {passportCountry && <span style={{ color: '#e53935' }}> *</span>}
               </label>
-              <input type="date" value={passportIssueDate}
-                onChange={e => { setPassportIssueDate(e.target.value); setErrors(p => ({ ...p, passportIssueDate: '' })); }} />
+              <input type="date" min="1900-01-01" max="2100-12-31" value={passportIssueDate}
+                onFocus={() => { if (!passportCountry) setErrors(p => ({ ...p, passportIssueDate: 'Please select a Country first.' })); }}
+                onChange={e => {
+                  if (!passportCountry) { setErrors(p => ({ ...p, passportIssueDate: 'Please select a Country first.' })); return; }
+                  const val = e.target.value;
+                  setPassportIssueDate(val);
+                  setErrors(p => ({ ...p, passportIssueDate: '' }));
+                  // Re-validate expiry against new issue date
+                  if (passportExpiry) {
+                    const countryName = idCountries.find(c => String(c.id) === passportCountry)?.value ?? '';
+                    const err = validatePassportValidity(countryName, val, passportExpiry);
+                    setErrors(p => ({ ...p, passportExpiry: err ?? '' }));
+                  }
+                }} />
               <FieldError msg={errors.passportIssueDate} />
             </div>
             <div className={`form-group ${errors.passportExpiry ? 'form-group--error' : ''}`}>
@@ -1717,8 +2345,20 @@ export default function AddEmployee() {
                 <i className="fa-solid fa-calendar-xmark fa-fw" /> Expiry Date
                 {passportCountry && <span style={{ color: '#e53935' }}> *</span>}
               </label>
-              <input type="date" value={passportExpiry}
-                onChange={e => { setPassportExpiry(e.target.value); setErrors(p => ({ ...p, passportExpiry: '' })); }} />
+              <input type="date" min="1900-01-01" max="2100-12-31" value={passportExpiry}
+                onFocus={() => { if (!passportCountry) setErrors(p => ({ ...p, passportExpiry: 'Please select a Country first.' })); }}
+                onChange={e => {
+                  if (!passportCountry) { setErrors(p => ({ ...p, passportExpiry: 'Please select a Country first.' })); return; }
+                  const val = e.target.value;
+                  setPassportExpiry(val);
+                  const countryName = idCountries.find(c => String(c.id) === passportCountry)?.value ?? '';
+                  const err = passportIssueDate ? validatePassportValidity(countryName, passportIssueDate, val) : null;
+                  setErrors(p => ({ ...p, passportExpiry: err ?? '' }));
+                }} />
+              {!errors.passportExpiry && passportCountry && (() => {
+                const hint = passportValidityHint(idCountries.find(c => String(c.id) === passportCountry)?.value ?? '');
+                return hint ? <div style={{ fontSize: 11, color: '#6B7280', marginTop: 3 }}><i className="fa-solid fa-clock" style={{ marginRight: 4 }} />{hint}</div> : null;
+              })()}
               <FieldError msg={errors.passportExpiry} />
             </div>
           </div>
@@ -1755,9 +2395,15 @@ export default function AddEmployee() {
                       <td>
                         <button style={{ background: 'none', border: 'none', color: '#EF4444', cursor: 'pointer' }}
                           onClick={() => {
-                            const updated = idRecords.filter((_, j) => j !== i);
-                            setIdRecords(updated);
-                            saveIdentityNow(updated);
+                            const rec = idRecords[i];
+                            const hasSecondary = idRecords.some((r, j) => j !== i && r.recordType === 'secondary');
+                            if (rec.recordType === 'primary' && hasSecondary) {
+                              setDeletePrimaryModal({ open: true, index: i });
+                            } else {
+                              const updated = idRecords.filter((_, j) => j !== i);
+                              setIdRecords(updated);
+                              saveIdentityNow(updated);
+                            }
                           }}>
                           <i className="fa-solid fa-trash" />
                         </button>
@@ -1774,7 +2420,16 @@ export default function AddEmployee() {
             <div className="emp-field-grid emp-id-grid-top">
               <div className={`form-group ${errors.idCountry ? 'form-group--error' : ''}`}>
                 <label><i className="fa-solid fa-earth-americas fa-fw" /> Country</label>
-                <select value={idCountry} onChange={e => { setIdCountry(e.target.value); setIdType(''); setErrors(p => ({ ...p, idCountry: '' })); }}>
+                <select value={idCountry} onChange={e => {
+                  const next = e.target.value;
+                  const hasFilled = idType || idRecordType || idNumber || idExpiry;
+                  if (hasFilled && next !== idCountry) {
+                    setIdCountryPending(next);
+                  } else {
+                    setIdCountry(next); setIdType('');
+                    setErrors(p => ({ ...p, idCountry: '', idType: '', idRecordType: '', idNumber: '', idExpiry: '' }));
+                  }
+                }}>
                   <option value="">-- Select Country --</option>
                   {idCountries.map(c => (
                     <option key={String(c.id)} value={String(c.id)}>{c.value}</option>
@@ -1790,7 +2445,16 @@ export default function AddEmployee() {
                   if (val && idRecords.some(r => r.idType === val)) {
                     setErrors(p => ({ ...p, idType: 'This ID type has already been added for this employee.' }));
                   } else {
-                    setErrors(p => ({ ...p, idType: '' }));
+                    setErrors(p => ({ ...p, idType: '', idExpiry: '' }));
+                  }
+                  // Auto-default expiry date based on ID type validity
+                  if (val) {
+                    const countryName = idCountries.find(c => String(c.id) === idCountry)?.value ?? '';
+                    const typeName    = picklistVals.find(p => String(p.id) === val)?.value ?? '';
+                    const def = defaultExpiryDate(countryName, typeName);
+                    if (def) setIdExpiry(def);
+                  } else {
+                    setIdExpiry('');
                   }
                 }} disabled={!idCountry}>
                   <option value="">{idCountry ? '-- Select --' : '-- Select Country First --'}</option>
@@ -1802,12 +2466,17 @@ export default function AddEmployee() {
               </div>
               <div className={`form-group ${errors.idRecordType ? 'form-group--error' : ''}`}>
                 <label><i className="fa-solid fa-star fa-fw" /> Record Type{idType && <span style={{ color: '#e53935' }}> *</span>}</label>
-                <select value={idRecordType} onChange={e => { setIdRecordType(e.target.value); setErrors(p => ({ ...p, idRecordType: '' })); }}>
-                  <option value="">-- Select --</option>
+                <select value={idRecordType}
+                  onFocus={() => { if (!idCountry) setErrors(p => ({ ...p, idRecordType: 'Please select a Country first.' })); }}
+                  onChange={e => { if (!idCountry) { setErrors(p => ({ ...p, idRecordType: 'Please select a Country first.' })); return; } setIdRecordType(e.target.value); setErrors(p => ({ ...p, idRecordType: '' })); }}
+                  disabled={!idCountry}>
+                  <option value="">{idCountry ? '-- Select --' : '-- Select Country First --'}</option>
                   <option value="primary" disabled={idRecords.some(r => r.recordType === 'primary')}>
                     {idRecords.some(r => r.recordType === 'primary') ? '⭐ Primary (already assigned)' : '⭐ Primary'}
                   </option>
-                  <option value="secondary">Secondary</option>
+                  <option value="secondary" disabled={!idRecords.some(r => r.recordType === 'primary')}>
+                    {!idRecords.some(r => r.recordType === 'primary') ? 'Secondary (add primary first)' : 'Secondary'}
+                  </option>
                 </select>
                 <FieldError msg={errors.idRecordType} />
               </div>
@@ -1815,13 +2484,51 @@ export default function AddEmployee() {
             <div className="emp-field-grid emp-id-grid-bottom">
               <div className={`form-group ${errors.idNumber ? 'form-group--error' : ''}`}>
                 <label><i className="fa-solid fa-hashtag fa-fw" /> ID Number{idType && <span style={{ color: '#e53935' }}> *</span>}</label>
-                <input type="text" value={idNumber} onChange={e => { setIdNumber(e.target.value); setErrors(p => ({ ...p, idNumber: '' })); }}
-                  placeholder="e.g. 1234-5678-9012" />
+                <input type="text" value={idNumber}
+                  onFocus={() => { if (!idCountry) setErrors(p => ({ ...p, idNumber: 'Please select a Country first.' })); }}
+                  onChange={e => {
+                    if (!idCountry) { setErrors(p => ({ ...p, idNumber: 'Please select a Country first.' })); return; }
+                    const val = e.target.value;
+                    setIdNumber(val);
+                    const countryName = idCountries.find(c => String(c.id) === idCountry)?.value ?? '';
+                    const typeName    = picklistVals.find(p => String(p.id) === idType)?.value ?? '';
+                    const err = val ? validateIdentityNumber(countryName, typeName, val) : '';
+                    setErrors(p => ({ ...p, idNumber: err ?? '' }));
+                  }}
+                  placeholder={idNumberPlaceholder(
+                    idCountries.find(c => String(c.id) === idCountry)?.value ?? '',
+                    picklistVals.find(p => String(p.id) === idType)?.value ?? '',
+                  )} />
+                {!errors.idNumber && idType && (() => {
+                  const hint = idNumberHint(
+                    idCountries.find(c => String(c.id) === idCountry)?.value ?? '',
+                    picklistVals.find(p => String(p.id) === idType)?.value ?? '',
+                  );
+                  return hint ? <div style={{ fontSize: 11, color: '#6B7280', marginTop: 3 }}><i className="fa-solid fa-circle-info" style={{ marginRight: 4 }} />{hint}</div> : null;
+                })()}
                 <FieldError msg={errors.idNumber} />
               </div>
               <div className={`form-group ${errors.idExpiry ? 'form-group--error' : ''}`}>
                 <label><i className="fa-solid fa-calendar-xmark fa-fw" /> Expiry Date{idType && <span style={{ color: '#e53935' }}> *</span>}</label>
-                <input type="date" value={idExpiry} onChange={e => { setIdExpiry(e.target.value); setErrors(p => ({ ...p, idExpiry: '' })); }} />
+                <input type="date" min="1900-01-01" max="2100-12-31" value={idExpiry}
+                  onFocus={() => { if (!idCountry) setErrors(p => ({ ...p, idExpiry: 'Please select a Country first.' })); }}
+                  onChange={e => {
+                    if (!idCountry) { setErrors(p => ({ ...p, idExpiry: 'Please select a Country first.' })); return; }
+                    const v = e.target.value;
+                    setIdExpiry(v);
+                    const today = new Date().toISOString().slice(0, 10);
+                    if (v && v <= today)
+                      setErrors(p => ({ ...p, idExpiry: 'Expiry Date must be a future date.' }));
+                    else
+                      setErrors(p => ({ ...p, idExpiry: '' }));
+                  }} />
+                {!errors.idExpiry && idType && (() => {
+                  const lbl = idValidityLabel(
+                    idCountries.find(c => String(c.id) === idCountry)?.value ?? '',
+                    picklistVals.find(p => String(p.id) === idType)?.value ?? '',
+                  );
+                  return lbl ? <div style={{ fontSize: 11, color: '#6B7280', marginTop: 3 }}><i className="fa-solid fa-clock" style={{ marginRight: 4 }} />{lbl}</div> : null;
+                })()}
                 <FieldError msg={errors.idExpiry} />
               </div>
             </div>
@@ -1855,25 +2562,92 @@ export default function AddEmployee() {
               </select>
               <FieldError msg={errors.deptId} />
             </div>
-            <div className="form-group">
+            <div className="form-group" style={{ position: 'relative' }}>
               <label><i className="fa-solid fa-user-tie fa-fw" /> Manager</label>
-              <select value={managerId} onChange={e => setManagerId(e.target.value)}>
-                <option value="">-- No Manager --</option>
-                {managers.map(e => <option key={(e as unknown as {id: string}).id} value={(e as unknown as {id: string}).id}>{e.name} ({e.employeeId})</option>)}
-              </select>
+              <input
+                type="text"
+                value={managerSearch}
+                onChange={e => {
+                  setManagerSearch(e.target.value);
+                  setManagerId('');
+                  setManagerOpen(true);
+                }}
+                onFocus={() => setManagerOpen(true)}
+                onBlur={() => setTimeout(() => setManagerOpen(false), 150)}
+                placeholder="Search by name or ID…"
+                autoComplete="off"
+              />
+              {/* Selected manager chip */}
+              {managerId && (
+                <div style={{ fontSize: 12, color: '#4F46E5', marginTop: 4 }}>
+                  <i className="fa-solid fa-circle-check" style={{ marginRight: 4 }} />
+                  {managers.find(e => (e as any).id === managerId)?.name ?? managerSearch}
+                  <button
+                    type="button"
+                    onClick={() => { setManagerId(''); setManagerSearch(''); }}
+                    style={{ marginLeft: 8, background: 'none', border: 'none', cursor: 'pointer', color: '#9CA3AF', fontSize: 11 }}
+                  >✕</button>
+                </div>
+              )}
+              {/* Dropdown */}
+              {managerOpen && !managerId && (
+                <div style={{
+                  position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 999,
+                  background: '#fff', border: '1px solid #D1D5DB', borderRadius: 8,
+                  boxShadow: '0 4px 16px rgba(0,0,0,0.12)', maxHeight: 220, overflowY: 'auto',
+                }}>
+                  {/* No manager option */}
+                  <div
+                    onMouseDown={() => { setManagerId(''); setManagerSearch(''); setManagerOpen(false); }}
+                    style={{ padding: '8px 12px', fontSize: 13, color: '#9CA3AF', cursor: 'pointer', borderBottom: '1px solid #F3F4F6' }}
+                  >
+                    — No Manager —
+                  </div>
+                  {managers
+                    .filter(e => {
+                      if (!managerSearch.trim()) return true;
+                      const q = managerSearch.toLowerCase();
+                      return e.name.toLowerCase().includes(q) || e.employeeId.toLowerCase().includes(q);
+                    })
+                    .map(e => (
+                      <div
+                        key={(e as any).id}
+                        onMouseDown={() => {
+                          setManagerId((e as any).id);
+                          setManagerSearch(e.name);
+                          setManagerOpen(false);
+                        }}
+                        style={{ padding: '8px 12px', fontSize: 13, cursor: 'pointer', display: 'flex', justifyContent: 'space-between' }}
+                        onMouseEnter={ev => (ev.currentTarget.style.background = '#F5F3FF')}
+                        onMouseLeave={ev => (ev.currentTarget.style.background = '')}
+                      >
+                        <span>{e.name}</span>
+                        <span style={{ color: '#9CA3AF', fontSize: 11 }}>{e.employeeId}</span>
+                      </div>
+                    ))
+                  }
+                  {managers.filter(e => {
+                    if (!managerSearch.trim()) return true;
+                    const q = managerSearch.toLowerCase();
+                    return e.name.toLowerCase().includes(q) || e.employeeId.toLowerCase().includes(q);
+                  }).length === 0 && (
+                    <div style={{ padding: '10px 12px', fontSize: 13, color: '#9CA3AF' }}>No matches</div>
+                  )}
+                </div>
+              )}
             </div>
             <div className={`form-group ${errors.hireDate ? 'form-group--error' : ''}`}>
               <label><i className="fa-solid fa-calendar-check fa-fw" /> Hire Date</label>
-              <input type="date" value={hireDate} onChange={e => setHireDate(e.target.value)} required />
+              <input type="date" min="1900-01-01" max="2100-12-31" value={hireDate} onChange={e => {
+                const v = e.target.value;
+                setHireDate(v);
+                setErrors(p => ({ ...p, hireDate: '' }));
+              }} required />
               <FieldError msg={errors.hireDate} />
-            </div>
-            <div className="form-group">
-              <label><i className="fa-solid fa-calendar-xmark fa-fw" /> End Date</label>
-              <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} />
             </div>
             <div className={`form-group ${errors.probationEnd ? 'form-group--error' : ''}`}>
               <label><i className="fa-solid fa-hourglass-half fa-fw" /> Probation End Date</label>
-              <input type="date" value={probationEnd}
+              <input type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31" value={probationEnd}
                 onChange={e => handleProbationChange(e.target.value)} required />
               <FieldError msg={errors.probationEnd} />
             </div>
@@ -2028,6 +2802,115 @@ export default function AddEmployee() {
         </div>
       );
 
+      // ── Bank ──────────────────────────────────────────────────────────────
+      case 'bank': return (
+        <div className="emp-section">
+          <div className="emp-section-label">
+            <i className="fa-solid fa-building-columns" /> Bank Account Details
+          </div>
+          {errors.bank && (
+            <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 7, padding: '8px 12px', color: '#DC2626', fontSize: 12.5, marginBottom: 12 }}>
+              <i className="fa-solid fa-circle-exclamation" style={{ marginRight: 6 }} />{errors.bank}
+            </div>
+          )}
+          {currentEmpUUID && (
+            <BankAccountsPortlet
+              employeeId={currentEmpUUID}
+              hireDate={hireDate || undefined}
+              isNewHire
+              readOnly={isLocked && !isApproverEditMode}
+              canEdit={!isLocked || isApproverEditMode}
+              saveTriggerRef={bankSaveTriggerRef}
+              onChanged={() => {
+                setBankSectionDone(true);
+                setErrors(p => ({ ...p, bank: '' }));
+                setCompleted(prev => new Set([...prev, 'bank']));
+              }}
+              onAccountCountChange={(hasAccounts) => {
+                setBankSectionDone(hasAccounts);
+                setCompleted(prev => {
+                  const next = new Set(prev);
+                  hasAccounts ? next.add('bank') : next.delete('bank');
+                  return next;
+                });
+              }}
+            />
+          )}
+          {!currentEmpUUID && (
+            <div style={{ color: '#9CA3AF', fontSize: 13, padding: '12px 0' }}>
+              <i className="fa-solid fa-circle-info" style={{ marginRight: 6 }} />
+              Save the previous sections first — bank accounts will be available once the employee record is created.
+            </div>
+          )}
+        </div>
+      );
+
+      // ── Education ────────────────────────────────────────────────────────
+      case 'education': return (
+        <div className="emp-section">
+          <div className="emp-section-label">
+            <i className="fa-solid fa-graduation-cap" /> Education
+          </div>
+          {currentEmpUUID ? (
+            <EducationPortlet
+              employeeId={currentEmpUUID}
+              isNewHire
+              readOnly={isLocked && !isApproverEditMode}
+              canCreate={!isLocked || isApproverEditMode}
+              canEdit={!isLocked || isApproverEditMode}
+              canDelete={!isLocked || isApproverEditMode}
+              saveTriggerRef={eduSaveTriggerRef}
+              onRecordCountChange={(hasRecords) => {
+                setEducationHasRecords(hasRecords);
+                setCompleted(prev => {
+                  const next = new Set(prev);
+                  hasRecords ? next.add('education') : next.delete('education');
+                  return next;
+                });
+              }}
+            />
+          ) : (
+            <div style={{ color: '#9CA3AF', fontSize: 13, padding: '12px 0' }}>
+              <i className="fa-solid fa-circle-info" style={{ marginRight: 6 }} />
+              Save the previous sections first — education records will be available once the employee record is created.
+            </div>
+          )}
+        </div>
+      );
+
+      // ── Dependents ────────────────────────────────────────────────────────
+      case 'dependents': return (
+        <div className="emp-section">
+          <div className="emp-section-label">
+            <i className="fa-solid fa-people-group" /> Dependents
+          </div>
+          {currentEmpUUID ? (
+            <DependentsPortlet
+              employeeId={currentEmpUUID}
+              hireDate={hireDate || undefined}
+              isNewHire
+              readOnly={isLocked && !isApproverEditMode}
+              canEdit={!isLocked || isApproverEditMode}
+              canDelete={false}
+              saveTriggerRef={depSaveTriggerRef}
+              onRecordCountChange={(hasRecords) => {
+                setDependentsHasRecords(hasRecords);
+                setCompleted(prev => {
+                  const next = new Set(prev);
+                  hasRecords ? next.add('dependents') : next.delete('dependents');
+                  return next;
+                });
+              }}
+            />
+          ) : (
+            <div style={{ color: '#9CA3AF', fontSize: 13, padding: '12px 0' }}>
+              <i className="fa-solid fa-circle-info" style={{ marginRight: 6 }} />
+              Save the previous sections first — dependents will be available once the employee record is created.
+            </div>
+          )}
+        </div>
+      );
+
       default: return null;
     }
   }
@@ -2039,32 +2922,155 @@ export default function AddEmployee() {
     <div className="page-content" style={{ padding: '28px 32px' }}>
       {/* Workflow gate banners */}
       {editingEmpId
-        ? <WorkflowGateBanner moduleCode="employee_edit"        actionLabel="employee detail edits" />
-        : <WorkflowGateBanner moduleCode="employee_onboarding"  actionLabel="new employee creation" />
+        ? <WorkflowGateBanner moduleCode="employee_edit"       actionLabel="employee detail edits" />
+        : !hireGateLoading && !hasHireWorkflow &&
+          <WorkflowGateBanner moduleCode="employee_onboarding" actionLabel="new employee creation" />
       }
+      {/* Hire workflow banner — shown when workflow is configured for New Hire */}
+      {!editingEmpId && !hireGateLoading && hasHireWorkflow && !isLocked && (
+        <div style={{
+          display: 'flex', alignItems: 'flex-start', gap: 10,
+          background: '#EFF6FF', border: '1px solid #BFDBFE',
+          borderRadius: 8, padding: '10px 14px', marginBottom: 16,
+          fontSize: 13, color: '#1E40AF',
+        }}>
+          <i className="fa-solid fa-circle-bolt" style={{ marginTop: 2, flexShrink: 0, color: '#3B82F6' }} />
+          <div>
+            <strong>Workflow approval required</strong> — this hire will be submitted for approval
+            before the employee is activated. Fill in all required sections, then click{' '}
+            <strong>Submit for Approval</strong>.
+          </div>
+        </div>
+      )}
+      {/* Locked banner — record is pending approval or rejected */}
+      {isLocked && loadedEmpStatus !== 'Rejected' && (
+        <div style={{
+          display: 'flex', alignItems: 'flex-start', gap: 10,
+          background: '#DBEAFE', border: '1px solid #93C5FD',
+          borderRadius: 8, padding: '10px 14px', marginBottom: 16,
+          fontSize: 13, color: '#1E40AF',
+        }}>
+          <i className="fa-solid fa-lock" style={{ marginTop: 2, flexShrink: 0 }} />
+          <div>
+            <strong>Awaiting approval</strong> — this record has been submitted and is locked.
+            {isApproverEditMode
+              ? ' You can make changes and save — this will update the record for the approver.'
+              : ' You cannot edit it until the approver acts on the request.'}
+          </div>
+        </div>
+      )}
+      {/* Rejected banner */}
+      {isLocked && loadedEmpStatus === 'Rejected' && (
+        <div style={{
+          display: 'flex', alignItems: 'flex-start', gap: 10,
+          background: '#FEF2F2', border: '1px solid #FECACA',
+          borderRadius: 8, padding: '10px 14px', marginBottom: 16,
+          fontSize: 13, color: '#DC2626',
+        }}>
+          <i className="fa-solid fa-circle-xmark" style={{ marginTop: 2, flexShrink: 0 }} />
+          <div>
+            <strong>Hire request rejected</strong> — this record is read-only.
+            {' '}Open the <strong>Sent Back</strong> tab in your Workflow Inbox to view the reason and discard the record.
+          </div>
+        </div>
+      )}
+      {/* Approver return comment — shown when status=Incomplete (sent back for correction) */}
+      {loadedEmpStatus === 'Incomplete' && returnComment && (
+        <div style={{
+          display: 'flex', alignItems: 'flex-start', gap: 10,
+          background: '#FFFBEB', border: '1px solid #FCD34D',
+          borderRadius: 8, padding: '10px 14px', marginBottom: 16,
+          fontSize: 13, color: '#92400E',
+        }}>
+          <i className="fa-solid fa-circle-exclamation" style={{ marginTop: 2, flexShrink: 0, color: '#D97706' }} />
+          <div>
+            <strong>Returned for correction</strong>
+            {returnComment.fromName ? ` by ${returnComment.fromName}` : ''}
+            {returnComment.at ? ` · ${new Date(returnComment.at).toLocaleDateString()}` : ''}
+            <div style={{ marginTop: 4, color: '#78350F' }}>{returnComment.message}</div>
+          </div>
+        </div>
+      )}
 
       <h2 className="page-title" style={{ marginBottom: 20 }}>
-        {editingEmpId ? 'Edit Employee' : 'Add New Employee'}
+        {editingEmpId
+          ? isApproverEditMode
+            ? 'Edit Employee (Approver Review)'
+            : isLocked && loadedEmpStatus === 'Rejected'
+              ? 'View Employee (Rejected)'
+          : isLocked
+              ? 'View Employee (Pending Approval)'
+              : 'Edit Employee'
+          : 'Add New Employee'
+        }
       </h2>
 
       {/* ── Form Card ──────────────────────────────────────────────────── */}
-      <div className="emp-form-card" style={{ marginBottom: 24 }}>
+      <div className="emp-form-card" style={{ marginBottom: 24, position: 'relative' }}>
 
         {/* Form Header */}
         <div className="emp-form-header">
           <div className="emp-form-avatar" onClick={() => photoRef.current?.click()} title="Click to change photo" style={{ cursor: 'pointer' }}>
             {photo
-              ? <img src={photo} alt={empName || 'Employee'} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
-              : empName
-                ? <img src={getAvatar({ name: empName })} alt={empName} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
+              ? <img src={photo} alt={firstName || 'Employee'} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
+              : firstName
+                ? <img src={getAvatar({ name: [firstName, lastName].filter(Boolean).join(' ') })} alt={firstName} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
                 : <i className="fa-solid fa-user" />
             }
             <input ref={photoRef} type="file" accept="image/*" hidden onChange={handlePhotoUpload} />
           </div>
           <div className="emp-form-header-text">
-            <h3>{empName || 'New Employee'}</h3>
+            <h3>{[firstName, middleName, lastName].filter(Boolean).join(' ') || 'New Employee'}</h3>
             <p>Fill in the details below. Role is auto-derived from org structure.</p>
           </div>
+
+          {/* Required-sections ring — top-right of header */}
+          {!isLocked && !isApproverEditMode && (() => {
+            const r = 24;
+            const circ = 2 * Math.PI * r;
+            const dash = (requiredTotal > 0 ? requiredDoneCount / requiredTotal : 0) * circ;
+            const done = allRequiredDone;
+            const requiredSections = SECTIONS.filter(s => !s.optional);
+            return (
+              <div className="emp-progress-ring">
+                <svg width="68" height="68" viewBox="0 0 68 68">
+                  <circle cx="34" cy="34" r={r} fill="none" stroke="rgba(255,255,255,0.18)" strokeWidth="6" />
+                  <circle cx="34" cy="34" r={r} fill="none"
+                    stroke={done ? '#4ADE80' : '#93C5FD'}
+                    strokeWidth="6"
+                    strokeDasharray={`${dash} ${circ - dash}`}
+                    strokeDashoffset={circ / 4}
+                    strokeLinecap="round"
+                    style={{ transition: 'stroke-dasharray 0.45s cubic-bezier(.4,0,.2,1)' }}
+                  />
+                  {done ? (
+                    <text x="34" y="40" textAnchor="middle" fontSize="20" fill="#4ADE80">✓</text>
+                  ) : (
+                    <>
+                      <text x="34" y="31" textAnchor="middle" fontSize="16" fontWeight="700" fill="#ffffff">{requiredDoneCount}/{requiredTotal}</text>
+                      <text x="34" y="44" textAnchor="middle" fontSize="8.5" fill="rgba(255,255,255,0.55)">sections</text>
+                    </>
+                  )}
+                </svg>
+                {/* Hover tooltip — lists all required sections with ✓/○ */}
+                <div className="emp-ring-tooltip">
+                  <div className="emp-ring-tooltip-title">Required sections</div>
+                  {requiredSections.map(s => {
+                    const isDone = completed.has(s.id);
+                    return (
+                      <div key={s.id} className={`emp-ring-tooltip-row${isDone ? ' done' : ''}`}>
+                        <span className="emp-ring-tooltip-icon">
+                          <i className={`fa-solid ${isDone ? 'fa-circle-check' : 'fa-circle'}`} />
+                        </span>
+                        {s.label}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
+
         </div>
 
         {/* Progress Tracker */}
@@ -2072,67 +3078,98 @@ export default function AddEmployee() {
           activeSection={activeSection}
           completedSections={completed}
           onJump={jumpToSection}
+          baseAllDone={baseAllDone}
         />
+
+        {gateMsg && (
+          <div className="emp-gate-msg">
+            <i className="fa-solid fa-lock" />
+            Complete <strong>Personal, Phone, Email and Employment</strong> first to unlock the remaining sections.
+          </div>
+        )}
 
         {/* Section body */}
         <form onSubmit={e => e.preventDefault()}>
-          {renderSection()}
+          {/* fieldset disabled propagates to every child input/select/button
+              when the record is locked (awaiting approval). No-op otherwise. */}
+          <fieldset disabled={isLocked} style={{ border: 'none', padding: 0, margin: 0, minWidth: 0 }}>
+            {renderSection()}
+          </fieldset>
 
           {/* Footer actions */}
           <div className="emp-form-footer">
             {/* LEFT group: Cancel & Exit + Back */}
             <div className="emp-footer-left">
               <button type="button" className="emp-btn-exit" onClick={handleCancelExit}>
-                <i className="fa-solid fa-xmark" /> Cancel &amp; Exit
+                {isLocked
+                  ? <><i className="fa-solid fa-arrow-left" /> Close</>
+                  : <><i className="fa-solid fa-xmark" /> Cancel &amp; Exit</>}
               </button>
               {currentSectionIdx > 0 && (
                 <button
                   type="button"
                   className="emp-btn-ghost"
-                  onClick={() => setActiveSection(SECTIONS[currentSectionIdx - 1].id)}
+                  disabled={isSaving || submittingForApproval}
+                  onClick={handleBack}
                 >
                   <i className="fa-solid fa-arrow-left" /> Back
                 </button>
               )}
             </div>
 
-            {/* CENTER: autosave status indicator */}
-            <div className="emp-autosave-wrap">
-              {autosaveStatus === 'saving' && (
-                <span className="emp-autosave-status emp-autosave-status--saving">
-                  <i className="fa-solid fa-spinner fa-spin" /> Saving…
-                </span>
-              )}
-              {autosaveStatus === 'saved' && (
-                <span className="emp-autosave-status emp-autosave-status--saved">
-                  <i className="fa-solid fa-circle-check" /> Saved
-                </span>
-              )}
-              {autosaveStatus === 'idle' && lastAutoSaved && (
-                <span className="emp-autosave-status">
-                  <i className="fa-regular fa-clock" /> Last saved {getRelativeTime(lastAutoSaved)}
-                </span>
-              )}
-            </div>
-
-            {/* RIGHT group: Save Draft + Next / Activate */}
+            {/* RIGHT group: Save Draft + Next / primary action */}
             <div className="emp-footer-right">
-              <button type="button" className="emp-btn-secondary" onClick={handleSaveDraft}>
-                <i className="fa-solid fa-floppy-disk" /> Save Draft
-              </button>
-              {!isLastSection ? (
-                <button type="button" className="emp-btn-primary" onClick={handleNext}>
-                  Next <i className="fa-solid fa-arrow-right" />
+              {/* Approver edit-in-flight: show Save & Return instead of normal buttons */}
+              {isApproverEditMode ? (
+                <button type="button" className="emp-btn-primary" onClick={handleSaveAndReturn}>
+                  <i className="fa-solid fa-floppy-disk" /> Save &amp; Return to Review
                 </button>
+              ) : isLocked ? (
+                /* Locked (pending approval) — no save/activate, read-only */
+                null
               ) : (
-                <button
-                  type="button"
-                  className="emp-btn-primary"
-                  onClick={handleActivate}
-                  title={!allRequiredDone ? 'Complete all required sections to activate' : ''}
-                >
-                  <i className="fa-solid fa-user-check" /> Activate Employee
-                </button>
+                <>
+                  <button type="button" className="emp-btn-secondary" onClick={handleSaveDraft}
+                    disabled={isSaving || submittingForApproval}>
+                    <i className={`fa-solid ${isSaving ? 'fa-spinner fa-spin' : 'fa-floppy-disk'}`} />
+                    {isSaving ? ' Saving…' : ' Save Draft'}
+                  </button>
+                  {!isLastSection ? (
+                    <button type="button" className="emp-btn-primary" onClick={handleNext}
+                      disabled={isSaving || submittingForApproval}>
+                      Next <i className="fa-solid fa-arrow-right" />
+                    </button>
+                  ) : (
+                    /* Last section — submit / activate button */
+                    <>
+                    {hasHireWorkflow && (loadedEmpStatus == null || loadedEmpStatus === 'Draft' || loadedEmpStatus === 'Incomplete') ? (
+                    /* Workflow configured + record is new or still in hire pipeline — submit for approval */
+                    <button
+                      type="button"
+                      className="emp-btn-primary"
+                      onClick={handleSubmitForApproval}
+                      disabled={submittingForApproval}
+                      title=""
+                    >
+                      {submittingForApproval
+                        ? <><i className="fa-solid fa-spinner fa-spin" /> Submitting…</>
+                        : <><i className="fa-solid fa-paper-plane" /> Submit for Approval</>
+                      }
+                    </button>
+                  ) : (
+                    /* No workflow or editing existing employee — direct activate */
+                    <button
+                      type="button"
+                      className="emp-btn-primary"
+                      onClick={handleActivate}
+                      title={!allRequiredDone ? 'Complete all required sections to activate' : ''}
+                    >
+                      <i className="fa-solid fa-user-check" /> Activate Employee
+                    </button>
+                  )}
+                </>
+              )}
+                </>
               )}
             </div>
           </div>
@@ -2146,6 +3183,8 @@ export default function AddEmployee() {
         onDelete={confirmDelete}
         picklistVals={picklistVals}
         departments={departments}
+        currentUserId={authUser?.id ?? null}
+        canViewAll={canViewAllPipeline}
       />
 
       {/* ── Info / success modal ─────────────────────────────────────────── */}
@@ -2163,7 +3202,7 @@ export default function AddEmployee() {
               }} />
               <h3>{infoModal.title}</h3>
             </div>
-            <div className="modal-body">{infoModal.message}</div>
+            <div className="modal-body" style={{ whiteSpace: 'pre-line' }}>{infoModal.message}</div>
             <div className="modal-actions">
               <button
                 className="emp-btn-primary"
@@ -2205,6 +3244,92 @@ export default function AddEmployee() {
                 }}
               >
                 <i className="fa-solid fa-circle-check" /> Proceed Anyway
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Duplicate business-email modal ──────────────────────────────── */}
+      {dupEmailModal.open && (
+        <div className="modal-overlay" onClick={() => setDupEmailModal(m => ({ ...m, open: false }))}>
+          <div className="modal-box" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <i className={`fa-solid ${dupEmailModal.type === 'block' ? 'fa-circle-xmark' : 'fa-triangle-exclamation'} modal-icon`}
+                style={{ color: dupEmailModal.type === 'block' ? '#DC2626' : '#D97706' }} />
+              <h3>{dupEmailModal.title}</h3>
+            </div>
+            <div className="modal-body">{dupEmailModal.message}</div>
+            <div className="modal-actions">
+              {dupEmailModal.type === 'warn' ? (
+                <>
+                  <button
+                    className="btn-modal-cancel"
+                    onClick={() => {
+                      setDupEmailModal(m => ({ ...m, open: false }));
+                      setSearchParams(p => { p.set('edit', dupEmailModal.existingId); return p; });
+                    }}
+                  >
+                    <i className="fa-solid fa-arrow-up-right-from-square" /> View existing
+                  </button>
+                  <button
+                    className="emp-btn-primary"
+                    style={{ padding: '9px 24px', fontSize: 13.5 }}
+                    onClick={() => setDupEmailModal(m => ({ ...m, open: false }))}
+                  >
+                    Continue anyway
+                  </button>
+                </>
+              ) : (
+                <button
+                  className="emp-btn-primary"
+                  style={{ padding: '9px 28px', fontSize: 13.5 }}
+                  onClick={() => setDupEmailModal(m => ({ ...m, open: false }))}
+                >
+                  OK
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Incomplete sections modal ───────────────────────────────────── */}
+      {incompleteSectionsModal.length > 0 && (
+        <div className="modal-overlay" onClick={() => setIncompleteSectionsModal([])}>
+          <div className="modal-box" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <i className="fa-solid fa-circle-exclamation modal-icon" style={{ color: '#D97706' }} />
+              <h3>Required Sections Incomplete</h3>
+            </div>
+            <div className="modal-body">
+              <p style={{ marginBottom: 12 }}>
+                Please complete the following required sections before submitting for approval:
+              </p>
+              <ul style={{ margin: 0, paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {incompleteSectionsModal.map(label => (
+                  <li key={label} style={{ color: '#92400E', fontWeight: 600 }}>
+                    <i className="fa-solid fa-circle-dot" style={{ marginRight: 8, color: '#D97706' }} />
+                    {label}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="modal-actions">
+              <button
+                className="emp-btn-primary"
+                style={{ padding: '9px 28px', fontSize: 13.5 }}
+                onClick={() => {
+                  // Navigate to the first incomplete section
+                  const firstMissingId = requiredSectionIds.find(id => !completed.has(id));
+                  if (firstMissingId) {
+                    setActiveSection(firstMissingId);
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }
+                  setIncompleteSectionsModal([]);
+                }}
+              >
+                <i className="fa-solid fa-arrow-right" /> Go to Section
               </button>
             </div>
           </div>
@@ -2265,6 +3390,66 @@ export default function AddEmployee() {
           </div>
         </div>
       )}
+
+      {/* ── Identity country-change confirmation ─────────────────────────── */}
+      <ConfirmationModal
+        isOpen={idCountryPending !== null}
+        title="Change Identity Country?"
+        message="Changing the Country will clear the ID Type, Record Type, ID Number, and Expiry Date. Do you want to continue?"
+        confirmText="Yes, Clear"
+        cancelText="Cancel"
+        destructive={false}
+        onConfirm={() => {
+          if (idCountryPending !== null) {
+            setIdCountry(idCountryPending);
+            setIdType(''); setIdRecordType(''); setIdNumber(''); setIdExpiry('');
+            setErrors(p => ({ ...p, idCountry: '', idType: '', idRecordType: '', idNumber: '', idExpiry: '' }));
+          }
+          setIdCountryPending(null);
+        }}
+        onCancel={() => setIdCountryPending(null)}
+      />
+
+      {/* ── Passport country-change confirmation ─────────────────────────── */}
+      <ConfirmationModal
+        isOpen={passportCountryPending !== null}
+        title="Change Issue Country?"
+        message="Changing the Issue Country will clear the Passport Number, Issue Date, and Expiry Date. Do you want to continue?"
+        confirmText="Yes, Clear"
+        cancelText="Cancel"
+        destructive={false}
+        onConfirm={() => {
+          if (passportCountryPending !== null) {
+            setPassportCountry(passportCountryPending);
+            setPassportNumber('');
+            setPassportIssueDate('');
+            setPassportExpiry('');
+            setErrors(p => ({ ...p, passportNumber: '', passportIssueDate: '', passportExpiry: '' }));
+          }
+          setPassportCountryPending(null);
+        }}
+        onCancel={() => setPassportCountryPending(null)}
+      />
+
+      {/* ── Delete primary ID — auto-demote secondary modal ─────────────── */}
+      <ConfirmationModal
+        isOpen={deletePrimaryModal.open}
+        title="Delete Primary ID Record?"
+        message="This employee also has a secondary ID record. Deleting the primary will automatically promote the secondary to primary."
+        warning="The secondary record will become the new primary. You can add a new secondary record afterwards if needed."
+        confirmText="Delete & Promote"
+        cancelText="Cancel"
+        destructive={false}
+        onConfirm={() => {
+          const updated = idRecords
+            .filter((_, j) => j !== deletePrimaryModal.index)
+            .map(r => r.recordType === 'secondary' ? { ...r, recordType: 'primary' } : r);
+          setIdRecords(updated);
+          saveIdentityNow(updated);
+          setDeletePrimaryModal({ open: false, index: -1 });
+        }}
+        onCancel={() => setDeletePrimaryModal({ open: false, index: -1 })}
+      />
     </div>
   );
 }

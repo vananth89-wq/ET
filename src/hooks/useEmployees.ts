@@ -28,6 +28,8 @@ export interface Employee {
   managerId:        string | null;
   baseCurrencyId:   string | null;
   status:           string;
+  locked:           boolean;        // true while record is Pending / in workflow
+  createdBy:        string | null;  // auth.uid() of the HR Analyst who created the record
   hireDate:         string | null;
   endDate:          string | null;
   probationEndDate: string | null;  // from employee_employment satellite table
@@ -45,12 +47,28 @@ export interface Employee {
 
 // ─── Mapper: DB row (with embedded satellite tables) → frontend Employee ─────
 // Row shape when fetched with:
-//   .select('*, employee_personal(*), employee_contact(*), employee_employment(*)')
+//   .select('*, employee_personal(*), employee_contact(*), employee_employment!employee_id(*)')
+// FK hint !employee_id required since mig 351 added manager_id → employees (two FKs to same table).
 export function mapEmployee(row: EmployeeRow): Employee {
-  // Satellite table rows are null when no record exists yet for that employee
-  const personal:   EmployeeRow = row.employee_personal   ?? {};
-  const contact:    EmployeeRow = row.employee_contact    ?? {};
-  const employment: EmployeeRow = row.employee_employment ?? {};
+  // employee_personal is now multi-row (effective-dated, mig 315).
+  // PostgREST returns an array; pick the currently-active open-ended slice.
+  const personalRaw = row.employee_personal;
+  const personal: EmployeeRow = Array.isArray(personalRaw)
+    ? (personalRaw.find((p: EmployeeRow) =>
+        p.effective_to === '9999-12-31' && p.is_active === true)
+       ?? personalRaw[0]
+       ?? {})
+    : (personalRaw ?? {});
+  const contact:    EmployeeRow = row.employee_contact ?? {};
+  // employee_employment is now multi-row (effective-dated, mig 351).
+  // PostgREST returns an array; pick the currently-active open-ended slice.
+  const employmentRaw = row.employee_employment;
+  const employment: EmployeeRow = Array.isArray(employmentRaw)
+    ? (employmentRaw.find((e: EmployeeRow) =>
+        e.effective_to === '9999-12-31' && e.is_active === true)
+       ?? employmentRaw[0]
+       ?? {})
+    : (employmentRaw ?? {});
 
   return {
     id:               row.id,
@@ -67,19 +85,25 @@ export function mapEmployee(row: EmployeeRow): Employee {
     gender:           personal.gender         ?? null,
     dob:              personal.dob            ?? null,
     photo:            personal.photo_url      ?? null,
-    // Core employment fields
-    designation:      row.designation,
-    jobTitle:         row.job_title,
-    deptId:           row.dept_id,
-    managerId:        row.manager_id,
-    baseCurrencyId:   row.base_currency_id,
+    // Core employment fields — prefer satellite over base table (mig 456).
+    // upsert_employment_info no longer mirrors these to employees base for
+    // Draft/Pending records; satellite is authoritative during hire pipeline.
+    // Falls back to base table for legacy records pre-dating mig 351.
+    designation:      employment.designation      ?? row.designation,
+    jobTitle:         employment.job_title         ?? row.job_title,
+    deptId:           employment.dept_id           ?? row.dept_id,
+    managerId:        employment.manager_id        ?? row.manager_id,
+    baseCurrencyId:   employment.base_currency_id  ?? row.base_currency_id,
     status:           row.status,
-    hireDate:         row.hire_date,
-    endDate:          row.end_date,
-    workLocation:     row.work_location,
-    workCountry:      row.work_country,
-    // Employment satellite
+    locked:           row.locked ?? false,
+    hireDate:         employment.hire_date         ?? row.hire_date,
+    endDate:          employment.end_date          ?? row.end_date,
+    workLocation:     employment.work_location     ?? row.work_location,
+    workCountry:      employment.work_country      ?? row.work_country,
+    // Employment satellite (satellite-only fields)
     probationEndDate: employment.probation_end_date ?? null,
+    // Hire pipeline ownership (mig 253+; null for legacy records)
+    createdBy:        row.created_by ?? null,
     // Timestamps
     createdAt:        row.created_at,
     updatedAt:        row.updated_at,
@@ -118,7 +142,10 @@ export function useEmployees(includeDeleted = false): UseEmployeesResult {
         //   "Employee"           → neither
         let query = supabase
           .from('employees')
-          .select('*, employee_personal(*), employee_contact(*), employee_employment(*)')
+          // employee_employment!employee_id disambiguates the FK hint:
+          // mig 351 added manager_id → employees, creating two FKs to the same table.
+          // PostgREST requires the hint to know which FK to join on.
+          .select('*, employee_personal(*), employee_contact(*), employee_employment!employee_id(*)')
           .order('name', { ascending: true });
 
         if (!includeDeleted) {

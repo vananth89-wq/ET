@@ -6,6 +6,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useEmployees } from '../../hooks/useEmployees';
 import { useDepartments } from '../../hooks/useDepartments';
 import { usePicklistValues } from '../../hooks/usePicklistValues';
+import { supabase } from '../../lib/supabase';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -43,6 +44,14 @@ interface PlVal {
   picklistId: string;
   id: string | number;
   value: string;
+}
+
+type RelView = 'line' | 'matrix' | 'both';
+
+interface MatrixRel {
+  empUuid:     string;   // UUID of the reportee (employee_job_relationship_set.employee_id)
+  managerUuid: string;   // UUID of the matrix manager
+  code:        string;   // PM01–PM03, OM01–OM03
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -95,7 +104,7 @@ function fmtDate(val?: string): string {
 
 /** Is this employee "active" as of the given date? */
 function isActiveOn(emp: Emp, date: string): boolean {
-  if (emp.status === 'Draft' || emp.status === 'Incomplete') return false;
+  if (emp.status === 'Draft' || emp.status === 'Incomplete' || emp.status === 'Inactive') return false;
   const hired = emp.hireDate;
   const end   = emp.endDate;
   if (hired && hired > date) return false;
@@ -471,6 +480,8 @@ export default function EmpOrgChart() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [focusId,    setFocusId]    = useState<string | null>(null);
   const [focusName,  setFocusName]  = useState('');
+  const [relView,    setRelView]    = useState<RelView>('line');
+  const [matrixRels, setMatrixRels] = useState<MatrixRel[]>([]);
 
   // DOM refs for zoom/pan
   const viewportRef  = useRef<HTMLDivElement>(null);
@@ -599,8 +610,26 @@ export default function EmpOrgChart() {
       panRef.current.x = Math.max(0, (vw - cw) / 2);
       panRef.current.y = 40;
       applyTransform();
+
+      // Centre viewport on the logged-in user's card if it is rendered.
+      // Uses a second setTimeout so the browser has finished painting the
+      // initial transform before we read card coordinates.
+      if (profileEmpId) {
+        setTimeout(() => {
+          const card = cv.querySelector<HTMLElement>(`.eoc-card[data-emp-id="${profileEmpId}"]`);
+          if (!card || !vp) return;
+          const vpRect   = vp.getBoundingClientRect();
+          const cardRect = card.getBoundingClientRect();
+          // Shift pan so the card centre lands at horizontal centre / upper-third vertically
+          const cardCX = cardRect.left + cardRect.width  / 2 - vpRect.left;
+          const cardCY = cardRect.top  + cardRect.height / 2 - vpRect.top;
+          panRef.current.x += vp.clientWidth  / 2 - cardCX;
+          panRef.current.y += vp.clientHeight / 3 - cardCY;
+          applyTransform();
+        }, 60);
+      }
     }, 80);
-  }, [applyTransform]);
+  }, [applyTransform, profileEmpId]);
 
   // ── Zoom/pan events ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -655,6 +684,31 @@ export default function EmpOrgChart() {
     };
   }, [applyTransform]);
 
+  // ── Matrix relationship fetch ──────────────────────────────────────────────
+  useEffect(() => {
+    if (relView === 'line') { setMatrixRels([]); return; }
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from('employee_job_relationship_set')
+        .select('employee_id, employee_job_relationship_item(relationship_code, manager_employee_id)')
+        .lte('effective_from', viewDate)
+        .gte('effective_to', viewDate)
+        .eq('is_active', true);
+      if (cancelled || !data) return;
+      const rels: MatrixRel[] = [];
+      for (const set of data as { employee_id: string; employee_job_relationship_item: { relationship_code: string; manager_employee_id: string }[] }[]) {
+        for (const item of set.employee_job_relationship_item ?? []) {
+          if (item.manager_employee_id) {
+            rels.push({ empUuid: set.employee_id, managerUuid: item.manager_employee_id, code: item.relationship_code });
+          }
+        }
+      }
+      setMatrixRels(rels);
+    })();
+    return () => { cancelled = true; };
+  }, [relView, viewDate]);
+
   // ── SVG connector lines ────────────────────────────────────────────────────
   //
   // requestAnimationFrame — lets the browser finish layout before reading
@@ -685,63 +739,108 @@ export default function EmpOrgChart() {
       const canvasRect = canvas.getBoundingClientRect();
       const zoom       = zoomRef.current;
 
-      canvas.querySelectorAll<HTMLElement>('.eoc-children-row[data-parent-id]').forEach(row => {
-        const parentId   = row.dataset.parentId;
-        if (!parentId) return;
-        const parentCard = canvas.querySelector<HTMLElement>(`.eoc-card[data-emp-id="${parentId}"]`);
-        if (!parentCard) return;
-        const childCards = Array.from(
-          row.querySelectorAll<HTMLElement>(':scope > .eoc-child-wrap > .eoc-node-wrap > .eoc-card')
-        );
-        if (!childCards.length) return;
+      // ── Solid lines — direct manager hierarchy ─────────────────────────────
+      if (relView !== 'matrix') {
+        canvas.querySelectorAll<HTMLElement>('.eoc-children-row[data-parent-id]').forEach(row => {
+          const parentId   = row.dataset.parentId;
+          if (!parentId) return;
+          const parentCard = canvas.querySelector<HTMLElement>(`.eoc-card[data-emp-id="${parentId}"]`);
+          if (!parentCard) return;
+          const childCards = Array.from(
+            row.querySelectorAll<HTMLElement>(':scope > .eoc-child-wrap > .eoc-node-wrap > .eoc-card')
+          );
+          if (!childCards.length) return;
 
-        const pr  = parentCard.getBoundingClientRect();
-        // Convert viewport coords → canvas-local coords by dividing by zoom
-        const px  = (pr.left + pr.width / 2 - canvasRect.left) / zoom;
-        const py  = (pr.bottom               - canvasRect.top)  / zoom;
-        const gap = 24;
+          const pr  = parentCard.getBoundingClientRect();
+          const px  = (pr.left + pr.width / 2 - canvasRect.left) / zoom;
+          const py  = (pr.bottom               - canvasRect.top)  / zoom;
+          const gap = 24;
 
-        const pts = childCards.map(c => {
-          const r = c.getBoundingClientRect();
-          return {
-            x: (r.left + r.width / 2 - canvasRect.left) / zoom,
-            y: (r.top                - canvasRect.top)  / zoom,
-          };
+          const pts = childCards.map(c => {
+            const r = c.getBoundingClientRect();
+            return {
+              x: (r.left + r.width / 2 - canvasRect.left) / zoom,
+              y: (r.top                - canvasRect.top)  / zoom,
+            };
+          });
+
+          const onChain = parentCard.classList.contains('eoc-card--chain') ||
+                          parentCard.classList.contains('eoc-card--selected');
+          const lineCol = onChain ? '#3B82F6' : '#C8D8EA';
+          const lineW   = onChain ? '2.5' : '1.5';
+
+          function mkLine(x1: number, y1: number, x2: number, y2: number) {
+            const el = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            el.setAttribute('x1', String(x1)); el.setAttribute('y1', String(y1));
+            el.setAttribute('x2', String(x2)); el.setAttribute('y2', String(y2));
+            el.setAttribute('stroke', lineCol);
+            el.setAttribute('stroke-width', lineW);
+            el.setAttribute('stroke-linecap', 'round');
+            svg.appendChild(el);
+          }
+
+          const barY = py + gap;
+          if (pts.length === 1) {
+            mkLine(px, py, pts[0].x, pts[0].y);
+          } else {
+            mkLine(px, py, px, barY);
+            const minX = Math.min(...pts.map(p => p.x));
+            const maxX = Math.max(...pts.map(p => p.x));
+            mkLine(minX, barY, maxX, barY);
+            pts.forEach(p => mkLine(p.x, barY, p.x, p.y));
+          }
         });
+      }
 
-        const onChain = parentCard.classList.contains('eoc-card--chain') ||
-                        parentCard.classList.contains('eoc-card--selected');
-        const lineCol = onChain ? '#3B82F6' : '#C8D8EA';
-        const lineW   = onChain ? '2.5' : '1.5';
+      // ── Dashed bezier lines — matrix manager relationships ─────────────────
+      if (relView !== 'line' && matrixRels.length > 0) {
+        matrixRels.forEach(rel => {
+          const empNode    = empMap[rel.empUuid];
+          const managerNode = empMap[rel.managerUuid];
+          if (!empNode || !managerNode) return; // not in current view
 
-        function mkLine(x1: number, y1: number, x2: number, y2: number) {
-          const el = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-          el.setAttribute('x1', String(x1)); el.setAttribute('y1', String(y1));
-          el.setAttribute('x2', String(x2)); el.setAttribute('y2', String(y2));
-          el.setAttribute('stroke', lineCol);
-          el.setAttribute('stroke-width', lineW);
-          el.setAttribute('stroke-linecap', 'round');
-          svg.appendChild(el);
-        }
+          const empCard = canvas.querySelector<HTMLElement>(`.eoc-card[data-emp-id="${empNode.employeeId}"]`);
+          const manCard = canvas.querySelector<HTMLElement>(`.eoc-card[data-emp-id="${managerNode.employeeId}"]`);
+          if (!empCard || !manCard) return; // collapsed or filtered out
 
-        const barY = py + gap;
-        if (pts.length === 1) {
-          mkLine(px, py, pts[0].x, pts[0].y);
-        } else {
-          mkLine(px, py, px, barY);
-          const minX = Math.min(...pts.map(p => p.x));
-          const maxX = Math.max(...pts.map(p => p.x));
-          mkLine(minX, barY, maxX, barY);
-          pts.forEach(p => mkLine(p.x, barY, p.x, p.y));
-        }
-      });
+          const er = empCard.getBoundingClientRect();
+          const mr = manCard.getBoundingClientRect();
+
+          // Convert to canvas-local coords
+          const ex = (er.left + er.width  / 2 - canvasRect.left) / zoom;
+          const ey = (er.top                  - canvasRect.top)  / zoom; // top of reportee card
+          const mx = (mr.left + mr.width  / 2 - canvasRect.left) / zoom;
+          const my = (mr.bottom               - canvasRect.top)  / zoom; // bottom of manager card
+
+          const onChain =
+            empCard.classList.contains('eoc-card--selected') ||
+            empCard.classList.contains('eoc-card--chain')    ||
+            manCard.classList.contains('eoc-card--selected') ||
+            manCard.classList.contains('eoc-card--chain');
+          const lineCol = onChain ? '#3B82F6' : '#C8D8EA';
+          const lineW   = onChain ? '2.5' : '1.5';
+
+          // Cubic bezier: reportee top → manager bottom, with mid-Y control points
+          const midY = (ey + my) / 2;
+          const d = `M ${ex} ${ey} C ${ex} ${midY} ${mx} ${midY} ${mx} ${my}`;
+
+          const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          path.setAttribute('d', d);
+          path.setAttribute('stroke', lineCol);
+          path.setAttribute('stroke-width', lineW);
+          path.setAttribute('stroke-dasharray', '7 4');
+          path.setAttribute('stroke-linecap', 'round');
+          path.setAttribute('fill', 'none');
+          svg.appendChild(path);
+        });
+      }
 
       canvas.insertBefore(svg, canvas.firstChild);
     }
 
     rafId = requestAnimationFrame(drawLines);
     return () => cancelAnimationFrame(rafId);
-  }, [collapsed, searchQ, viewDate, deptFilter, displayEmps, selectedId, focusId]);
+  }, [collapsed, searchQ, viewDate, deptFilter, displayEmps, selectedId, focusId, relView, matrixRels, empMap]);
 
   // ── Reset view when tree changes ───────────────────────────────────────────
   useEffect(() => { resetView(); }, [roots.length, focusId, resetView]);
@@ -834,6 +933,15 @@ export default function EmpOrgChart() {
               })
             }
           </select>
+          <select
+            className="oc-filter-select"
+            value={relView}
+            onChange={e => setRelView(e.target.value as RelView)}
+          >
+            <option value="line">Line Manager</option>
+            <option value="matrix">Matrix Manager</option>
+            <option value="both">Both</option>
+          </select>
         </div>
         <div className="oc-toolbar-right">
           <button className="oc-btn oc-btn-ghost" onClick={expandAll}>
@@ -858,7 +966,7 @@ export default function EmpOrgChart() {
         <i className="fa-solid fa-calendar-day" />
         <label>View as of</label>
         <input
-          type="date"
+          type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31"
           className="oc-date-input"
           value={viewDate}
           onChange={e => setViewDate(e.target.value || todayVal)}

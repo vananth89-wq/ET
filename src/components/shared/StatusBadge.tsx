@@ -1,8 +1,10 @@
+import type { CSSProperties } from 'react';
 import type { ExpenseStatus } from '../../types';
 
 interface Props {
   status: ExpenseStatus;
-  label?: string;   // override the display text (e.g. "In Review" when workflow is in_progress)
+  label?: string;        // override the display text (e.g. "In Review" when workflow is in_progress)
+  style?: CSSProperties; // optional style override (e.g. amber for awaiting_clarification)
 }
 
 const labels: Record<ExpenseStatus, string> = {
@@ -14,9 +16,9 @@ const labels: Record<ExpenseStatus, string> = {
   rejected:         'Rejected',
 };
 
-export default function StatusBadge({ status, label }: Props) {
+export default function StatusBadge({ status, label, style }: Props) {
   return (
-    <span className={`exp-status-badge exp-status-${status}`}>
+    <span className={`exp-status-badge exp-status-${status}`} style={style}>
       {label ?? labels[status] ?? status}
     </span>
   );

@@ -151,7 +151,7 @@ function InlineEditRow({ rate: r, onSave, onCancel }: InlineEditRowProps) {
       <td>
         <input
           className="er-inline-input"
-          type="date"
+          type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31"
           value={dateVal}
           onChange={e => setDateVal(e.target.value)}
         />
@@ -475,7 +475,7 @@ export default function ExchangeRates() {
             </label>
             <input
               id="er-effective-date"
-              type="date"
+              type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31"
               value={form.effectiveDate}
               onChange={e => setForm(f => ({ ...f, effectiveDate: e.target.value }))}
               required

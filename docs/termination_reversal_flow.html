@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f8fafc; padding: 20px; font-size: 13px; color: #1e293b; }
+  h2 { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+  .sub { font-size: 11.5px; color: #64748b; margin-bottom: 20px; }
+
+  .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+  .tab { padding: 6px 16px; border-radius: 20px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1.5px solid #e2e8f0; background: #f8fafc; color: #64748b; }
+  .tab.active { background: #1e293b; color: #f1f5f9; border-color: #1e293b; }
+
+  .view { display: none; }
+  .view.active { display: block; }
+
+  /* ── FLOW VIEW ─────────────────────────── */
+  .flow { display: flex; flex-direction: column; gap: 0; }
+  .phase { display: flex; gap: 12px; margin-bottom: 2px; }
+  .phase-line { display: flex; flex-direction: column; align-items: center; width: 28px; flex-shrink: 0; }
+  .phase-dot { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex-shrink: 0; }
+  .phase-connector { width: 2px; flex: 1; min-height: 8px; background: #e2e8f0; }
+  .phase-body { flex: 1; padding-bottom: 16px; }
+  .phase-title { font-weight: 700; font-size: 13px; margin-bottom: 4px; }
+  .phase-detail { font-size: 12px; color: #475569; line-height: 1.6; }
+
+  .dot-blue   { background: #dbeafe; color: #2563eb; }
+  .dot-amber  { background: #fef9c3; color: #b45309; }
+  .dot-green  { background: #dcfce7; color: #15803d; }
+  .dot-red    { background: #fee2e2; color: #dc2626; }
+  .dot-purple { background: #ede9fe; color: #7c3aed; }
+  .dot-slate  { background: #f1f5f9; color: #475569; }
+
+  .step-list { list-style: none; padding: 0; margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
+  .step-list li { display: flex; gap: 6px; font-size: 11.5px; color: #334155; }
+  .step-list li::before { content: "→"; color: #94a3b8; flex-shrink: 0; }
+  .step-list li.warn { color: #92400e; }
+  .step-list li.warn::before { content: "⚠"; color: #d97706; }
+  .step-list li.gap { color: #dc2626; }
+  .step-list li.gap::before { content: "✗"; color: #dc2626; }
+
+  code { font-family: 'SF Mono', monospace; font-size: 10.5px; background: #f1f5f9; padding: 1px 4px; border-radius: 3px; }
+
+  /* ── SLICE VIEW ─────────────────────────── */
+  .slice-section { margin-bottom: 20px; }
+  .slice-label { font-size: 10px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: #94a3b8; margin-bottom: 8px; }
+  .slice-diagram { display: flex; flex-direction: column; gap: 6px; }
+  .slice-row { display: flex; align-items: center; gap: 8px; }
+  .slice-name { font-size: 11px; font-weight: 600; color: #64748b; width: 100px; flex-shrink: 0; text-align: right; }
+  .slice-track { flex: 1; height: 28px; border-radius: 5px; position: relative; display: flex; align-items: center; padding: 0 8px; font-size: 11px; font-weight: 600; }
+  .slice-track.active  { background: #dcfce7; color: #15803d; border: 1.5px solid #86efac; }
+  .slice-track.inactive { background: #fee2e2; color: #dc2626; border: 1.5px solid #fca5a5; opacity: 0.8; }
+  .slice-track.closed  { background: #f1f5f9; color: #94a3b8; border: 1.5px dashed #cbd5e1; }
+  .slice-track.open    { background: #eff6ff; color: #2563eb; border: 1.5px solid #bfdbfe; }
+  .slice-date { font-size: 10px; font-weight: 400; margin-left: 6px; opacity: 0.8; }
+  .arrow-row { display: flex; align-items: center; gap: 8px; margin: 2px 0; }
+  .arrow-spacer { width: 100px; flex-shrink: 0; }
+  .arrow-label { font-size: 10.5px; color: #94a3b8; display: flex; align-items: center; gap: 4px; }
+
+  /* ── GAP VIEW ─────────────────────────── */
+  .gap-card { border-radius: 8px; border: 1.5px solid; padding: 12px 14px; margin-bottom: 10px; }
+  .gap-card.blocker { background: #fff5f5; border-color: #fca5a5; }
+  .gap-card.warn    { background: #fffbeb; border-color: #fcd34d; }
+  .gap-card.ok      { background: #f0fdf4; border-color: #86efac; }
+  .gap-card .gc-title { font-weight: 700; font-size: 12.5px; margin-bottom: 4px; }
+  .gap-card.blocker .gc-title { color: #dc2626; }
+  .gap-card.warn    .gc-title { color: #92400e; }
+  .gap-card.ok      .gc-title { color: #15803d; }
+  .gap-card .gc-body { font-size: 12px; color: #475569; line-height: 1.6; }
+  .tag { font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 10px; display: inline-block; margin-right: 4px; }
+  .tag.edge  { background: #ede9fe; color: #7c3aed; }
+  .tag.rpc   { background: #dbeafe; color: #1d4ed8; }
+  .tag.schema { background: #fef9c3; color: #b45309; }
+</style>
+</head>
+<body>
+
+<h2>Termination Reversal — How it works</h2>
+<p class="sub">Full flow from approval through employment slice undo</p>
+
+<div class="tabs">
+  <div class="tab active" onclick="showTab('flow')">Full Flow</div>
+  <div class="tab" onclick="showTab('slices')">Employment Slices</div>
+  <div class="tab" onclick="showTab('gaps')">Gaps to fix</div>
+</div>
+
+<!-- ── FLOW ──────────────────────────────────────────────── -->
+<div id="v-flow" class="view active">
+  <div class="flow">
+
+    <div class="phase">
+      <div class="phase-line"><div class="phase-dot dot-blue">1</div><div class="phase-connector"></div></div>
+      <div class="phase-body">
+        <div class="phase-title">Termination is APPROVED + jobs fire</div>
+        <div class="phase-detail">
+          <code>apply-termination-approval</code> Edge Function runs (on approval or via daily cron when LWD ≤ today):
+          <ul class="step-list">
+            <li>Close open employment slice → <code>effective_to = last_working_date</code></li>
+            <li>Insert new Inactive slice → <code>effective_from = last_working_date + 1</code></li>
+            <li>Set <code>employees.status = 'Inactive'</code> → triggers sync → auto-closes JR sets</li>
+            <li>Stamp <code>scheduled_executed = true</code></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="phase-line"><div class="phase-dot dot-amber">2</div><div class="phase-connector"></div></div>
+      <div class="phase-body">
+        <div class="phase-title">HR submits a Reversal</div>
+        <div class="phase-detail">
+          Only allowed when termination <code>workflow_status = 'APPROVED'</code>. HR provides <code>reversal_reason</code> + <code>comments</code> (min 20 chars) + optional attachments.
+          <ul class="step-list">
+            <li>Inserts row into <code>employee_termination_reversals</code> (DRAFT → PENDING)</li>
+            <li>Submits to <code>termination_reversal</code> workflow template for approval</li>
+            <li>Unique constraint prevents two active reversals on same termination</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="phase-line"><div class="phase-dot dot-purple">3</div><div class="phase-connector"></div></div>
+      <div class="phase-body">
+        <div class="phase-title">Reversal goes through workflow approval</div>
+        <div class="phase-detail">
+          Standard workflow: approver reviews reason + comments. On approve:
+          <ul class="step-list">
+            <li>Reversal <code>workflow_status → APPROVED</code></li>
+            <li>Original termination <code>workflow_status → REVERSED</code> (unlocks the unique partial index — allows a fresh termination in future)</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="phase-line"><div class="phase-dot dot-green">4</div><div class="phase-connector"></div></div>
+      <div class="phase-body">
+        <div class="phase-title">apply-termination-reversal Edge Function fires</div>
+        <div class="phase-detail">
+          Undoes the employment changes made by step 1:
+          <ul class="step-list">
+            <li>Delete Inactive slice (<code>effective_from = last_working_date + 1, status = Inactive</code>)</li>
+            <li>Reopen prior slice → <code>effective_to = '9999-12-31'</code>, <code>is_active = true</code></li>
+            <li>Set <code>employees.status = 'Active'</code></li>
+            <li class="warn">JR sets are NOT auto-restored — HR must reassign manually (locked design decision)</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="phase-line"><div class="phase-dot dot-slate">5</div></div>
+      <div class="phase-body">
+        <div class="phase-title">Employee is Active again</div>
+        <div class="phase-detail">
+          Employment history is intact. The REVERSED termination record and the APPROVED reversal record both remain as an audit trail. A new termination can be submitted for the same employee if needed.
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ── SLICES ──────────────────────────────────────────────── -->
+<div id="v-slices" class="view">
+
+  <div class="slice-section">
+    <div class="slice-label">Before termination approval</div>
+    <div class="slice-diagram">
+      <div class="slice-row">
+        <div class="slice-name">Employment</div>
+        <div class="slice-track active">Active — Software Architect<div class="slice-date">effective_from: hire_date → effective_to: 9999-12-31</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="slice-section">
+    <div class="slice-label">After termination approval (apply-termination-approval fires)</div>
+    <div class="slice-diagram">
+      <div class="slice-row">
+        <div class="slice-name">Slice 1</div>
+        <div class="slice-track closed">Active — Software Architect (closed)<div class="slice-date">effective_to: last_working_date</div></div>
+      </div>
+      <div class="slice-row">
+        <div class="slice-name">Slice 2 (new)</div>
+        <div class="slice-track inactive">Inactive — inserted by approval job<div class="slice-date">effective_from: last_working_date + 1 → 9999-12-31</div></div>
+      </div>
+      <div class="arrow-row">
+        <div class="arrow-spacer"></div>
+        <div class="arrow-label">↑ employees.status = Inactive &nbsp;|&nbsp; JR sets auto-closed</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="slice-section">
+    <div class="slice-label">After reversal approval (apply-termination-reversal fires)</div>
+    <div class="slice-diagram">
+      <div class="slice-row">
+        <div class="slice-name">Slice 1</div>
+        <div class="slice-track active">Active — Software Architect (reopened)<div class="slice-date">effective_to: 9999-12-31 restored</div></div>
+      </div>
+      <div class="slice-row">
+        <div class="slice-name">Slice 2</div>
+        <div class="slice-track closed" style="opacity:0.4;text-decoration:line-through">Inactive slice → DELETED</div>
+      </div>
+      <div class="arrow-row">
+        <div class="arrow-spacer"></div>
+        <div class="arrow-label">↑ employees.status = Active &nbsp;|&nbsp; JR sets NOT restored — manual HR action needed</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ── GAPS ──────────────────────────────────────────────── -->
+<div id="v-gaps" class="view">
+
+  <div class="gap-card blocker">
+    <div class="gc-title"><span class="tag edge">Edge Function</span> apply-termination-reversal uses term.termination_date — will break after rename</div>
+    <div class="gc-body">
+      The reversal function uses <code>term.termination_date</code> to locate the employment slices to undo:
+      deletes slice where <code>effective_from = termination_date + 1</code> and reopens slice where <code>effective_to = termination_date</code>.
+      After renaming to <code>separation_date</code> / <code>last_working_date</code>, both lookups will fail silently — the employee will remain Inactive with no error thrown. Must update both references to <code>last_working_date</code>.
+    </div>
+  </div>
+
+  <div class="gap-card blocker">
+    <div class="gc-title"><span class="tag edge">Edge Function</span> apply-termination-approval also uses termination_date — same break</div>
+    <div class="gc-body">
+      The approval function closes the employment slice at <code>termination_date</code> and inserts the Inactive slice at <code>termination_date + 1</code>. After rename, this must use <code>last_working_date</code>. This is consistent with the design intent — jobs should key on <code>last_working_date</code> as the real operational anchor.
+    </div>
+  </div>
+
+  <div class="gap-card warn">
+    <div class="gc-title"><span class="tag schema">Design</span> Reversal after scheduled_executed=true — works but JR sets are lost</div>
+    <div class="gc-body">
+      The reversal correctly undoes employment slices even after <code>scheduled_executed = true</code> because it operates on the slice data directly. However, JR sets that were auto-closed at termination time are NOT restored. This is a documented locked decision (§1 #2), but HR must know to manually reassign the employee to their manager hierarchy after a reversal. Consider adding a checklist item or alert in the notification.
+    </div>
+  </div>
+
+  <div class="gap-card ok">
+    <div class="gc-title"><span class="tag schema">Design</span> Reversal allows fresh termination — correctly handled</div>
+    <div class="gc-body">
+      Setting the original termination to <code>REVERSED</code> releases the unique partial index <code>WHERE workflow_status IN ('PENDING','APPROVED')</code>. This correctly allows HR to submit a new termination for the same employee after a reversal, without any schema changes needed.
+    </div>
+  </div>
+
+</div>
+
+<script>
+function showTab(name) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('v-' + name).classList.add('active');
+  event.target.classList.add('active');
+}
+</script>
+</body>
+</html>

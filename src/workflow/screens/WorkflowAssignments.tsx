@@ -53,7 +53,8 @@ const iStyle: React.CSSProperties = {
 
 interface ModuleInfo {
   moduleCode:    string;
-  label:         string;               // humanised label
+  label:         string;               // human label from module_codes.label
+  description:   string;              // from module_codes.description
   templateCount: number;
   hasGlobal:     boolean;              // has at least one active GLOBAL assignment
 }
@@ -123,134 +124,33 @@ interface EmpRow {
   dirty:         boolean;
 }
 
-// ─── System module registry ───────────────────────────────────────────────────
+// ─── Icon map ─────────────────────────────────────────────────────────────────
 //
-// All places in the system where a workflow can be attached.
-// Add new entries here when a new submittable module is built.
-// icon = Font Awesome solid class name (without fa-)
+// Maps module_code → Font Awesome solid class. module_codes table owns all
+// other module metadata (label, description). Add an entry here when a new
+// module is registered in module_codes and you want a custom icon; the
+// fallback 'fa-diagram-next' is used for any code not listed.
 
-interface SystemModule {
-  code:        string;
-  label:       string;
-  description: string;
-  icon:        string;
-  status:      'wired' | 'available';  // wired = trigger implemented, available = screen exists, trigger ready to wire
-}
-
-const SYSTEM_MODULES: SystemModule[] = [
-  {
-    code:        'expense_reports',
-    label:       'Expense Reports',
-    description: 'Employee expense submissions',
-    icon:        'fa-wallet',
-    status:      'wired',
-  },
-  {
-    code:        'employee_edit',
-    label:       'Employee — Edit Details',
-    description: 'Admin edits to employee records requiring approval',
-    icon:        'fa-user-pen',
-    status:      'available',
-  },
-  {
-    code:        'employee_onboarding',
-    label:       'Employee — Add New',
-    description: 'New employee creation and onboarding approval',
-    icon:        'fa-user-plus',
-    status:      'available',
-  },
-  {
-    code:        'department_create',
-    label:       'Department — Create',
-    description: 'New department creation requiring approval',
-    icon:        'fa-sitemap',
-    status:      'available',
-  },
-  {
-    code:        'department_edit',
-    label:       'Department — Edit',
-    description: 'Department structure or details changes',
-    icon:        'fa-pen-to-square',
-    status:      'available',
-  },
-  {
-    code:        'project_create',
-    label:       'Project — Create',
-    description: 'New project creation requiring approval',
-    icon:        'fa-folder-plus',
-    status:      'available',
-  },
-  {
-    code:        'project_edit',
-    label:       'Project — Edit',
-    description: 'Project details or budget changes',
-    icon:        'fa-folder-pen',
-    status:      'available',
-  },
-  {
-    code:        'exchange_rate_update',
-    label:       'Exchange Rates — Update',
-    description: 'Currency exchange rate updates requiring approval',
-    icon:        'fa-arrow-right-arrow-left',
-    status:      'available',
-  },
-  {
-    code:        'delegations',
-    label:       'Delegations',
-    description: 'Approval workflow delegation requests',
-    icon:        'fa-right-left',
-    status:      'available',
-  },
-  {
-    code:        'profile_personal',
-    label:       'Profile — Personal Info',
-    description: 'Name, nationality, marital status changes',
-    icon:        'fa-id-card',
-    status:      'available',
-  },
-  {
-    code:        'profile_contact',
-    label:       'Profile — Contact Info',
-    description: 'Mobile, email, personal contact changes',
-    icon:        'fa-phone',
-    status:      'available',
-  },
-  {
-    code:        'profile_employment',
-    label:       'Profile — Employment',
-    description: 'Designation, department, work details changes',
-    icon:        'fa-briefcase',
-    status:      'available',
-  },
-  {
-    code:        'profile_address',
-    label:       'Profile — Address',
-    description: 'Residential and permanent address changes',
-    icon:        'fa-location-dot',
-    status:      'available',
-  },
-  {
-    code:        'profile_passport',
-    label:       'Profile — Passport',
-    description: 'Passport and visa details changes',
-    icon:        'fa-passport',
-    status:      'available',
-  },
-  {
-    code:        'profile_identification',
-    label:       'Profile — Identification',
-    description: 'National ID, tax ID and other ID changes',
-    icon:        'fa-fingerprint',
-    status:      'available',
-  },
-  {
-    code:        'profile_emergency_contact',
-    label:       'Profile — Emergency Contact',
-    description: 'Emergency contact details changes',
-    icon:        'fa-heart-pulse',
-    status:      'available',
-  },
-];
+const MODULE_ICON: Record<string, string> = {
+  expense_reports:          'fa-wallet',
+  employee_hire:            'fa-user-plus',
+  employee_edit:            'fa-user-pen',
+  department_create:        'fa-sitemap',
+  department_edit:          'fa-pen-to-square',
+  project_create:           'fa-folder-plus',
+  project_edit:             'fa-folder-pen',
+  exchange_rate_update:     'fa-arrow-right-arrow-left',
+  delegations:              'fa-right-left',
+  profile_personal:         'fa-id-card',
+  profile_contact:          'fa-phone',
+  profile_employment:       'fa-briefcase',
+  profile_address:          'fa-location-dot',
+  profile_passport:         'fa-passport',
+  profile_identification:   'fa-fingerprint',
+  profile_emergency_contact:'fa-heart-pulse',
+  termination:              'fa-user-slash',
+  termination_reversal:     'fa-rotate-left',
+};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -333,34 +233,41 @@ export default function WorkflowAssignments() {
   const loadModules = useCallback(async () => {
     setLoadingMod(true);
 
-    // Templates are now module-agnostic — module_code lives only on assignments.
-    // Count active assignments per module to show how many are configured.
-    const { data: asnData } = await supabase
-      .from('workflow_assignments')
-      .select('module_code, assignment_type')
-      .eq('is_active', true);
+    // Fetch module registry from DB + active assignment summary in parallel.
+    // module_codes owns all module metadata; workflow_assignments gives counts.
+    const [mcRes, asnRes] = await Promise.all([
+      supabase
+        .from('module_codes')
+        .select('code, label, description')
+        .order('label'),
+      supabase
+        .from('workflow_assignments')
+        .select('module_code, assignment_type')
+        .eq('is_active', true),
+    ]);
 
     setLoadingMod(false);
 
+    const mcData  = mcRes.data  ?? [];
+    const asnData = asnRes.data ?? [];
+
     const hasGlobalMap = new Set(
-      (asnData ?? [])
+      asnData
         .filter((a: any) => a.assignment_type === 'GLOBAL')
         .map((a: any) => a.module_code as string)
     );
 
-    // Count total active assignments per module (replaces old template count)
-    const countMap = (asnData ?? []).reduce((acc: Record<string, number>, a: any) => {
+    const countMap = asnData.reduce((acc: Record<string, number>, a: any) => {
       acc[a.module_code] = (acc[a.module_code] ?? 0) + 1;
       return acc;
-    }, {});
+    }, {} as Record<string, number>);
 
-    // Merge registry with live DB data — registry defines what's shown,
-    // DB data fills in assignment counts and global status
-    const list: ModuleInfo[] = SYSTEM_MODULES.map(sm => ({
-      moduleCode:    sm.code,
-      label:         sm.label,
-      templateCount: countMap[sm.code] ?? 0,
-      hasGlobal:     hasGlobalMap.has(sm.code),
+    const list: ModuleInfo[] = mcData.map((mc: any) => ({
+      moduleCode:    mc.code,
+      label:         mc.label        ?? humanise(mc.code),
+      description:   mc.description  ?? '',
+      templateCount: countMap[mc.code] ?? 0,
+      hasGlobal:     hasGlobalMap.has(mc.code),
     }));
 
     setModules(list);
@@ -779,15 +686,11 @@ export default function WorkflowAssignments() {
               style={{ ...iStyle, fontSize: 13 }}
             >
               <option value="">— select a module —</option>
-              {SYSTEM_MODULES.map(sm => {
-                const m = modules.find(x => x.moduleCode === sm.code);
-                const configured = m?.hasGlobal ?? false;
-                const hasTemplates = (m?.templateCount ?? 0) > 0;
-                const statusIcon = configured ? '✓' : hasTemplates ? '⚠' : '○';
-                const suffix = '';
+              {modules.map(m => {
+                const statusIcon = m.hasGlobal ? '✓' : m.templateCount > 0 ? '⚠' : '○';
                 return (
-                  <option key={sm.code} value={sm.code}>
-                    {statusIcon}  {sm.label}{suffix}
+                  <option key={m.moduleCode} value={m.moduleCode}>
+                    {statusIcon}  {m.label}
                   </option>
                 );
               })}
@@ -795,33 +698,26 @@ export default function WorkflowAssignments() {
           )}
 
           {/* Status badge + description for selected module */}
-          {selectedCode && (() => {
-            const sm  = SYSTEM_MODULES.find(x => x.code === selectedCode);
-            const m   = modules.find(x => x.moduleCode === selectedCode);
-            if (!sm) return null;
+          {selectedCode && selectedModule && (() => {
+            const icon = MODULE_ICON[selectedCode] ?? 'fa-diagram-next';
             return (
               <div style={{ marginTop: 10 }}>
-                <div style={{ fontSize: 12, color: C.muted, marginBottom: 6 }}>
-                  <i className={`fa-solid ${sm.icon}`} style={{ marginRight: 5, color: C.blue }} />
-                  {sm.description}
-                </div>
+                {selectedModule.description && (
+                  <div style={{ fontSize: 12, color: C.muted, marginBottom: 6 }}>
+                    <i className={`fa-solid ${icon}`} style={{ marginRight: 5, color: C.blue }} />
+                    {selectedModule.description}
+                  </div>
+                )}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  {sm.status === 'available' && !m?.hasGlobal ? (
-                    <span style={{
-                      fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 99,
-                      background: C.amberL, color: C.amber,
-                    }}>⚠ Not configured</span>
-                  ) : (
-                    <span style={{
-                      fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 99,
-                      background: (m?.hasGlobal) ? C.greenL : C.amberL,
-                      color:      (m?.hasGlobal) ? C.green  : C.amber,
-                    }}>
-                      {(m?.hasGlobal) ? '✓ Configured' : '⚠ Not configured'}
-                    </span>
-                  )}
+                  <span style={{
+                    fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 99,
+                    background: selectedModule.hasGlobal ? C.greenL : C.amberL,
+                    color:      selectedModule.hasGlobal ? C.green  : C.amber,
+                  }}>
+                    {selectedModule.hasGlobal ? '✓ Configured' : '⚠ Not configured'}
+                  </span>
                   <span style={{ fontSize: 11, color: C.faint }}>
-                    {m?.templateCount ?? 0} assignment{(m?.templateCount ?? 0) !== 1 ? 's' : ''}
+                    {selectedModule.templateCount} assignment{selectedModule.templateCount !== 1 ? 's' : ''}
                   </span>
                 </div>
               </div>
@@ -891,12 +787,12 @@ export default function WorkflowAssignments() {
                   </select>
                 </FieldCol>
                 <FieldCol label="Effective From *">
-                  <input type="date" value={globalFrom}
+                  <input type="date" max="2100-12-31" min="1900-01-01" max="2100-12-31" value={globalFrom}
                     onChange={e => { setGlobalFrom(e.target.value); setGlobalDirty(true); }}
                     style={iStyle} />
                 </FieldCol>
                 <FieldCol label="Effective To">
-                  <input type="date" value={globalTo} min={globalFrom}
+                  <input type="date" max="2100-12-31" value={globalTo} min={globalFrom} max="2100-12-31"
                     onChange={e => { setGlobalTo(e.target.value); setGlobalDirty(true); }}
                     style={iStyle} />
                 </FieldCol>
@@ -968,12 +864,12 @@ export default function WorkflowAssignments() {
                             </select>
                           </td>
                           <td style={{ padding: '8px 10px' }}>
-                            <input type="date" value={row.effectiveFrom}
+                            <input type="date" max="2100-12-31" min="1900-01-01" max="2100-12-31" value={row.effectiveFrom}
                               onChange={e => updateRoleRow(row._key, { effectiveFrom: e.target.value })}
                               style={{ ...iStyle, minWidth: 130 }} />
                           </td>
                           <td style={{ padding: '8px 10px' }}>
-                            <input type="date" value={row.effectiveTo} min={row.effectiveFrom}
+                            <input type="date" max="2100-12-31" value={row.effectiveTo} min={row.effectiveFrom} max="2100-12-31"
                               onChange={e => updateRoleRow(row._key, { effectiveTo: e.target.value })}
                               style={{ ...iStyle, minWidth: 130 }} />
                           </td>
@@ -1075,12 +971,12 @@ export default function WorkflowAssignments() {
                             </select>
                           </td>
                           <td style={{ padding: '8px 10px' }}>
-                            <input type="date" value={row.effectiveFrom}
+                            <input type="date" max="2100-12-31" min="1900-01-01" max="2100-12-31" value={row.effectiveFrom}
                               onChange={e => updateEmpRow(row._key, { effectiveFrom: e.target.value })}
                               style={{ ...iStyle, minWidth: 130 }} />
                           </td>
                           <td style={{ padding: '8px 10px' }}>
-                            <input type="date" value={row.effectiveTo} min={row.effectiveFrom}
+                            <input type="date" max="2100-12-31" value={row.effectiveTo} min={row.effectiveFrom} max="2100-12-31"
                               onChange={e => updateEmpRow(row._key, { effectiveTo: e.target.value })}
                               style={{ ...iStyle, minWidth: 130 }} />
                           </td>

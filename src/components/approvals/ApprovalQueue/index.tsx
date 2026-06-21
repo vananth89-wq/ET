@@ -12,57 +12,40 @@
  * This screen is read-only historical view + navigation shortcut to the inbox.
  */
 
-import { useState, useMemo } from 'react';
-import { useNavigate }       from 'react-router-dom';
-import { usePermissions }    from '../../../hooks/usePermissions';
-import { useExpenseData }    from '../../../hooks/useExpenseData';
-import { fmtAmount }         from '../../../utils/currency';
-import StatusBadge           from '../../shared/StatusBadge';
+import { useState, useMemo }    from 'react';
+import { useNavigate }           from 'react-router-dom';
+import { usePermissions }        from '../../../hooks/usePermissions';
+import { useExpenseData }        from '../../../hooks/useExpenseData';
+import { fmtAmount }             from '../../../utils/currency';
+import StatusBadge               from '../../shared/StatusBadge';
 import type { ExpenseReport, ExpenseStatus } from '../../../types';
 
-// ─── Migration banner ─────────────────────────────────────────────────────────
-// Actual approve / reject actions now live in the Workflow Approver Inbox.
-// This component is kept for read-only historical viewing + inbox shortcut.
+// ─── Constants ────────────────────────────────────────────────────────────────
 
-function WorkflowMigrationBanner() {
-  const navigate = useNavigate();
-  return (
-    <div style={{
-      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      gap: 16, padding: '14px 18px', borderRadius: 10, marginBottom: 20,
-      background: '#EFF6FF', border: '1px solid #BFDBFE',
-    }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-        <i className="fas fa-diagram-next" style={{ color: '#2F77B5', fontSize: 16, marginTop: 2, flexShrink: 0 }} />
-        <div>
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#18345B' }}>
-            Approvals have moved to the Workflow Engine
-          </div>
-          <div style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>
-            New approval tasks are managed in the Approver Inbox. This screen shows read-only report history.
-          </div>
-        </div>
-      </div>
-      <button
-        onClick={() => navigate('/admin/workflow/inbox')}
-        style={{
-          flexShrink: 0, padding: '7px 16px', borderRadius: 6, border: 'none',
-          background: '#2F77B5', color: '#fff', fontSize: 12, fontWeight: 600,
-          cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap',
-        }}
-      >
-        <i className="fas fa-inbox" style={{ fontSize: 11 }} />
-        Go to Approver Inbox
-      </button>
-    </div>
-  );
+const PAGE_SIZE = 15;
+
+// Statuses where a report is still pending action (not terminal)
+const TERMINAL_STATUSES: ExpenseStatus[] = ['approved', 'rejected', 'cancelled'];
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function getInitials(name: string): string {
+  return name
+    .split(' ')
+    .slice(0, 2)
+    .map(p => p[0]?.toUpperCase() ?? '')
+    .join('');
 }
 
-// ─── Statuses excluded from this queue ───────────────────────────────────────
-// Drafts belong in MyReports. Everything else (submitted, in-approval, etc.)
-// is shown here. RLS controls which employees' reports the user can see.
+const AVATAR_COLORS = ['aq-av-blue', 'aq-av-teal', 'aq-av-amber', 'aq-av-purple', 'aq-av-coral'];
+function avatarColor(name: string): string {
+  const idx = (name.charCodeAt(0) || 0) % AVATAR_COLORS.length;
+  return AVATAR_COLORS[idx];
+}
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+function isActionable(status: ExpenseStatus): boolean {
+  return !TERMINAL_STATUSES.includes(status);
+}
 
 function reportTotal(report: ExpenseReport): number {
   return report.lineItems.reduce((sum, li) => sum + (li.convertedAmount ?? 0), 0);
@@ -70,47 +53,93 @@ function reportTotal(report: ExpenseReport): number {
 
 function formatDate(iso?: string): string {
   if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return new Date(iso).toLocaleDateString('en-GB', {
+    day: '2-digit', month: 'short', year: 'numeric',
+  });
+}
+
+// ─── Migration banner ─────────────────────────────────────────────────────────
+
+function WorkflowMigrationBanner() {
+  const navigate = useNavigate();
+  return (
+    <div className="aq-banner">
+      <div className="aq-banner-body">
+        <i className="fa-solid fa-diagram-next aq-banner-icon" aria-hidden="true" />
+        <div>
+          <div className="aq-banner-title">Approvals have moved to the Workflow Engine</div>
+          <div className="aq-banner-sub">
+            New approval tasks are managed in the Approver Inbox. This screen shows read-only report history.
+          </div>
+        </div>
+      </div>
+      <button className="btn btn-primary btn-sm" onClick={() => navigate('/admin/workflow/inbox')}>
+        <i className="fa-solid fa-inbox" /> Go to Approver Inbox
+      </button>
+    </div>
+  );
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function ApprovalQueue() {
-  const navigate                           = useNavigate();
-  const { can }                            = usePermissions();
+  const navigate                        = useNavigate();
+  const { can }                         = usePermissions();
   const { reports, loading, error,
-          refetch }                        = useExpenseData();
+          refetch }                     = useExpenseData();
 
-  const [statusFilter, setStatusFilter]    = useState<ExpenseStatus | 'all'>('all');
+  const [statusFilter, setStatusFilter] = useState<ExpenseStatus | 'all'>('all');
+  const [searchTerm, setSearchTerm]     = useState('');
+  const [page, setPage]                 = useState(1);
 
-  // ── Access gate ───────────────────────────────────────────────────────────
-  // expense_reports.view is the only requirement. Scope (which employees'
-  // reports are visible) is enforced by RLS + Permission Matrix target groups.
+  // ── Access gate ────────────────────────────────────────────────────────────
   const canAccessQueue = can('expense_reports.view');
   const canAct         = can('expense_reports.edit');
 
-  // ── Filter reports — exclude drafts, show everything else ─────────────────
-  // Status chips populate dynamically from whatever statuses appear in the
-  // data — no hardcoded workflow stage names.
-  const queueReports = useMemo(() => {
-    return reports.filter(r => r.status !== 'draft');
-  }, [reports]);
+  // ── Base set — exclude drafts ───────────────────────────────────────────────
+  const queueReports = useMemo(
+    () => reports.filter(r => r.status !== 'draft'),
+    [reports],
+  );
 
-  const filtered = useMemo(() => {
-    if (statusFilter === 'all') return queueReports;
-    return queueReports.filter(r => r.status === statusFilter);
-  }, [queueReports, statusFilter]);
-
-  // Status counts + unique statuses present in the data (drives filter chips)
-  const { statusCounts, uniqueStatuses } = useMemo(() => {
+  // ── KPI counts ─────────────────────────────────────────────────────────────
+  const { statusCounts, uniqueStatuses, grandTotal } = useMemo(() => {
     const counts: Partial<Record<ExpenseStatus, number>> = {};
-    queueReports.forEach(r => { counts[r.status] = (counts[r.status] ?? 0) + 1; });
+    let total = 0;
+    queueReports.forEach(r => {
+      counts[r.status] = (counts[r.status] ?? 0) + 1;
+      total += reportTotal(r);
+    });
     const unique = Object.keys(counts) as ExpenseStatus[];
-    return { statusCounts: counts, uniqueStatuses: unique };
+    return { statusCounts: counts, uniqueStatuses: unique, grandTotal: total };
   }, [queueReports]);
 
-  // ── Guard ─────────────────────────────────────────────────────────────────
+  // ── Filtered + searched + paginated ────────────────────────────────────────
+  const filtered = useMemo(() => {
+    let rows = statusFilter === 'all'
+      ? queueReports
+      : queueReports.filter(r => r.status === statusFilter);
 
+    const q = searchTerm.trim().toLowerCase();
+    if (q) {
+      rows = rows.filter(r =>
+        r.name.toLowerCase().includes(q) ||
+        (r.employeeName ?? r.employeeId ?? '').toLowerCase().includes(q),
+      );
+    }
+    return rows;
+  }, [queueReports, statusFilter, searchTerm]);
+
+  const totalPages  = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pageRows    = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
+  function changeFilter(f: ExpenseStatus | 'all') {
+    setStatusFilter(f);
+    setPage(1);
+  }
+
+  // ── Guard ──────────────────────────────────────────────────────────────────
   if (!canAccessQueue) {
     return (
       <div className="page-container">
@@ -123,10 +152,10 @@ export default function ApprovalQueue() {
     );
   }
 
-  // ── Render ────────────────────────────────────────────────────────────────
-
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="page-container">
+
       {/* ── Page header ──────────────────────────────────────────────────── */}
       <div className="page-header">
         <div>
@@ -138,9 +167,17 @@ export default function ApprovalQueue() {
             Expense reports within your scope — use the Approver Inbox to take action.
           </p>
         </div>
-        <button className="btn btn-ghost btn-sm" onClick={refetch} title="Refresh">
-          <i className="fa-solid fa-rotate-right" />
-        </button>
+        <div className="aq-header-actions">
+          <button className="btn btn-ghost btn-sm" onClick={refetch} title="Refresh">
+            <i className="fa-solid fa-rotate-right" /> Refresh
+          </button>
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={() => navigate('/admin/workflow/inbox')}
+          >
+            <i className="fa-solid fa-inbox" /> Open Approver Inbox
+          </button>
+        </div>
       </div>
 
       {/* ── Migration banner ─────────────────────────────────────────────── */}
@@ -154,43 +191,62 @@ export default function ApprovalQueue() {
         </div>
       )}
 
-      {/* ── KPI bar ──────────────────────────────────────────────────────── */}
-      <div className="kpi-row" style={{ marginBottom: 20 }}>
-        {uniqueStatuses.map(st => (
-          <div key={st} className="kpi-card">
-            <div className="kpi-value">{statusCounts[st] ?? 0}</div>
-            <div className="kpi-label">
-              <StatusBadge status={st} />
+      {/* ── KPI cards ────────────────────────────────────────────────────── */}
+      <div className="aq-kpi-row">
+        {uniqueStatuses.map(st => {
+          const count = statusCounts[st] ?? 0;
+          const pct   = queueReports.length ? Math.round((count / queueReports.length) * 100) : 0;
+          return (
+            <div key={st} className="aq-kpi-card" onClick={() => changeFilter(st)}>
+              <div className="aq-kpi-value">{count}</div>
+              <div className="aq-kpi-label"><StatusBadge status={st} /></div>
+              <div className="aq-kpi-bar">
+                <div className="aq-kpi-fill" style={{ width: `${pct}%` }} />
+              </div>
             </div>
+          );
+        })}
+        <div className="aq-kpi-card">
+          <div className="aq-kpi-value" style={{ fontSize: 18 }}>
+            {fmtAmount(grandTotal, reports[0]?.baseCurrencyCode ?? 'USD')}
           </div>
-        ))}
-        <div className="kpi-card">
-          <div className="kpi-value">{queueReports.length}</div>
-          <div className="kpi-label">Total</div>
+          <div className="aq-kpi-label" style={{ marginTop: 4 }}>Total value</div>
+          <div className="aq-kpi-bar">
+            <div className="aq-kpi-fill aq-kpi-fill--neutral" style={{ width: '100%' }} />
+          </div>
         </div>
       </div>
 
-      {/* ── Filter chips — driven by statuses present in data ────────────── */}
-      {uniqueStatuses.length > 1 && (
-        <div className="filter-chips" style={{ marginBottom: 16 }}>
+      {/* ── Filter chips + search ─────────────────────────────────────────── */}
+      <div className="aq-controls">
+        <div className="aq-chips">
           <button
-            className={`filter-chip ${statusFilter === 'all' ? 'active' : ''}`}
-            onClick={() => setStatusFilter('all')}
+            className={`aq-chip${statusFilter === 'all' ? ' aq-chip--active' : ''}`}
+            onClick={() => changeFilter('all')}
           >
-            All <span className="chip-count">{queueReports.length}</span>
+            All <span className="aq-chip-count">{queueReports.length}</span>
           </button>
           {uniqueStatuses.map(st => (
             <button
               key={st}
-              className={`filter-chip ${statusFilter === st ? 'active' : ''}`}
-              onClick={() => setStatusFilter(st)}
+              className={`aq-chip${statusFilter === st ? ' aq-chip--active' : ''}`}
+              onClick={() => changeFilter(st)}
             >
               {st.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
-              <span className="chip-count">{statusCounts[st] ?? 0}</span>
+              <span className="aq-chip-count">{statusCounts[st] ?? 0}</span>
             </button>
           ))}
         </div>
-      )}
+        <div className="aq-search">
+          <i className="fa-solid fa-magnifying-glass aq-search-icon" aria-hidden="true" />
+          <input
+            type="text"
+            placeholder="Search reports or employees…"
+            value={searchTerm}
+            onChange={e => { setSearchTerm(e.target.value); setPage(1); }}
+          />
+        </div>
+      </div>
 
       {/* ── Content ──────────────────────────────────────────────────────── */}
       {loading ? (
@@ -201,87 +257,127 @@ export default function ApprovalQueue() {
         <div className="empty-state">
           <i className="fa-solid fa-check-circle empty-state-icon" style={{ color: 'var(--success)' }} />
           <div className="empty-state-title">All clear!</div>
-          <div className="empty-state-subtitle">No expenses are waiting for your approval.</div>
+          <div className="empty-state-subtitle">
+            {searchTerm ? 'No reports match your search.' : 'No expenses waiting for approval.'}
+          </div>
         </div>
       ) : (
-        <div className="approval-queue-list">
-          {filtered.map(report => {
-            const total       = reportTotal(report);
-            const itemCount   = report.lineItems.length;
-            const submittedOn = formatDate(report.submittedAt);
+        <>
+          <div className="aq-table-wrap">
+            <table className="aq-table">
+              <thead>
+                <tr>
+                  <th className="aq-col-report">Report</th>
+                  <th className="aq-col-status">Status</th>
+                  <th className="aq-col-items">Items</th>
+                  <th className="aq-col-total">Total</th>
+                  <th className="aq-col-action">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pageRows.map(report => {
+                  const total       = reportTotal(report);
+                  const itemCount   = report.lineItems.length;
+                  const submittedOn = formatDate(report.submittedAt);
+                  const empName     = report.employeeName ?? report.employeeId ?? '—';
+                  const initials    = getInitials(empName);
+                  const avColor     = avatarColor(empName);
+                  const actionable  = isActionable(report.status);
 
-            // Show the inbox shortcut if the user has edit permission.
-            // The workflow engine enforces what actions are actually available.
-            const canActOnThis = canAct;
+                  return (
+                    <tr key={report.id} className="aq-row">
+                      <td className="aq-cell-report">
+                        <div className="aq-reporter">
+                          <div className={`aq-avatar ${avColor}`}>{initials}</div>
+                          <div className="aq-report-info">
+                            <span
+                              className="aq-report-name"
+                              onClick={() => navigate(`/expense/report/${report.id}`)}
+                              role="button"
+                              tabIndex={0}
+                              onKeyDown={e => e.key === 'Enter' && navigate(`/expense/report/${report.id}`)}
+                            >
+                              {report.name}
+                            </span>
+                            <span className="aq-report-meta">
+                              {empName} · {submittedOn}
+                            </span>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="aq-cell-status">
+                        <StatusBadge status={report.status} />
+                      </td>
+                      <td className="aq-cell-items">{itemCount}</td>
+                      <td className="aq-cell-total">
+                        {fmtAmount(total, report.baseCurrencyCode)}
+                      </td>
+                      <td className="aq-cell-action">
+                        <div className="aq-actions">
+                          <button
+                            className="btn btn-ghost btn-sm aq-btn-eye"
+                            onClick={() => navigate(`/expense/report/${report.id}`)}
+                            title="View report"
+                            aria-label="View report"
+                          >
+                            <i className="fa-solid fa-eye" />
+                          </button>
+                          {canAct && actionable && (
+                            <button
+                              className="btn btn-primary btn-sm"
+                              onClick={() => navigate('/admin/workflow/inbox')}
+                              title="Open Approver Inbox to act on this report"
+                            >
+                              <i className="fa-solid fa-inbox" /> Review
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
 
-            return (
-              <div key={report.id} className="approval-card">
-                {/* ── Card header ─────────────────────────────────────── */}
-                <div className="approval-card-header">
-                  <div className="approval-card-title">
-                    <span
-                      className="approval-report-name"
-                      onClick={() => navigate(`/expense/report/${report.id}`)}
-                      title="View report details"
-                    >
-                      {report.name}
-                    </span>
-                    <StatusBadge status={report.status} />
-                  </div>
-                  <div className="approval-card-actions">
-                    {canActOnThis && (
-                      <button
-                        className="btn btn-primary btn-sm"
-                        onClick={() => navigate('/admin/workflow/inbox')}
-                        title="Open Approver Inbox to act on this report"
-                      >
-                        <i className="fa-solid fa-inbox" /> Open Inbox
-                      </button>
-                    )}
-                    <button
-                      className="btn btn-ghost btn-sm"
-                      onClick={() => navigate(`/expense/report/${report.id}`)}
-                      title="View full report"
-                    >
-                      <i className="fa-solid fa-eye" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* ── Card body ───────────────────────────────────────── */}
-                <div className="approval-card-meta">
-                  <span>
-                    <i className="fa-solid fa-user" style={{ marginRight: 4 }} />
-                    {report.employeeName ?? report.employeeId}
-                  </span>
-                  <span>
-                    <i className="fa-solid fa-calendar" style={{ marginRight: 4 }} />
-                    Submitted {submittedOn}
-                  </span>
-                  <span>
-                    <i className="fa-solid fa-receipt" style={{ marginRight: 4 }} />
-                    {itemCount} item{itemCount !== 1 ? 's' : ''}
-                  </span>
-                  <span className="approval-total">
-                    <i className="fa-solid fa-coins" style={{ marginRight: 4 }} />
-                    {fmtAmount(total, report.baseCurrencyCode)}
-                  </span>
-                </div>
-
-                {/* Show rejection reason if already rejected (shouldn't appear in
-                    queue, but guard just in case) */}
-                {report.rejectionReason && (
-                  <div className="approval-rejection-note">
-                    <i className="fa-solid fa-circle-info" style={{ marginRight: 4 }} />
-                    {report.rejectionReason}
-                  </div>
-                )}
+          {/* ── Pagination ───────────────────────────────────────────────── */}
+          {totalPages > 1 && (
+            <div className="aq-pagination">
+              <span className="aq-pg-info">
+                Showing {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length}
+              </span>
+              <div className="aq-pg-buttons">
+                <button
+                  className="aq-pg-btn"
+                  disabled={currentPage === 1}
+                  onClick={() => setPage(p => p - 1)}
+                  aria-label="Previous page"
+                >
+                  <i className="fa-solid fa-chevron-left" />
+                </button>
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+                  <button
+                    key={p}
+                    className={`aq-pg-btn${p === currentPage ? ' aq-pg-btn--active' : ''}`}
+                    onClick={() => setPage(p)}
+                    aria-label={`Page ${p}`}
+                  >
+                    {p}
+                  </button>
+                ))}
+                <button
+                  className="aq-pg-btn"
+                  disabled={currentPage === totalPages}
+                  onClick={() => setPage(p => p + 1)}
+                  aria-label="Next page"
+                >
+                  <i className="fa-solid fa-chevron-right" />
+                </button>
               </div>
-            );
-          })}
-        </div>
+            </div>
+          )}
+        </>
       )}
-
     </div>
   );
 }

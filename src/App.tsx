@@ -17,8 +17,9 @@
  */
 
 import { useRef, useState, useEffect }                            from 'react';
+import { phoneFlag }                                              from './constants/phoneCodes';
 import { Routes, Route, Navigate, NavLink, Outlet,
-         useLocation, useNavigate }                               from 'react-router-dom';
+         useLocation, useNavigate, useParams }                    from 'react-router-dom';
 import { useAuth }                                                from './contexts/AuthContext';
 import { usePermissions }                                         from './hooks/usePermissions';
 import ProtectedRoute                                             from './components/auth/ProtectedRoute';
@@ -26,6 +27,8 @@ import LoginPage                                                  from './compon
 import ResetPasswordPage                                          from './components/auth/ResetPasswordPage';
 import MyReports                                                  from './components/employee/MyReports';
 import MyProfile                                                  from './components/employee/MyProfile';
+import { ProfileContextProvider }                                 from './contexts/ProfileContext';
+import EmployeeSearchBox                                          from './components/header/EmployeeSearchBox';
 import ReportDetail                                               from './components/employee/ReportDetail';
 import AdminReports                                               from './components/admin/AdminReports';
 import ExchangeRates                                              from './components/admin/ExchangeRates';
@@ -58,6 +61,12 @@ import PermissionMatrix                                           from './compon
 import ComingSoon                                                 from './components/shared/ComingSoon';
 import NotificationBell                                           from './components/shared/NotificationBell';
 import { ErrorBoundary }                                          from './components/shared/ErrorBoundary';
+import BulkOperations                                             from './components/admin/BulkOperations';
+import ThemeManager                                               from './components/admin/ThemeManager';
+import AdminHome                                                  from './components/admin/AdminHome';
+import AdminSectionLayout                                         from './components/admin/AdminSectionLayout';
+import AdminDirectPage                                            from './components/admin/AdminDirectPage';
+import LandingPage                                                from './components/employee/LandingPage';
 import { usePicklistValues }                                      from './hooks/usePicklistValues';
 import { supabase }                                               from './lib/supabase';
 
@@ -71,12 +80,13 @@ import { supabase }                                               from './lib/su
 // collapsible section. Items without a group are rendered at the top level.
 
 interface NavItem {
-  path:       string;
-  label:      string;
-  icon:       string;
-  permission: string;        // permission code from the permissions table
-  group?:     string;        // collapsible group label (optional)
-  groupIcon?: string;        // icon for the group header
+  path:        string;
+  label:       string;
+  icon:        string;
+  permission?: string;       // permission code — either this or anyOf required
+  anyOf?:      string[];     // show if user has ANY of these permissions
+  group?:      string;       // collapsible group label (optional)
+  groupIcon?:  string;       // icon for the group header
 }
 
 const ADMIN_NAV: NavItem[] = [
@@ -101,6 +111,27 @@ const ADMIN_NAV: NavItem[] = [
 { path: '/admin/reference-data',    label: 'Reference Data',    icon: 'fa-list',               permission: 'picklists.view'           },
   { path: '/admin/exchange-rates',    label: 'Exchange Rates',    icon: 'fa-arrow-right-arrow-left', permission: 'exchange_rates_mgmt.view' },
   { path: '/admin/reports',           label: 'Reports',           icon: 'fa-file-chart-column',  permission: 'reports_admin.view'       },
+  { path: '/admin/import-export',    label: 'Import / Export',   icon: 'fa-arrows-up-down',
+    anyOf: [
+      'personal_info.bulk_import',    'personal_info.bulk_export',
+      'contact_info.bulk_import',     'contact_info.bulk_export',
+      'address.bulk_import',          'address.bulk_export',
+      'passport.bulk_import',         'passport.bulk_export',
+      'identification.bulk_import',   'identification.bulk_export',
+      'emergency_contact.bulk_import','emergency_contact.bulk_export',
+      'employment.bulk_import',       'employment.bulk_export',
+      'job_relationships.bulk_import','job_relationships.bulk_export',
+      'dependents.bulk_import',       'dependents.bulk_export',
+      'bank_accounts.bulk_import',    'bank_accounts.bulk_export',
+      'employees.bulk_import',        'employees.bulk_export',
+      'department.bulk_import',       'department.bulk_export',
+      'picklist.bulk_import',         'picklist.bulk_export',
+      'project.bulk_import',          'project.bulk_export',
+      'exchange_rate.bulk_import',    'exchange_rate.bulk_export',
+    ],
+  },
+
+  { path: '/admin/theme-manager',     label: 'Theme Manager',     icon: 'fa-palette',            permission: 'theme_manager.view'       },
 
   // ── Workflow group ────────────────────────────────────────────────────────
   { group: 'Workflow',     groupIcon: 'fa-diagram-next',
@@ -157,8 +188,9 @@ function SidebarProfileCard() {
     return match ? match.value : rawDesignation;
   })();
 
-  const email  = (employee?.businessEmail as string | null) || null;
-  const mobile = (employee?.mobile        as string | null) || null;
+  const email       = (employee?.businessEmail as string | null) || null;
+  const mobile      = (employee?.mobile        as string | null) || null;
+  const countryCode = (employee?.countryCode   as string | null) || null;
   const photo  = localPhoto
     || (employee?.photo as string | null)
     || `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=2F77B5&color=fff&size=80`;
@@ -182,9 +214,13 @@ function SidebarProfileCard() {
       const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(path);
       const publicUrl = urlData.publicUrl + `?t=${Date.now()}`;
 
-      const { error: dbErr } = await supabase
-        .from('employee_personal')
-        .upsert({ employee_id: employee.id, photo_url: publicUrl }, { onConflict: 'employee_id' });
+      const today = new Date().toISOString().split('T')[0];
+      const { data: piResult, error: dbErr } = await supabase.rpc('upsert_personal_info', {
+        p_employee_id:    employee.id,
+        p_proposed_data:  { photo_url: publicUrl },
+        p_effective_from: today,
+      });
+      if (!dbErr && piResult && !piResult.ok) throw new Error(piResult.error ?? 'Photo save failed');
       if (dbErr) throw dbErr;
 
       setLocalPhoto(publicUrl);
@@ -206,8 +242,20 @@ function SidebarProfileCard() {
       <div className="profile-info">
         <div className="profile-name">{displayName}</div>
         <div className="profile-designation">{designationLabel || '—'}</div>
-        <div className="profile-email"><i className="fa-solid fa-envelope" />{email  || '—'}</div>
-        <div className="profile-mobile"><i className="fa-solid fa-phone"   />{mobile || '—'}</div>
+        <div className="profile-contact-icons">
+          {email && (
+            <a className="profile-icon-btn" href={`mailto:${email}`} title="">
+              <i className="fa-solid fa-envelope" />
+              <span className="profile-icon-tooltip">{email}</span>
+            </a>
+          )}
+          {mobile && (
+            <a className="profile-icon-btn" href={`tel:${countryCode ?? ''}${mobile}`} title="">
+              <i className="fa-solid fa-phone" />
+              <span className="profile-icon-tooltip">{countryCode ? `${countryCode} ` : ''}{mobile}</span>
+            </a>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -218,7 +266,7 @@ function SidebarProfileCard() {
 function UserMenu() {
   const navigate = useNavigate();
   const loc      = useLocation();
-  const { signOut, user }   = useAuth();
+  const { signOut, user, employee }   = useAuth();
   const { canAny }          = usePermissions();
   const [open,    setOpen]  = useState(false);
   const menuRef             = useRef<HTMLDivElement>(null);
@@ -313,23 +361,23 @@ function UserMenu() {
 
             <div className="user-menu-divider" />
 
-            {/* Admin ↔ Employee view switch */}
+            {/* My Profile — always visible, navigates to self-service view (no param = self mode) */}
+            <button type="button" className="user-menu-item"
+              onClick={() => { setOpen(false); navigate('/profile'); }}>
+              <i className="fa-solid fa-circle-user" /> My Profile
+            </button>
+
+            {/* Admin Center — only for users with admin access */}
             {canAccessAdmin && (
               <>
-                {isAdminPath ? (
-                  <button type="button" className="user-menu-item"
-                    onClick={() => { setOpen(false); navigate('/profile'); }}>
-                    <i className="fa-solid fa-arrow-left" /> Employee View
-                  </button>
-                ) : (
-                  <button type="button" className="user-menu-item"
-                    onClick={() => { setOpen(false); navigate('/admin/employee-details'); }}>
-                    <i className="fa-solid fa-shield-halved" /> Admin View
-                  </button>
-                )}
-                <div className="user-menu-divider" />
+                <button type="button" className="user-menu-item"
+                  onClick={() => { setOpen(false); navigate('/admin'); }}>
+                  <i className="fa-solid fa-shield-halved" /> Admin Center
+                </button>
               </>
             )}
+
+            <div className="user-menu-divider" />
 
             {/* Change Password */}
             <button type="button" className="user-menu-item" onClick={openChangePwd}>
@@ -437,12 +485,25 @@ function UserMenu() {
 // ─── AppHeader ────────────────────────────────────────────────────────────────
 
 function AppHeader() {
+  const [navLogo, setNavLogo] = useState<string | null>(null);
+
+  useEffect(() => {
+    supabase.rpc('get_theme_settings').then(({ data }) => {
+      if (data?.nav_logo) setNavLogo(data.nav_logo);
+      if (data?.app_name) document.title = data.app_name;
+    });
+  }, []);
+
   return (
     <header className="header">
       <div className="header-content">
-        <img src="/logo.png" alt="Prowess Logo" className="logo" />
+        <a href="/home" style={{ display: 'flex', alignItems: 'center', textDecoration: 'none' }}>
+          <img src={navLogo ?? '/logo.png'} alt="Prowess Logo" className="logo" />
+        </a>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        {/* Employee search sits just left of the bell — same side as notifications */}
+        <EmployeeSearchBox />
         <NotificationBell />
         <UserMenu />
       </div>
@@ -476,11 +537,16 @@ function SidebarGroup({ icon, label, children, defaultOpen = true }: {
 
 function Sidebar() {
   const loc         = useLocation();
-  const { can } = usePermissions();
+  const { can, canAny } = usePermissions();
   const isAdmin     = loc.pathname.startsWith('/admin');
+  // Hide the "my profile" card when viewing another employee's profile —
+  // it shows the logged-in user's info which is confusing in employee mode.
+  const isEmployeeMode = /^\/profile\/[^/]+$/.test(loc.pathname);
 
   // Filter the nav config to only items the user has permission to see
-  const visibleItems = ADMIN_NAV.filter(item => can(item.permission));
+  const visibleItems = ADMIN_NAV.filter(item =>
+    item.anyOf ? canAny(item.anyOf) : can(item.permission ?? '')
+  );
 
   // Build the grouped structure for the admin sidebar:
   //   Map<groupLabel, { groupIcon, items[] }>
@@ -501,7 +567,7 @@ function Sidebar() {
 
   return (
     <aside className="sidebar">
-      {!isAdmin && <SidebarProfileCard />}
+      {!isAdmin && !isEmployeeMode && <SidebarProfileCard />}
 
       <nav className="sidebar-nav">
         {!isAdmin ? (
@@ -575,18 +641,42 @@ function Sidebar() {
   );
 }
 
+// ─── ProfileScreen ────────────────────────────────────────────────────────────
+// Thin wrapper that reads :employeeId from the route and supplies it to
+// ProfileContextProvider. Self mode when no param is present.
+
+function ProfileScreen() {
+  const { employeeId } = useParams<{ employeeId?: string }>();
+  return (
+    <ProtectedRoute requiredPermission="personal_info.view">
+      <ProfileContextProvider employeeId={employeeId ?? null}>
+        <MyProfile />
+      </ProfileContextProvider>
+    </ProtectedRoute>
+  );
+}
+
 // ─── AppShell ─────────────────────────────────────────────────────────────────
 //
 // Uses <Outlet /> so it mounts ONCE and persists across all child-route
 // navigations. Only the <main> content area re-renders on each route change.
 
 function AppShell() {
+  const loc            = useLocation();
+  const isEmployeeMode = /^\/profile(\/[^/]+)?$/.test(loc.pathname);
+  const isHomePage     = loc.pathname === '/home';
+  const isAdminArea    = loc.pathname === '/admin' || loc.pathname.startsWith('/admin/');
+  const isFullPage     = ['/org-chart', '/expense', '/workflow/my-requests', '/workflow/inbox', '/workflow/delegations'].some(
+    p => loc.pathname === p || loc.pathname.startsWith(p + '/')
+  );
+  const hideSidebar    = isEmployeeMode || isHomePage || isFullPage || isAdminArea;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
       <AppHeader />
       <div className="app-shell">
-        <Sidebar />
-        <main className="app-main">
+        {!hideSidebar && <Sidebar />}
+        <main className={isHomePage ? 'app-main app-main--landing' : loc.pathname === '/admin' ? 'app-main app-main--admin-home' : hideSidebar ? 'app-main app-main--full' : 'app-main'}>
           {/* Page-level boundary: a crash in any route stays contained here.
               The header and sidebar remain fully functional. */}
           <ErrorBoundary scope="page">
@@ -611,10 +701,11 @@ export default function App() {
       <Route element={<ProtectedRoute><AppShell /></ProtectedRoute>}>
 
         {/* Employee routes — any authenticated user */}
-        <Route index                        element={<Navigate to="/profile" replace />} />
-        <Route path="/profile"              element={
-          <ProtectedRoute requiredPermission="personal_info.view"><MyProfile /></ProtectedRoute>
-        } />
+        <Route index                        element={<Navigate to="/home" replace />} />
+        <Route path="/home"                 element={<LandingPage />} />
+        {/* Legacy /profile redirect — keep old bookmarks working */}
+        {/* /profile/:employeeId? — self mode when no param, employee mode when param present */}
+        <Route path="/profile/:employeeId?" element={<ProfileScreen />} />
         <Route path="/org-chart"            element={<EmpOrgChart />} />
         <Route path="/expense"              element={
           <ProtectedRoute requiredPermission="expense_reports.view">
@@ -656,116 +747,112 @@ export default function App() {
         <Route path="/admin" element={
           <ProtectedRoute requiredPermission="sec_admin_access.view"><Outlet /></ProtectedRoute>
         }>
-          {/* Redirect shortcuts */}
-          <Route index                   element={<Navigate to="employee-details" replace />} />
-          <Route path="employees"        element={<Navigate to="employee-details" replace />} />
+          {/* Admin home — icon grid launcher */}
+          <Route index element={<AdminHome />} />
 
-          {/* Employee */}
-          <Route path="emp-org-chart"    element={
-            <ProtectedRoute requiredPermission="org_chart.view"><EmpOrgChart /></ProtectedRoute>
-          } />
-          <Route path="employee-details" element={
-            <ProtectedRoute requiredPermission="employee_details.edit"><EmployeeDetails /></ProtectedRoute>
-          } />
-          <Route path="inactive-employees" element={
-            <ProtectedRoute requiredPermission="inactive_employees.view"><InactiveEmployees /></ProtectedRoute>
-          } />
-          <Route path="add-employee"     element={
-            <ProtectedRoute requiredPermission="hire_employee.create"><AddEmployee /></ProtectedRoute>
-          } />
+          {/* ── Employees section ─────────────────────────────────────────── */}
+          <Route path="employees" element={
+            <AdminSectionLayout title="Employees" subtitle="Manage employee records, org charts, and onboarding." items={[
+              { path: '/admin/employees/list',     label: 'Employee Details',   icon: 'fa-table-list',      permission: 'employee_details.edit'     },
+              { path: '/admin/employees/org-chart',label: 'Org Chart',          icon: 'fa-diagram-project', permission: 'org_chart.view'             },
+              { path: '/admin/employees/inactive', label: 'Inactive Employees', icon: 'fa-user-slash',      permission: 'inactive_employees.view'   },
+              { path: '/admin/employees/add',      label: 'Add New Employee',   icon: 'fa-user-plus',       permission: 'hire_employee.create'       },
+            ]} />
+          }>
+            <Route index element={<Navigate to="list" replace />} />
+            <Route path="list"      element={<ProtectedRoute requiredPermission="employee_details.edit"><EmployeeDetails /></ProtectedRoute>} />
+            <Route path="org-chart" element={<ProtectedRoute requiredPermission="org_chart.view"><EmpOrgChart /></ProtectedRoute>} />
+            <Route path="inactive"  element={<ProtectedRoute requiredPermission="inactive_employees.view"><InactiveEmployees /></ProtectedRoute>} />
+            <Route path="add"       element={<ProtectedRoute requiredPermission="hire_employee.create"><AddEmployee /></ProtectedRoute>} />
+          </Route>
+          {/* backward-compat redirects */}
+          <Route path="employee-details"    element={<Navigate to="/admin/employees/list" replace />} />
+          <Route path="emp-org-chart"       element={<Navigate to="/admin/employees/org-chart" replace />} />
+          <Route path="inactive-employees"  element={<Navigate to="/admin/employees/inactive" replace />} />
+          <Route path="add-employee"        element={<Navigate to="/admin/employees/add" replace />} />
 
-          {/* Organisation */}
-          <Route path="departments"      element={
-            <ProtectedRoute requiredPermission="departments.edit"><Departments /></ProtectedRoute>
-          } />
-          <Route path="org-chart"        element={
-            <ProtectedRoute requiredPermission="org_chart.view"><OrgChartAdmin /></ProtectedRoute>
-          } />
+          {/* ── Organization section ──────────────────────────────────────── */}
+          <Route path="organization" element={
+            <AdminSectionLayout title="Organization" subtitle="Manage departments and organizational structure." items={[
+              { path: '/admin/organization/departments', label: 'Departments', icon: 'fa-sitemap',         permission: 'departments.edit' },
+              { path: '/admin/organization/org-chart',   label: 'Org Chart',   icon: 'fa-diagram-project', permission: 'org_chart.view'   },
+            ]} />
+          }>
+            <Route index element={<Navigate to="departments" replace />} />
+            <Route path="departments" element={<ProtectedRoute requiredPermission="departments.edit"><Departments /></ProtectedRoute>} />
+            <Route path="org-chart"   element={<ProtectedRoute requiredPermission="org_chart.view"><OrgChartAdmin /></ProtectedRoute>} />
+          </Route>
+          {/* backward-compat redirects */}
+          <Route path="departments" element={<Navigate to="/admin/organization/departments" replace />} />
+          <Route path="org-chart"   element={<Navigate to="/admin/organization/org-chart" replace />} />
 
-          {/* Reference / Finance */}
-          <Route path="projects"         element={
-            <ProtectedRoute requiredPermission="projects_mgmt.view"><Projects /></ProtectedRoute>
-          } />
-          <Route path="reference-data"   element={
-            <ProtectedRoute requiredPermission="picklists.view"><ReferenceData /></ProtectedRoute>
-          } />
-          <Route path="exchange-rates"   element={
-            <ProtectedRoute requiredPermission="exchange_rates_mgmt.view"><ExchangeRates /></ProtectedRoute>
-          } />
-          <Route path="reports"          element={
-            <ProtectedRoute requiredPermission="reports_admin.view"><AdminReports /></ProtectedRoute>
-          } />
-          <Route path="analytics"        element={
-            <ProtectedRoute requiredPermission="reports_admin.view"><ExpenseAnalytics /></ProtectedRoute>
-          } />
+          {/* ── Workflow section ──────────────────────────────────────────── */}
+          <Route path="workflow" element={
+            <AdminSectionLayout title="Workflow" subtitle="Configure approval workflows, templates, and notifications." items={[
+              { path: '/admin/workflow/operations',          label: 'Manage Workflow',     icon: 'fa-gauge-high',     permission: 'wf_manage.view'              },
+              { path: '/admin/workflow/templates',           label: 'Templates',           icon: 'fa-layer-group',    permission: 'wf_templates.view'           },
+              { path: '/admin/workflow/assignments',         label: 'Assignments',         icon: 'fa-network-wired',  permission: 'wf_assignments.view'         },
+              { path: '/admin/workflow/delegations',         label: 'Delegations',         icon: 'fa-right-left',     permission: 'wf_delegations.view'         },
+              { path: '/admin/workflow/notification-config', label: 'Notifications',       icon: 'fa-bell-slash',     permission: 'wf_notification_config.view' },
+              { path: '/admin/workflow/performance',         label: 'Performance',         icon: 'fa-chart-line',     permission: 'wf_performance.view'         },
+              { path: '/admin/workflow/analytics',           label: 'Analytics',           icon: 'fa-chart-bar',      permission: 'wf_analytics.view'           },
+              { path: '/admin/workflow/notifications',       label: 'Notification Monitor',icon: 'fa-bell',           permission: 'wf_notifications.view'       },
+            ]} />
+          }>
+            <Route index element={<Navigate to="operations" replace />} />
+            <Route path="operations"          element={<ProtectedRoute requiredPermission="wf_manage.view"><WorkflowOperations /></ProtectedRoute>} />
+            <Route path="inbox"               element={<ProtectedRoute requiredPermission="wf_manage.view"><ApproverInbox /></ProtectedRoute>} />
+            <Route path="templates"           element={<ProtectedRoute requiredPermission="wf_templates.view"><WorkflowTemplates /></ProtectedRoute>} />
+            <Route path="notification-config" element={<ProtectedRoute requiredPermission="wf_notification_config.view"><NotificationConfig /></ProtectedRoute>} />
+            <Route path="delegations"         element={<ProtectedRoute requiredPermission="wf_delegations.view"><WorkflowDelegations adminView /></ProtectedRoute>} />
+            <Route path="assignments"         element={<ProtectedRoute requiredPermission="wf_assignments.view"><WorkflowAssignments /></ProtectedRoute>} />
+            <Route path="performance"         element={<ProtectedRoute requiredPermission="wf_performance.view"><WorkflowPerformanceDashboard /></ProtectedRoute>} />
+            <Route path="analytics"           element={<ProtectedRoute requiredPermission="wf_analytics.view"><WorkflowAnalytics /></ProtectedRoute>} />
+            <Route path="notifications"       element={<ProtectedRoute requiredPermission="wf_notifications.view"><NotificationMonitor /></ProtectedRoute>} />
+          </Route>
 
-          {/* Workflow */}
-          <Route path="workflow/operations" element={
-            <ProtectedRoute requiredPermission="wf_manage.view">
-              <WorkflowOperations />
-            </ProtectedRoute>
-          } />
-          <Route path="workflow/inbox"   element={
-            <ProtectedRoute requiredPermission="wf_manage.view"><ApproverInbox /></ProtectedRoute>
-          } />
-          <Route path="workflow/templates" element={
-            <ProtectedRoute requiredPermission="wf_templates.view">
-              <WorkflowTemplates />
-            </ProtectedRoute>
-          } />
-          <Route path="workflow/notification-config" element={
-            <ProtectedRoute requiredPermission="wf_notification_config.view">
-              <NotificationConfig />
-            </ProtectedRoute>
-          } />
-          <Route path="workflow/delegations" element={
-            <ProtectedRoute requiredPermission="wf_delegations.view">
-              <WorkflowDelegations adminView />
-            </ProtectedRoute>
-          } />
-          <Route path="workflow/assignments" element={
-            <ProtectedRoute requiredPermission="wf_assignments.view">
-              <WorkflowAssignments />
-            </ProtectedRoute>
-          } />
-          <Route path="workflow/performance" element={
-            <ProtectedRoute requiredPermission="wf_performance.view">
-              <WorkflowPerformanceDashboard />
-            </ProtectedRoute>
-          } />
-          <Route path="workflow/analytics" element={
-            <ProtectedRoute requiredPermission="wf_analytics.view">
-              <WorkflowAnalytics />
-            </ProtectedRoute>
-          } />
-          <Route path="workflow/notifications" element={
-            <ProtectedRoute requiredPermission="wf_notifications.view">
-              <NotificationMonitor />
-            </ProtectedRoute>
-          } />
-          {/* Jobs */}
+          {/* ── Security section ──────────────────────────────────────────── */}
+          <Route path="security" element={
+            <AdminSectionLayout title="Security" subtitle="Manage permissions, roles, and access control." items={[
+              { path: '/admin/security/matrix',        label: 'Permission Matrix',    icon: 'fa-table-cells',            permission: 'sec_permission_matrix.view'  },
+              { path: '/admin/security/assignments',   label: 'Role Assignments',     icon: 'fa-users-gear',             permission: 'sec_role_assignments.view'   },
+              { path: '/admin/security/target-groups', label: 'Target Groups',        icon: 'fa-people-group',           permission: 'sec_target_groups.view'      },
+              { path: '/admin/security/catalog',       label: 'Permission Catalog',   icon: 'fa-key',                    permission: 'sec_permission_catalog.view' },
+              { path: '/admin/security/rbp',           label: 'RBP Troubleshooting',  icon: 'fa-magnifying-glass-chart', permission: 'sec_rbp_troubleshoot.view'   },
+            ]} />
+          }>
+            <Route index element={<Navigate to="matrix" replace />} />
+            <Route path="matrix"        element={<ProtectedRoute requiredPermission="sec_permission_matrix.view"><PermissionMatrix /></ProtectedRoute>} />
+            <Route path="assignments"   element={<ProtectedRoute requiredPermission="sec_role_assignments.view"><RoleAssignments /></ProtectedRoute>} />
+            <Route path="target-groups" element={<ProtectedRoute requiredPermission="sec_target_groups.view"><TargetGroups /></ProtectedRoute>} />
+            <Route path="catalog"       element={<ProtectedRoute requiredPermission="sec_permission_catalog.view"><PermissionCatalog /></ProtectedRoute>} />
+            <Route path="rbp"           element={<ProtectedRoute requiredPermission="sec_rbp_troubleshoot.view"><RbpTroubleshoot /></ProtectedRoute>} />
+          </Route>
+          {/* backward-compat redirects */}
+          <Route path="permissions/matrix"       element={<Navigate to="/admin/security/matrix" replace />} />
+          <Route path="permissions/assignments"  element={<Navigate to="/admin/security/assignments" replace />} />
+          <Route path="permissions/target-groups" element={<Navigate to="/admin/security/target-groups" replace />} />
+          <Route path="permissions/catalog"      element={<Navigate to="/admin/security/catalog" replace />} />
+          <Route path="permissions/rbp"          element={<Navigate to="/admin/security/rbp" replace />} />
+
+          {/* ── Jobs section ──────────────────────────────────────────────── */}
           <Route path="jobs" element={
-            <ProtectedRoute requiredPermission="jobs_manage.view">
-              <JobsAdmin />
-            </ProtectedRoute>
-          } />
+            <AdminSectionLayout title="Jobs" subtitle="Monitor and manage background and scheduled jobs." items={[
+              { path: '/admin/jobs/background', label: 'Background Jobs', icon: 'fa-clock-rotate-left', permission: 'jobs_manage.view' },
+            ]} />
+          }>
+            <Route index element={<Navigate to="background" replace />} />
+            <Route path="background" element={<ProtectedRoute requiredPermission="jobs_manage.view"><JobsAdmin /></ProtectedRoute>} />
+          </Route>
 
-          {/* Security */}
-          <Route path="permissions/matrix" element={
-            <ProtectedRoute requiredPermission="sec_permission_matrix.view"><PermissionMatrix /></ProtectedRoute>
-          } />
-          <Route path="permissions/assignments" element={
-            <ProtectedRoute requiredPermission="sec_role_assignments.view"><RoleAssignments /></ProtectedRoute>
-          } />
-          <Route path="permissions/target-groups" element={
-            <ProtectedRoute requiredPermission="sec_target_groups.view"><TargetGroups /></ProtectedRoute>
-          } />
-          <Route path="permissions/catalog"     element={
-            <ProtectedRoute requiredPermission="sec_permission_catalog.view"><PermissionCatalog /></ProtectedRoute>
-          } />
-          <Route path="permissions/rbp"         element={
-            <ProtectedRoute requiredPermission="sec_rbp_troubleshoot.view"><RbpTroubleshoot /></ProtectedRoute>
-          } />
+          {/* ── Direct sections (no sub-sidebar — back button via AdminDirectPage) ── */}
+          <Route path="projects"      element={<ProtectedRoute requiredPermission="projects_mgmt.view"><AdminDirectPage><Projects /></AdminDirectPage></ProtectedRoute>} />
+          <Route path="reference-data" element={<ProtectedRoute requiredPermission="picklists.view"><AdminDirectPage><ReferenceData /></AdminDirectPage></ProtectedRoute>} />
+          <Route path="exchange-rates" element={<ProtectedRoute requiredPermission="exchange_rates_mgmt.view"><AdminDirectPage><ExchangeRates /></AdminDirectPage></ProtectedRoute>} />
+          <Route path="reports"        element={<ProtectedRoute requiredPermission="reports_admin.view"><AdminDirectPage><AdminReports /></AdminDirectPage></ProtectedRoute>} />
+          <Route path="analytics"      element={<ProtectedRoute requiredPermission="reports_admin.view"><AdminDirectPage><ExpenseAnalytics /></AdminDirectPage></ProtectedRoute>} />
+          <Route path="import-export"  element={<AdminDirectPage><BulkOperations /></AdminDirectPage>} />
+          <Route path="theme-manager"  element={<ProtectedRoute requiredPermission="theme_manager.view"><ThemeManager /></ProtectedRoute>} />
         </Route>
 
       </Route>

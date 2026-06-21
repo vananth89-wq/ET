@@ -18,6 +18,30 @@ interface WorkflowTimelineProps {
   status:      string;
 }
 
+// Actions generated purely by the workflow engine — never shown to end users.
+const SYSTEM_ACTIONS = new Set([
+  'step_advanced', 'completed', 'update_form_opened',
+  'auto_skipped', 'step_removed', 'cc_notified',
+  'skipped',       // duplicate-approver skip
+]);
+
+// Notes written by the workflow engine (not user input). These may appear on
+// otherwise-visible actions (e.g. 'submitted') and should not render as a
+// user comment. All engine notes start with one of these prefixes.
+const ENGINE_NOTE_PREFIXES = [
+  'Legacy ROLE step',
+  'Multi-approver step',
+  'ROLE step auto-skipped',
+  'Step removed:',
+  'No ',           // "No MANAGER found — step skipped"
+  'CC step —',
+];
+
+function isEngineNote(notes: string | null): boolean {
+  if (!notes) return false;
+  return ENGINE_NOTE_PREFIXES.some(p => notes.startsWith(p));
+}
+
 const ACTION_CONFIG: Record<string, { icon: string; iconColor: string; label: string }> = {
   submitted:                { icon: 'fa-paper-plane',    iconColor: '#2563EB', label: 'Submitted'                },
   approved:                 { icon: 'fa-circle-check',   iconColor: '#16A34A', label: 'Approved'                 },
@@ -54,103 +78,50 @@ export function WorkflowTimeline({
   const pendingTasks = tasks.filter(t => t.status === 'pending');
 
   if (history.length === 0 && pendingTasks.length === 0) {
-    return (
-      <p style={{ color: '#9CA3AF', fontSize: 13, padding: '16px 0' }}>
-        No activity yet.
-      </p>
-    );
+    return <p className="wft-empty">No activity yet.</p>;
   }
 
   return (
-    <div style={{ position: 'relative', paddingLeft: 32 }}>
+    <div className="wft-container">
       {/* Vertical line */}
-      <div style={{
-        position: 'absolute',
-        left:     10,
-        top:      8,
-        bottom:   8,
-        width:    2,
-        background: '#E5E7EB',
-        borderRadius: 2,
-      }} />
+      <div className="wft-line" />
 
       {/* History events */}
       {history
-        .filter(h => h.action !== 'step_advanced' && h.action !== 'completed') // hide internal/system events
+        .filter(h => !SYSTEM_ACTIONS.has(h.action))
         .map(event => {
           const cfg = ACTION_CONFIG[event.action] ??
             { icon: 'fa-circle', iconColor: '#9CA3AF', label: event.action };
 
           return (
-            <div key={event.id} style={{ display: 'flex', gap: 12, marginBottom: 20, position: 'relative' }}>
-              {/* Icon dot */}
-              <div style={{
-                position:     'absolute',
-                left:         -32,
-                width:        20,
-                height:       20,
-                borderRadius: '50%',
-                background:   '#fff',
-                border:       `2px solid ${cfg.iconColor}`,
-                display:      'flex',
-                alignItems:   'center',
-                justifyContent: 'center',
-                flexShrink:   0,
-              }}>
-                <i className={`fas ${cfg.icon}`}
-                   style={{ fontSize: 9, color: cfg.iconColor }} />
+            <div key={event.id} className="wft-event-row">
+              {/* Icon dot — border colour is dynamic */}
+              <div
+                className="wft-event-dot"
+                style={{ background: '#fff', border: `2px solid ${cfg.iconColor}` }}
+              >
+                <i className={`fas ${cfg.icon}`} style={{ fontSize: 9, color: cfg.iconColor }} />
               </div>
 
               {/* Content */}
-              <div style={{ flex: 1 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <span style={{ fontWeight: 600, fontSize: 13, color: '#111827' }}>
-                    {cfg.label}
-                  </span>
+              <div className="wft-event-content">
+                <div className="wft-event-header">
+                  <span className="wft-event-label">{cfg.label}</span>
                   {event.actorName && (
-                    <span style={{ fontSize: 12, color: '#6B7280' }}>
-                      by {event.actorName}
-                    </span>
+                    <span className="wft-event-actor">by {event.actorName}</span>
                   )}
-                  {event.stepOrder && (
-                    <span style={{
-                      fontSize: 11, color: '#9CA3AF',
-                      background: '#F3F4F6', borderRadius: 4,
-                      padding: '1px 6px',
-                    }}>
-                      Step {event.stepOrder}
-                    </span>
+                  {event.stepOrder && event.action !== 'submitted' && (
+                    <span className="wft-step-badge">Step {event.stepOrder}</span>
                   )}
                 </div>
-                <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 2 }}>
-                  {formatDate(event.createdAt)}
-                </div>
-                {event.notes && (
-                  <div style={{
-                    marginTop: 8,
-                    borderLeft: `3px solid ${cfg.iconColor}22`,
-                    paddingLeft: 10,
-                    background: '#F8FAFC',
-                    borderRadius: '0 4px 4px 0',
-                    padding: '7px 10px 7px 10px',
-                    borderLeftWidth: 3,
-                    borderLeftStyle: 'solid',
-                    borderLeftColor: cfg.iconColor,
-                    opacity: 0.95,
-                  }}>
-                    <div style={{
-                      fontSize: 10, fontWeight: 600, color: '#9CA3AF',
-                      textTransform: 'uppercase', letterSpacing: '0.05em',
-                      marginBottom: 3,
-                    }}>
-                      💬 Comment
-                    </div>
-                    <div style={{
-                      fontSize: 13, color: '#374151', lineHeight: 1.5,
-                      cursor: 'default', userSelect: 'text',
-                    }}>
-                      {event.notes}
-                    </div>
+                <div className="wft-event-time">{formatDate(event.createdAt)}</div>
+                {event.notes && !isEngineNote(event.notes) && (
+                  <div
+                    className="wft-comment-box"
+                    style={{ borderLeftColor: cfg.iconColor }}
+                  >
+                    <div className="wft-comment-label">💬 Comment</div>
+                    <div className="wft-comment-text">{event.notes}</div>
                   </div>
                 )}
               </div>
@@ -160,44 +131,21 @@ export function WorkflowTimeline({
 
       {/* Pending tasks (awaiting action) */}
       {status === 'in_progress' && pendingTasks.map(task => (
-        <div key={task.id} style={{ display: 'flex', gap: 12, marginBottom: 20, position: 'relative' }}>
-          <div style={{
-            position:     'absolute',
-            left:         -32,
-            width:        20,
-            height:       20,
-            borderRadius: '50%',
-            background:   '#FEF9C3',
-            border:       '2px dashed #D97706',
-            display:      'flex',
-            alignItems:   'center',
-            justifyContent: 'center',
-            flexShrink:   0,
-          }}>
+        <div key={task.id} className="wft-event-row">
+          <div className="wft-pending-dot">
             <i className="fas fa-hourglass-half" style={{ fontSize: 8, color: '#D97706' }} />
           </div>
 
-          <div style={{ flex: 1 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <span style={{ fontWeight: 600, fontSize: 13, color: '#92400E' }}>
-                Awaiting: {task.stepName}
-              </span>
+          <div className="wft-event-content">
+            <div className="wft-event-header">
+              <span className="wft-pending-label">Awaiting: {task.stepName}</span>
               {task.assigneeName && (
-                <span style={{ fontSize: 12, color: '#6B7280' }}>
-                  → {task.assigneeName}
-                </span>
+                <span className="wft-event-actor">→ {task.assigneeName}</span>
               )}
-              <span style={{
-                fontSize: 11, background: '#FEF9C3', color: '#92400E',
-                borderRadius: 4, padding: '1px 6px',
-              }}>
-                Step {task.stepOrder}
-              </span>
+              <span className="wft-pending-step-badge">Step {task.stepOrder}</span>
             </div>
             {task.dueAt && (
-              <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 2 }}>
-                Due: {formatDate(task.dueAt)}
-              </div>
+              <div className="wft-event-time">Due: {formatDate(task.dueAt)}</div>
             )}
           </div>
         </div>
@@ -205,40 +153,21 @@ export function WorkflowTimeline({
 
       {/* Awaiting clarification — workflow is paused, waiting on submitter */}
       {status === 'awaiting_clarification' && (
-        <div style={{ display: 'flex', gap: 12, marginBottom: 20, position: 'relative' }}>
-          <div style={{
-            position:       'absolute',
-            left:           -32,
-            width:          20,
-            height:         20,
-            borderRadius:   '50%',
-            background:     '#FEF3C7',
-            border:         '2px dashed #B45309',
-            display:        'flex',
-            alignItems:     'center',
-            justifyContent: 'center',
-            flexShrink:     0,
-          }}>
+        <div className="wft-event-row">
+          <div className="wft-clarification-dot">
             <i className="fas fa-comment-dots" style={{ fontSize: 8, color: '#B45309' }} />
           </div>
 
-          <div style={{ flex: 1 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <span style={{ fontWeight: 600, fontSize: 13, color: '#92400E' }}>
-                Awaiting your response
-              </span>
-              <span style={{
-                fontSize: 11, background: '#FEF3C7', color: '#B45309',
-                border: '1px solid #FDE68A',
-                borderRadius: 4, padding: '1px 6px',
-                display: 'flex', alignItems: 'center', gap: 3,
-              }}>
+          <div className="wft-event-content">
+            <div className="wft-event-header">
+              <span className="wft-clarification-label">Awaiting your response</span>
+              <span className="wft-clarification-badge">
                 <i className="fas fa-bell" style={{ fontSize: 8 }} />
                 Needs your input
               </span>
             </div>
-            <div style={{ fontSize: 12, color: '#B45309', marginTop: 3 }}>
-              An approver has requested clarification — respond via My Requests to resume.
+            <div className="wft-clarification-note">
+              Review the approver note above, update the details, then hit Resubmit.
             </div>
           </div>
         </div>

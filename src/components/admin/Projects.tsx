@@ -218,7 +218,7 @@ export default function Projects() {
             <div className={`form-group${formErrors.startDate ? ' form-group--error' : ''}`} style={{ flex: 1 }}>
               <label>Start Date</label>
               <input
-                type="date"
+                type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31"
                 value={startDate}
                 onChange={e => { setStartDate(e.target.value); setFormErrors(p => ({ ...p, startDate: '' })); }}
                 required
@@ -232,7 +232,7 @@ export default function Projects() {
             <div className={`form-group${formErrors.endDate ? ' form-group--error' : ''}`} style={{ flex: 1 }}>
               <label>End Date</label>
               <input
-                type="date"
+                type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31"
                 value={endDate}
                 onChange={e => { setEndDate(e.target.value); setFormErrors(p => ({ ...p, endDate: '' })); }}
                 required

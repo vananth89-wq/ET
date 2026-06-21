@@ -21,209 +21,26 @@ export interface PermTooltipData {
 
 export const PERMISSION_TOOLTIPS: Record<string, PermTooltipData> = {
 
-  // ── Profile ──────────────────────────────────────────────────────────────────
-  'profile.view_own': {
-    portlet: 'My Profile',
-    fields: ['Personal details summary', 'Contact info', 'Employment summary', 'Documents overview'],
+  // ── Expense Reports ──────────────────────────────────────────────────────────
+  'expense_reports.view': {
+    portlet: 'Expense Reports',
+    fields: ['View expense reports', 'Line item detail', 'Attachments', 'Export data'],
   },
-  'profile.edit_own': {
-    portlet: 'My Profile — Edit',
-    fields: ['Avatar / photo', 'Notification preferences', 'Display settings'],
+  'expense_reports.create': {
+    portlet: 'Create Expense Report',
+    fields: ['Start a new expense report', 'Add line items', 'Attach receipts', 'Submit for approval'],
   },
-
-  // ── Expense ──────────────────────────────────────────────────────────────────
-  'expense.create': {
-    portlet: 'Create Expense',
-    fields: ['Start a new expense report', 'Add line items', 'Attach receipts'],
-  },
-  'expense.submit': {
-    portlet: 'Expense Submission',
-    fields: ['Create expense report', 'Add line items', 'Attach receipts', 'Submit for approval'],
-  },
-  'expense.view_own': {
-    portlet: 'My Expenses',
-    fields: ['Own expense reports list', 'Report status', 'Line item detail', 'Attachments'],
-  },
-  'expense.edit': {
+  'expense_reports.edit': {
     portlet: 'Expense Report — Edit',
     fields: ['Edit draft reports', 'Edit rejected reports', 'Update line items'],
   },
-  'expense.delete': {
+  'expense_reports.delete': {
     portlet: 'Expense Report — Delete',
     fields: ['Delete own draft report', 'Delete own rejected report'],
   },
-  'expense.view_direct': {
-    portlet: 'Expense Reports — Direct Reports',
-    fields: ['View reports from direct reports', 'Drill into line items', 'View attachments'],
-  },
-  'expense.view_team': {
-    portlet: 'Expense Reports — Team',
-    fields: ['View reports from all team members', 'Cross-team visibility for managers'],
-  },
-  'expense.view_org': {
-    portlet: 'Expense Reports — All',
-    fields: ['View all expense reports organisation-wide', 'Finance / admin full access'],
-  },
-  'expense.edit_approval': {
-    portlet: 'Approval Queue',
-    fields: ['Manager-level approve / reject', 'Finance-level approve / reject', 'Approval history'],
-  },
-  'expense.finance_approve': {
-    portlet: 'Approval Queue — Finance',
-    fields: ['Final finance approval', 'Mark report as paid', 'Override manager decision'],
-  },
-  'expense.export': {
-    portlet: 'Admin Reports',
-    fields: ['Export expense data to CSV/Excel', 'Bulk report download', 'Audit export'],
-  },
-
-  // ── Employee — Admin actions ─────────────────────────────────────────────────
-  'employee.create': {
-    portlet: 'Add Employee',
-    fields: ['Create new employee record', 'Set initial role', 'Assign department and manager'],
-  },
-  'employee.edit': {
-    portlet: 'Employee Edit Panel (admin)',
-    fields: [
-      'Full Name', 'Business Email', 'Designation', 'Department',
-      'Manager', 'Hire Date', 'End Date', 'Work Location',
-      'Work Country', 'Currency', 'Status',
-    ],
-  },
-  'employee.delete': {
-    portlet: 'Employee Actions',
-    fields: ['Soft-delete (deactivate) employee record'],
-  },
-  'employee.view_directory': {
-    portlet: 'Employee Directory',
-    fields: ['Name', 'Employee ID', 'Designation', 'Department', 'Business Email', 'Status'],
-  },
-  'employee.view_orgchart_admin': {
-    portlet: 'Org Chart (Admin View)',
-    fields: [
-      'Reporting lines', 'Manager assignments', 'Department heads',
-      'Head counts', 'Team hierarchy', 'Employee status',
-    ],
-  },
-
-  // ── Employee — View own profile ──────────────────────────────────────────────
-  'employee.view_own_personal': {
-    portlet: 'Personal (self-service)',
-    fields: ['Nationality', 'Marital Status', 'Photo / Avatar'],
-  },
-  'employee.view_own_contact': {
-    portlet: 'Contact (self-service)',
-    fields: ['Country Code', 'Mobile', 'Personal Email'],
-  },
-  'employee.view_own_employment': {
-    portlet: 'Employment (self-service)',
-    fields: [
-      'Designation', 'Job Title', 'Department', 'Manager',
-      'Hire Date', 'End Date', 'Work Location', 'Work Country',
-      'Currency', 'Probation End Date',
-    ],
-  },
-  'employee.view_own_address': {
-    portlet: 'Address (self-service)',
-    fields: [
-      'Address Type', 'Address Line 1', 'Address Line 2',
-      'City', 'State / Region', 'Country', 'Postal Code',
-    ],
-  },
-  'employee.view_own_passport': {
-    portlet: 'Passport (self-service)',
-    fields: [
-      'Passport Number', 'Issuing Country', 'Issue Date', 'Expiry Date',
-      'Visa Type', 'Visa Expiry Date',
-    ],
-  },
-  'employee.view_own_identity': {
-    portlet: 'Identity Documents (self-service)',
-    fields: ['ID Type', 'ID Number', 'Issuing Country', 'Issue Date', 'Expiry Date'],
-  },
-  'employee.view_own_emergency': {
-    portlet: 'Emergency Contacts (self-service)',
-    fields: ['Contact Name', 'Relationship', 'Phone', 'Email'],
-  },
-
-  // ── Employee — Edit own profile ──────────────────────────────────────────────
-  'employee.edit_own_personal': {
-    portlet: 'Personal (self-service) — edit',
-    fields: ['Nationality', 'Marital Status', 'Photo / Avatar'],
-  },
-  'employee.edit_own_contact': {
-    portlet: 'Contact (self-service) — edit',
-    fields: ['Country Code', 'Mobile', 'Personal Email'],
-  },
-  'employee.edit_own_employment': {
-    portlet: 'Employment (self-service) — edit',
-    fields: [
-      'Designation', 'Job Title', 'Department', 'Manager',
-      'Hire Date', 'End Date', 'Work Location', 'Work Country',
-      'Currency', 'Probation End Date',
-      '⚠ Admin-only by default — employment terms are set by HR',
-    ],
-  },
-  'employee.edit_own_address': {
-    portlet: 'Address (self-service) — edit',
-    fields: [
-      'Address Type', 'Address Line 1', 'Address Line 2',
-      'City', 'State / Region', 'Country', 'Postal Code',
-    ],
-  },
-  'employee.edit_own_passport': {
-    portlet: 'Passport (self-service) — edit',
-    fields: [
-      'Passport Number', 'Issuing Country', 'Issue Date', 'Expiry Date',
-      'Visa Type', 'Visa Expiry Date',
-    ],
-  },
-  'employee.edit_own_identity': {
-    portlet: 'Identity Documents (self-service) — edit',
-    fields: ['ID Type', 'ID Number', 'Issuing Country', 'Issue Date', 'Expiry Date'],
-  },
-  'employee.edit_own_emergency': {
-    portlet: 'Emergency Contacts (self-service) — edit',
-    fields: ['Contact Name', 'Relationship', 'Phone', 'Email'],
-  },
-
-  // ── Employee — Org Chart ─────────────────────────────────────────────────────
-  'employee.view_orgchart': {
-    portlet: 'Org Chart (standard)',
-    fields: ['Reporting structure', 'Team view', 'Manager and department info'],
-  },
-
-  // ── Department ───────────────────────────────────────────────────────────────
-  'department.view': {
-    portlet: 'Department Directory',
-    fields: ['Department name', 'Department code', 'Parent department', 'Head name', 'Status'],
-  },
-  'department.create': {
-    portlet: 'Department Management',
-    fields: ['Department name', 'Department code', 'Description', 'Parent department'],
-  },
-  'department.edit': {
-    portlet: 'Department Management',
-    fields: ['Department name', 'Department code', 'Description', 'Parent department'],
-  },
-  'department.delete': {
-    portlet: 'Department Management',
-    fields: ['Soft-delete (deactivate) department record'],
-  },
-  'department.manage_heads': {
-    portlet: 'Department Head Assignment',
-    fields: ['Assign department head', 'Remove department head', 'Head effective date', 'Head history'],
-  },
-  'department.view_members': {
-    portlet: 'Department Members',
-    fields: ['Employee name', 'Employee ID', 'Designation', 'Hire date', 'Status'],
-  },
-  'department.view_orgchart': {
-    portlet: 'Department Org Chart',
-    fields: [
-      'Department hierarchy', 'Head name', 'Member count',
-      'Parent / child departments', 'Vacant head flag',
-    ],
+  'expense_reports.history': {
+    portlet: 'Expense Reports — Audit History',
+    fields: ['View audit trail for expense reports', 'Approval history', 'Change log'],
   },
 
   // ── Reference Data ───────────────────────────────────────────────────────────

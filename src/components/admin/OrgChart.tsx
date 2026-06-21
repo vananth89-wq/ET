@@ -754,7 +754,7 @@ export default function OrgChart() {
               <i className="fa-regular fa-calendar" style={{ color: '#2F77B5' }} />
               <label style={{ fontSize: 13, color: '#374151', marginRight: 4 }}>View as of</label>
               <input
-                type="date"
+                type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31"
                 value={viewDate}
                 onChange={e => setViewDate(e.target.value || today)}
                 style={{ padding: '5px 8px', border: '1px solid #D1D5DB', borderRadius: 6, fontSize: 13 }}

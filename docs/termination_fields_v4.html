@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f8fafc; padding: 20px; font-size: 13px; color: #1e293b; }
+  h2 { font-size: 15px; font-weight: 700; margin-bottom: 16px; color: #0f172a; }
+  .section-label { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #94a3b8; margin-bottom: 8px; }
+
+  .init-row { display: flex; gap: 10px; margin-bottom: 24px; }
+  .init-card { flex: 1; border-radius: 8px; padding: 12px 14px; border: 1.5px solid; }
+  .init-card.self { background: #eff6ff; border-color: #3b82f6; }
+  .init-card.hr   { background: #f0fdf4; border-color: #22c55e; }
+  .init-card.mgr  { background: #fdf4ff; border-color: #a855f7; }
+  .init-card .who { font-weight: 700; font-size: 12px; margin-bottom: 2px; }
+  .init-card.self .who { color: #2563eb; }
+  .init-card.hr   .who { color: #16a34a; }
+  .init-card.mgr  .who { color: #9333ea; }
+  .init-card .desc { font-size: 11px; color: #64748b; }
+
+  .fields-grid { display: grid; grid-template-columns: 168px 1fr 1fr 1fr; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; margin-bottom: 20px; }
+  .fg-header { background: #1e293b; color: #f1f5f9; font-size: 11px; font-weight: 700; padding: 9px 12px; }
+  .fg-header.c-self { background: #2563eb; }
+  .fg-header.c-hr   { background: #16a34a; }
+  .fg-header.c-mgr  { background: #9333ea; }
+  .fg-cell { padding: 9px 12px; border-top: 1px solid #e2e8f0; font-size: 12px; line-height: 1.5; }
+  .fg-cell.field-name { font-weight: 600; color: #0f172a; display: flex; flex-direction: column; gap: 3px; }
+
+  .tag { font-size: 10px; font-weight: 500; padding: 1px 6px; border-radius: 10px; display: inline-block; width: fit-content; }
+  .tag.req      { background: #fee2e2; color: #dc2626; }
+  .tag.opt      { background: #e2e8f0; color: #64748b; }
+  .tag.auto     { background: #fef9c3; color: #ca8a04; }
+  .tag.hronly   { background: #fdf4ff; color: #9333ea; }
+  .tag.computed { background: #dbeafe; color: #1d4ed8; }
+  .tag.removed  { background: #fee2e2; color: #dc2626; text-decoration: line-through; opacity: 0.6; }
+  .tag.anchor   { background: #dcfce7; color: #15803d; }
+
+  .check { color: #16a34a; font-weight: 700; }
+  .cross { color: #dc2626; }
+  .dash  { color: #cbd5e1; font-size: 16px; }
+  .cond  { color: #d97706; font-size: 11px; font-weight: 700; }
+  .muted { color: #94a3b8; font-size: 11px; }
+  .blue  { color: #2563eb; font-weight: 600; }
+  .green { color: #16a34a; font-weight: 600; }
+
+  /* computed pill used inline */
+  .cpill { display: inline-flex; align-items: center; gap: 4px; background: #dbeafe; color: #1d4ed8; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 10px; }
+
+  .source-box { background: #eff6ff; border: 1.5px solid #bfdbfe; border-radius: 8px; padding: 12px 14px; margin-bottom: 20px; font-size: 12px; color: #1e40af; display: flex; align-items: flex-start; gap: 10px; }
+  .source-box .icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
+  .source-box code { font-family: 'SF Mono', monospace; font-size: 11px; background: #bfdbfe; padding: 1px 5px; border-radius: 3px; color: #1e3a8a; }
+
+  .logic-box { border-radius: 8px; border: 1.5px solid #e2e8f0; overflow: hidden; margin-bottom: 20px; }
+  .logic-header { background: #0f172a; color: #f1f5f9; padding: 10px 14px; font-size: 12px; font-weight: 700; }
+  .logic-body { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .formula-row { display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; border-radius: 6px; font-size: 12px; }
+  .formula-row.self-f { background: #eff6ff; border: 1px solid #bfdbfe; }
+  .formula-row.hr-f   { background: #f0fdf4; border: 1px solid #bbf7d0; }
+  .formula-row .label { font-weight: 700; min-width: 80px; font-size: 11px; flex-shrink: 0; margin-top: 2px; }
+  .formula-row.self-f .label { color: #2563eb; }
+  .formula-row.hr-f   .label { color: #16a34a; }
+  .formula { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 11px; color: #1e293b; line-height: 1.7; }
+
+  .jobs-box { background: #f0fdf4; border: 1.5px solid #86efac; border-radius: 8px; padding: 14px 16px; margin-bottom: 20px; }
+  .jobs-box .jobs-header { font-size: 12px; font-weight: 700; color: #15803d; margin-bottom: 8px; }
+  .jobs-list { display: flex; flex-wrap: wrap; gap: 6px; }
+  .job-chip { background: #dcfce7; color: #15803d; font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 12px; border: 1px solid #86efac; }
+  .jobs-box .guard { font-size: 11px; color: #166534; margin-top: 10px; font-family: 'SF Mono', monospace; background: #bbf7d0; padding: 6px 10px; border-radius: 5px; }
+
+  .note { background: #fffbeb; border: 1px solid #fcd34d; border-radius: 6px; padding: 10px 14px; font-size: 11.5px; color: #92400e; line-height: 1.6; }
+  .note strong { color: #78350f; }
+  code { font-family: 'SF Mono', monospace; font-size: 11px; background: #f1f5f9; padding: 1px 4px; border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<h2>Termination — Field Behaviour by Initiation Type</h2>
+
+<div class="section-label">Who initiates</div>
+<div class="init-row">
+  <div class="init-card self"><div class="who">SELF</div><div class="desc">Employee resigns via My Profile</div></div>
+  <div class="init-card hr"><div class="who">HR_INITIATED</div><div class="desc">HR admin fires the employee</div></div>
+  <div class="init-card mgr"><div class="who">MANAGER_INITIATED</div><div class="desc">Direct line manager initiates</div></div>
+</div>
+
+<div class="source-box">
+  <span class="icon">🔗</span>
+  <span><strong>Authoritative source for notice period:</strong> <code>employee_employment.notice_period_days</code> — read by the RPC at submission time for all initiation types. <code>notice_date</code> is always derived from this; it is never a manual input.</span>
+</div>
+
+<div class="section-label">Fields on employee_terminations</div>
+<div class="fields-grid">
+  <div class="fg-header">Field</div>
+  <div class="fg-header c-self">SELF</div>
+  <div class="fg-header c-hr">HR_INITIATED</div>
+  <div class="fg-header c-mgr">MANAGER_INITIATED</div>
+
+  <!-- separation_date -->
+  <div class="fg-cell field-name">separation_date<span class="tag req">required</span></div>
+  <div class="fg-cell"><span class="check">✓</span> Employee sets. Must be ≥ <code>notice_date</code>.</div>
+  <div class="fg-cell"><span class="check">✓</span> HR sets at submission</div>
+  <div class="fg-cell"><span class="check">✓</span> Manager sets at submission</div>
+
+  <!-- resignation_date dropped -->
+  <div class="fg-cell field-name"><span style="text-decoration:line-through;opacity:0.4">resignation_date</span><span class="tag removed">dropped</span></div>
+  <div class="fg-cell muted">Merged into separation_date</div>
+  <div class="fg-cell"><span class="dash">—</span></div>
+  <div class="fg-cell"><span class="dash">—</span></div>
+
+  <!-- notice_date — always computed -->
+  <div class="fg-cell field-name">notice_date<span class="tag computed">always computed</span></div>
+  <div class="fg-cell">
+    <span class="cpill">AUTO</span> submission_date + <code>notice_period_days</code><br>
+    <span class="muted">Read-only in form. Never user-set.</span>
+  </div>
+  <div class="fg-cell">
+    <span class="cpill">AUTO</span> submission_date + <code>notice_period_days</code><br>
+    <span class="muted">Read-only. Never user-set.</span>
+  </div>
+  <div class="fg-cell">
+    <span class="cpill">AUTO</span> submission_date + <code>notice_period_days</code><br>
+    <span class="muted">Read-only. Never user-set.</span>
+  </div>
+
+  <!-- last_working_date -->
+  <div class="fg-cell field-name">last_working_date<span class="tag anchor">job anchor</span></div>
+  <div class="fg-cell">
+    <span class="check">✓</span> <span class="blue">Defaults to separation_date.</span><br>
+    <span class="muted">Employee cannot set earlier than separation_date.</span>
+  </div>
+  <div class="fg-cell">
+    <span class="check">✓</span> <span class="green">HR can override.</span><br>
+    Earlier → triggers notice waiver.<br>
+    <span class="muted">All jobs fire on this date.</span>
+  </div>
+  <div class="fg-cell">
+    <span class="check">✓</span> Manager can override.<br>
+    <span class="muted">Same waiver logic as HR.</span>
+  </div>
+
+  <!-- notice_period_waived -->
+  <div class="fg-cell field-name">notice_period_waived<span class="tag auto">auto-set</span></div>
+  <div class="fg-cell"><span class="cond">AUTO</span> If LWD &lt; <code>notice_date</code> → <strong>hard block.</strong> Employee cannot waive own notice.</div>
+  <div class="fg-cell"><span class="cond">AUTO</span> If LWD &lt; <code>notice_date</code> → waiver flagged. Waiver reason required.</div>
+  <div class="fg-cell"><span class="cond">AUTO</span> Same as HR</div>
+
+  <!-- eligible_for_rehire -->
+  <div class="fg-cell field-name">eligible_for_rehire<span class="tag hronly">HR-only</span></div>
+  <div class="fg-cell"><span class="cross">✗</span> <span class="muted">Stripped — forced true</span></div>
+  <div class="fg-cell"><span class="check">✓</span> HR sets explicitly</div>
+  <div class="fg-cell"><span class="check">✓</span></div>
+
+  <!-- regrettable_termination -->
+  <div class="fg-cell field-name">regrettable_termination<span class="tag hronly">HR-only</span></div>
+  <div class="fg-cell"><span class="cross">✗</span> <span class="muted">Stripped — forced NULL</span></div>
+  <div class="fg-cell"><span class="check">✓</span> HR sets explicitly</div>
+  <div class="fg-cell"><span class="check">✓</span></div>
+</div>
+
+<div class="section-label">Downstream jobs — all key on last_working_date</div>
+<div class="jobs-box">
+  <div class="jobs-header">⚡ Scheduled execution fires when last_working_date ≤ CURRENT_DATE</div>
+  <div class="jobs-list">
+    <div class="job-chip">Deactivate employee record</div>
+    <div class="job-chip">Payroll cutoff</div>
+    <div class="job-chip">Access revocation</div>
+    <div class="job-chip">Employment status → TERMINATED</div>
+    <div class="job-chip">Exit checklist trigger</div>
+  </div>
+  <div class="guard">WHERE last_working_date &lt;= CURRENT_DATE AND last_working_date IS NOT NULL AND scheduled_executed = false</div>
+</div>
+
+<div class="section-label">Waiver check logic</div>
+<div class="logic-box">
+  <div class="logic-header">submit_termination RPC — notice_date computed at submission for all types</div>
+  <div class="logic-body">
+    <div class="formula-row self-f">
+      <div class="label">SELF</div>
+      <div class="formula">
+        notice_date = CURRENT_DATE + employee_employment.notice_period_days<br>
+        separation_date must be ≥ notice_date  ← form min + RPC guard<br>
+        last_working_date defaults to separation_date<br>
+        if LWD &lt; notice_date → hard block (no self-waiver)
+      </div>
+    </div>
+    <div class="formula-row hr-f">
+      <div class="label">HR / MGR</div>
+      <div class="formula">
+        notice_date = CURRENT_DATE + employee_employment.notice_period_days<br>
+        last_working_date defaults to separation_date if not provided<br>
+        if LWD &lt; notice_date → auto-waive, waiver_reason required<br>
+        all downstream jobs execute on last_working_date
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="note">
+  <strong>Design rule:</strong> <code>notice_date</code> is always <code>submission_date + employee_employment.notice_period_days</code> — computed by the RPC, stored on the record, never accepted as user input. Changing notice terms means updating <code>employee_employment</code>, not <code>notice_date</code>.
+</div>
+
+</body>
+</html>

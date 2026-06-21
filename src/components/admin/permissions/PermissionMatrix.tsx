@@ -55,7 +55,7 @@ const ACTION_HINTS: Record<Action, string> = {
   history: 'Can view the full audit trail and change history for records',
 };
 
-interface ModuleRow   { code: string; label: string; availableActions: Action[]; actionHints?: Partial<Record<Action, string>>; rowHint?: string; }
+interface ModuleRow   { code: string; label: string; availableActions: Action[]; actionHints?: Partial<Record<Action, string>>; rowHint?: string; isSubRow?: boolean; }
 interface MatrixGroup { groupLabel: string; rows: ModuleRow[]; }
 
 const EV_GROUPS: MatrixGroup[] = [
@@ -66,20 +66,66 @@ const EV_GROUPS: MatrixGroup[] = [
   { groupLabel: 'Employee info', rows: [
     { code: 'employee_details',   label: 'Employee master',   availableActions: ['view','edit'],
       rowHint: 'Controls which employees this user can see — sets the scope for all employee info portlets' },
-    { code: 'personal_info',      label: 'Personal info',     availableActions: ['view','edit'],
+    { code: 'personal_info',      label: 'Personal info',     availableActions: ['view','edit','delete','history'],
       rowHint: 'Legal name, gender, date of birth and other personal details' },
-    { code: 'contact_info',       label: 'Contact',           availableActions: ['view','edit'],
+    { code: 'contact_info',       label: 'Contact',           availableActions: ['view','edit','delete'],
       rowHint: 'Work email, personal email, phone numbers and messaging handles' },
-    { code: 'employment',         label: 'Employment',        availableActions: ['view','edit'],
+    { code: 'employment',         label: 'Employment',        availableActions: ['view','edit','delete','history'],
       rowHint: 'Job title, department, employment type, contract type and start date' },
-    { code: 'address',            label: 'Address',           availableActions: ['view','edit'],
+    { code: 'address',            label: 'Address',           availableActions: ['view','edit','delete'],
       rowHint: 'Home, postal and work addresses' },
-    { code: 'passport',           label: 'Passport',          availableActions: ['view','edit'],
+    { code: 'passport',           label: 'Passport',          availableActions: ['view','edit','delete'],
       rowHint: 'Passport details — number, issuing country, expiry date and visa information' },
-    { code: 'identity_documents', label: 'Identity docs',     availableActions: ['view','edit'],
+    { code: 'identity_documents', label: 'Identity docs',     availableActions: ['view','edit','delete'],
       rowHint: 'National ID, driving licence and other government-issued identity documents' },
-    { code: 'emergency_contacts', label: 'Emergency contact', availableActions: ['view','edit'],
+    { code: 'emergency_contacts', label: 'Emergency contact', availableActions: ['view','edit','delete'],
       rowHint: 'Emergency contact names, relationships and phone numbers' },
+    { code: 'bank_accounts',      label: 'Bank accounts',     availableActions: ['view','create','edit','delete','history'],
+      rowHint: 'Employee bank account details — account number, bank, branch, IFSC/IBAN. Scope controlled by Target Groups.',
+      actionHints: {
+        view:    'See an employee\'s bank accounts',
+        create:  'Add a new bank account',
+        edit:    'Change fields on an existing bank account',
+        delete:  'Remove an existing bank account',
+        history: 'View the full timeline of past bank account sets',
+      },
+    },
+    { code: 'dependents',         label: 'Dependents',        availableActions: ['view','create','edit','delete','history'],
+      rowHint: 'Controls access to employee dependent records (spouse, children, etc.)' },
+    { code: 'job_relationships',  label: 'Job relationships', availableActions: ['view','create','edit','delete','history'],
+      rowHint: 'Matrix manager assignments (PM01–OM03) — who an employee reports to beyond their direct line manager',
+      actionHints: {
+        view:    'See the current matrix manager assignments for an employee',
+        create:  'Assign a manager to a previously unassigned relationship code',
+        edit:    'Change an existing matrix manager assignment to a different person',
+        delete:  'Remove (clear) an existing matrix manager assignment',
+        history: 'View the full timeline of past matrix manager assignments',
+      },
+    },
+    { code: 'education',          label: 'Education',         availableActions: ['view','create','edit','delete'],
+      rowHint: 'Academic and professional qualifications — degrees, certifications, institutions, completion status',
+      actionHints: {
+        view:   'See an employee\'s education records',
+        create: 'Add a new education record',
+        edit:   'Edit an existing education record',
+        delete: 'Remove (soft-delete) an existing education record',
+      },
+    },
+    { code: 'termination',        label: 'Termination',       availableActions: ['view','edit','delete','history'],
+      rowHint: 'Employee termination events — submit, approve, withdraw, and reverse terminations. Bulk import/export permissions appear in the Import / Export band.',
+      actionHints: {
+        view:    'See an employee\'s termination record and current status',
+        edit:    'Submit, withdraw, or reverse a termination transaction',
+        history: 'View all termination history including reversed records',
+      },
+    },
+    { code: 'termination.reassign', label: 'Reassign direct reports', availableActions: ['view','edit'], isSubRow: true,
+      rowHint: 'Controls access to the direct-report reassignment panel during a termination or resignation approval.',
+      actionHints: {
+        view: 'See which direct reports will be reassigned and to whom (read-only panel in WorkflowReview)',
+        edit: 'Change the new manager assignment per direct report and save to the termination record',
+      },
+    },
   ]},
 ];
 
@@ -168,6 +214,10 @@ const TOGGLE_GROUPS: ToggleGroup[] = [
   { groupLabel: 'Jobs', items: [
     { code: 'jobs_manage', label: 'Manage jobs' },
   ]},
+  { groupLabel: 'Theme Manager', items: [
+    { code: 'theme_manager', label: 'Manage Theme',
+      hint: 'Upload logos, favicon and update login page tagline.' },
+  ]},
 ];
 
 const REPORTS_CODE = 'reports_admin';
@@ -189,10 +239,11 @@ const TP_OPTIONS: Record<RoleCategory, TpChip[]> = {
     { label: 'Everyone', tgCode: 'everyone' },
   ],
   mss: [
-    { label: 'Direct L1',  tgCode: 'direct_l1'      },
-    { label: 'Direct L2',  tgCode: 'direct_l2'      },
-    { label: 'Same dept',  tgCode: 'same_department' },
-    { label: 'Everyone',   tgCode: 'everyone'        },
+    { label: 'Direct L1',   tgCode: 'direct_l1'      },
+    { label: 'Direct L2',   tgCode: 'direct_l2'      },
+    { label: 'All levels',  tgCode: 'hierarchy'       },
+    { label: 'Same dept',   tgCode: 'same_department' },
+    { label: 'Everyone',    tgCode: 'everyone'        },
   ],
   hr: [
     { label: 'Everyone',              tgCode: 'everyone'        },
@@ -276,6 +327,102 @@ function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id
   );
 }
 
+// ─── ImportExportBand ─────────────────────────────────────────────────────────
+//
+// Registry-driven IMPORT / EXPORT section. Each template row gets two inline
+// checkboxes (Import / Export) mapping to its permission_import / permission_export
+// codes. The template list is fetched once from bulk_template_registry.
+
+const BULK_TEMPLATES: { code: string; label: string; importCode: string; exportCode: string }[] = [
+  { code: 'personal_info',     label: 'Personal Information', importCode: 'personal_info.bulk_import',     exportCode: 'personal_info.bulk_export'     },
+  { code: 'contact_info',      label: 'Contact Info',         importCode: 'contact_info.bulk_import',      exportCode: 'contact_info.bulk_export'      },
+  { code: 'address',           label: 'Address',              importCode: 'address.bulk_import',           exportCode: 'address.bulk_export'           },
+  { code: 'passport',          label: 'Passport',             importCode: 'passport.bulk_import',          exportCode: 'passport.bulk_export'          },
+  { code: 'identification',    label: 'Identification',       importCode: 'identification.bulk_import',    exportCode: 'identification.bulk_export'    },
+  { code: 'emergency_contact', label: 'Emergency Contact',    importCode: 'emergency_contact.bulk_import', exportCode: 'emergency_contact.bulk_export' },
+  { code: 'employment',        label: 'Employment',           importCode: 'employment.bulk_import',        exportCode: 'employment.bulk_export'        },
+  { code: 'job_relationships', label: 'Job Relationships',    importCode: 'job_relationships.bulk_import', exportCode: 'job_relationships.bulk_export' },
+  { code: 'dependents',        label: 'Dependents',           importCode: 'dependents.bulk_import',        exportCode: 'dependents.bulk_export'        },
+  { code: 'bank_accounts',     label: 'Bank Accounts',        importCode: 'bank_accounts.bulk_import',     exportCode: 'bank_accounts.bulk_export'     },
+  { code: 'employees',         label: 'Employees (Master)',   importCode: 'employees.bulk_import',         exportCode: 'employees.bulk_export'         },
+  { code: 'department',        label: 'Departments',          importCode: 'department.bulk_import',        exportCode: 'department.bulk_export'        },
+  { code: 'picklist',          label: 'Picklist Values',      importCode: 'picklist.bulk_import',          exportCode: 'picklist.bulk_export'          },
+  { code: 'project',           label: 'Projects',             importCode: 'project.bulk_import',           exportCode: 'project.bulk_export'           },
+  { code: 'exchange_rate',     label: 'Exchange Rates',       importCode: 'exchange_rate.bulk_import',     exportCode: 'exchange_rate.bulk_export'     },
+  { code: 'education',         label: 'Education',            importCode: 'education.bulk_import',         exportCode: 'education.bulk_export'         },
+];
+
+interface ImportExportBandProps {
+  permByCode:    Map<string, Permission>;
+  grantedIds:    Set<string>;
+  canEdit:       boolean;
+  setGrantedIds: React.Dispatch<React.SetStateAction<Set<string>>>;
+  setDirty:      (d: boolean) => void;
+}
+
+function ImportExportBand({
+  permByCode, grantedIds, canEdit, setGrantedIds, setDirty,
+}: ImportExportBandProps) {
+  function togglePerm(code: string) {
+    const perm = permByCode.get(code);
+    if (!canEdit || !perm) return;
+    setGrantedIds(prev => {
+      const next = new Set(prev);
+      next.has(perm.id) ? next.delete(perm.id) : next.add(perm.id);
+      return next;
+    });
+    setDirty(true);
+  }
+
+  function isOn(code: string) {
+    const perm = permByCode.get(code);
+    return perm ? grantedIds.has(perm.id) : false;
+  }
+
+  return (
+    <>
+      {BULK_TEMPLATES.map(tpl => (
+        <tr
+          key={tpl.code}
+          style={{ borderBottom: '0.5px solid #EDEFF2' }}
+          onMouseEnter={e => (e.currentTarget.style.background = '#F8FAFF')}
+          onMouseLeave={e => (e.currentTarget.style.background = '')}
+        >
+          <td style={{ paddingLeft: 26, paddingTop: 8, paddingBottom: 8, fontSize: 13, color: '#374151', verticalAlign: 'middle' }}>
+            {tpl.label}
+          </td>
+          {/* Span all 5 action columns with inline Import + Export checkboxes */}
+          <td colSpan={5} style={{ padding: '6px 16px', verticalAlign: 'middle' }}>
+            <div style={{ display: 'flex', gap: 20 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: '#374151', cursor: canEdit ? 'pointer' : 'default' }}>
+                <input
+                  type="checkbox"
+                  checked={isOn(tpl.importCode)}
+                  onChange={() => togglePerm(tpl.importCode)}
+                  disabled={!canEdit || !permByCode.has(tpl.importCode)}
+                  style={{ width: 14, height: 14, accentColor: '#1D4ED8', cursor: canEdit && permByCode.has(tpl.importCode) ? 'pointer' : 'not-allowed', opacity: canEdit && permByCode.has(tpl.importCode) ? 1 : 0.4 }}
+                />
+                Import
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: '#374151', cursor: canEdit ? 'pointer' : 'default' }}>
+                <input
+                  type="checkbox"
+                  checked={isOn(tpl.exportCode)}
+                  onChange={() => togglePerm(tpl.exportCode)}
+                  disabled={!canEdit || !permByCode.has(tpl.exportCode)}
+                  style={{ width: 14, height: 14, accentColor: '#1D4ED8', cursor: canEdit && permByCode.has(tpl.exportCode) ? 'pointer' : 'not-allowed', opacity: canEdit && permByCode.has(tpl.exportCode) ? 1 : 0.4 }}
+                />
+                Export
+              </label>
+            </div>
+          </td>
+        </tr>
+      ))}
+    </>
+  );
+}
+
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function PermissionMatrix() {
@@ -310,6 +457,7 @@ export default function PermissionMatrix() {
   const [assignTgCode,  setAssignTgCode]  = useState<string | null>(null);
   const [customTgId,    setCustomTgId]    = useState<string | null>(null);
   const [showTgPicker,  setShowTgPicker]  = useState(false);
+  const [includeSelf,   setIncludeSelf]   = useState(true);
 
   // ── Inline name / description editing ─────────────────────────────────────
   const [editName, setEditName] = useState('');
@@ -320,6 +468,11 @@ export default function PermissionMatrix() {
   const [dirty,       setDirty]       = useState(false);
   const [saving,      setSaving]      = useState(false);
   const [reportsOpen, setReportsOpen] = useState(false);
+
+  // ── Unsaved-changes confirmation modal ────────────────────────────────────
+  const [discardModal, setDiscardModal] = useState<{ open: boolean; onConfirm: () => void }>({
+    open: false, onConfirm: () => {},
+  });
 
   const permByCode = useRef<Map<string, Permission>>(new Map());
 
@@ -400,7 +553,7 @@ export default function PermissionMatrix() {
           .eq('permission_set_id', set.id),
         supabase
           .from('permission_set_assignments')
-          .select('role_id, target_group_id')
+          .select('role_id, target_group_id, include_self')
           .eq('permission_set_id', set.id)
           .maybeSingle(),
       ]);
@@ -412,6 +565,7 @@ export default function PermissionMatrix() {
 
       const asgn = asgnRes.data;
       setAssignRoleId(asgn?.role_id ?? null);
+      setIncludeSelf(asgn?.include_self ?? true);
 
       const tgId = asgn?.target_group_id ?? null;
       const tgs  = tgList ?? targetGroups;
@@ -442,13 +596,26 @@ export default function PermissionMatrix() {
   }
 
   function handleSelectSet(set: PermissionSet) {
-    if (dirty && !window.confirm('You have unsaved changes. Switch and discard them?')) return;
+    if (dirty) {
+      setDiscardModal({ open: true, onConfirm: () => selectSet(set) });
+      return;
+    }
     selectSet(set);
   }
 
   // ── Create new set ─────────────────────────────────────────────────────────
   function startCreating() {
-    if (dirty && !window.confirm('You have unsaved changes. Discard them and create a new set?')) return;
+    if (dirty) {
+      setDiscardModal({
+        open: true,
+        onConfirm: () => {
+          setCreatingNew(true);
+          setNewSetName('');
+          setTimeout(() => newSetInputRef.current?.focus(), 60);
+        },
+      });
+      return;
+    }
     setCreatingNew(true);
     setNewSetName('');
     setTimeout(() => newSetInputRef.current?.focus(), 60);
@@ -507,13 +674,20 @@ export default function PermissionMatrix() {
       const n = new Set(prev);
       const turningOn = !n.has(id);
       turningOn ? n.add(id) : n.delete(id);
+      // edit always implies view on the same module
       if (turningOn && action === 'edit') {
         const viewId = permId(moduleCode, 'view');
         if (viewId) n.add(viewId);
       }
+      // unchecking view also unchecks edit on the same module
       if (!turningOn && action === 'view') {
         const editId = permId(moduleCode, 'edit');
         if (editId) n.delete(editId);
+      }
+      // reassign sub-row: turning on either action auto-grants termination.view
+      if (turningOn && moduleCode === 'termination.reassign') {
+        const parentViewId = permId('termination', 'view');
+        if (parentViewId) n.add(parentViewId);
       }
       return n;
     });
@@ -586,7 +760,7 @@ export default function PermissionMatrix() {
 
         const { error: insAsgnErr } = await supabase
           .from('permission_set_assignments')
-          .insert({ permission_set_id: setId, role_id: assignRoleId, target_group_id: resolvedTgId });
+          .insert({ permission_set_id: setId, role_id: assignRoleId, target_group_id: resolvedTgId, include_self: includeSelf });
         if (insAsgnErr) throw insAsgnErr;
       }
 
@@ -789,11 +963,12 @@ export default function PermissionMatrix() {
 
   function MatrixRow({ row }: { row: ModuleRow }) {
     return (
-      <tr style={{ borderBottom: '0.5px solid #F1F5F9' }}
+      <tr style={{ borderBottom: '0.5px solid #F1F5F9', background: row.isSubRow ? '#FAFBFF' : undefined }}
         onMouseEnter={e => (e.currentTarget.style.background = '#F8FAFF')}
-        onMouseLeave={e => (e.currentTarget.style.background = '')}>
-        <td style={{ ...tdStyle, paddingLeft: 26, textAlign: 'left', color: '#374151', fontSize: 13 }}>
+        onMouseLeave={e => (e.currentTarget.style.background = row.isSubRow ? '#FAFBFF' : '')}>
+        <td style={{ ...tdStyle, paddingLeft: row.isSubRow ? 44 : 26, textAlign: 'left', color: row.isSubRow ? '#6B7280' : '#374151', fontSize: 13 }}>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {row.isSubRow && <span style={{ color: '#9CA3AF', fontSize: 11 }}>↳</span>}
             {row.label}
             {(row.rowHint || row.actionHints) && <RowTooltip row={row} />}
           </span>
@@ -1244,6 +1419,54 @@ export default function PermissionMatrix() {
                           </React.Fragment>
                         ))}
 
+                        {/* ── 2.4 Employee Search — view + view_inactive ── */}
+                        {(() => {
+                          const viewPerm     = permByCode.current.get('employee_search.view');
+                          const inactivePerm = permByCode.current.get('employee_search.view_inactive');
+                          const viewOn     = viewPerm     ? grantedIds.has(viewPerm.id)     : false;
+                          const inactiveOn = inactivePerm ? grantedIds.has(inactivePerm.id) : false;
+                          function toggleRaw(perm: typeof viewPerm) {
+                            if (!canEdit || !perm) return;
+                            setGrantedIds(prev => { const n = new Set(prev); n.has(perm.id) ? n.delete(perm.id) : n.add(perm.id); return n; });
+                            setDirty(true);
+                          }
+                          return (
+                            <>
+                              <SubHeader label="Employee Search" />
+                              <tr style={{ borderBottom: '0.5px solid #EDEFF2' }}
+                                onMouseEnter={e => (e.currentTarget.style.background = '#F8FAFF')}
+                                onMouseLeave={e => (e.currentTarget.style.background = '')}>
+                                <td style={{ paddingLeft: 26, paddingTop: 9, paddingBottom: 9, textAlign: 'left', fontSize: 13, color: '#374151', verticalAlign: 'middle' }}>
+                                  Employee search
+                                  <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2, fontWeight: 400 }}>
+                                    Search: display header search box and navigate to other employees' profiles.
+                                    Include Inactive: also find and view Inactive employees.
+                                  </div>
+                                </td>
+                                {/* Search (view) */}
+                                <td style={tdStyle} title="employee_search.view — enables the header search box">
+                                  <input type="checkbox"
+                                    checked={viewOn}
+                                    onChange={() => toggleRaw(viewPerm)}
+                                    disabled={!canEdit || !viewPerm}
+                                    style={{ width: 15, height: 15, accentColor: '#1D4ED8', cursor: canEdit && viewPerm ? 'pointer' : 'not-allowed', opacity: canEdit && viewPerm ? 1 : 0.5 }} />
+                                </td>
+                                {/* Include Inactive (view_inactive) */}
+                                <td style={tdStyle} colSpan={4} title="employee_search.view_inactive — include Inactive employees in search results">
+                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                    <input type="checkbox"
+                                      checked={inactiveOn}
+                                      onChange={() => toggleRaw(inactivePerm)}
+                                      disabled={!canEdit || !inactivePerm}
+                                      style={{ width: 15, height: 15, accentColor: '#1D4ED8', cursor: canEdit && inactivePerm ? 'pointer' : 'not-allowed', opacity: canEdit && inactivePerm ? 1 : 0.5 }} />
+                                    <span style={{ fontSize: 11, color: '#6B7280' }}>Include Inactive</span>
+                                  </span>
+                                </td>
+                              </tr>
+                            </>
+                          );
+                        })()}
+
                         {/* ── Reference Lookups — driven from DB, no hardcoding ── */}
                         {lookupPerms.length > 0 && (
                           <>
@@ -1280,6 +1503,64 @@ export default function PermissionMatrix() {
                             {grp.rows.map(row => <MatrixRow key={row.code} row={row} />)}
                           </React.Fragment>
                         ))}
+
+                        {/* ── New Hire visibility — view_all_pending / edit_all_pending ── */}
+                        <SubHeader label="New Hire" />
+                        {(() => {
+                          const vpPerm = permByCode.current.get('employee_hire.view_all_pending');
+                          const epPerm = permByCode.current.get('employee_hire.edit_all_pending');
+                          const vpOn   = vpPerm ? grantedIds.has(vpPerm.id) : false;
+                          const epOn   = epPerm ? grantedIds.has(epPerm.id) : false;
+                          function toggleRaw(perm: Permission | undefined) {
+                            if (!canEdit || !perm) return;
+                            setGrantedIds(prev => { const n = new Set(prev); n.has(perm.id) ? n.delete(perm.id) : n.add(perm.id); return n; });
+                            setDirty(true);
+                          }
+                          return (
+                            <tr style={{ borderBottom: '0.5px solid #EDEFF2' }}
+                              onMouseEnter={e => (e.currentTarget.style.background = '#F8FAFF')}
+                              onMouseLeave={e => (e.currentTarget.style.background = '')}>
+                              <td style={{ paddingLeft: 26, paddingTop: 9, paddingBottom: 9, textAlign: 'left', fontSize: 13, color: '#374151', verticalAlign: 'middle' }}>
+                                Pipeline visibility
+                                <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2, fontWeight: 400 }}>
+                                  Controls which pending hire records an HR admin can see and edit across all analysts
+                                </div>
+                              </td>
+                              {/* V — view_all_pending: see all pending hires */}
+                              <td style={tdStyle} title="View All Pending — see all pending hire records across all analysts, not just own workflow tasks">
+                                <input type="checkbox"
+                                  checked={vpOn}
+                                  onChange={() => toggleRaw(vpPerm)}
+                                  disabled={!canEdit || !vpPerm}
+                                  style={{ width: 15, height: 15, accentColor: '#1D4ED8', cursor: canEdit && vpPerm ? 'pointer' : 'not-allowed', opacity: canEdit && vpPerm ? 1 : 0.5 }} />
+                              </td>
+                              {/* C — not applicable */}
+                              <td style={tdStyle}><span style={{ color: '#E5E7EB', fontSize: 14 }}>—</span></td>
+                              {/* E — edit_all_pending: open + edit any pending hire */}
+                              <td style={tdStyle} title="Edit All Pending — open and edit any pending hire record for correction, even without an active workflow task">
+                                <input type="checkbox"
+                                  checked={epOn}
+                                  onChange={() => toggleRaw(epPerm)}
+                                  disabled={!canEdit || !epPerm}
+                                  style={{ width: 15, height: 15, accentColor: '#1D4ED8', cursor: canEdit && epPerm ? 'pointer' : 'not-allowed', opacity: canEdit && epPerm ? 1 : 0.5 }} />
+                              </td>
+                              {/* D — not applicable */}
+                              <td style={tdStyle}><span style={{ color: '#E5E7EB', fontSize: 14 }}>—</span></td>
+                              {/* H — not applicable */}
+                              <td style={tdStyle}><span style={{ color: '#E5E7EB', fontSize: 14 }}>—</span></td>
+                            </tr>
+                          );
+                        })()}
+
+                        {/* ── Import / Export — registry-driven bulk permission band ── */}
+                        <SubHeader label="Import / Export" />
+                        <ImportExportBand
+                          permByCode={permByCode.current}
+                          grantedIds={grantedIds}
+                          canEdit={canEdit}
+                          setGrantedIds={setGrantedIds}
+                          setDirty={setDirty}
+                        />
 
                         {/* ── Admin Access — top-level gate, rendered above Security group ── */}
                         <SubHeader label="Admin Access" />
@@ -1358,6 +1639,7 @@ export default function PermissionMatrix() {
                           setAssignTgCode(null);
                           setCustomTgId(null);
                           setShowTgPicker(false);
+                          setIncludeSelf(true);
                           setDirty(true);
                         }}
                         disabled={!canEdit}
@@ -1492,6 +1774,36 @@ export default function PermissionMatrix() {
                               <span>No target group selected. Permissions will apply with no population scope.</span>
                             </div>
                           )}
+
+                          {/* Include self checkbox — only relevant when a target group covers others */}
+                          {(assignTgCode || customTgId) && assignTgCode !== 'self' && (
+                            <div style={{
+                              marginTop: 14, display: 'flex', alignItems: 'flex-start', gap: 10,
+                              padding: '10px 14px', borderRadius: 8,
+                              background: includeSelf ? '#F0FDF4' : '#FFF7ED',
+                              border: `0.5px solid ${includeSelf ? '#BBF7D0' : '#FED7AA'}`,
+                            }}>
+                              <input
+                                id="include-self-checkbox"
+                                type="checkbox"
+                                checked={includeSelf}
+                                disabled={!canEdit}
+                                onChange={e => { setIncludeSelf(e.target.checked); setDirty(true); }}
+                                style={{ marginTop: 1, accentColor: '#1D4ED8', cursor: canEdit ? 'pointer' : 'not-allowed', flexShrink: 0 }}
+                              />
+                              <label htmlFor="include-self-checkbox" style={{
+                                fontSize: 12, cursor: canEdit ? 'pointer' : 'default',
+                                color: includeSelf ? '#166534' : '#9A3412', lineHeight: 1.5,
+                              }}>
+                                <strong>Include self</strong>
+                                <span style={{ display: 'block', fontWeight: 400, marginTop: 1 }}>
+                                  {includeSelf
+                                    ? 'This permission also applies to the holder\'s own employee record.'
+                                    : 'This permission does NOT apply to the holder\'s own record — they must use their self-service permissions instead.'}
+                                </span>
+                              </label>
+                            </div>
+                          )}
                         </>
                       )}
                     </div>
@@ -1535,6 +1847,41 @@ export default function PermissionMatrix() {
         </div>
 
       </div>
+
+      {/* ── Unsaved changes confirmation modal ─────────────────────────── */}
+      {discardModal.open && (
+        <div className="modal-overlay" onClick={() => setDiscardModal(m => ({ ...m, open: false }))}>
+          <div className="modal-box" style={{ maxWidth: 420 }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <i className="fa-solid fa-triangle-exclamation modal-icon" style={{ color: '#D97706' }} />
+              <h3>Unsaved Changes</h3>
+            </div>
+            <div className="modal-body">
+              <p style={{ margin: 0, fontSize: 14, color: '#374151', lineHeight: 1.6 }}>
+                You have unsaved changes to this permission set. If you continue, your changes will be lost.
+              </p>
+            </div>
+            <div className="modal-actions">
+              <button className="btn-modal-cancel"
+                onClick={() => setDiscardModal(m => ({ ...m, open: false }))}>
+                Keep Editing
+              </button>
+              <button
+                style={{
+                  padding: '8px 20px', borderRadius: 7, border: 'none', cursor: 'pointer',
+                  background: '#EF4444', color: '#fff', fontWeight: 600, fontSize: 13,
+                }}
+                onClick={() => {
+                  setDiscardModal(m => ({ ...m, open: false }));
+                  setDirty(false);
+                  discardModal.onConfirm();
+                }}>
+                <i className="fa-solid fa-trash" style={{ marginRight: 6 }} />Discard & Continue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

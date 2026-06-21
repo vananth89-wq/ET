@@ -24,13 +24,20 @@ function fileIcon(type: string) {
   return 'fa-file';
 }
 
+type UploadState = 'uploading' | 'done' | 'error';
+
 export default function AttachmentModal({ item, readOnly, onClose, onAdd, onDelete }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState('');
   const [dragging, setDragging] = useState(false);
-  const [uploading, setUploading] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  // Per-file upload tracking
+  const [uploadStates, setUploadStates] = useState<Map<string, UploadState>>(new Map());
+  const [uploadErrors, setUploadErrors] = useState<Map<string, string>>(new Map());
+  const [pendingFiles, setPendingFiles] = useState<Map<string, File>>(new Map());
+
   const atts = item.attachments ?? [];
+  const anyUploading = [...uploadStates.values()].some(s => s === 'uploading');
 
   async function handleFiles(files: FileList | File[]) {
     setError('');
@@ -40,16 +47,48 @@ export default function AttachmentModal({ item, readOnly, onClose, onAdd, onDele
       return true;
     });
     if (valid.length === 0) return;
-    setUploading(true);
-    try {
-      for (const f of valid) {
-        await onAdd(f);
+
+    // Register pending files with uploading state
+    const newPending = new Map(pendingFiles);
+    const newStates  = new Map(uploadStates);
+    const tempIds: [string, File][] = valid.map(f => [`pending_${Date.now()}_${Math.random().toString(36).slice(2)}`, f]);
+    tempIds.forEach(([id, f]) => { newPending.set(id, f); newStates.set(id, 'uploading'); });
+    setPendingFiles(newPending);
+    setUploadStates(newStates);
+
+    for (const [tempId, file] of tempIds) {
+      try {
+        await onAdd(file);
+        setUploadStates(prev => new Map(prev).set(tempId, 'done'));
+        // Remove from pending after short delay so user sees success
+        setTimeout(() => {
+          setPendingFiles(prev => { const m = new Map(prev); m.delete(tempId); return m; });
+          setUploadStates(prev => { const m = new Map(prev); m.delete(tempId); return m; });
+        }, 1500);
+      } catch (err: any) {
+        setUploadStates(prev => new Map(prev).set(tempId, 'error'));
+        setUploadErrors(prev => new Map(prev).set(tempId, err?.message ?? 'Upload failed. Please try again.'));
       }
+    }
+
+    if (fileRef.current) fileRef.current.value = '';
+  }
+
+  async function retryUpload(tempId: string) {
+    const file = pendingFiles.get(tempId);
+    if (!file) return;
+    setUploadStates(prev => new Map(prev).set(tempId, 'uploading'));
+    setUploadErrors(prev => { const m = new Map(prev); m.delete(tempId); return m; });
+    try {
+      await onAdd(file);
+      setUploadStates(prev => new Map(prev).set(tempId, 'done'));
+      setTimeout(() => {
+        setPendingFiles(prev => { const m = new Map(prev); m.delete(tempId); return m; });
+        setUploadStates(prev => { const m = new Map(prev); m.delete(tempId); return m; });
+      }, 1500);
     } catch (err: any) {
-      setError(err?.message ?? 'Upload failed. Please try again.');
-    } finally {
-      setUploading(false);
-      if (fileRef.current) fileRef.current.value = '';
+      setUploadStates(prev => new Map(prev).set(tempId, 'error'));
+      setUploadErrors(prev => new Map(prev).set(tempId, err?.message ?? 'Upload failed. Please try again.'));
     }
   }
 
@@ -78,13 +117,13 @@ export default function AttachmentModal({ item, readOnly, onClose, onAdd, onDele
         <div className="exp-att-modal-body">
           {!readOnly && (
             <div
-              className={`exp-att-upload-zone ${dragging ? 'exp-att-upload-zone--drag' : ''} ${uploading ? 'exp-att-upload-zone--loading' : ''}`}
-              onClick={() => !uploading && fileRef.current?.click()}
-              onDragOver={e => { e.preventDefault(); if (!uploading) setDragging(true); }}
+              className={`exp-att-upload-zone ${dragging ? 'exp-att-upload-zone--drag' : ''} ${anyUploading ? 'exp-att-upload-zone--loading' : ''}`}
+              onClick={() => !anyUploading && fileRef.current?.click()}
+              onDragOver={e => { e.preventDefault(); if (!anyUploading) setDragging(true); }}
               onDragLeave={() => setDragging(false)}
-              onDrop={e => { e.preventDefault(); setDragging(false); if (!uploading) handleFiles(e.dataTransfer.files); }}
+              onDrop={e => { e.preventDefault(); setDragging(false); if (!anyUploading) handleFiles(e.dataTransfer.files); }}
             >
-              {uploading
+              {anyUploading
                 ? <><i className="fa-solid fa-spinner fa-spin exp-att-upload-icon" /><div className="exp-att-upload-text">Uploading…</div></>
                 : <><i className="fa-solid fa-cloud-arrow-up exp-att-upload-icon" /><div className="exp-att-upload-text">Click or drag files here</div><div className="exp-att-upload-hint">PDF, JPG, PNG · max 5 MB per file</div></>
               }
@@ -93,6 +132,37 @@ export default function AttachmentModal({ item, readOnly, onClose, onAdd, onDele
             </div>
           )}
           {error && <div className="exp-att-error">{error}</div>}
+
+          {/* In-progress uploads */}
+          {pendingFiles.size > 0 && (
+            <div className="exp-att-file-list" style={{ marginBottom: 0 }}>
+              <div className="exp-att-file-list-header">UPLOADING</div>
+              {[...pendingFiles.entries()].map(([tempId, file]) => {
+                const state = uploadStates.get(tempId);
+                const errMsg = uploadErrors.get(tempId);
+                return (
+                  <div key={tempId} className={`exp-att-file-item${state === 'error' ? ' exp-att-file-item--error' : state === 'done' ? ' exp-att-file-item--done' : ''}`}>
+                    <i className={`fa-solid ${fileIcon(file.type)} exp-att-file-icon`} />
+                    <div className="exp-att-file-info">
+                      <div className="exp-att-file-name">{file.name}</div>
+                      <div className="exp-att-file-size">{fmtSize(file.size)}</div>
+                      {errMsg && <div className="exp-att-file-errmsg">{errMsg}</div>}
+                    </div>
+                    <div className="exp-att-file-actions">
+                      {state === 'uploading' && <span className="exp-att-upload-status--uploading"><i className="fa-solid fa-spinner fa-spin" /> Uploading…</span>}
+                      {state === 'done'      && <span className="exp-att-upload-status--done"><i className="fa-solid fa-circle-check" /> Saved</span>}
+                      {state === 'error'     && (
+                        <button className="exp-att-retry-btn" onClick={() => retryUpload(tempId)}>
+                          <i className="fa-solid fa-rotate-right" /> Retry
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           {atts.length > 0 && (
             <div className="exp-att-file-list">
               <div className="exp-att-file-list-header">UPLOADED FILES ({atts.length})</div>

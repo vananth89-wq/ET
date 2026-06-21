@@ -1,0 +1,4 @@
+/* ThemeManager-specific styles live in src/assets/style.css under the .tm-* namespace.
+   This file intentionally left minimal — styles are co-located with the global stylesheet
+   to avoid specificity conflicts with the shared admin layout.
+*/

@@ -618,10 +618,13 @@ function CriteriaBuilder({
       const resolveSatellite = async (rule: FilterRule): Promise<string[]> => {
         const def = PORTLET_CATALOGUE[rule.portlet]?.fields[rule.field];
         if (!def || !rule.values.length) return [];
+        // Filter to active open-ended rows only (effective-dated, mig 315)
         const { data, error } = await supabase
           .from('employee_personal')
           .select('employee_id')
-          .in(def.column, rule.values.map(v => v.value));
+          .in(def.column, rule.values.map(v => v.value))
+          .eq('effective_to', '9999-12-31')
+          .eq('is_active', true);
         if (error || !data) return [];
         return data.map((r: any) => r.employee_id as string);
       };

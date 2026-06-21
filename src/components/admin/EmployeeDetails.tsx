@@ -3,8 +3,11 @@ import { useEmployees, type Employee } from '../../hooks/useEmployees';
 import WorkflowGateBanner from '../../workflow/components/WorkflowGateBanner';
 import { usePicklistValues }           from '../../hooks/usePicklistValues';
 import { useDepartments }              from '../../hooks/useDepartments';
+import { usePermissions }              from '../../hooks/usePermissions';
+import { useCurrencies }               from '../../hooks/useCurrencies';
 import ErrorBanner                     from '../shared/ErrorBanner';
 import EmployeeEditPanel               from './EmployeeEditPanel';
+import { supabase }                    from '../../lib/supabase';
 // useNavigate removed — edit now uses inline EmployeeEditPanel
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -51,8 +54,8 @@ function getAvatar(emp: FullEmployee): string {
 const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
   Active:   { bg: '#DCFCE7', color: '#15803D' },
   Inactive: { bg: '#FEE2E2', color: '#DC2626' },
-  Draft:    { bg: '#FEF9C3', color: '#92400E' },
-  Incomplete:{ bg: '#FFF7ED', color: '#C2410C' },
+  // Draft / Incomplete / Pending are pre-hire statuses managed via the hire
+  // workflow path and are filtered out of this list (see baseEmployees filter).
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -182,8 +185,45 @@ export default function EmployeeDetails() {
   const { employees, loading: empLoading, error: empError, refetch } = useEmployees();
   const { picklistValues: picklistVals, error: plError }  = usePicklistValues();
   const { departments, error: deptError }                 = useDepartments();
+  const { currencies }                                    = useCurrencies();
+  const { can }                                           = usePermissions();
 
   const [editingEmpId, setEditingEmpId] = useState<string | null>(null);
+
+  // Employment history panel
+  const [histEmployeeId, setHistEmployeeId] = useState<string | null>(null);
+  const [histRows,       setHistRows]       = useState<Record<string, unknown>[]>([]);
+  const [histLoading,    setHistLoading]    = useState(false);
+  const [histSelIdx,     setHistSelIdx]     = useState(0);
+
+  async function openEmploymentHistory(empId: string) {
+    setHistLoading(true);
+    setHistEmployeeId(empId);
+    setHistSelIdx(0);
+    const { data } = await supabase.rpc('get_employment_info_history', { p_employee_id: empId });
+    setHistRows((data as Record<string, unknown>[] | null) ?? []);
+    setHistLoading(false);
+  }
+
+  function resolvePicklistHist(picklistId: string, id: unknown): string {
+    if (!id) return '—';
+    const found = picklistVals.find(v => v.picklistId === picklistId && (v.id === id || v.refId === String(id)));
+    return found?.value ?? String(id);
+  }
+  function resolveDeptHist(id: unknown): string {
+    if (!id) return '—';
+    const d = departments.find(d => d.id === id);
+    return d?.name ?? d?.deptId ?? String(id);
+  }
+  function resolveManagerHist(id: unknown): string {
+    if (!id) return '—';
+    const e = employees.find(e => e.id === id);
+    return e ? e.name : String(id);
+  }
+  function fmtDateHist(v: unknown): string {
+    if (!v || v === '9999-12-31') return v === '9999-12-31' ? 'Open-ended' : '—';
+    return String(v);
+  }
 
   // Filters
   const [filterName,    setFilterName]    = useState('');
@@ -191,6 +231,49 @@ export default function EmployeeDetails() {
   const [filterDesig,   setFilterDesig]   = useState('');
   const [filterDept,    setFilterDept]    = useState('');
   const [filterStatus,  setFilterStatus]  = useState('');
+
+  // ── Resend invite ──────────────────────────────────────────────────────────
+  const [resendingIds,  setResendingIds]  = useState<Set<string>>(new Set());
+  const [resendModal,   setResendModal]   = useState<{ ok: boolean; text: string } | null>(null);
+
+  async function handleResendInvite(emp: FullEmployee) {
+    if (!emp.id) return;
+    setResendingIds(prev => new Set(prev).add(emp.id));
+    setResendModal(null);
+    try {
+      const { data, error: rpcErr } = await supabase.rpc('resend_hire_invite', {
+        p_employee_id: emp.id,
+      });
+      if (rpcErr) throw new Error(rpcErr.message);
+
+      const result = data as { ok: boolean; email: string; name: string } | null;
+      if (!result?.ok || !result.email) throw new Error('Unexpected response from server.');
+
+      // Fire the OTP — same mechanism as RoleAssignments.tsx inviteEmployee()
+      const appUrl = (import.meta as any).env?.VITE_APP_URL || window.location.origin;
+      const { error: otpErr } = await supabase.auth.signInWithOtp({
+        email: result.email,
+        options: { shouldCreateUser: true, emailRedirectTo: `${appUrl}/reset-password`, data: { full_name: result.name } },
+      });
+
+      if (otpErr) {
+        // G-D fix: mark the employee_invites row as failed so the audit trail
+        // reflects actual delivery rather than showing a spurious 'sent' status.
+        await supabase.rpc('mark_invite_failed', {
+          p_employee_id: emp.id,
+          p_error:       otpErr.message,
+        });
+        throw new Error(otpErr.message);
+      }
+
+      setResendModal({ ok: true, text: `Invite resent to ${result.email}` });
+    } catch (err: unknown) {
+      const msg = (err as Error)?.message ?? String(err);
+      setResendModal({ ok: false, text: msg });
+    } finally {
+      setResendingIds(prev => { const n = new Set(prev); n.delete(emp.id); return n; });
+    }
+  }
 
   // Active / non-draft employees only
   const activeEmployees = useMemo(
@@ -430,13 +513,40 @@ export default function EmployeeDetails() {
                       }}>{status}</span>
                     </td>
                     <td>
-                      <div className="emp-action-btns" style={{ display: 'flex', gap: 6 }}>
+                      <div className="emp-action-btns" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                         <button
                           className="btn-edit" title="Edit employee"
                           onClick={() => setEditingEmpId(emp.employeeId)}
                         >
                           <i className="fa-solid fa-pen-to-square" />
                         </button>
+                        {/* Resend Invite — Active employees only; RPC validates no-auth-account server-side */}
+                        {(emp.status === 'Active' || !emp.status) && (
+                          <button
+                            className="btn-edit"
+                            title="Resend invite email"
+                            disabled={resendingIds.has(emp.id as string)}
+                            onClick={() => handleResendInvite(emp)}
+                            style={{ color: '#6366F1' }}
+                          >
+                            {resendingIds.has(emp.id as string)
+                              ? <i className="fa-solid fa-spinner fa-spin" />
+                              : <i className="fa-solid fa-paper-plane" />}
+                          </button>
+                        )}
+                        {can('employment.history') && (
+                          <button
+                            className="btn-edit"
+                            title="Employment history"
+                            style={{ background: histEmployeeId === emp.id ? '#EEF2FF' : undefined, color: histEmployeeId === emp.id ? '#4F46E5' : undefined }}
+                            onClick={() => {
+                              if (histEmployeeId === emp.id) { setHistEmployeeId(null); setHistRows([]); }
+                              else openEmploymentHistory(emp.id as string);
+                            }}
+                          >
+                            <i className="fa-solid fa-clock-rotate-left" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -446,6 +556,111 @@ export default function EmployeeDetails() {
           </tbody>
         </table>
       </div>
+
+      {/* ── Employment History Panel ─────────────────────────────────── */}
+      {histEmployeeId && (
+        <div style={{
+          marginTop: 20, background: '#fff', border: '1px solid #E5E7EB',
+          borderRadius: 12, padding: '20px 24px',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#111827' }}>
+              <i className="fa-solid fa-clock-rotate-left" style={{ marginRight: 8, color: '#4F46E5' }} />
+              Employment History — {employees.find(e => e.id === histEmployeeId)?.name ?? histEmployeeId}
+            </h3>
+            <button
+              onClick={() => { setHistEmployeeId(null); setHistRows([]); }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280', fontSize: 18 }}
+            >
+              <i className="fa-solid fa-xmark" />
+            </button>
+          </div>
+
+          {histLoading ? (
+            <p style={{ color: '#6B7280', fontSize: 13 }}>Loading…</p>
+          ) : histRows.length === 0 ? (
+            <p style={{ color: '#6B7280', fontSize: 13 }}>No history available.</p>
+          ) : (
+            <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+              {/* Timeline selector */}
+              <div style={{ minWidth: 180, flexShrink: 0 }}>
+                {histRows.map((h, i) => {
+                  const from = h.effective_from as string;
+                  const to   = h.effective_to as string;
+                  const isCurrent = to === '9999-12-31';
+                  return (
+                    <button
+                      key={h.id as string}
+                      onClick={() => setHistSelIdx(i)}
+                      style={{
+                        display: 'block', width: '100%', textAlign: 'left',
+                        padding: '6px 12px', marginBottom: 4, borderRadius: 8, cursor: 'pointer',
+                        background: histSelIdx === i ? '#EEF2FF' : '#F9FAFB',
+                        border: `1px solid ${histSelIdx === i ? '#A5B4FC' : '#E5E7EB'}`,
+                        color: histSelIdx === i ? '#4F46E5' : '#374151',
+                        fontSize: 12, fontWeight: histSelIdx === i ? 600 : 400,
+                      }}
+                    >
+                      {from}
+                      <span style={{ display: 'block', color: histSelIdx === i ? '#818CF8' : '#9CA3AF', fontSize: 11 }}>
+                        → {isCurrent ? 'Present' : to}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              {/* Detail card */}
+              {(() => {
+                const h = histRows[histSelIdx];
+                if (!h) return null;
+                const fields: [string, string][] = [
+                  ['Designation',     resolvePicklistHist('DESIGNATION', h.designation)],
+                  ['Job Title',       String(h.job_title ?? '—')],
+                  ['Department',      resolveDeptHist(h.dept_id)],
+                  ['Reports To',      resolveManagerHist(h.manager_id)],
+                  ['Hire Date',       fmtDateHist(h.hire_date)],
+                  ['End Date',        fmtDateHist(h.end_date)],
+                  ['Work Country',    resolvePicklistHist('ID_COUNTRY', h.work_country)],
+                  ['Work Location',   resolvePicklistHist('LOCATION', h.work_location)],
+                  ['Base Currency',   currencies.find(c => c.id === h.base_currency_id)?.name ?? '—'],
+                  ['Status',          String(h.status ?? '—')],
+                ];
+                return (
+                  <div style={{
+                    display: 'grid', gridTemplateColumns: '1fr 1fr',
+                    gap: '10px 24px', flex: 1,
+                  }}>
+                    {fields.map(([label, value]) => (
+                      <div key={label}>
+                        <div style={{ fontSize: 11, color: '#9CA3AF', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</div>
+                        <div style={{ fontSize: 13.5, color: '#111827', marginTop: 2 }}>{value || '—'}</div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Resend invite result modal ─────────────────────────────────────── */}
+      {resendModal && (
+        <div className="modal-overlay" onClick={() => setResendModal(null)}>
+          <div className="modal-box" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <i className={`fa-solid ${resendModal.ok ? 'fa-circle-check' : 'fa-triangle-exclamation'} modal-icon`}
+                style={{ color: resendModal.ok ? '#16A34A' : '#D97706' }} />
+              <h3>{resendModal.ok ? 'Invite Sent' : 'Could Not Send Invite'}</h3>
+            </div>
+            <div className="modal-body">{resendModal.text}</div>
+            <div className="modal-actions">
+              <button className="emp-btn-primary" onClick={() => setResendModal(null)}>OK</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

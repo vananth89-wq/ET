@@ -272,14 +272,14 @@ export default function WorkflowAnalytics() {
         {preset === 'custom' && (
           <div className="flex items-center gap-2 ml-2">
             <input
-              type="date"
+              type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31"
               value={fromDate}
               onChange={e => setFromDate(e.target.value)}
               className="text-xs border border-gray-300 rounded-lg px-2 py-1.5 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400"
             />
             <span className="text-gray-400 text-xs">to</span>
             <input
-              type="date"
+              type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31"
               value={toDate}
               onChange={e => setToDate(e.target.value)}
               className="text-xs border border-gray-300 rounded-lg px-2 py-1.5 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400"

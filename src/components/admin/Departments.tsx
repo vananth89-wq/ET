@@ -440,7 +440,7 @@ export default function Departments() {
         <i className="fa-regular fa-calendar" />
         <label>View as of</label>
         <input
-          type="date"
+          type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31"
           value={viewDate}
           onChange={e => setViewDate(e.target.value || today)}
         />
@@ -551,7 +551,7 @@ export default function Departments() {
               <div className={`form-group${formErrors.startDate ? ' form-group--error' : ''}`}>
                 <label>Start Date</label>
                 <input
-                  type="date"
+                  type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31"
                   value={formStartDate}
                   onChange={e => { setFormStartDate(e.target.value); setFormErrors(p => ({ ...p, startDate: undefined })); }}
                   required
@@ -568,7 +568,7 @@ export default function Departments() {
               <div className="form-group">
                 <label>End Date</label>
                 <input
-                  type="date"
+                  type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31"
                   value={formEndDate}
                   onChange={e => setFormEndDate(e.target.value || '9999-12-31')}
                   required

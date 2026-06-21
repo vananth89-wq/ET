@@ -1,0 +1,441 @@
+/* ═══════════════════════════════════════════════════════════════
+   PROWESS Landing Page — Workday-inspired premium redesign
+   Design tokens: bg #F7F8FA | card #FFF | blue #005CB9
+   Card shadow: 0 8px 30px rgba(0,0,0,.08) | radius 22px
+═══════════════════════════════════════════════════════════════ */
+
+/* ── Page shell ────────────────────────────────────────────── */
+.lp-page {
+  min-height: 100%;
+  background: #F7F8FA;
+}
+
+/* ── Hero ───────────────────────────────────────────────────── */
+.lp-hero {
+  height: 330px;
+  background-color: #113061;     /* fallback */
+  position: relative;
+}
+
+/* ── Greeting card wrap — overlaps hero by 130px ───────────── */
+.lp-card-wrap {
+  max-width: 1000px;
+  margin: -230px auto 0;
+  padding: 0 24px;
+  position: relative;
+  z-index: 10;
+}
+
+/* ── Greeting card ─────────────────────────────────────────── */
+.lp-card {
+  display: flex;
+  align-items: stretch;
+  background: #ffffff;
+  border-radius: 22px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+  min-height: 300px;
+}
+
+/* ── Card with background image ─────────────────────────────── */
+.lp-card--bg {
+  position: relative;
+}
+
+.lp-card-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to right, rgba(0,0,0,0.5) 0%, rgba(0,0,0,0.2) 70%, transparent 100%);
+  border-radius: 22px;
+  z-index: 0;
+}
+
+.lp-card--bg .lp-card-text {
+  position: relative;
+  z-index: 1;
+}
+
+/* Text stays dark — bg image has white left region */
+.lp-card--bg .lp-greeting { color: #1F2937; }
+.lp-card--bg .lp-date     { color: #6B7280; }
+.lp-card--bg .lp-tasks-label { color: #6B7280; }
+
+/* ── Card text — left column ────────────────────────────────── */
+.lp-card-text {
+  flex: 1;
+  min-width: 0;
+  padding: 40px 44px;
+}
+
+.lp-greeting {
+  font-size: 36px;
+  font-weight: 700;
+  color: #1F2937;
+  margin: 0;
+  line-height: 44px;
+  letter-spacing: -0.3px;
+}
+
+.lp-date {
+  font-size: 18px;
+  font-weight: 400;
+  color: #6B7280;
+  margin: 10px 0 0;
+}
+
+.lp-tasks-label {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: #6B7280;
+  text-transform: uppercase;
+  margin: 60px 0 14px;
+}
+
+.lp-tasks {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 14px;
+}
+
+.lp-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 44px;
+  padding: 0 26px;
+  border-radius: 22px;
+  border: 2px solid #D0D5DB;
+  background: transparent;
+  color: #374151;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  font-family: inherit;
+  transition: all 0.2s ease;
+}
+.lp-pill:hover {
+  background: #F5F7F8;
+  border-color: #BFC7D1;
+}
+
+/* ── Illustration — right column, inside card ───────────────── */
+.lp-card-graphic {
+  flex: 0 0 300px;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: flex-end;
+}
+
+.lp-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.lp-graphic-img {
+  position: absolute;
+  bottom: 0;
+  right: -10px;
+  width: 300px;
+  height: auto;
+  object-fit: contain;
+  object-position: bottom right;
+}
+
+/* ── Body — below card ──────────────────────────────────────── */
+.lp-body {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 40px 24px 60px;
+}
+
+.lp-section-label {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: #6B7280;
+  text-transform: uppercase;
+  margin: 0 0 16px;
+}
+
+/* ── Most Used Apps card ─────────────────────────────────────── */
+.lp-apps-card {
+  background: #ffffff;
+  border-radius: 20px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08);
+  display: flex;
+  align-items: center;
+  padding: 20px 32px;
+  margin-bottom: 40px;
+}
+
+.lp-app {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 12px;
+  flex: 1;
+  font-family: inherit;
+  transition: all 0.2s ease;
+}
+.lp-app:hover { background: #F0F7FF; }
+.lp-app:hover .lp-app-icon {
+  transform: translateY(-3px);
+}
+.lp-app:hover .lp-app-icon::before {
+  background: #BFDBFE;
+  width: 56px;
+  height: 56px;
+}
+
+/* Workday-style: icon larger than its soft backdrop circle */
+.lp-app-icon {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #005CB9;
+  font-size: 3.5rem;
+  transition: all 0.25s ease;
+}
+
+/* The small circle sits behind the icon via ::before */
+.lp-app-icon::before {
+  content: '';
+  position: absolute;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: #DBEAFE;
+  z-index: 0;
+  transition: all 0.25s ease;
+}
+
+.lp-app-icon i {
+  position: relative;
+  z-index: 1;
+}
+
+.lp-app-label {
+  font-size: 15px;
+  color: #1F2937;
+  font-weight: 600;
+  text-align: center;
+  line-height: 1.3;
+  margin-top: 0;
+}
+
+.lp-apps-divider {
+  width: 1px;
+  height: 60px;
+  background: #D8DCE1;
+  margin: 0 28px;
+  flex-shrink: 0;
+}
+
+/* View All Apps button */
+.lp-view-all-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 50px;
+  padding: 0 28px;
+  border-radius: 26px;
+  border: 1.5px solid #D1D5DB;
+  background: transparent;
+  color: #374151;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-family: inherit;
+  transition: all 0.2s ease;
+}
+.lp-view-all-btn:hover {
+  background: #F9FAFB;
+  border-color: #9CA3AF;
+}
+
+/* ── Announcements — 3 equal columns ────────────────────────── */
+.lp-ann-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+.lp-ann-card {
+  border-radius: 18px;
+  overflow: hidden;
+  height: 220px;
+  position: relative;
+  cursor: pointer;
+  background-size: cover;
+  background-position: center;
+  transition: all 0.2s ease;
+}
+.lp-ann-card:hover { transform: translateY(-2px); box-shadow: 0 12px 32px rgba(0,0,0,0.14); }
+
+.lp-ann-card--placeholder {
+  background: #ffffff !important;
+  border: 1.5px solid #D8DCE1;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.05);
+}
+
+.lp-ann-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(0,0,0,0.55), transparent);
+}
+
+.lp-ann-body {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 1;
+  padding: 24px;
+}
+
+.lp-ann-card--placeholder .lp-ann-body {
+  top: 0;
+  bottom: auto;
+}
+
+.lp-ann-title {
+  font-size: 28px;
+  font-weight: 700;
+  color: #ffffff;
+  margin: 0;
+  line-height: 1.2;
+}
+
+.lp-ann-card--placeholder .lp-ann-title {
+  color: #2E2E2E;
+  font-size: 18px;
+}
+
+.lp-ann-tagline {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  margin: 0 0 6px;
+  color: rgba(255,255,255,0.75);
+}
+
+.lp-ann-content {
+  font-size: 0.84rem;
+  margin: 6px 0 12px;
+  color: rgba(255,255,255,0.85);
+  line-height: 1.5;
+}
+
+.lp-ann-btn {
+  display: inline-block;
+  padding: 7px 16px;
+  border-radius: 20px;
+  background: rgba(255,255,255,0.18);
+  border: 1.5px solid rgba(255,255,255,0.65);
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 0.15s;
+}
+.lp-ann-btn:hover { background: rgba(255,255,255,0.32); }
+
+/* ── Carousel dots ──────────────────────────────────────────── */
+.lp-dots { display: flex; justify-content: center; gap: 8px; margin-top: 18px; }
+.lp-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  border: none; padding: 0; background: #c5cdd8;
+  cursor: pointer; transition: background 0.2s, width 0.2s;
+}
+.lp-dot.active { background: #005CB9; width: 22px; border-radius: 4px; }
+
+/* ── Responsive ──────────────────────────────────────────────── */
+@media (max-width: 960px) {
+  .lp-hero { height: 200px; }
+  .lp-card-wrap { margin-top: -60px; padding: 0 16px; }
+  .lp-card { flex-direction: column; min-height: auto; }
+  .lp-card-text { padding: 28px 20px; }
+  .lp-card-graphic { height: 180px; flex: none; }
+  .lp-tasks { flex-wrap: wrap; }
+  .lp-body { padding: 24px 16px 40px; }
+  .lp-ann-grid { grid-template-columns: 1fr; }
+  .lp-apps-card { flex-wrap: wrap; padding: 20px; }
+  .lp-apps-divider { display: none; }
+}
+
+/* ── All Apps modal ─────────────────────────────────────────────────────── */
+.lp-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.lp-modal {
+  background: #fff;
+  border-radius: 16px;
+  width: 560px;
+  max-width: 90vw;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+  padding: 24px;
+}
+.lp-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+.lp-modal-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #111827;
+  margin: 0;
+}
+.lp-modal-close {
+  background: none;
+  border: none;
+  font-size: 18px;
+  color: #6b7280;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+.lp-modal-close:hover { background: #f3f4f6; color: #111; }
+.lp-modal-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+/* View More Apps button — slightly muted style */
+.lp-app--more .lp-app-icon--more {
+  background: #f3f4f6;
+  border: 2px dashed #d1d5db;
+}
+.lp-app--more .lp-app-icon--more i { color: #6b7280; }
+.lp-app--more .lp-app-label { color: #6b7280; }
+.lp-app--more:hover .lp-app-icon--more {
+  background: #eff6ff;
+  border-color: #93c5fd;
+}
+.lp-app--more:hover .lp-app-icon--more i { color: #1d4ed8; }
+.lp-app--more:hover .lp-app-label { color: #1d4ed8; }

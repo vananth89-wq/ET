@@ -17,6 +17,7 @@ import { useAuth } from '../../contexts/AuthContext';
 
 export interface SentBackItem {
   instanceId:           string;
+  status:               string;  // 'awaiting_clarification' | 'rejected'
   moduleCode:           string;
   recordId:             string;
   metadata:             Record<string, unknown>;
@@ -47,7 +48,7 @@ export function useMySentBackItems() {
     const { data, error: err } = await supabase
       .from('vw_wf_my_requests')
       .select('*')
-      .eq('status', 'awaiting_clarification')
+      .in('status', ['awaiting_clarification', 'rejected'])
       .order('updated_at', { ascending: false });
 
     if (err) {
@@ -56,6 +57,7 @@ export function useMySentBackItems() {
       setItems(
         (data ?? []).map(r => ({
           instanceId:           r.id,
+          status:               r.status,
           moduleCode:           r.module_code,
           recordId:             r.record_id,
           metadata:             (r.metadata ?? {}) as Record<string, unknown>,

@@ -164,10 +164,10 @@ export default function WorkflowDelegations({ adminView = false }: Props) {
         id, delegator_id, delegate_id, template_id,
         from_date, to_date, reason, is_active, created_at,
         delegator:profiles!delegator_id(
-          employees!inner(name)
+          employees!employee_id(name)
         ),
         delegate:profiles!delegate_id(
-          employees!inner(name)
+          employees!employee_id(name)
         ),
         template:workflow_templates(name)
       `)
@@ -625,11 +625,11 @@ export default function WorkflowDelegations({ adminView = false }: Props) {
             {/* Date range */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
               <FormRow label="From *" compact>
-                <input type="date" value={fromDate} min={today()}
+                <input type="date" max="2100-12-31" value={fromDate} min={today()} max="2100-12-31"
                   onChange={e => setFromDate(e.target.value)} style={iStyle} />
               </FormRow>
               <FormRow label="To *" compact>
-                <input type="date" value={toDate} min={fromDate}
+                <input type="date" max="2100-12-31" value={toDate} min={fromDate} max="2100-12-31"
                   onChange={e => setToDate(e.target.value)} style={iStyle} />
               </FormRow>
             </div>

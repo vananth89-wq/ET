@@ -1,0 +1,206 @@
+-- =============================================================================
+-- Migration 205: add roleMembers to get_workflow_participants
+--
+-- PROBLEM
+-- ───────
+-- The submit modal shows ROLE steps as a generic icon ("Finance") with no
+-- indication of who the actual approvers are. Users want to see the real
+-- member names before submitting.
+--
+-- FIX
+-- ───
+-- Add a roleMembers JSON array to each ROLE-type step in the RPC output:
+--
+--   "roleMembers": [
+--     { "name": "Kavya Rajan",  "jobTitle": "Finance Lead" },
+--     { "name": "Priya Varma",  "jobTitle": "Analyst"      },
+--     { "name": "Suresh Mehta", "jobTitle": "Finance Exec" }
+--   ]
+--
+-- The UI uses this to:
+--   • ≤ 4 members  → show stacked initials avatars
+--   • 5+ members   → show generic role icon with "N members" badge
+--   • On hover     → popover listing all members + approval mode footer
+--
+-- Non-ROLE steps return null for roleMembers (unchanged).
+-- =============================================================================
+
+
+DROP FUNCTION IF EXISTS get_workflow_participants(text);
+DROP FUNCTION IF EXISTS get_workflow_participants(text, uuid);
+
+CREATE OR REPLACE FUNCTION get_workflow_participants(
+  p_module_code text,
+  p_profile_id  uuid DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_template_id uuid;
+  v_today       date := current_date;
+  v_result      jsonb;
+BEGIN
+  SELECT wf_template_id
+  INTO   v_template_id
+  FROM   workflow_assignments
+  WHERE  module_code    = p_module_code
+    AND  is_active      = true
+    AND  effective_from <= v_today
+    AND  (effective_to IS NULL OR effective_to >= v_today)
+  LIMIT  1;
+
+  IF v_template_id IS NULL THEN
+    RETURN '[]'::jsonb;
+  END IF;
+
+  SELECT jsonb_agg(
+    jsonb_build_object(
+      'stepOrder',    ws.step_order,
+      'stepName',     ws.name,
+      'approverType', ws.approver_type,
+      'approverRole', ws.approver_role,
+      'isCC',         COALESCE(ws.is_cc, false),
+      'approvalMode', ws.approval_mode,   -- 'ALL_OF' | null
+
+      'resolvedName',
+        CASE ws.approver_type
+          WHEN 'SPECIFIC_USER' THEN COALESCE(profile_emp.name, 'Unknown')
+          WHEN 'MANAGER'       THEN COALESCE(mgr_emp.name, 'Direct Manager')
+          WHEN 'DEPT_HEAD'     THEN COALESCE(mgr_emp.name, 'Dept. Head')
+          WHEN 'ROLE'          THEN COALESCE(role_row.name, ws.approver_role)
+          WHEN 'RULE_BASED'    THEN COALESCE(role_row.name, ws.approver_role, ws.name)
+          WHEN 'SELF'          THEN COALESCE(self_emp.name, 'You')
+          ELSE                      ws.name
+        END,
+
+      'resolvedDesignation',
+        CASE ws.approver_type
+          WHEN 'SPECIFIC_USER' THEN COALESCE(profile_emp.job_title, profile_emp.designation_label)
+          WHEN 'MANAGER'       THEN COALESCE(mgr_emp.job_title, mgr_emp.designation_label,
+                                             'Resolved at submission time')
+          WHEN 'DEPT_HEAD'     THEN COALESCE(mgr_emp.job_title, mgr_emp.designation_label,
+                                             'Resolved at submission time')
+          WHEN 'ROLE'          THEN
+            CASE WHEN ws.approval_mode = 'ALL_OF'
+                 THEN 'All active members must approve'
+                 ELSE 'All active members — first to approve wins'
+            END
+          WHEN 'SELF'          THEN NULL
+          ELSE                      NULL
+        END,
+
+      'hasResolvedPerson',
+        CASE ws.approver_type
+          WHEN 'SPECIFIC_USER' THEN true
+          WHEN 'ROLE'          THEN true
+          WHEN 'MANAGER'       THEN (mgr_emp.name IS NOT NULL)
+          WHEN 'DEPT_HEAD'     THEN (mgr_emp.name IS NOT NULL)
+          WHEN 'SELF'          THEN (self_emp.name IS NOT NULL)
+          ELSE                      false
+        END,
+
+      -- ── NEW in mig 205 ─────────────────────────────────────────────────────
+      -- roleMembers: array of active role holders for ROLE-type steps.
+      -- UI uses this to render stacked avatars (≤4) or generic icon (5+),
+      -- and to populate the hover tooltip in both cases.
+      'roleMembers',
+        CASE ws.approver_type
+          WHEN 'ROLE' THEN (
+            SELECT jsonb_agg(
+              jsonb_build_object(
+                'name',     emp.name,
+                'jobTitle', emp.job_title
+              )
+              ORDER BY emp.name
+            )
+            FROM   user_roles ur
+            JOIN   roles      r   ON r.id  = ur.role_id
+            JOIN   profiles   p   ON p.id  = ur.profile_id
+            JOIN   employees  emp ON emp.id = p.employee_id
+            WHERE  r.code       = ws.approver_role
+              AND  r.active     = true
+              AND  ur.is_active = true
+              AND  (ur.expires_at IS NULL OR ur.expires_at > CURRENT_DATE)
+          )
+          ELSE NULL::jsonb
+        END,
+
+      -- coApprovers deprecated by mig 204; always null
+      'coApprovers', NULL::jsonb
+    )
+    ORDER BY ws.step_order
+  )
+  INTO  v_result
+  FROM  workflow_steps ws
+
+  LEFT JOIN LATERAL (
+    SELECT emp.name, emp.job_title, pv.value AS designation_label
+    FROM   profiles pr
+    JOIN   employees emp ON emp.id = pr.employee_id
+    LEFT JOIN picklist_values pv ON pv.id = emp.designation::uuid
+    WHERE  pr.id = ws.approver_profile_id
+    LIMIT  1
+  ) profile_emp ON ws.approver_type = 'SPECIFIC_USER'
+
+  LEFT JOIN LATERAL (
+    SELECT r.id, r.name
+    FROM   roles r
+    WHERE  r.code = ws.approver_role AND r.active = true
+    LIMIT  1
+  ) role_row ON ws.approver_type IN ('ROLE', 'RULE_BASED')
+
+  LEFT JOIN LATERAL (
+    SELECT mgr.name, mgr.job_title, pv.value AS designation_label
+    FROM   profiles sp
+    JOIN   employees se  ON se.id = sp.employee_id
+    JOIN   employees mgr ON mgr.id = se.manager_id
+    LEFT JOIN picklist_values pv ON pv.id = mgr.designation::uuid
+    WHERE  sp.id = p_profile_id
+    LIMIT  1
+  ) mgr_emp ON ws.approver_type IN ('MANAGER', 'DEPT_HEAD')
+           AND p_profile_id IS NOT NULL
+
+  LEFT JOIN LATERAL (
+    SELECT emp.name, emp.job_title
+    FROM   profiles sp
+    JOIN   employees emp ON emp.id = sp.employee_id
+    WHERE  sp.id = p_profile_id
+    LIMIT  1
+  ) self_emp ON ws.approver_type = 'SELF'
+            AND p_profile_id IS NOT NULL
+
+  WHERE ws.template_id = v_template_id
+    AND ws.is_active   = true;
+
+  RETURN COALESCE(v_result, '[]'::jsonb);
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION get_workflow_participants(text, uuid) TO authenticated;
+
+COMMENT ON FUNCTION get_workflow_participants(text, uuid) IS
+  'Returns routing chain for a module. '
+  'ROLE steps (mig 205): roleMembers array lists all active role holders {name, jobTitle}. '
+  'UI renders stacked avatars for ≤4 members, generic icon for 5+. Hover tooltip always. '
+  'approvalMode: ALL_OF = all must approve; null = first to approve wins (fan-out). '
+  'coApprovers: deprecated (mig 204), always null.';
+
+
+-- ── Verification ──────────────────────────────────────────────────────────────
+
+-- Check that the function returns roleMembers for ROLE steps.
+-- Replace ''EXPENSE_APPROVAL'' with any module code that uses a ROLE-type step.
+-- Expected: rows where approverType = ''ROLE'' have roleMembers as an array.
+
+-- SELECT
+--   elem ->> 'stepName'     AS step,
+--   elem ->> 'approverType' AS type,
+--   elem -> 'roleMembers'   AS members
+-- FROM   jsonb_array_elements(get_workflow_participants('EXPENSE_APPROVAL')) elem;
+
+-- =============================================================================
+-- END OF MIGRATION 205
+-- =============================================================================

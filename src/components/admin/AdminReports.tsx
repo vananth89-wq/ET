@@ -599,16 +599,16 @@ function ExpenseReportDetail({ onBack }: { onBack: () => void }) {
           <div className="er-chip er-chip-date">
             <i className="fa-solid fa-calendar-days er-chip-icon" />
             <span className="er-date-lbl">Exp. Date</span>
-            <input type="date" className="er-date-inp" value={expFrom} onChange={e => setExpFrom(e.target.value)} />
+            <input type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31" className="er-date-inp" value={expFrom} onChange={e => setExpFrom(e.target.value)} />
             <span className="er-date-sep">–</span>
-            <input type="date" className="er-date-inp" value={expTo} onChange={e => setExpTo(e.target.value)} />
+            <input type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31" className="er-date-inp" value={expTo} onChange={e => setExpTo(e.target.value)} />
           </div>
           <div className="er-chip er-chip-date">
             <i className="fa-solid fa-calendar-check er-chip-icon" />
             <span className="er-date-lbl">Approval Date</span>
-            <input type="date" className="er-date-inp" value={appFrom} onChange={e => setAppFrom(e.target.value)} />
+            <input type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31" className="er-date-inp" value={appFrom} onChange={e => setAppFrom(e.target.value)} />
             <span className="er-date-sep">–</span>
-            <input type="date" className="er-date-inp" value={appTo} onChange={e => setAppTo(e.target.value)} />
+            <input type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31" className="er-date-inp" value={appTo} onChange={e => setAppTo(e.target.value)} />
           </div>
         </div>
 
@@ -651,7 +651,7 @@ function ExpenseReportDetail({ onBack }: { onBack: () => void }) {
             </span>
           )}
           <span className="er-row-count" id="er-row-count">{filtered.length} rows</span>
-          {can('expense.export') && (
+          {can('expense_reports.view') && (
             <button className="er-export-btn" onClick={handleExport} type="button">
               <i className="fa-solid fa-file-excel" /> Export
             </button>

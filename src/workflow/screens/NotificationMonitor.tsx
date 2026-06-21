@@ -474,7 +474,7 @@ export default function NotificationMonitor() {
 
             {/* Date from */}
             <input
-              type="date"
+              type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31"
               value={fDateFrom}
               onChange={e => setFDateFrom(e.target.value)}
               style={{ ...selStyle, colorScheme: 'light' }}
@@ -483,7 +483,7 @@ export default function NotificationMonitor() {
 
             {/* Date to */}
             <input
-              type="date"
+              type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31"
               value={fDateTo}
               onChange={e => setFDateTo(e.target.value)}
               style={{ ...selStyle, colorScheme: 'light' }}

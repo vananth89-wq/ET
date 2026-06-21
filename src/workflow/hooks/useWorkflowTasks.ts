@@ -30,12 +30,22 @@ export interface WorkflowTask {
    *  Populated once migration 176 (current_data column) is applied.
    *  null / undefined = not yet available (falls back to proposed-only display). */
   currentData:       Record<string, unknown> | null;
+  /** True when the workflow step has allow_edit = true (mig 197).
+   *  Drives whether the Update button appears in the Approver Inbox action bar. */
+  stepAllowEdit:     boolean;
   submittedById:     string;
   submittedByName:   string | null;
   submittedByEmail:  string | null;
   dueAt:             string | null;
   taskCreatedAt:     string;
   slaStatus:         SlaStatus;
+  /** Profile ID of the HR actor who submitted on behalf of the subject. NULL for self-service. */
+  initiatedByActorId:   string | null;
+  /** Display name of that actor. */
+  initiatedByActorName: string | null;
+  /** Name of the subject employee (person the workflow is about). For on-behalf submissions
+   *  this differs from submittedByName (the HR actor). NULL for self-service. */
+  subjectEmployeeName:  string | null;
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -73,12 +83,16 @@ export function useWorkflowTasks() {
           recordId:         r.record_id,
           metadata:         (r.metadata     ?? {})   as Record<string, unknown>,
           currentData:      ((r as any).current_data ?? null) as Record<string, unknown> | null,
-          submittedById:    r.submitted_by,
-          submittedByName:  r.submitted_by_name,
-          submittedByEmail: r.submitted_by_email,
-          dueAt:            r.due_at,
-          taskCreatedAt:    r.task_created_at,
-          slaStatus:        (r.sla_status as SlaStatus) ?? 'on_track',
+          stepAllowEdit:    Boolean((r as any).step_allow_edit),
+          submittedById:         r.submitted_by,
+          submittedByName:       r.submitted_by_name,
+          submittedByEmail:      r.submitted_by_email,
+          dueAt:                 r.due_at,
+          taskCreatedAt:         r.task_created_at,
+          slaStatus:             (r.sla_status as SlaStatus) ?? 'on_track',
+          initiatedByActorId:    (r as any).initiated_by_actor_id   ?? null,
+          initiatedByActorName:  (r as any).initiated_by_actor_name ?? null,
+          subjectEmployeeName:   (r as any).subject_employee_name   ?? null,
         }))
       );
     }

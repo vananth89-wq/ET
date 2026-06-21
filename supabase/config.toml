@@ -1,0 +1,23 @@
+[functions.apply-termination-approval]
+verify_jwt = false
+
+[functions.apply-termination-reversal]
+verify_jwt = false
+
+[functions.process-scheduled-terminations]
+verify_jwt = false
+
+[functions.bulk-export-generator]
+verify_jwt = false
+
+[functions.bulk-import-processor]
+verify_jwt = false
+
+[functions.bulk-import-validator]
+verify_jwt = false
+
+[functions.bulk-template-generator]
+verify_jwt = false
+
+[functions.send-notification-email]
+verify_jwt = false

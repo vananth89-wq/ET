@@ -11,6 +11,7 @@ import type { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import type { Database } from '../types/database';
 import { mapEmployee, type Employee } from '../hooks/useEmployees';
+import { clearRecentlyViewedForUser } from '../hooks/useRecentlyViewed';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -105,14 +106,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // The DB-level fix is the idle_in_transaction_session_timeout migration;
   // this timeout is a client-side safety net so the UI never spins forever.
   const loadUserData = useCallback(async (userId: string) => {
+    // Stamp the ref immediately so any duplicate SIGNED_IN that arrives while
+    // we're mid-fetch is correctly de-duped by the onAuthStateChange guard.
+    loadedUserIdRef.current = userId;
     setProfileLoading(true);
 
     // Safety valve: clear profileLoading after 10s regardless of DB state.
     // The async work may still complete afterward and update state correctly.
     const safetyTimer = setTimeout(() => {
-      console.warn('[Auth] Profile load timed out after 10s — clearing loading state');
+      console.warn('[Auth] Profile load timed out after 30s — clearing loading state');
       setProfileLoading(false);
-    }, 10_000);
+    }, 30_000);
 
     try {
       // Run all fetches in parallel — faster than sequential awaits.
@@ -153,7 +157,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (profileData.employee_id) {
         const { data: empData, error: empErr } = await supabase
           .from('employees')
-          .select('*, employee_personal(*), employee_contact(*), employee_employment(*)')
+          .select('*, employee_personal(*), employee_contact(*), employee_employment!employee_id(*)')
           .eq('id', profileData.employee_id)
           .single();
 
@@ -264,9 +268,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [user, loadUserData]);
 
   const signOut = useCallback(async () => {
+    // Clear recently-viewed employees from localStorage before signing out
+    if (employee?.id) clearRecentlyViewedForUser(employee.id);
     await supabase.auth.signOut();
     clearUserData();
-  }, [clearUserData]);
+  }, [clearUserData, employee?.id]);
 
   const value: AuthContextValue = {
     session,

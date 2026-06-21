@@ -1,0 +1,489 @@
+PROWESS HRMS
+Employee Termination Module
+Design Specification | Version 2.0 | June 2026
+Classification: Confidential — Internal Use Only
+
+================================================================================
+
+1. OBJECTIVE
+
+This document defines the design specification for the Employee Termination
+Module within the Prowess HRMS platform. The module introduces a dedicated,
+first-class employee lifecycle event for managing employee separation from
+the organisation.
+
+Termination is treated as a distinct lifecycle event — separate from
+Employment. This alignment follows enterprise HRMS practices adopted by
+SAP SuccessFactors Employee Central, Workday HCM, and Oracle HCM Cloud.
+
+Design Decision: Termination is an event table, not a timeline table.
+Employment manages organisational assignment. Termination manages separation.
+These responsibilities are kept architecturally separate.
+
+================================================================================
+
+2. EMPLOYMENT — CHANGES
+
+The following fields are removed from the Employment module:
+
+  Field                | Action  | Moved To
+  ---------------------|---------|------------------------------------------------
+  End Date             | Removed | employee_terminations.termination_date
+  Termination Reason   | Removed | employee_terminations.termination_reason_code
+
+Employment continues to own:
+  - Company, Business Unit, Department, Cost Center, Location
+  - Manager, Employment Type, Job Information
+  - Employment Effective Dating
+
+2.1 Notice Period Field
+
+A new mandatory field is introduced on employee_employment:
+
+  Column              | Type             | Values         | Notes
+  --------------------|------------------|----------------|--------------------------
+  notice_period_days  | INTEGER NOT NULL | 30, 90, 120    | Picklist — 30 / 90 / 120 Days
+
+Design Decision: Notice period is a contractual employment term and belongs
+on the employment record. It is effective-dated. The termination screen reads
+from the employment slice where effective_from <= termination_date < effective_to
+— not necessarily the current slice. This ensures the contractually correct
+notice period is applied for any given termination date.
+
+================================================================================
+
+3. TABLE DESIGN — employee_terminations
+
+  Column                          | Type        | Null | Notes
+  --------------------------------|-------------|------|-------------------------------
+  id                              | UUID PK     | No   | gen_random_uuid()
+  employee_id                     | UUID FK     | No   | -> employees
+  termination_date                | DATE        | No   | Legal / contractual end date
+  termination_reason_code         | TEXT        | No   | FK to picklist
+  termination_initiation_type     | TEXT        | No   | SELF / HR_INITIATED /
+                                  |             |      |   ADMIN_INITIATED / SYSTEM_INITIATED
+  resignation_date                | DATE        | Yes  | SELF-initiated only
+  notice_date                     | DATE        | Yes  | Date notice was formally given
+  last_working_date               | DATE        | Yes  | May differ from termination_date
+  notice_period_waived            | BOOLEAN     | No   | Default false
+  notice_period_waiver_reason     | TEXT        | Yes  | Required when waived = true
+  eligible_for_rehire             | BOOLEAN     | No   | Default true. Hidden from SS.
+  regrettable_termination         | BOOLEAN     | Yes  | HR only. Hidden from SS.
+  comments                        | TEXT        | No   | Min 20 chars. Min 50 if Other.
+  workflow_status                 | TEXT        | No   | DRAFT / PENDING / APPROVED /
+                                  |             |      |   REJECTED / WITHDRAWN / REVERSED
+  final_settlement_processed      | BOOLEAN     | No   | Default false
+  final_settlement_date           | DATE        | Yes  | Future enhancement stub
+  approved_at                     | TIMESTAMPTZ | Yes  |
+  approved_by                     | UUID        | Yes  |
+  created_at                      | TIMESTAMPTZ | No   | DEFAULT NOW()
+  created_by                      | UUID        | Yes  |
+  updated_at                      | TIMESTAMPTZ | No   | DEFAULT NOW()
+  updated_by                      | UUID        | Yes  |
+
+3.1 Unique Constraint — Concurrent Terminations
+
+Only one termination per employee may exist in PENDING or APPROVED state
+simultaneously. A partial unique index enforces this:
+
+    CREATE UNIQUE INDEX uq_employee_active_termination
+      ON employee_terminations (employee_id)
+      WHERE workflow_status IN ('PENDING', 'APPROVED');
+
+Design Decision: REJECTED, WITHDRAWN, and REVERSED records are excluded from
+this constraint. For rehire scenarios, a previously APPROVED termination is
+preserved. A new termination can be submitted once the prior record is
+REVERSED or a new employment period begins.
+
+================================================================================
+
+4. ATTACHMENT MODEL — employee_termination_attachments
+
+Attachments follow the same pattern as bank accounts, dependents, and
+education modules. A dedicated child table is used rather than a single URL
+column on the parent record.
+
+  Column          | Type        | Notes
+  ----------------|-------------|---------------------
+  id              | UUID PK     | gen_random_uuid()
+  termination_id  | UUID FK     | -> employee_terminations
+  file_name       | TEXT NOT NULL
+  file_url        | TEXT NOT NULL
+  file_size_bytes | INTEGER
+  mime_type       | TEXT
+  uploaded_at     | TIMESTAMPTZ DEFAULT NOW()
+  uploaded_by     | UUID
+
+Rules:
+  - Multiple attachments supported per termination record
+  - Mandatory upload is configurable — not enforced by default
+  - Attachments visible in workflow review screens
+  - Retained permanently for audit purposes — no purge policy
+  - Upload and delete actions are audited
+  - Examples: Resignation Letter, Termination Letter, Legal Notice,
+    Settlement Document, Exit Documentation
+
+================================================================================
+
+5. TERMINATION INITIATION TYPE
+
+The system derives termination_initiation_type automatically. It is not
+user-selected.
+
+  Scenario                                          | Derived Value
+  --------------------------------------------------|------------------
+  Employee submits resignation for themselves       | SELF
+  HR user terminates an employee                    | HR_INITIATED
+  Admin user terminates an employee                 | ADMIN_INITIATED
+  Automated contract expiry or system process       | SYSTEM_INITIATED
+
+Note: HR users terminating themselves are classified as SELF — not
+HR_INITIATED. The rule is: logged_in_employee_id = target_employee_id → SELF,
+regardless of the initiator's system role.
+
+================================================================================
+
+6. REASON PICKLISTS
+
+Reason visibility is determined by transaction context — not by user role.
+
+  Condition                                         | Picklist             | Field Label
+  --------------------------------------------------|----------------------|--------------------------
+  logged_in_employee_id = target_employee_id        | RESIGNATION_REASON   | Reason for Resignation
+  logged_in_employee_id != target_employee_id       | TERMINATION_REASON   | Termination Reason
+
+6.1 Resignation Reasons (Self-Service)
+
+  Code                 | Label
+  ---------------------|---------------------
+  BETTER_OPPORTUNITY   | Better Opportunity
+  HIGHER_STUDIES       | Higher Studies
+  RELOCATION           | Relocation
+  PERSONAL_REASONS     | Personal Reasons
+  FAMILY_COMMITMENTS   | Family Commitments
+  HEALTH_REASONS       | Health Reasons
+  RETIREMENT           | Retirement
+  OTHER                | Other
+
+6.2 Termination Reasons (HR / Admin)
+
+  Code                  | Label
+  ----------------------|-----------------------
+  PERFORMANCE           | Performance
+  MISCONDUCT            | Misconduct
+  POLICY_VIOLATION      | Policy Violation
+  PROBATION_FAILURE     | Probation Failure
+  ABSCONDING            | Absconding
+  POSITION_REDUNDANCY   | Position Redundancy
+  ORG_RESTRUCTURING     | Organisation Restructuring
+  END_OF_CONTRACT       | End of Contract
+  RETIREMENT            | Retirement
+  DEATH                 | Death
+  OTHER                 | Other
+
+================================================================================
+
+7. NOTICE PERIOD VALIDATION
+
+Notice period validation applies to self-service (SELF-initiated) terminations
+only. HR and Admin are exempt from the submission guard but their override is
+recorded.
+
+  Step | Behaviour
+  -----|--------------------------------------------------------------------------
+  1    | Employee sets Resignation Date.
+       | System reads notice_period_days from the employment slice where
+       |   effective_from <= termination_date < effective_to
+  2    | Notice Period displayed read-only. Shown as:
+       |   "90 Days — Earliest last working date: [calculated date]"
+  3    | Employee sets Last Working Date.
+       | Validated: last_working_date >= resignation_date + notice_period_days
+  4    | Submission guard (Employee): hard block if violated.
+  5    | HR / Admin path: no submission guard. If LWD is within notice period,
+       | notice_period_waived auto-set to true.
+  6    | If notice_period_waived = true, notice_period_waiver_reason is mandatory
+       | for HR / Admin.
+
+Design Decision: Notice period is always read from the employment slice where
+the termination date falls — not the current active slice. This ensures
+contractual accuracy for backdated or future-dated terminations.
+
+================================================================================
+
+8. WORKFLOW SUPPORT
+
+All termination transactions participate in the existing workflow engine.
+Termination is a new workflow module alongside expense, employment, and other
+existing modules.
+
+  Status     | Meaning
+  -----------|--------------------------------------------------------------------
+  DRAFT      | Saved but not submitted
+  PENDING    | Submitted — awaiting approvals
+  APPROVED   | All approvals complete. Post-approval automation triggered.
+  REJECTED   | Rejected by an approver. Submitter can resubmit.
+  WITHDRAWN  | Withdrawn by submitter while PENDING
+  REVERSED   | Approved termination reversed via a separate Reversal transaction
+
+8.1 Default Workflow Scenarios
+
+  Self-Service Resignation:
+    Employee -> Manager Approval -> HR Approval -> Final Approval
+
+  HR / Admin Initiated Termination:
+    HR / Admin -> HR Manager Approval -> Final Approval
+
+Note: Workflow routing is fully configurable through the existing workflow
+engine. Scenarios above are defaults only — not hardcoded.
+
+8.2 Withdrawal Rule
+
+Withdrawal is permitted only while workflow_status = PENDING. Once APPROVED,
+reversal requires a separate Reversal transaction. Direct editing of an
+APPROVED termination record is not permitted.
+
+8.3 Concurrent Workflow Guard
+
+When a termination enters PENDING state, the system blocks submission of any
+new workflow transactions for that employee across all modules.
+
+Message displayed:
+  "A termination is pending approval for this employee."
+
+This prevents data integrity conflicts at approval time.
+
+================================================================================
+
+9. POST-APPROVAL AUTOMATION
+
+No manual HR action is required after final approval. The system executes all
+downstream steps automatically via Edge Functions — consistent with the
+existing architecture for bulk operations and workflow approvals.
+
+9.1 Employment Slice Closure
+
+  Step | Action
+  -----|-------------------------------------------------------------------------
+  1    | Close current open employment slice: set effective_to = termination_date
+  2    | Insert new employment row: effective_from = termination_date + 1,
+       |   status = Inactive
+  3    | Set employees.status = Inactive
+  4    | Execute Job Relationship cleanup
+  5    | Fire downstream integration events
+  6    | Dispatch notifications (see Section 14)
+
+Design Decision: The employment timeline remains continuous and unbroken. The
+inactive slice (effective_from = termination_date + 1) is the authoritative
+record that the employee left on that date. For future-dated terminations,
+deactivation is scheduled for termination_date — the employee remains Active
+until that date arrives. Execution is not triggered at approval time.
+
+9.2 Why Edge Functions — Not DB Triggers
+
+  - Visible, testable, and debuggable
+  - Explicit error handling, retry logic, and logging
+  - External integration calls are supported
+  - Consistent with existing post-approval hooks across all modules
+
+================================================================================
+
+10. TERMINATION REVERSAL
+
+Supports scenarios where a termination is approved in error or an employee is
+retained after approval.
+
+  Step | Action
+  -----|-------------------------------------------------------------------------
+  1    | A separate Reverse Termination transaction is submitted and approved
+  2    | Original termination record: workflow_status set to REVERSED
+  3    | Inactive employment slice removed (effective_from = termination_date + 1)
+  4    | Prior employment slice reopened: effective_to set back to NULL
+  5    | employees.status set back to Active
+
+Note: Reversal participates in the workflow engine — it is not a direct
+override. The REVERSED status allows the partial unique index (Section 3.1)
+to permit a new termination to be submitted for the same employee.
+
+================================================================================
+
+11. USER INTERFACE
+
+11.1 Self-Service Screen (Employee)
+
+Employees can only create transactions for themselves.
+
+  Field                 | Type        | Validation                          | Notes
+  ----------------------|-------------|-------------------------------------|--------
+  Resignation Date      | Date picker | Must be >= today. Past dates blocked.| Defaults to today
+  Notice Period         | Read-only   | Auto-populated from employment slice | "90 Days — Earliest LWD: [date]"
+  Last Working Date     | Date picker | >= resignation_date + notice_period_days | Hard block on violation
+  Reason for Resignation| Picklist    | Required                            | RESIGNATION_REASON values
+  Comments              | Long text   | Required. Min 20 chars. Min 50 if Other.|
+  Attachments           | File upload | Optional unless configured mandatory | Multiple files allowed
+
+Employee does NOT see: Eligible for Rehire, Regrettable Termination,
+Termination Reason, or any internal HR fields.
+
+Note: A confirmation dialog is shown before submission:
+  "You are submitting a resignation. This will initiate an approval workflow.
+   Are you sure?"
+
+This prevents accidental submissions on an action that cannot be undone
+without a separate withdrawal.
+
+11.2 HR / Admin Screen
+
+  Field                       | Type        | Validation                      | Notes
+  ----------------------------|-------------|--------------------------------|--------
+  Termination Date            | Date picker | Required. Past and future OK.   |
+  Last Working Date           | Date picker | Optional                        |
+  Notice Period               | Read-only   | Auto-populated. No submission guard for HR.|
+  Notice Period Waiver Reason | Text        | Required if LWD within notice period |
+  Termination Reason          | Picklist    | Required                        | TERMINATION_REASON values
+  Eligible for Rehire         | Toggle      | Optional                        | Default true
+  Regrettable Termination     | Toggle      | Optional                        | HR attrition quality metric
+  Comments                    | Long text   | Required. Min 20 chars. Min 50 if Other.|
+  Attachments                 | File upload | Optional unless configured mandatory | Multiple files allowed
+
+================================================================================
+
+12. EFFECTIVE DATING
+
+Design Decision: employee_terminations is NOT effective-dated.
+
+Termination is a point-in-time business event. The termination_date field IS
+the effective date of separation. No effective_from / effective_to columns
+are required.
+
+Distinction between key date fields:
+
+  Field             | Meaning                              | Used For
+  ------------------|--------------------------------------|--------------------------------
+  termination_date  | Legal / contractual end date         | Employment slice closure.
+                    |                                      | System deactivation.
+                    |                                      | Payroll cutoff. Benefit term.
+  last_working_date | Last day employee physically works   | Access revocation.
+                    |                                      | Badge deactivation.
+                    |                                      | Asset return.
+  resignation_date  | Date employee formally gives notice  | Notice period calculation.
+  notice_date       | Date notice was formally received    | Audit record.
+                    |                                      | Legal documentation.
+
+================================================================================
+
+13. REHIRE SUPPORT
+
+  Event                    | Date       | Record Action
+  -------------------------|------------|----------------------------------------
+  Original Employment begins| 2020-01-01| Employment record created
+  Termination approved     | 2026-06-30 | Termination APPROVED. Employment slice closed.
+                           |            | Inactive slice inserted.
+  Rehire                   | 2027-03-01 | New employment record created. Original
+                           |            | termination record preserved unchanged.
+
+  - Existing termination record is never modified on rehire
+  - Historical termination records retained permanently for audit and reporting
+  - Partial unique index (Section 3.1) ensures no concurrent active
+    terminations during rehire
+
+================================================================================
+
+14. NOTIFICATIONS
+
+Dispatched through the existing notification framework — no custom
+notification infrastructure required.
+
+  Event                          | Recipients
+  -------------------------------|------------------------------
+  Termination submitted          | Employee's manager
+  Termination approved (final)   | Employee, HR
+  Termination rejected           | Submitter
+  Termination withdrawn          | Manager, HR
+  Termination reversed           | HR, original approvers
+
+================================================================================
+
+15. PERMISSIONS
+
+  Permission             | Description
+  -----------------------|-------------------------------------------------------
+  termination.view       | View termination records and history
+  termination.edit       | Create and edit termination transactions
+  termination.history    | Access full termination history including REVERSED records
+
+No default permission grants. All assignments managed by administrators
+through the existing RBAC framework.
+
+================================================================================
+
+16. COMMENTS
+
+  Condition                              | Minimum Length
+  ---------------------------------------|----------------
+  All termination transactions           | 20 characters
+  Reason = Other (either picklist)       | 50 characters
+
+Comments are stored as long text. Validation is enforced at both API and UI
+layers. Empty submission is not permitted.
+
+================================================================================
+
+17. AUDIT REQUIREMENTS
+
+All termination transactions participate in the existing audit framework.
+
+Tracked on employee_terminations:
+  - created_by, created_at
+  - updated_by, updated_at
+  - approved_by, approved_at
+  - workflow_status transitions
+
+Tracked on employee_termination_attachments:
+  - uploaded_by, uploaded_at
+  - Delete actions audited
+
+================================================================================
+
+18. REPORTING
+
+  Report                    | Filter / Derivation
+  --------------------------|-----------------------------------------------------
+  Monthly Terminations      | COUNT by termination_date month
+  Termination Trends        | Time series on termination_date
+  Voluntary Attrition       | termination_initiation_type = SELF
+  Involuntary Attrition     | termination_initiation_type IN
+                            |   (HR_INITIATED, ADMIN_INITIATED, SYSTEM_INITIATED)
+  Retirement Reporting      | termination_reason_code IN (RETIREMENT)
+  Rehire Eligibility        | eligible_for_rehire = true AND workflow_status = APPROVED
+  Turnover Analysis         | Headcount denominator from employee_employment
+  Regrettable Attrition     | regrettable_termination = true
+
+================================================================================
+
+19. FUTURE ENHANCEMENTS
+
+The architecture is designed to accommodate the following without redesigning
+the core termination structure:
+
+  - Exit Interview
+  - Clearance Process
+  - Asset Return Tracking
+  - Knowledge Transfer
+  - Final Settlement (stub fields already present:
+      final_settlement_processed, final_settlement_date)
+  - Exit Checklist
+  - Alumni Tracking
+  - Offboarding Workflow Automation
+
+================================================================================
+
+20. DESIGN PRINCIPLES
+
+Employment manages an employee's organisational assignment.
+Termination manages an employee's separation from the organisation.
+
+These responsibilities are kept architecturally separate, aligned with
+SAP SuccessFactors Employee Central, Workday HCM, and Oracle HCM Cloud.
+
+================================================================================
+END OF SPECIFICATION v2.0

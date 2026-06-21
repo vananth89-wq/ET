@@ -1,3 +1,4 @@
+import { randomUUID } from '../../../utils/randomUUID';
 import { useState, useMemo, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useExpenseData } from '../../../hooks/useExpenseData';
@@ -31,6 +32,11 @@ function attFmtSize(bytes: number) {
 
 const NOTE_REQUIRED_ABOVE = 10000;
 
+// Note length limits — shared with approver decision note (WorkflowReview)
+const NOTE_MAX  = 1000;
+const NOTE_WARN =  700;
+const NOTE_HARD =  950;
+
 export default function ReportDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -42,6 +48,13 @@ export default function ReportDetail() {
 
   const [searchParams] = useSearchParams();
   const resumeInstanceId = searchParams.get('resume_instance');
+
+  // ── Approver review mode ─────────────────────────────────────────
+  // Set when WorkflowReview navigates here via Pattern A (edit_route).
+  // reviewMode=approver  → approver is editing mid-flight (allow_edit gate).
+  // returnTo param       → URL to go back to after saving (the WorkflowReview page).
+  const isApproverReview = searchParams.get('reviewMode') === 'approver';
+  const returnTo = searchParams.get('returnTo') ?? '/workflow/inbox';
 
   const { can } = usePermissions();
   const report = getReport(id!);
@@ -73,6 +86,13 @@ export default function ReportDetail() {
   const [warnFiles, setWarnFiles] = useState<Attachment[]>([]);
   // Stores the original File objects keyed by Attachment.id — needed for actual storage upload
   const [warnRawFiles, setWarnRawFiles] = useState<Map<string, File>>(new Map());
+  // Same pattern for the inline add/edit form — raw File refs lost after FileReader
+  const [formRawFiles, setFormRawFiles] = useState<Map<string, File>>(new Map());
+  // Per-file upload status: 'pending' | 'uploading' | 'done' | 'error'
+  const [formUploadStates, setFormUploadStates] = useState<Map<string, 'pending' | 'uploading' | 'done' | 'error'>>(new Map());
+  const [formUploadErrors, setFormUploadErrors] = useState<Map<string, string>>(new Map());
+  const [formUploading, setFormUploading] = useState(false); // true while any upload is in flight
+  const [savedItemId, setSavedItemId] = useState<string | null>(null); // item id after save, needed for retry
   const [warnDragging, setWarnDragging] = useState(false);
   const [warnAttError, setWarnAttError] = useState('');
   const formFileRef = useRef<HTMLInputElement>(null);
@@ -118,18 +138,26 @@ export default function ReportDetail() {
   // editable: show add/edit/delete controls for line items and attachments.
   // awaiting_clarification lives on workflow_instances.status (not expense_reports.status
   // which stays 'submitted'), so we read it from the already-loaded wf.instance.
+  // isApproverReview: approver editing mid-flight via Pattern A (allow_edit gate already
+  // verified in WorkflowReview before navigating here).
   const isAwaitingClarification = wf.instance?.status === 'awaiting_clarification';
   const editable  = (
     report.status === 'draft' ||
     report.status === 'rejected' ||
-    isAwaitingClarification
+    isAwaitingClarification ||
+    isApproverReview
   ) && can('expense_reports.edit');
 
-  // canSubmit: only for draft/rejected — awaiting_clarification uses Respond & Resubmit
-  // !wf.loading guard prevents the button flashing enabled before workflow data arrives
+  // Approvers can edit existing items but cannot add new line items mid-flight.
+  const canAddExpense = editable && !isApproverReview;
+
+  // canSubmit: only for draft/rejected — awaiting_clarification uses Respond & Resubmit,
+  // and approver review is not a submission flow.
+  // !wf.loading guard prevents the button flashing enabled before workflow data arrives.
   const canSubmit = !wf.loading
     && (report.status === 'draft' || report.status === 'rejected')
-    && can('expense_reports.edit');
+    && can('expense_reports.edit')
+    && !isApproverReview;
   const total = report.lineItems.reduce((s, li) => s + (li.convertedAmount || 0), 0);
   const attItem = attItemId ? report.lineItems.find(li => li.id === attItemId) ?? null : null;
 
@@ -156,6 +184,11 @@ export default function ReportDetail() {
     setFormErrors({});
     setDupWarning(false);
     setAttError('');
+    setFormRawFiles(new Map());
+    setFormUploadStates(new Map());
+    setFormUploadErrors(new Map());
+    setFormUploading(false);
+    setSavedItemId(null);
     setWarnFiles([]);
     setWarnRawFiles(new Map());
     setWarnAttError('');
@@ -170,10 +203,13 @@ export default function ReportDetail() {
     Array.from(files).forEach(f => {
       if (!ATT_ALLOWED.includes(f.type)) { setAttError('Only PDF, JPG, PNG files are allowed.'); return; }
       if (f.size > ATT_MAX) { setAttError('File exceeds 5 MB limit.'); return; }
+      const attId = `att_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      // Keep the raw File reference so we can upload to storage on save
+      setFormRawFiles(prev => new Map(prev).set(attId, f));
       const reader = new FileReader();
       reader.onload = ev => {
         const att: Attachment = {
-          id: `att_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+          id: attId,
           name: f.name, type: f.type, size: f.size,
           dataUrl: ev.target!.result as string,
         };
@@ -185,6 +221,7 @@ export default function ReportDetail() {
 
   function removeFormAttachment(attId: string) {
     setForm(prev => ({ ...prev, attachments: (prev.attachments ?? []).filter(a => a.id !== attId) }));
+    setFormRawFiles(prev => { const m = new Map(prev); m.delete(attId); return m; });
   }
 
   function handleWarnFiles(files: FileList | File[]) {
@@ -209,16 +246,13 @@ export default function ReportDetail() {
   }
 
   function commitWithWarnFiles() {
-    // Capture pending files before clearing state
-    const rawFiles = new Map(warnRawFiles);
+    // Merge warn files into formRawFiles so runFormUploads handles them uniformly
+    const merged = new Map([...formRawFiles, ...warnRawFiles]);
     setWarnFiles([]);
     setWarnRawFiles(new Map());
     setShowAttWarning(false);
     setPendingSave(false);
 
-    // All values are read directly from `form` — no setForm callback needed.
-    // Putting side-effects (addLineItem) inside a setState callback causes
-    // React Strict Mode to double-invoke the updater, creating duplicate records.
     const isDuplicate = report!.lineItems.some(li =>
       li.id !== editItem?.id &&
       li.date === form.date &&
@@ -230,17 +264,6 @@ export default function ReportDetail() {
     const catEntry  = categories.find((c: any) => String(c.id) === String(form.category));
     const projEntry = rawProjects.find((p: any) => String(p.id) === String(form.projectId));
 
-    // Upload each file to storage after the line item row exists
-    const uploadFiles = async (targetItemId: string) => {
-      for (const [, file] of rawFiles) {
-        try {
-          await addAttachment(report!.id, targetItemId, file);
-        } catch (err: any) {
-          setFormErrors(fe => ({ ...fe, _save: `Attachment upload failed: ${err.message}` }));
-        }
-      }
-    };
-
     if (editItem) {
       updateLineItem(report!.id, editItem.id, {
         ...form,
@@ -248,11 +271,10 @@ export default function ReportDetail() {
         projectName:  projEntry ? projEntry.name : form.projectName,
         exchangeRate, convertedAmount: converted,
       } as Partial<LineItem>);
-      uploadFiles(editItem.id);
       setDupWarning(isDuplicate);
-      if (!isDuplicate) closeForm();
+      runFormUploads(editItem.id, merged, isDuplicate);
     } else {
-      const newItemId = crypto.randomUUID();
+      const newItemId = randomUUID();
       addLineItem(report!.id, {
         id:              newItemId,
         category:        form.category!,
@@ -266,10 +288,9 @@ export default function ReportDetail() {
         convertedAmount: converted,
         note:            form.note,
         attachments:     [],
-      }).then(async () => {
-        await uploadFiles(newItemId);
+      }).then(() => {
         setDupWarning(isDuplicate);
-        if (!isDuplicate) closeForm();
+        runFormUploads(newItemId, merged, isDuplicate);
       }).catch(err => setFormErrors(fe => ({ ...fe, _save: err.message })));
     }
   }
@@ -301,6 +322,57 @@ export default function ReportDetail() {
     return '';
   })();
 
+  // Upload all pending form files for a saved item, tracking per-file status.
+  // Keeps the form open until all files settle; auto-closes if all succeed.
+  async function runFormUploads(targetItemId: string, rawFiles: Map<string, File>, isDuplicate: boolean) {
+    if (rawFiles.size === 0) {
+      if (!isDuplicate) closeForm();
+      return;
+    }
+
+    // Initialise all as 'uploading'
+    setFormUploading(true);
+    setSavedItemId(targetItemId);
+    setFormUploadStates(new Map([...rawFiles.keys()].map(id => [id, 'uploading'])));
+    setFormUploadErrors(new Map());
+
+    let anyError = false;
+    for (const [attId, file] of rawFiles) {
+      try {
+        await addAttachment(report!.id, targetItemId, file);
+        setFormUploadStates(prev => new Map(prev).set(attId, 'done'));
+      } catch (err: any) {
+        anyError = true;
+        setFormUploadStates(prev => new Map(prev).set(attId, 'error'));
+        setFormUploadErrors(prev => new Map(prev).set(attId, err?.message ?? 'Upload failed'));
+      }
+    }
+
+    setFormUploading(false);
+    // Auto-close only when everything succeeded and no duplicate
+    if (!anyError && !isDuplicate) closeForm();
+  }
+
+  // Retry a single failed attachment upload
+  async function retryFormAttachment(attId: string) {
+    if (!savedItemId) return;
+    const file = formRawFiles.get(attId);
+    if (!file) return;
+    setFormUploadStates(prev => new Map(prev).set(attId, 'uploading'));
+    setFormUploadErrors(prev => { const m = new Map(prev); m.delete(attId); return m; });
+    try {
+      await addAttachment(report!.id, savedItemId, file);
+      setFormUploadStates(prev => new Map(prev).set(attId, 'done'));
+      // If all done now, close
+      const updated = new Map(formUploadStates).set(attId, 'done');
+      const allDone = [...updated.values()].every(s => s === 'done');
+      if (allDone) closeForm();
+    } catch (err: any) {
+      setFormUploadStates(prev => new Map(prev).set(attId, 'error'));
+      setFormUploadErrors(prev => new Map(prev).set(attId, err?.message ?? 'Upload failed'));
+    }
+  }
+
   function commitSave() {
     const isDuplicate = report!.lineItems.some(li =>
       li.id !== editItem?.id &&
@@ -315,6 +387,9 @@ export default function ReportDetail() {
     const catEntry  = categories.find((c: any) => String(c.id) === String(form.category));
     const projEntry = rawProjects.find((p: any) => String(p.id) === String(form.projectId));
 
+    // Snapshot raw files before any async state changes
+    const rawFiles = new Map(formRawFiles);
+
     if (editItem) {
       updateLineItem(report!.id, editItem.id, {
         ...form,
@@ -323,10 +398,11 @@ export default function ReportDetail() {
         exchangeRate,
         convertedAmount: converted,
       } as Partial<LineItem>);
-      if (!isDuplicate) closeForm();
+      runFormUploads(editItem.id, rawFiles, isDuplicate);
     } else {
+      const newItemId = randomUUID();
       const item: LineItem = {
-        id:              crypto.randomUUID(),
+        id:              newItemId,
         category:        form.category!,
         categoryName:    catEntry ? catEntry.value : form.category,
         date:            form.date!,
@@ -337,12 +413,11 @@ export default function ReportDetail() {
         exchangeRate,
         convertedAmount: converted,
         note:            form.note,
-        attachments:     form.attachments ?? [],
+        attachments:     [],
       };
       addLineItem(report!.id, item)
-        .then(() => { if (!isDuplicate) closeForm(); })
+        .then(() => runFormUploads(newItemId, rawFiles, isDuplicate))
         .catch(err => setFormErrors(fe => ({ ...fe, _save: err.message })));
-      return; // closeForm handled in .then()
     }
   }
 
@@ -387,7 +462,7 @@ export default function ReportDetail() {
   }
 
   // ── Banners ─────────────────────────────────────────────────────
-  const canWithdraw = report.status === 'submitted' && can('expense_reports.edit') && wf.instance?.status === 'in_progress';
+  const canWithdraw = !isApproverReview && report.status === 'submitted' && can('expense_reports.edit') && wf.instance?.status === 'in_progress';
 
   // ── Status badge label — reflects workflow state, not just report.status ──
   // expense_reports.status stays "submitted" throughout the approval chain,
@@ -461,11 +536,28 @@ export default function ReportDetail() {
   return (
     <div className="exp-detail-wrap">
 
+      {/* ── Approver review mode banner ────────────────────────────── */}
+      {isApproverReview && (
+        <div className="rd-approver-banner">
+          <i className="fas fa-pen-to-square rd-approver-banner-icon" />
+          <span>You are editing this report as an approver. Changes are saved directly to the report.</span>
+          <button
+            className="rd-approver-banner-back"
+            onClick={() => navigate(returnTo)}
+          >
+            <i className="fas fa-arrow-left" /> Back to Review
+          </button>
+        </div>
+      )}
+
       {/* ── Object Header ──────────────────────────────────────────── */}
       <div className="exp-report-header">
         <div className="exp-obj-row-title">
           <div className="exp-obj-title-area">
-            <button className="exp-btn-back" onClick={() => navigate('/expense')}>
+            <button
+              className="exp-btn-back"
+              onClick={() => navigate(isApproverReview ? returnTo : '/expense')}
+            >
               <i className="fa-solid fa-arrow-left" />
             </button>
             <div className="exp-report-name-wrap">
@@ -480,7 +572,13 @@ export default function ReportDetail() {
             </div>
           </div>
           <div className="exp-obj-right-panel">
-            <StatusBadge status={report.status} label={wfStatusLabel} />
+            <StatusBadge
+              status={report.status}
+              label={wfStatusLabel}
+              style={isAwaitingClarification
+                ? { background: '#FEF3C7', color: '#92400E', border: '1px solid #FDE68A' }
+                : undefined}
+            />
             <ApprovalFlow instance={wf.instance} tasks={wf.tasks} />
           </div>
         </div>
@@ -509,75 +607,20 @@ export default function ReportDetail() {
 
         {/* ── Status Banner / Send-Back Callout ─────────────────── */}
         {wf.instance?.status === 'awaiting_clarification' ? (
-          <div style={{
-            border: '1.5px solid #F59E0B', borderRadius: 10, background: '#FFFBEB',
-            padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 12,
-          }}>
-            {/* Header */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <i className="fa-solid fa-triangle-exclamation" style={{ color: '#D97706', fontSize: 16 }} />
-              <span style={{ fontWeight: 700, fontSize: 14, color: '#92400E' }}>
-                Action Required — Approver has requested clarification
-              </span>
-            </div>
-
-            {/* Approver's message */}
-            {sendBackEvent?.notes && (
-              <div style={{
-                background: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: 7,
-                padding: '10px 14px', fontSize: 13, color: '#78350F', lineHeight: 1.5,
-              }}>
-                <span style={{ fontWeight: 600, display: 'block', marginBottom: 4, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#B45309' }}>
-                  {sendBackEvent.actorName ?? 'Approver'} says:
-                </span>
-                {sendBackEvent.notes}
-              </div>
-            )}
-
-            {/* Response area */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <label style={{ fontSize: 12, fontWeight: 600, color: '#92400E' }}>
-                Your response
-              </label>
-              <textarea
-                rows={3}
-                value={resubmitResponse}
-                onChange={e => setResubmitResponse(e.target.value)}
-                placeholder="Explain your clarification or attach any missing documents above, then respond…"
-                disabled={resubmitting}
-                style={{
-                  width: '100%', padding: '9px 12px', borderRadius: 7, resize: 'vertical',
-                  border: '1px solid #FCD34D', background: '#FFFDF0', fontSize: 13,
-                  fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box',
-                  opacity: resubmitting ? 0.6 : 1,
-                }}
-              />
-            </div>
-
-            {/* Respond button */}
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
-              {showForm && (
-                <span style={{ fontSize: 12, color: '#B45309' }}>
-                  <i className="fa-solid fa-triangle-exclamation" style={{ marginRight: 5 }} />
-                  Save or cancel the open line item before resubmitting.
-                </span>
-              )}
-              <button
-                onClick={handleResubmit}
-                disabled={resubmitting || showForm}
-                style={{
-                  padding: '9px 20px', borderRadius: 7, border: 'none',
-                  background: (resubmitting || showForm) ? '#D97706' : '#F59E0B',
-                  color: '#fff', fontWeight: 700, fontSize: 13,
-                  cursor: (resubmitting || showForm) ? 'not-allowed' : 'pointer',
-                  display: 'flex', alignItems: 'center', gap: 7,
-                  opacity: (resubmitting || showForm) ? 0.5 : 1,
-                }}
-              >
-                <i className="fa-solid fa-paper-plane" style={{ fontSize: 12 }} />
-                {resubmitting ? 'Sending…' : 'Respond & Resubmit'}
-              </button>
-            </div>
+          /* Minimal inline notice — no heavy box, details visible in timeline */
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: 5,
+              background: '#FEF9C3', border: '1px solid #FDE68A',
+              borderRadius: 5, padding: '4px 10px',
+              fontSize: 12, fontWeight: 600, color: '#92400E',
+            }}>
+              <i className="fa-solid fa-triangle-exclamation" style={{ fontSize: 11, color: '#D97706' }} />
+              Awaiting your response
+            </span>
+            <span style={{ fontSize: 12, color: '#9CA3AF' }}>
+              Respond below — the approver's message is in the timeline
+            </span>
           </div>
         ) : (
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -603,23 +646,13 @@ export default function ReportDetail() {
           </div>
         )}
 
-        {/* ── Workflow Timeline ────────────────────────────────── */}
-        {wf.instance && (
-          <WorkflowTimeline
-            history={wf.history}
-            tasks={wf.tasks}
-            currentStep={wf.instance.currentStep ?? 1}
-            status={wf.instance.status}
-          />
-        )}
-
         {/* ── Line Items Section ────────────────────────────────── */}
         <div className="exp-line-items-section">
           <div className="exp-line-items-header">
             <span className="exp-section-title">
               <i className="fa-solid fa-list-check" /> Expense Line Items
             </span>
-            {editable && !showForm && (
+            {canAddExpense && !showForm && (
               <button className="exp-btn-add-item" onClick={() => openForm()}>
                 <i className="fa-solid fa-plus" /> Add Expense
               </button>
@@ -665,7 +698,7 @@ export default function ReportDetail() {
                     <label htmlFor="fi-date">Date <span style={{ color: '#e53e3e' }}>*</span></label>
                     <input
                       id="fi-date"
-                      type="date"
+                      type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31"
                       max={today}
                       value={form.date || ''}
                       onChange={e => {
@@ -781,11 +814,22 @@ export default function ReportDetail() {
                       type="text"
                       placeholder="Optional note"
                       value={form.note || ''}
+                      maxLength={NOTE_MAX}
                       onChange={e => {
-                        setForm(f => ({ ...f, note: e.target.value }));
+                        setForm(f => ({ ...f, note: e.target.value.slice(0, NOTE_MAX) }));
                         setFormErrors(fe => ({ ...fe, note: '' }));
                       }}
                     />
+                    {/* Character counter — only when approaching the limit */}
+                    {(form.note?.length ?? 0) >= NOTE_WARN && (
+                      <div className={
+                        (form.note?.length ?? 0) >= NOTE_HARD
+                          ? 'exp-note-counter exp-note-counter--danger'
+                          : 'exp-note-counter exp-note-counter--warn'
+                      }>
+                        {form.note?.length ?? 0} / {NOTE_MAX}
+                      </div>
+                    )}
                     {formErrors.note && <span className="exp-field-error">{formErrors.note}</span>}
                   </div>
 
@@ -813,21 +857,42 @@ export default function ReportDetail() {
                     {attError && <span className="exp-field-error">{attError}</span>}
                     {(form.attachments ?? []).length > 0 && (
                       <div className="exp-att-form-list">
-                        {(form.attachments ?? []).map(a => (
-                          <div key={a.id} className="exp-att-form-item">
-                            <i className={`fa-solid ${attFileIcon(a.type)} exp-att-form-icon`} />
-                            <span className="exp-att-form-name">{a.name}</span>
-                            <span className="exp-att-form-size">{attFmtSize(a.size)}</span>
-                            <button
-                              type="button"
-                              className="exp-att-form-remove"
-                              title="Remove"
-                              onClick={() => removeFormAttachment(a.id)}
-                            >
-                              <i className="fa-solid fa-xmark" />
-                            </button>
-                          </div>
-                        ))}
+                        {(form.attachments ?? []).map(a => {
+                          const uploadState = formUploadStates.get(a.id);
+                          const uploadErr   = formUploadErrors.get(a.id);
+                          return (
+                            <div key={a.id} className={`exp-att-form-item${uploadState === 'error' ? ' exp-att-form-item--error' : uploadState === 'done' ? ' exp-att-form-item--done' : ''}`}>
+                              <i className={`fa-solid ${attFileIcon(a.type)} exp-att-form-icon`} />
+                              <div className="exp-att-form-meta">
+                                <span className="exp-att-form-name">{a.name}</span>
+                                <span className="exp-att-form-size">{attFmtSize(a.size)}</span>
+                                {uploadErr && <span className="exp-att-form-errmsg">{uploadErr}</span>}
+                              </div>
+                              {/* Status indicator */}
+                              {uploadState === 'uploading' && (
+                                <span className="exp-att-form-status exp-att-form-status--uploading">
+                                  <i className="fa-solid fa-spinner fa-spin" /> Uploading…
+                                </span>
+                              )}
+                              {uploadState === 'done' && (
+                                <span className="exp-att-form-status exp-att-form-status--done">
+                                  <i className="fa-solid fa-circle-check" /> Saved
+                                </span>
+                              )}
+                              {uploadState === 'error' && (
+                                <button type="button" className="exp-att-form-retry" onClick={() => retryFormAttachment(a.id)}>
+                                  <i className="fa-solid fa-rotate-right" /> Retry
+                                </button>
+                              )}
+                              {/* Only allow remove when not mid-upload */}
+                              {!uploadState && (
+                                <button type="button" className="exp-att-form-remove" title="Remove" onClick={() => removeFormAttachment(a.id)}>
+                                  <i className="fa-solid fa-xmark" />
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -841,10 +906,12 @@ export default function ReportDetail() {
                 )}
 
                 <div className="exp-item-form-actions">
-                  <button className="exp-btn-save-item" onClick={saveItem}>
-                    <i className="fa-solid fa-floppy-disk" /> Save
+                  <button className="exp-btn-save-item" onClick={saveItem} disabled={formUploading}>
+                    {formUploading
+                      ? <><i className="fa-solid fa-spinner fa-spin" /> Uploading…</>
+                      : <><i className="fa-solid fa-floppy-disk" /> Save</>}
                   </button>
-                  <button className="exp-btn-cancel-item" onClick={closeForm}>Cancel</button>
+                  <button className="exp-btn-cancel-item" onClick={closeForm} disabled={formUploading}>Cancel</button>
                   {dupWarning && (
                     <button
                       className="exp-btn-save-item"
@@ -878,7 +945,7 @@ export default function ReportDetail() {
                       <p className="exp-items-empty-msg">
                         No expenses yet.{editable && <><br />Add your first expense to get started.</>}
                       </p>
-                      {editable && !showForm && (
+                      {canAddExpense && !showForm && (
                         <button className="exp-items-empty-cta" onClick={() => openForm()}>
                           <i className="fa-solid fa-plus" /> Add Expense
                         </button>
@@ -922,16 +989,137 @@ export default function ReportDetail() {
               </tbody>
             </table>
           </div>
+
+          {/* ── Inline total — anchors the total to the table ── */}
+          {report.lineItems.length > 0 && (
+            <div style={{
+              display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 10,
+              padding: '8px 12px', borderTop: '1px solid #E5E7EB',
+              background: '#F8FAFC',
+            }}>
+              <span style={{ fontSize: 12, color: '#6B7280', fontWeight: 500 }}>Total</span>
+              <span style={{ fontSize: 14, fontWeight: 700, color: '#111827' }}>
+                {report.baseCurrencyCode} {total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              </span>
+            </div>
+          )}
         </div>{/* /.exp-line-items-section */}
 
-        {/* ── Footer ───────────────────────────────────────────── */}
-        <div className="exp-report-footer">
+        {/* ── Workflow Timeline ────────────────────────────────── */}
+        {wf.instance && (
+          <WorkflowTimeline
+            history={wf.history}
+            tasks={wf.tasks}
+            currentStep={wf.instance.currentStep ?? 1}
+            status={wf.instance.status}
+          />
+        )}
+
+        {/* Respond & Resubmit moved to pinned footer below */}
+
+      </div>{/* /.exp-detail-body */}
+
+      {/* ── Footer — pinned at bottom, outside scrollable body ───── */}
+      {isApproverReview ? (
+        /* Approver review mode — changes are auto-saved; just return to WorkflowReview */
+        <div className="exp-report-footer" style={{ flexShrink: 0 }}>
           <div className="exp-total-section">
             <span className="exp-total-label">Total</span>
             <span className="exp-total-amount">{report.baseCurrencyCode} {total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
           </div>
           <div className="exp-footer-actions">
-            {editable && !isAwaitingClarification && (
+            <span className="exp-approver-autosave-note">
+              <i className="fas fa-circle-check" style={{ color: '#16A34A', marginRight: 5 }} />
+              Changes saved automatically
+            </span>
+            <button
+              className="exp-btn-return-to-review"
+              onClick={() => navigate(returnTo)}
+            >
+              <i className="fas fa-arrow-left" /> Return to Review
+            </button>
+          </div>
+        </div>
+      ) : isAwaitingClarification ? (
+        /* Inbox-style action bar — clean, consistent with ApproverInbox edit mode */
+        <div style={{ borderTop: '2px solid #E5E7EB', padding: '14px 20px 18px', background: '#F9FAFB', flexShrink: 0 }}>
+          <textarea
+            value={resubmitResponse}
+            onChange={e => setResubmitResponse(e.target.value.slice(0, NOTE_MAX))}
+            placeholder="Add a note to the approver (optional)…"
+            rows={2}
+            maxLength={NOTE_MAX}
+            disabled={resubmitting}
+            style={{
+              width: '100%', padding: '8px 10px',
+              border: `1px solid ${resubmitResponse.length >= NOTE_HARD ? '#EF4444' : '#D1D5DB'}`,
+              borderRadius: 6, fontSize: 13, resize: 'none', outline: 'none',
+              fontFamily: 'inherit', boxSizing: 'border-box', marginBottom: 4,
+              background: '#fff', opacity: resubmitting ? 0.6 : 1,
+            }}
+          />
+          {resubmitResponse.length > 0 && (
+            <div style={{ marginBottom: 6 }} className={
+              resubmitResponse.length >= NOTE_HARD  ? 'exp-note-counter exp-note-counter--danger' :
+              resubmitResponse.length >= NOTE_WARN  ? 'exp-note-counter exp-note-counter--warn'   :
+                                                      'exp-note-counter'
+            }>
+              {resubmitResponse.length} / {NOTE_MAX}
+            </div>
+          )}
+          {showForm && (
+            <p style={{ fontSize: 12, color: '#DC2626', margin: '0 0 8px' }}>
+              <i className="fas fa-triangle-exclamation" style={{ marginRight: 4 }} />
+              Save or cancel the open line item before resubmitting.
+            </p>
+          )}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            {/* Total — left side */}
+            <div>
+              <div style={{ fontSize: 10, color: '#6B7280', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: '#111827' }}>
+                {report.baseCurrencyCode} {total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              </div>
+            </div>
+            {/* Buttons — right side */}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={handleResubmit}
+                disabled={resubmitting || showForm || resubmitResponse.length >= NOTE_HARD}
+                style={{
+                  padding: '8px 20px', borderRadius: 6, border: 'none',
+                  background: (resubmitting || showForm || resubmitResponse.length >= NOTE_HARD) ? '#9CA3AF' : '#1e6f38',
+                  color: '#fff', fontWeight: 700, fontSize: 13,
+                  cursor: (resubmitting || showForm || resubmitResponse.length >= NOTE_HARD) ? 'not-allowed' : 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 6,
+                }}
+              >
+                {resubmitting
+                  ? <><i className="fas fa-spinner fa-spin" /> Submitting…</>
+                  : <><i className="fas fa-paper-plane" /> Respond & Resubmit</>}
+              </button>
+              <button
+                onClick={() => { setResubmitResponse(''); navigate(-1); }}
+                disabled={resubmitting}
+                style={{
+                  padding: '8px 16px', borderRadius: 6,
+                  border: '1px solid #D1D5DB', background: '#fff',
+                  color: '#374151', fontWeight: 500, fontSize: 13, cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="exp-report-footer" style={{ flexShrink: 0 }}>
+          <div className="exp-total-section">
+            <span className="exp-total-label">Total</span>
+            <span className="exp-total-amount">{report.baseCurrencyCode} {total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+          </div>
+          <div className="exp-footer-actions">
+            {editable && (
               <button
                 className="exp-btn-save-draft"
                 disabled={draftSaving}
@@ -962,8 +1150,7 @@ export default function ReportDetail() {
             )}
           </div>
         </div>
-
-      </div>{/* /.exp-detail-body */}
+      )}
 
       {/* ── Draft saved toast ────────────────────────────────────────── */}
       {draftSavedMsg && (
