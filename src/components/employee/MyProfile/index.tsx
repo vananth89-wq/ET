@@ -504,6 +504,7 @@ export default function MyProfile() {
   // Passport inline field errors & country-change modal
   const [passportFieldErrors,    setPassportFieldErrors]    = useState<Record<string, string>>({});
   const [passportCountryPending, setPassportCountryPending] = useState<string | null>(null);
+  const [hireDateErrorMsg,       setHireDateErrorMsg]       = useState<string | null>(null);
 
   // Mobile inline field error
   const [mobileFieldError, setMobileFieldError] = useState<string>('');
@@ -727,6 +728,28 @@ export default function MyProfile() {
 
   // effectiveFrom is seeded via editValues in SectionHeader — no useEffect needed
 
+  // When inserting a new personal info slice, auto-populate fields from the
+  // history slice that was active on the chosen effective date.
+  const personalInsertEffDate = personalEditMode === 'insert' && editingSection === 'personal'
+    ? fd('effectiveFrom')
+    : null;
+  useEffect(() => {
+    if (!personalInsertEffDate || personalHistRows.length === 0) return;
+    // Find the slice whose effective_from <= chosen date <= effective_to
+    const match = personalHistRows.find(r =>
+      (r.effective_from as string) <= personalInsertEffDate &&
+      (r.effective_to   as string) >= personalInsertEffDate
+    ) ?? personalHistRows[0]; // fallback: earliest
+    if (!match) return;
+    setFd('firstName',     (match.first_name     as string) || '');
+    setFd('middleName',    (match.middle_name     as string) || '');
+    setFd('lastName',      (match.last_name       as string) || '');
+    setFd('nationality',   (match.nationality     as string) || '');
+    setFd('maritalStatus', (match.marital_status  as string) || '');
+    setFd('gender',        (match.gender          as string) || '');
+    setFd('dob',           (match.dob             as string) || '');
+  }, [personalInsertEffDate]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Merged employee with fresh DB data.
   // In employee mode: identity fields (name, email, id, status) come from ProfileContext.viewedEmployee;
   // detail fields (firstName, address, passport, etc.) come from extData loaded for viewedEmployeeId.
@@ -902,6 +925,10 @@ export default function MyProfile() {
     const effectiveFrom = fd('effectiveFrom') || today;
 
     if (!effectiveFrom)  { setSaveError('Effective from is required.');  return; }
+    if (emp?.hireDate && effectiveFrom < emp.hireDate) {
+      setHireDateErrorMsg(`Effective date (${new Date(effectiveFrom).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}) cannot be before the employee's hire date (${new Date(emp.hireDate as string).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}).`);
+      return;
+    }
     if (!firstName)      { setSaveError('First name is required.');       return; }
     if (!lastName)       { setSaveError('Last name is required.');        return; }
     if (!nat)            { setSaveError('Nationality is required.');       return; }
@@ -1003,6 +1030,11 @@ export default function MyProfile() {
       work_location:      workLocation,
       _propagate:         propagate,   // stored in proposed_data for workflow approval path
     };
+
+    if (emp?.hireDate && effectiveFrom < emp.hireDate) {
+      setHireDateErrorMsg(`Effective date (${new Date(effectiveFrom).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}) cannot be before the employee's hire date (${new Date(emp.hireDate as string).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}).`);
+      return;
+    }
 
     if ((pendingCounts['profile_employment'] ?? 0) > 0) {
       setPendingBlockSection('Employment Information');
@@ -1709,9 +1741,21 @@ export default function MyProfile() {
         title={confirmPending?.title ?? ''}
         moduleCode={confirmPending?.moduleCode ?? ''}
         employeeName={emp?.name as string | undefined}
+        subjectEmployeeId={viewedEmployeeId ?? null}
       />
 
       {/* ── Passport country-change confirmation ────────────────────────────── */}
+      <ConfirmationModal
+        isOpen={hireDateErrorMsg !== null}
+        title="Invalid Effective Date"
+        message={hireDateErrorMsg ?? ''}
+        confirmText="OK"
+        cancelText=""
+        destructive={false}
+        onConfirm={() => setHireDateErrorMsg(null)}
+        onCancel={() => setHireDateErrorMsg(null)}
+      />
+
       <ConfirmationModal
         isOpen={passportCountryPending !== null}
         title="Change Issue Country?"
@@ -1923,14 +1967,17 @@ export default function MyProfile() {
                 onInsert={() => {
                   setPersonalEditMode('insert');
                   setPersonalHistOpen(false);
+                  if (viewedEmployeeId && personalHistRows.length === 0) {
+                    loadPersonalHistory(viewedEmployeeId);
+                  }
                   startEdit('personal', {
-                    firstName:     '',
-                    middleName:    '',
-                    lastName:      '',
-                    nationality:   '',
-                    maritalStatus: '',
-                    gender:        '',
-                    dob:           '',
+                    firstName:     (emp?.firstName     as string) || '',
+                    middleName:    (emp?.middleName    as string) || '',
+                    lastName:      (emp?.lastName      as string) || '',
+                    nationality:   (emp?.nationality   as string) || '',
+                    maritalStatus: (emp?.maritalStatus as string) || '',
+                    gender:        (emp?.gender        as string) || '',
+                    dob:           (emp?.dob           as string) || '',
                     effectiveFrom: new Date().toISOString().split('T')[0],
                   });
                 }}
@@ -2020,19 +2067,19 @@ export default function MyProfile() {
                     </div>
                     <Field label="Employee ID" value={emp.employeeId as string} />
                     <FormSelect
-                      label="Nationality"
+                      label="Nationality *"
                       value={fd('nationality')}
                       onChange={v => setFd('nationality', v)}
                       options={COUNTRIES.map(c => ({ value: c, label: c }))}
                     />
                     <FormSelect
-                      label="Marital Status"
+                      label="Marital Status *"
                       value={fd('maritalStatus')}
                       onChange={v => setFd('maritalStatus', v)}
                       options={picklistOpts('MARITAL_STATUS')}
                     />
                     <FormSelect
-                      label="Gender"
+                      label="Gender *"
                       value={fd('gender')}
                       onChange={v => setFd('gender', v)}
                       options={[
@@ -2041,7 +2088,7 @@ export default function MyProfile() {
                       ]}
                     />
                     <FormInput
-                      label="Date of Birth"
+                      label="Date of Birth *"
                       type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31"
                       value={fd('dob')}
                       onChange={v => setFd('dob', v)}
