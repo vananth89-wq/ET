@@ -2423,7 +2423,7 @@ function ProfileEnrichment({ moduleCode, metadata, currentData, editMode, editVa
     ? { ...(currentData ?? {}), ...metadata }
     : metadata;
 
-  const rawEntries = Object.entries(mergedData).filter(([k]) => k !== 'employee_id');
+  const rawEntries = Object.entries(mergedData).filter(([k]) => k !== 'employee_id' && !k.startsWith('_'));
   const entries = fieldOrder
     ? [
         ...fieldOrder.filter(k => k in mergedData).map(k => [k, mergedData[k]] as [string, unknown]),
