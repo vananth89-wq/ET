@@ -2321,6 +2321,10 @@ export default function MyProfile() {
                 onInsert={() => {
                   setEmploymentEditMode('insert');
                   setEmploymentHistOpen(false);
+                  // Ensure history is loaded so date-change repopulation works
+                  if (viewedEmployeeId && employmentHistRows.length === 0) {
+                    loadEmploymentHistory(viewedEmployeeId);
+                  }
                   const today = new Date().toISOString().split('T')[0];
                   // Clear inherited manager if inactive (terminated)
                   const inheritedMgrId = (emp.managerId as string) || '';
@@ -2377,18 +2381,35 @@ export default function MyProfile() {
                         value={fd('empEffectiveFrom')}
                         onChange={v => {
                           setFd('empEffectiveFrom', v);
-                          // Re-check manager: clear if inactive
-                          const currentMgrId = fd('empManagerId');
-                          if (currentMgrId && employees.find(e => e.id === currentMgrId)?.status === 'Inactive') {
-                            setFd('empManagerId', ''); setFd('empManagerName', '');
-                          }
-                          // Re-check department: clear if closed on the new effective date
-                          const currentDeptId = fd('empDeptId');
-                          if (currentDeptId && v) {
-                            const d = departments.find(dep => dep.id === currentDeptId);
-                            if (d && d.endDate != null && d.endDate !== '9999-12-31' && d.endDate < v) {
-                              setFd('empDeptId', '');
-                            }
+                          if (!v) return;
+
+                          // Find the slice that was active on the chosen date:
+                          // the most recent slice whose effective_from <= v
+                          const sourceSlice = [...employmentHistRows]
+                            .filter(h => String(h.effective_from ?? '') <= v)
+                            .sort((a, b) => String(b.effective_from ?? '').localeCompare(String(a.effective_from ?? '')))
+                            [0] ?? null;
+
+                          if (sourceSlice) {
+                            // Repopulate all fields from the slice active on that date
+                            const srcMgrId = String(sourceSlice.manager_id ?? '');
+                            const mgrInactive = srcMgrId
+                              ? employees.find(e => e.id === srcMgrId)?.status === 'Inactive'
+                              : false;
+                            const srcDeptId = String(sourceSlice.dept_id ?? '');
+                            const dept = srcDeptId ? departments.find(d => d.id === srcDeptId) : null;
+                            const deptClosed = dept
+                              ? (dept.endDate != null && dept.endDate !== '9999-12-31' && dept.endDate < v)
+                              : false;
+
+                            setFd('empDesignation',      String(sourceSlice.designation      ?? ''));
+                            setFd('empJobTitle',         String(sourceSlice.job_title        ?? ''));
+                            setFd('empDeptId',           deptClosed ? '' : srcDeptId);
+                            setFd('empManagerId',        mgrInactive ? '' : srcMgrId);
+                            setFd('empManagerName',      mgrInactive ? '' : managerName(srcMgrId || undefined) === '—' ? '' : managerName(srcMgrId || undefined));
+                            setFd('empWorkCountry',      String(sourceSlice.work_country     ?? ''));
+                            setFd('empWorkLocation',     String(sourceSlice.work_location    ?? ''));
+                            setFd('empNoticePeriodDays', String(sourceSlice.notice_period_days ?? 30));
                           }
                         }}
                         hint={
