@@ -76,6 +76,20 @@ function StepNumberBadge({ n }: { n: number }) {
   );
 }
 
+function SkippedBadge() {
+  return (
+    <div style={{
+      position: 'absolute', bottom: -2, right: -2,
+      width: 18, height: 18, borderRadius: '50%',
+      background: '#9ca3af', border: '2px solid #f6f7f8',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      zIndex: 2,
+    }}>
+      <i className="fa-solid fa-forward-step" style={{ fontSize: 7, color: '#fff' }} />
+    </div>
+  );
+}
+
 /* ── Arrow ─────────────────────────────────────────────────────────────────── */
 
 function Arrow() {
@@ -125,6 +139,7 @@ function RoleGroupBubble({
   const hideTip = useCallback(() => setTooltipStyle(null), []);
 
   const isCompleted = step.status === 'completed';
+  const isSkipped   = step.status === 'skipped';
   const isActive    = step.status === 'active';
 
   const avatarBorder = isActive
@@ -158,7 +173,9 @@ function RoleGroupBubble({
             ))}
             {isCompleted
               ? <CompletedTick />
-              : <StepNumberBadge n={stepNumber} />}
+              : isSkipped
+                ? <SkippedBadge />
+                : <StepNumberBadge n={stepNumber} />}
           </div>
         ) : (
           <div style={{ position: 'relative' }}>
@@ -172,7 +189,9 @@ function RoleGroupBubble({
             </div>
             {isCompleted
               ? <CompletedTick />
-              : <StepNumberBadge n={stepNumber} />}
+              : isSkipped
+                ? <SkippedBadge />
+                : <StepNumberBadge n={stepNumber} />}
           </div>
         )}
 
@@ -258,6 +277,13 @@ function StatusLabel({ step }: { step: RoutingStep }) {
       </div>
     );
   }
+  if (step.status === 'skipped') {
+    return (
+      <div style={{ fontSize: 10, color: '#9ca3af', textAlign: 'center', lineHeight: 1.3 }}>
+        Skipped
+      </div>
+    );
+  }
   if (step.status === 'active') {
     return (
       <div style={{ fontSize: 10, color: '#7C3AED', textAlign: 'center', lineHeight: 1.3 }}>
@@ -280,40 +306,110 @@ function StepBubble({
   step: RoutingStep;
   stepNumber: number;
 }) {
-  const name         = step.resolvedName ?? step.stepName;
-  const isMgr        = step.approverType === 'MANAGER' || step.approverType === 'DEPT_HEAD';
-  const isCompleted  = step.status === 'completed';
-  const isActive     = step.status === 'active';
+  const name        = step.resolvedName ?? step.stepName;
+  const isMgr       = step.approverType === 'MANAGER' || step.approverType === 'DEPT_HEAD';
+  // For manager steps: show initials when we have a real resolved name,
+  // fall back to generic icon only when the name is the placeholder.
+  const mgrResolved = isMgr && step.resolvedName && step.resolvedName !== 'Direct Manager' && step.resolvedName !== 'Dept. Head';
+  const isCompleted = step.status === 'completed';
+  const isSkipped   = step.status === 'skipped';
+  const isActive    = step.status === 'active';
 
-  const bg = isMgr ? '#d97706' : avatarBg(name);
+  const bg = isSkipped
+    ? '#d1d5db'
+    : isMgr
+      ? '#d97706'
+      : avatarBg(name);
 
   const borderStyle = isActive
     ? '2.5px solid #7C3AED'
     : isCompleted
       ? '2px solid #16a34a'
-      : '2px solid transparent';
+      : isSkipped
+        ? '2px solid #d1d5db'
+        : '2px solid transparent';
+
+  const [tooltipStyle, setTooltipStyle] = useState<React.CSSProperties | null>(null);
+  const bubbleRef = useRef<HTMLDivElement>(null);
+
+  const showTip = useCallback(() => {
+    if (!bubbleRef.current) return;
+    const r = bubbleRef.current.getBoundingClientRect();
+    setTooltipStyle({
+      position: 'fixed',
+      bottom:   window.innerHeight - r.top + 8,
+      left:     r.left + r.width / 2,
+      transform: 'translateX(-50%)',
+      zIndex:   9999,
+    });
+  }, []);
+  const hideTip = useCallback(() => setTooltipStyle(null), []);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, maxWidth: 90 }}>
-      <div style={{ position: 'relative' }}>
+      <div
+        ref={bubbleRef}
+        style={{ position: 'relative', cursor: mgrResolved ? 'default' : undefined }}
+        onMouseEnter={mgrResolved ? showTip : undefined}
+        onMouseLeave={mgrResolved ? hideTip : undefined}
+      >
         <div style={{
           width: 48, height: 48, borderRadius: '50%',
           background: bg, color: '#fff',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: isMgr ? 20 : 14, fontWeight: 500,
+          fontSize: isMgr && !mgrResolved ? 20 : 14, fontWeight: 500,
           border: borderStyle,
         }}>
-          {isMgr
+          {isMgr && !mgrResolved
             ? <i className="fa-solid fa-user-tie" />
             : initials(name)}
         </div>
         {isCompleted
           ? <CompletedTick />
-          : <StepNumberBadge n={stepNumber} />}
+          : isSkipped
+            ? <SkippedBadge />
+            : <StepNumberBadge n={stepNumber} />}
+
+        {/* Tooltip for resolved manager */}
+        {tooltipStyle && mgrResolved && (
+          <div style={{
+            ...tooltipStyle,
+            background: '#fff', border: '1px solid #e5e7eb',
+            borderRadius: 10, padding: '10px 12px',
+            minWidth: 180, boxShadow: '0 4px 24px rgba(0,0,0,0.14)',
+            pointerEvents: 'none',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{
+                width: 28, height: 28, borderRadius: '50%',
+                background: '#d97706', color: '#fff',
+                fontSize: 10, fontWeight: 600,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                flexShrink: 0,
+              }}>
+                {initials(name)}
+              </div>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 500, color: '#1f2937' }}>{name}</div>
+                {step.resolvedDesignation && (
+                  <div style={{ fontSize: 11, color: '#6b7280' }}>{step.resolvedDesignation}</div>
+                )}
+              </div>
+            </div>
+            <div style={{
+              position: 'absolute', bottom: -5, left: '50%',
+              transform: 'translateX(-50%) rotate(45deg)',
+              width: 8, height: 8, background: '#fff',
+              borderRight: '1px solid #e5e7eb', borderBottom: '1px solid #e5e7eb',
+            }} />
+          </div>
+        )}
       </div>
 
+      {/* For manager steps: show the step role label ("Direct Manager"), not the person's
+          name — the person's name is shown in the hover tooltip instead. */}
       <div style={{ fontSize: 11, fontWeight: 500, textAlign: 'center', lineHeight: 1.3, color: '#1f2937', maxWidth: 80, wordBreak: 'break-word' }}>
-        {name}
+        {isMgr ? step.stepName : name}
       </div>
 
       <StatusLabel step={step} />

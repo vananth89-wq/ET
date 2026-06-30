@@ -237,7 +237,7 @@ function TaskCard({ task, selected, onClick }: { task: WorkflowTask; selected: b
       <div className="wfi-task-card-top">
         <div className="wfi-task-card-info">
           <div className="wfi-task-name">
-            {getPortletName(task.moduleCode, task.metadata, task.templateName, task.submittedByName)}
+            {getPortletName(task.moduleCode, task.metadata, task.templateName, task.submittedByName, task.subjectEmployeeName)}
           </div>
           {task.initiatedByActorId && task.initiatedByActorName && (
             <div style={{
@@ -260,7 +260,11 @@ function TaskCard({ task, selected, onClick }: { task: WorkflowTask; selected: b
             </div>
           )}
           <div className="wfi-task-meta">
-            {task.stepName} · {task.submittedByName ?? 'Unknown'}
+            {task.stepName} · {
+              (task.moduleCode === 'termination' || task.moduleCode === 'termination_reversal') && task.metadata?.employee_name
+                ? (task.metadata.employee_name as string)
+                : (task.submittedByName ?? 'Unknown')
+            }
           </div>
         </div>
         <div className="wfi-task-sla">
@@ -302,7 +306,7 @@ function SentBackCard({ item, selected, onClick }: { item: SentBackItem; selecte
       <div className="wfi-task-card-top">
         <div className="wfi-task-card-info">
           <div className="wfi-task-name">
-            {getPortletName(item.moduleCode, item.metadata, item.templateName, (item as any).submittedByName)}
+            {getPortletName(item.moduleCode, item.metadata, item.templateName, (item as any).submittedByName, (item as any).subjectEmployeeName)}
           </div>
           <div className="wfi-task-meta">
             {item.templateName}
@@ -851,6 +855,7 @@ const MODULE_LABELS: Record<string, string> = {
   profile_job_relationships: 'Job Relationships Update',
   profile_education:         'Education Update',
   termination:               'Termination',
+  termination_reversal:       'Termination Reversal',
 };
 
 /** Returns the human-readable "portlet name" for a task card title.
@@ -860,11 +865,24 @@ const MODULE_LABELS: Record<string, string> = {
  *  - other           → template name as fallback
  */
 function getPortletName(
-  moduleCode:    string,
-  metadata:      Record<string, unknown>,
-  templateName:  string,
-  submittedByName: string | null,
+  moduleCode:        string,
+  metadata:          Record<string, unknown>,
+  templateName:      string,
+  submittedByName:   string | null,
+  subjectEmployeeName?: string | null,
 ): string {
+  // Termination: use metadata.employee_name (stamped by mig 575+) or
+  // subjectEmployeeName only when it's a verified on-behalf submission
+  // (pre-575 records have subject_profile_id = submitter, so subjectEmployeeName
+  // would incorrectly show the submitter's name — ignore it here).
+  if (moduleCode === 'termination') {
+    const empName = (metadata?.employee_name as string | undefined) ?? null;
+    return empName ? `Termination — ${empName}` : 'Termination';
+  }
+  if (moduleCode === 'termination_reversal') {
+    const empName = (metadata?.employee_name as string | undefined) ?? null;
+    return empName ? `Termination Reversal — ${empName}` : 'Termination Reversal';
+  }
   const metaName = metadata?.name as string | undefined;
   if (metaName) return metaName;
   if (moduleCode.startsWith('profile_')) {
@@ -1690,7 +1708,7 @@ function TerminationEnrichment({ recordId, metadata, editMode, editValues, onEdi
       // Try termination table first, then reversal table
       const { data: termRow } = await supabase
         .from('employee_terminations')
-        .select('*')
+        .select('*, employees(name, employee_id)')
         .eq('id', recordId)
         .maybeSingle();
       if (termRow) { setTerm(termRow); setLoading(false); return; }
@@ -1744,12 +1762,16 @@ function TerminationEnrichment({ recordId, metadata, editMode, editValues, onEdi
     ? String(metadata.notice_period_waiver_reason)
     : String((term as any).notice_period_waiver_reason ?? '');
 
+  const terminatedEmployeeName = (term as any).employees?.name as string | undefined;
+
   const rows: [string, string][] = isReversal ? [
+    ...(terminatedEmployeeName ? [['Employee', terminatedEmployeeName] as [string, string]] : []),
     ['Type',             'Reversal'],
     ['Reversal Reason',  String((term as any).reversal_reason ?? '—')],
     ['Comments',         String((term as any).comments ?? '—')],
     ['Original Date',    fmtTermDate(origDate)],
   ] : [
+    ...(terminatedEmployeeName ? [['Employee', terminatedEmployeeName] as [string, string]] : []),
     ['Type',             String((term as any).termination_initiation_type ?? '—').replace(/_/g, ' ')],
     ['Separation Date',  fmtTermDate(sepDate)],
     ['Notice Expiry',    fmtTermDate(noticeExpiry)],
@@ -2523,13 +2545,36 @@ function DetailPanel({
   const extraMeta = Object.entries(task.metadata ?? {}).filter(([k]) => !META_HEADER_KEYS.has(k));
   // WorkflowReview handles expense_reports, employee_hire, and profile_employment
   // (full-page review surface). Other profile modules use inline edit (Pattern B).
-  const FULL_REVIEW_MODULES = new Set(['expense_reports', 'employee_hire', 'profile_employment', 'termination']);
+  const FULL_REVIEW_MODULES = new Set(['expense_reports', 'employee_hire', 'profile_employment', 'termination', 'termination_reversal']);
   const fullViewRoute = FULL_REVIEW_MODULES.has(task.moduleCode) ? `/workflow/review/${task.recordId}` : null;
 
   const [participantsOpen, setParticipantsOpen] = useState(false);
 
   const [resolvedAmount,   setResolvedAmount]   = useState<number | undefined>(task.metadata?.total_amount as number | undefined);
   const [resolvedCurrency, setResolvedCurrency] = useState<string | undefined>(task.metadata?.currency_code as string | undefined);
+
+  // For termination module: resolve the terminated employee's name.
+  // metadata.employee_name is reliable (set by mig 575+).
+  // subjectEmployeeName is NOT reliable for pre-575 records (it equals the
+  // submitter when initiated_by_actor_id was not stamped). Always DB-fetch
+  // as the authoritative source; seed optimistically from metadata first.
+  const [terminationSubjectName, setTerminationSubjectName] = useState<string | null>(
+    (task.metadata?.employee_name as string | undefined) ?? null
+  );
+  useEffect(() => {
+    setTerminationSubjectName((task.metadata?.employee_name as string | undefined) ?? null);
+    if (task.moduleCode === 'termination' || task.moduleCode === 'termination_reversal') {
+      supabase
+        .from('employee_terminations')
+        .select('employees(name)')
+        .eq('id', task.recordId)
+        .maybeSingle()
+        .then(({ data }) => {
+          const name = (data as any)?.employees?.name as string | undefined;
+          if (name) setTerminationSubjectName(name);
+        });
+    }
+  }, [task.taskId]);
 
   useEffect(() => {
     setResolvedAmount(task.metadata?.total_amount as number | undefined);
@@ -2746,9 +2791,18 @@ function DetailPanel({
         <div className="wfi-detail-header">
           <div className="wfi-detail-header-row">
             <div className="wfi-detail-title-group">
-              <h2 className="wfi-detail-title">{getPortletName(task.moduleCode, task.metadata, task.templateName, task.submittedByName)}</h2>
+              <h2 className="wfi-detail-title">
+                {(task.moduleCode === 'termination' || task.moduleCode === 'termination_reversal')
+                  ? (() => {
+                      const lbl = task.moduleCode === 'termination_reversal' ? 'Termination Reversal' : 'Termination';
+                      return terminationSubjectName ? `${lbl} — ${terminationSubjectName}` : lbl;
+                    })()
+                  : getPortletName(task.moduleCode, task.metadata, task.templateName, task.submittedByName, task.subjectEmployeeName)
+                }
+              </h2>
               <div className="wfi-detail-subtitle">
-                Submitted by <strong style={{ color: '#374151' }}>{task.submittedByName ?? '—'}</strong>{' · '}{fmtDate(task.taskCreatedAt)}
+                Submitted by <strong style={{ color: '#374151' }}>{task.submittedByName ?? '—'}</strong>
+                {' · '}{fmtDate(task.taskCreatedAt)}
               </div>
             </div>
             {fullViewRoute && (
@@ -2841,7 +2895,7 @@ function DetailPanel({
         {task.moduleCode === 'employee_hire' && (
           <HireEnrichment recordId={task.recordId} />
         )}
-        {task.moduleCode === 'termination' && (
+        {(task.moduleCode === 'termination' || task.moduleCode === 'termination_reversal') && (
           <TerminationEnrichment
             recordId={task.recordId}
             metadata={task.metadata ?? {}}
@@ -2895,9 +2949,8 @@ function DetailPanel({
             // Both primary terminations AND reversals share module_code='termination'.
             // Distinguish by metadata: reversal tasks have reversal_reason; primary do not.
             // Each Edge Function guards internally (wrong record type → 400/404 harmlessly).
-            if (task.moduleCode === 'termination') {
-              const isReversal = Boolean(task.metadata?.reversal_reason);
-              if (isReversal) {
+            if (task.moduleCode === 'termination' || task.moduleCode === 'termination_reversal') {
+              if (task.moduleCode === 'termination_reversal') {
                 // Reversal approved → undo employment slices, reactivate employee
                 supabase.functions
                   .invoke('apply-termination-reversal', { body: { reversal_id: task.recordId } })
@@ -2925,7 +2978,14 @@ function DetailPanel({
         open={participantsOpen}
         onClose={() => setParticipantsOpen(false)}
         instanceId={task.instanceId}
-        title={`${task.submittedByName ?? 'Submission'} — ${MODULE_LABELS[task.moduleCode] ?? task.moduleCode.replace(/_/g, ' ')}`}
+        title={(() => {
+          if (task.moduleCode === 'termination' || task.moduleCode === 'termination_reversal') {
+            const label   = task.moduleCode === 'termination_reversal' ? 'Termination Reversal' : 'Termination';
+            const empName = (task.metadata?.employee_name as string | undefined) ?? task.submittedByName ?? 'Submission';
+            return `${empName} — ${label}`;
+          }
+          return `${task.submittedByName ?? 'Submission'} — ${MODULE_LABELS[task.moduleCode] ?? task.moduleCode.replace(/_/g, ' ')}`;
+        })()}
         submittedByName={task.submittedByName}
       />
     </div>
@@ -3066,7 +3126,7 @@ function SentBackDetailPanel({ item, onUpdate, onRespond, onWithdraw, onAfterAct
         {item.moduleCode === 'employee_hire' && (
           <HireEnrichment recordId={item.recordId} />
         )}
-        {item.moduleCode === 'termination' && (
+        {(item.moduleCode === 'termination' || item.moduleCode === 'termination_reversal') && (
           <TerminationEnrichment recordId={item.recordId} metadata={item.metadata ?? {}} />
         )}
         {item.moduleCode.startsWith('profile_') && (

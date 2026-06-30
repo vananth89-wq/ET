@@ -378,7 +378,22 @@ function InlineEducationForm({
   }
 
   function handleFileAdd(e: React.ChangeEvent<HTMLInputElement>) {
+    const ALLOWED_MIME = new Set([
+      'application/pdf',
+      'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp',
+    ]);
+    const FRIENDLY_TYPES = 'PDF or image files (JPG, PNG)';
+
     const files = Array.from(e.target.files ?? []);
+    const rejected = files.filter(f => !ALLOWED_MIME.has(f.type));
+    if (rejected.length > 0) {
+      const names = rejected.map(f => f.name).join(', ');
+      set('_attachmentError' as any,
+        `${names} cannot be uploaded. Only ${FRIENDLY_TYPES} are accepted.`);
+      e.target.value = '';
+      return;
+    }
+    set('_attachmentError' as any, undefined);
     const staged: EduAttachment[] = files.map(f => ({
       document_type: '', file_name: f.name, original_file_name: f.name,
       file_path: '', mime_type: f.type, file_size: f.size,
@@ -607,7 +622,13 @@ function InlineEducationForm({
               <i className="fa-solid fa-plus" style={{ marginRight: 4 }} />Attach File
             </button>
           </div>
-          <input ref={fileInputRef} type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" onChange={handleFileAdd} style={{ display: 'none' }} />
+          <input ref={fileInputRef} type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.gif,.webp" onChange={handleFileAdd} style={{ display: 'none' }} />
+          {(form as any)._attachmentError && (
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 6, padding: '8px 10px', marginBottom: 8, fontSize: 12.5, color: '#B91C1C' }}>
+              <i className="fa-solid fa-circle-exclamation" style={{ flexShrink: 0, marginTop: 1 }} />
+              <span>{(form as any)._attachmentError}</span>
+            </div>
+          )}
 
           {visibleAtts.length > 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>

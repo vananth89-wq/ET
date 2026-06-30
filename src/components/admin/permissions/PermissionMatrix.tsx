@@ -66,11 +66,11 @@ const EV_GROUPS: MatrixGroup[] = [
   { groupLabel: 'Employee info', rows: [
     { code: 'employee_details',   label: 'Employee master',   availableActions: ['view','edit'],
       rowHint: 'Controls which employees this user can see — sets the scope for all employee info portlets' },
-    { code: 'personal_info',      label: 'Personal info',     availableActions: ['view','edit','delete','history'],
+    { code: 'personal_info',      label: 'Personal info',     availableActions: ['view','create','edit','delete','history'],
       rowHint: 'Legal name, gender, date of birth and other personal details' },
     { code: 'contact_info',       label: 'Contact',           availableActions: ['view','edit','delete'],
       rowHint: 'Work email, personal email, phone numbers and messaging handles' },
-    { code: 'employment',         label: 'Employment',        availableActions: ['view','edit','delete','history'],
+    { code: 'employment',         label: 'Employment',        availableActions: ['view','create','edit','delete','history'],
       rowHint: 'Job title, department, employment type, contract type and start date' },
     { code: 'address',            label: 'Address',           availableActions: ['view','edit','delete'],
       rowHint: 'Home, postal and work addresses' },
@@ -200,6 +200,7 @@ const TOGGLE_GROUPS: ToggleGroup[] = [
     { code: 'sec_target_groups',      label: 'Target groups',      hint: 'View: see custom target groups and their criteria. Edit: create, modify and delete groups.', actions: ['view', 'edit'] as Action[] },
     { code: 'sec_permission_catalog', label: 'Permission catalog', hint: 'Controls the Permission Catalog tab — read-only reference view of all permissions in the system grouped by module.' },
     { code: 'sec_rbp_troubleshoot',   label: 'RBP troubleshoot',   hint: 'Controls the RBP Troubleshooting tab — inspect what permissions any user currently has and trace why.' },
+    { code: 'sec_password_reset',     label: 'Password reset',     hint: 'View: access the page and audit log. Edit: perform resets (set temp password or send recovery link).', actions: ['view', 'edit'] as Action[] },
   ]},
   { groupLabel: 'Workflow Admin', useMatrixLayout: true, items: [
     { code: 'wf_manage',                label: 'Manage Workflow',            actions: ['view', 'edit'] as Action[], hint: 'View: open the Workflow Operations page. Edit: trigger, cancel and configure running workflows.' },
@@ -1103,7 +1104,7 @@ export default function PermissionMatrix() {
   if (error) return <ErrorBanner message={error} />;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 220px)', minHeight: 400 }}>
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
 
       <div style={{

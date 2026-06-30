@@ -2,13 +2,18 @@
  * send-job-alert
  *
  * Sends a failure alert email for any background job via Resend.
+ * Attaches an Excel report (.xlsx) built server-side from the job's details/errors.
+ *
  * Called by:
- *   - process-scheduled-terminations Edge Function (scheduled runs)
+ *   - process-scheduled-terminations Edge Function (scheduled runs + startup failures)
  *   - JobsAdmin frontend (after manual runNow with failures)
  *
- * Required env vars (shared with send-notification-email):
+ * Required env vars:
  *   RESEND_API_KEY, EMAIL_FROM
  */
+
+// @deno-types="https://esm.sh/xlsx@0.18.5/types/index.d.ts"
+import * as XLSX from 'https://esm.sh/xlsx@0.18.5';
 
 const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY');
 const EMAIL_FROM     = Deno.env.get('EMAIL_FROM');
@@ -26,17 +31,79 @@ function json(body: unknown, status = 200) {
   });
 }
 
+interface RowDetail {
+  terminated_employee_name?: string;
+  terminated_employee_id?:   string;
+  affected_employee_name?:   string;
+  affected_employee_id?:     string;
+  employee_name?:            string;
+  employee_id?:              string;
+  last_working_date?:        string | null;
+  separation_date?:          string | null;
+  outcome?:                  string;
+  reason?:                   string;
+  error?:                    string;
+}
+
 interface AlertPayload {
-  to:        string;
-  job_name:  string;
-  job_code:  string;
-  run_date:  string;   // ISO date string
-  total:     number;
-  succeeded: number;
-  failed:    number;
-  skipped?:  number;
-  errors:    Array<{ label: string; error: string }>;  // label = employee name or item descriptor
-  error_message?: string;  // top-level job error (non-per-row)
+  to:            string;
+  job_name:      string;
+  job_code:      string;
+  run_date:      string;
+  total:         number;
+  succeeded:     number;
+  failed:        number;
+  skipped?:      number;
+  errors:        Array<{ label: string; error: string }>;
+  details?:      RowDetail[];
+  error_message?: string;
+}
+
+/** Build an Excel workbook as a base64 string */
+function buildExcel(payload: AlertPayload): string {
+  const { job_name, run_date, total, succeeded, failed, skipped = 0, errors, details, error_message } = payload;
+
+  let rows: Record<string, unknown>[];
+
+  if (details && details.length > 0) {
+    // Rich per-row detail (termination job)
+    rows = details.map(d => ({
+      'Terminated Employee':    d.terminated_employee_name ?? d.employee_name ?? '',
+      'Terminated Employee ID': d.terminated_employee_id  ?? d.employee_id   ?? '',
+      'Affected Employee':      d.affected_employee_name  ?? '—',
+      'Affected Employee ID':   d.affected_employee_id   ?? '—',
+      'Last Working Date':      d.last_working_date ?? '',
+      'Separation Date':        d.separation_date   ?? '',
+      'Outcome':                d.outcome ?? '',
+      'Reason / Error':         d.error ?? d.reason ?? '',
+    }));
+  } else if (errors.length > 0) {
+    // Per-row errors without full detail
+    rows = errors.map(e => ({
+      'Job':      job_name,
+      'Run Date': run_date,
+      'Item':     e.label,
+      'Error':    e.error,
+    }));
+  } else {
+    // Top-level / startup failure — single summary row
+    rows = [{
+      'Job':            job_name,
+      'Run Date':       run_date,
+      'Status':         'FAILED',
+      'Total':          total,
+      'Succeeded':      succeeded,
+      'Failed':         failed,
+      'Skipped':        skipped,
+      'Error':          error_message ?? 'Unknown error',
+    }];
+  }
+
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws['!cols'] = Object.keys(rows[0] ?? {}).map(() => ({ wch: 24 }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Run Report');
+  return XLSX.write(wb, { type: 'base64', bookType: 'xlsx' }) as string;
 }
 
 Deno.serve(async (req: Request) => {
@@ -63,26 +130,29 @@ Deno.serve(async (req: Request) => {
   const { to, job_name, run_date, total, succeeded, failed, skipped = 0, errors, error_message } = payload;
   if (!to || !job_name) return json({ ok: false, error: 'Missing required fields: to, job_name' }, 400);
 
-  const errorRows = errors.map(e => `
-    <tr>
-      <td style="padding:8px 12px;border-bottom:1px solid #E5E7EB">${e.label}</td>
-      <td style="padding:8px 12px;border-bottom:1px solid #E5E7EB;color:#DC2626">${e.error}</td>
-    </tr>`).join('');
+  // ── Excel attachment ────────────────────────────────────────────────────────
+  let attachments: Array<{ filename: string; content: string }> = [];
+  try {
+    const base64 = buildExcel(payload);
+    const jobSlug = job_name.toLowerCase().replace(/\s+/g, '_');
+    attachments = [{ filename: `${jobSlug}_${run_date}.xlsx`, content: base64 }];
+  } catch (err) {
+    console.error('send-job-alert: Excel build failed', err);
+    // Non-fatal — send email without attachment rather than dropping the alert
+  }
 
-  const tableBlock = errors.length > 0 ? `
-    <table style="width:100%;border-collapse:collapse;margin-top:16px;font-size:13px">
-      <thead>
-        <tr style="background:#F9FAFB">
-          <th style="padding:8px 12px;text-align:left;border-bottom:2px solid #E5E7EB">Item</th>
-          <th style="padding:8px 12px;text-align:left;border-bottom:2px solid #E5E7EB">Error</th>
-        </tr>
-      </thead>
-      <tbody>${errorRows}</tbody>
-    </table>` : '';
-
+  // ── HTML body ───────────────────────────────────────────────────────────────
   const topError = error_message
     ? `<p style="background:#FEF2F2;border:1px solid #FECACA;border-radius:6px;padding:10px 14px;color:#DC2626;font-size:13px">${error_message}</p>`
     : '';
+
+  const attachNote = attachments.length > 0
+    ? `<p style="margin-top:20px;font-size:12px;color:#9CA3AF">
+        The full run report is attached as an Excel file.
+       </p>`
+    : `<p style="margin-top:20px;font-size:12px;color:#9CA3AF">
+        Go to <strong>Admin → Background Jobs</strong> to download the full report.
+       </p>`;
 
   const html = `
     <div style="font-family:sans-serif;max-width:640px;margin:0 auto">
@@ -107,21 +177,22 @@ Deno.serve(async (req: Request) => {
         </div>
       </div>
       ${topError}
-      ${tableBlock}
-      <p style="margin-top:20px;font-size:12px;color:#9CA3AF">
-        Go to <strong>Admin → Background Jobs</strong> to download the full Excel report.
-      </p>
+      ${attachNote}
     </div>`;
 
+  // ── Send via Resend ─────────────────────────────────────────────────────────
+  const resendBody: Record<string, unknown> = {
+    from:    EMAIL_FROM,
+    to,
+    subject: `[Prowess] ${job_name} failed — ${failed > 0 ? `${failed} error${failed !== 1 ? 's' : ''}` : 'startup error'} on ${run_date}`,
+    html,
+  };
+  if (attachments.length > 0) resendBody['attachments'] = attachments;
+
   const res = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
+    method:  'POST',
     headers: { 'Authorization': `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      from:    EMAIL_FROM,
-      to,
-      subject: `[Prowess] ${job_name} failed — ${failed} error${failed !== 1 ? 's' : ''} on ${run_date}`,
-      html,
-    }),
+    body:    JSON.stringify(resendBody),
   });
 
   if (!res.ok) {

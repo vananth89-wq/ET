@@ -53,6 +53,7 @@ export function useNotifications() {
     const { data } = await supabase
       .from('notifications')
       .select('id, title, body, link, is_read, created_at')
+      .eq('profile_id', user.id)   // always scope to current user, even for admins
       .order('created_at', { ascending: false })
       .limit(50);
     setNotifications((data ?? []).map(mapRow));
@@ -82,7 +83,8 @@ export function useNotifications() {
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [user, load]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);   // stable on token refresh — only re-runs when user identity changes
 
   // ── Mark one or many as read ───────────────────────────────────────────────
   const markAsRead = useCallback(async (ids: string[]) => {
@@ -91,10 +93,17 @@ export function useNotifications() {
     setNotifications(prev =>
       prev.map(n => ids.includes(n.id) ? { ...n, isRead: true } : n),
     );
-    await supabase
+    const { error } = await supabase
       .from('notifications')
       .update({ is_read: true })
       .in('id', ids);
+    if (error) {
+      // Revert optimistic update on failure
+      console.error('useNotifications: markAsRead failed', error);
+      setNotifications(prev =>
+        prev.map(n => ids.includes(n.id) ? { ...n, isRead: false } : n),
+      );
+    }
   }, []);
 
   // ── Mark all as read ───────────────────────────────────────────────────────

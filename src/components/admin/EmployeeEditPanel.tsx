@@ -34,6 +34,10 @@ interface Props {
   emp: FullEmployee;
   onClose: () => void;
   onSaved?: () => void;
+  /** Pre-open employment section in a specific mode on mount */
+  initialEmploymentMode?: 'edit' | 'insert';
+  /** For edit mode: which slice to pre-select (effective_from date string) */
+  initialEmploymentEffectiveFrom?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -107,7 +111,7 @@ const MODULE_TO_SECTION: Record<string, string> = {
   profile_dependents:        'dependents',
 };
 
-export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
+export default function EmployeeEditPanel({ emp, onClose, onSaved, initialEmploymentMode, initialEmploymentEffectiveFrom }: Props) {
   // ── Supabase data ─────────────────────────────────────────────────────────
   const { can }                          = usePermissions();
   const { employees }                    = useEmployees();
@@ -218,6 +222,16 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
   const [dWorkLoc,    setDWorkLoc]    = useState('');
   const [dCurrency,   setDCurrency]   = useState('');
   const [probWarning, setProbWarning] = useState<{ open: boolean; pendingDate: string }>({ open: false, pendingDate: '' });
+
+  // ── Employment insert/edit mode ───────────────────────────────────────────
+  // 'insert' = new effective-dated slice (AMENDMENT/SPLIT/PREPEND/GAP-FILL)
+  // 'edit'   = in-place correction of an existing slice (CORRECTION)
+  const [employmentMode,          setEmploymentMode]          = useState<'edit' | 'insert'>('insert');
+  const [employmentEffectiveFrom, setEmploymentEffectiveFrom] = useState<string>('');
+  const [eeHistOpen,    setEeHistOpen]    = useState(false);
+  const [eeHistRows,    setEeHistRows]    = useState<Record<string, unknown>[]>([]);
+  const [eeHistLoading, setEeHistLoading] = useState(false);
+  const [eeHistSelIdx,  setEeHistSelIdx]  = useState(0);
 
   // Identity
   const [dIdRecords,   setDIdRecords]  = useState<IdRecord[]>([]);
@@ -449,7 +463,81 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
 
   function cancelEdit() {
     setOpenSection(null); setIsDirty(false); setDirtyTarget(null); setErrors({});
+    setEeHistOpen(false);
   }
+
+  // ── Employment history helpers ─────────────────────────────────────────────
+
+  async function loadEeHistory(empId: string) {
+    setEeHistLoading(true);
+    const { data } = await supabase.rpc('get_employment_info_history', { p_employee_id: empId });
+    const rows = (data as Record<string, unknown>[] | null) ?? [];
+    setEeHistRows(rows);
+    setEeHistSelIdx(0);
+    setEeHistLoading(false);
+    return rows;
+  }
+
+  function loadEeSliceIntoForm(h: Record<string, unknown>) {
+    isLoadingEmploymentRef.current = true;
+    setDDesig(String(h.designation || ''));
+    setDDeptId(String(h.dept_id    || ''));
+    setDManagerId(String(h.manager_id || ''));
+    setDHireDate(String(h.hire_date || ''));
+    setDNoticePeriodDays((h.notice_period_days as number | undefined) ?? 30);
+    setDProbation(String(h.probation_end_date || ''));
+    setDWorkCountry(String(h.work_country  || ''));
+    setDWorkLoc(String(h.work_location || ''));
+    setDCurrency(String(h.base_currency_id || ''));
+    setEmploymentEffectiveFrom(String(h.effective_from));
+    setIsDirty(false);
+    setTimeout(() => { isLoadingEmploymentRef.current = false; }, 0);
+  }
+
+  function requestOpenEmployment(mode: 'edit' | 'insert') {
+    setEmploymentMode(mode);
+    if (mode === 'insert') {
+      const today = new Date().toISOString().split('T')[0];
+      setEmploymentEffectiveFrom(today);
+      setEeHistOpen(false);
+      requestOpen('employment');
+    } else {
+      // Edit mode: load history, then pre-select first (current) slice
+      setEeHistOpen(true);
+      setEmploymentEffectiveFrom(''); // will be set once history loads
+      requestOpen('employment');
+      loadEeHistory(liveEmp.id as string).then(rows => {
+        if (rows.length > 0) loadEeSliceIntoForm(rows[0]);
+      });
+    }
+  }
+
+  // On mount: honour initialEmploymentMode from parent (e.g. EmployeeDetails history panel)
+  useEffect(() => {
+    if (initialEmploymentMode) {
+      if (initialEmploymentMode === 'edit' && initialEmploymentEffectiveFrom) {
+        // Open in edit mode targeting a specific historical slice
+        setEmploymentMode('edit');
+        setEeHistOpen(true);
+        requestOpen('employment');
+        loadEeHistory(emp.id as string).then(rows => {
+          const target = rows.find(r => String(r.effective_from) === initialEmploymentEffectiveFrom);
+          if (target) {
+            const idx = rows.indexOf(target);
+            setEeHistSelIdx(idx);
+            loadEeSliceIntoForm(target);
+          } else if (rows.length > 0) {
+            loadEeSliceIntoForm(rows[0]);
+          }
+        });
+      } else if (initialEmploymentMode === 'insert') {
+        setEmploymentMode('insert');
+        setEmploymentEffectiveFrom(new Date().toISOString().split('T')[0]);
+        requestOpen('employment');
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Validate ──────────────────────────────────────────────────────────────
   function validate(sectionId: string): Record<string, string> {
@@ -764,7 +852,10 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
       // Route through upsert_employment_info — handles effective-dated slice
       // creation, mirror sync, manager role sync, currency derivation, cycle detection.
       // end_date removed (mig 487); deactivation now via Termination workflow.
-      const today = new Date().toISOString().split('T')[0];
+      //
+      // Mode 'edit':   p_effective_from = slice's own effective_from → CORRECTION (in-place update)
+      // Mode 'insert': p_effective_from = user-chosen date → AMENDMENT/SPLIT/PREPEND/GAP-FILL
+      const effectiveFrom = employmentEffectiveFrom || new Date().toISOString().split('T')[0];
       const { data: eeResult, error: eeErr } = await supabase.rpc('upsert_employment_info', {
         p_employee_id:    empUUID,
         p_proposed_data:  {
@@ -777,7 +868,7 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
           work_location:      dWorkLoc           || null,
           probation_end_date: dProbation         || null,
         },
-        p_effective_from: today,
+        p_effective_from: effectiveFrom,
       });
       if (eeErr) satelliteError = eeErr.message;
       else if (eeResult && !eeResult.ok) {
@@ -1238,6 +1329,103 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
       // ── Employment ──────────────────────────────────────────────────────────
       case 'employment': return (
         <div className="emp-section">
+
+          {/* ── Mode banner ─────────────────────────────────────────────── */}
+          {employmentMode === 'insert' ? (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 12,
+              background: '#EFF6FF', border: '1px solid #BFDBFE',
+              borderRadius: 8, padding: '10px 14px', marginBottom: 16,
+            }}>
+              <i className="fa-solid fa-plus" style={{ color: '#2563EB', fontSize: 13 }} />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: '#1D4ED8' }}>Inserting new time slice</div>
+                <div style={{ fontSize: 11.5, color: '#3B82F6', marginTop: 2 }}>
+                  A new effective-dated record will be created. Existing slices will be trimmed automatically.
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                <label style={{ fontSize: 12, color: '#1D4ED8', fontWeight: 600 }}>Effective from</label>
+                <input
+                  type="date" min="1900-01-01" max="2100-12-31"
+                  value={employmentEffectiveFrom}
+                  onChange={e => { setEmploymentEffectiveFrom(e.target.value); setIsDirty(true); }}
+                  style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #93C5FD', background: '#fff' }}
+                />
+              </div>
+            </div>
+          ) : (
+            /* Edit mode — show history rail so user can pick which slice to correct */
+            <div style={{
+              background: '#F9FAFB', border: '1px solid #E5E7EB',
+              borderRadius: 8, marginBottom: 16, overflow: 'hidden',
+            }}>
+              {/* Header */}
+              <div style={{
+                background: '#EEF2FF', padding: '8px 14px',
+                display: 'flex', alignItems: 'center', gap: 8,
+                borderBottom: '1px solid #E0E7FF',
+              }}>
+                <i className="fa-solid fa-pen-to-square" style={{ color: '#4F46E5', fontSize: 12 }} />
+                <span style={{ fontWeight: 600, fontSize: 12.5, color: '#3730A3' }}>
+                  Editing existing record — date boundaries will not change
+                </span>
+                <span style={{ marginLeft: 'auto', fontSize: 11.5, color: '#6B7280' }}>
+                  Select a record below to switch
+                </span>
+              </div>
+              {/* Slice selector */}
+              {eeHistLoading ? (
+                <div style={{ padding: '10px 14px', color: '#9CA3AF', fontSize: 13 }}>
+                  <i className="fa-solid fa-spinner fa-spin" style={{ marginRight: 6 }} />Loading history…
+                </div>
+              ) : eeHistRows.length === 0 ? (
+                <div style={{ padding: '10px 14px', color: '#9CA3AF', fontSize: 13 }}>No records found.</div>
+              ) : (
+                <div style={{ display: 'flex', overflowX: 'auto', gap: 0 }}>
+                  {eeHistRows.map((h, i) => {
+                    const isCurrent = h.effective_to === '9999-12-31';
+                    return (
+                      <button
+                        key={i}
+                        onClick={() => {
+                          setEeHistSelIdx(i);
+                          loadEeSliceIntoForm(h);
+                        }}
+                        style={{
+                          flexShrink: 0, padding: '8px 14px', border: 'none',
+                          borderRight: '1px solid #E5E7EB', cursor: 'pointer',
+                          background: eeHistSelIdx === i ? '#EEF2FF' : '#fff',
+                          color: eeHistSelIdx === i ? '#4F46E5' : '#374151',
+                          fontSize: 12, fontWeight: eeHistSelIdx === i ? 700 : 400,
+                          textAlign: 'left',
+                        }}
+                      >
+                        <div>{h.effective_from as string}</div>
+                        <div style={{ fontSize: 11, color: eeHistSelIdx === i ? '#818CF8' : '#9CA3AF' }}>
+                          {isCurrent ? '→ Present' : `→ ${h.effective_to as string}`}
+                        </div>
+                        {isCurrent && (
+                          <div style={{ fontSize: 10, fontWeight: 700, color: '#059669', marginTop: 2 }}>CURRENT</div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {/* Selected slice effective_from read-only badge */}
+              {employmentEffectiveFrom && (
+                <div style={{
+                  padding: '6px 14px', borderTop: '1px solid #E5E7EB',
+                  fontSize: 12, color: '#6B7280', display: 'flex', alignItems: 'center', gap: 6,
+                }}>
+                  <i className="fa-solid fa-lock" style={{ fontSize: 10 }} />
+                  Effective from <strong>{employmentEffectiveFrom}</strong> — date is locked for in-place edit
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="emp-field-grid emp-grid-2">
             <div className={`form-group ${errors.designation ? 'form-group--error' : ''}`}>
               <label><i className="fa-solid fa-id-badge fa-fw" /> Designation</label>
@@ -1790,9 +1978,31 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved }: Props) {
                       <i className="fa-solid fa-lock" /> Under review
                     </span>
                   : (!isOpen
-                      ? <button className="emp-edit-btn-edit" onClick={e => { e.stopPropagation(); requestOpen(sec.id); }}>
-                          <i className="fa-solid fa-pen-to-square" /> Edit
-                        </button>
+                      ? sec.id === 'employment'
+                        ? (
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            {can('employment.create') && (
+                              <button
+                                className="emp-edit-btn-edit"
+                                style={{ background: '#EFF6FF', color: '#2563EB', borderColor: '#BFDBFE' }}
+                                onClick={e => { e.stopPropagation(); requestOpenEmployment('insert'); }}
+                              >
+                                <i className="fa-solid fa-plus" /> Insert
+                              </button>
+                            )}
+                            {can('employment.edit') && (
+                              <button
+                                className="emp-edit-btn-edit"
+                                onClick={e => { e.stopPropagation(); requestOpenEmployment('edit'); }}
+                              >
+                                <i className="fa-solid fa-pen-to-square" /> Edit
+                              </button>
+                            )}
+                          </div>
+                        )
+                        : <button className="emp-edit-btn-edit" onClick={e => { e.stopPropagation(); requestOpen(sec.id); }}>
+                            <i className="fa-solid fa-pen-to-square" /> Edit
+                          </button>
                       : <button className="emp-edit-btn-close" onClick={e => { e.stopPropagation(); cancelEdit(); }}>
                           <i className="fa-solid fa-xmark" />
                         </button>

@@ -2,17 +2,29 @@
  * apply-termination-approval
  *
  * Called immediately when a termination workflow is fully approved.
- * Responsibility (post mig 532 redesign):
- *   — Pre-insert employment slices (close Active slice, add future Inactive slice)
- *   — Does NOT flip employees.status (stays Active while employee still working)
- *   — Does NOT stamp scheduled_executed (cron owns that after last_working_date)
  *
- * Slice insertion is atomic inside fn_pre_insert_termination_slices (SECURITY
- * DEFINER), avoiding the idx_ee_one_active_row unique-index race window.
+ * Two-phase execution:
+ *
+ * Phase 1 — always runs on approval (regardless of date):
+ *   fn_pre_insert_termination_slices
+ *     • Closes the Active employment slice at last_working_date
+ *     • Inserts the LWD+1 Inactive marker slice
+ *     • employees.status stays Active (employee still working)
+ *
+ * Phase 2 — runs immediately on approval when last_working_date <= today:
+ *   fn_finalize_termination_execution
+ *     • Sets employees.status = 'Inactive'
+ *     • Applies direct report manager reassignments
+ *     • Stamps scheduled_executed = true
+ *
+ *   For future-dated terminations, Phase 2 is deferred to the daily
+ *   process-scheduled-terminations cron (00:05 UTC) which runs
+ *   fn_finalize_termination_execution on the last_working_date.
+ *
+ * Both RPCs are idempotent — safe to call multiple times.
  *
  * Called by: ApproverInbox.tsx on final-step approval.
  * Request body: { termination_id: string }
- * Design spec: docs/termination-design.md §5.1 (updated mig 532)
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -54,25 +66,83 @@ Deno.serve(async (req: Request) => {
   const { termination_id } = body;
   if (!termination_id) return json({ ok: false, error: 'termination_id is required' }, 400);
 
-  // Atomic slice pre-insertion via SECURITY DEFINER RPC.
-  // Works for same-day and future-dated alike. Inactive slice visible in history
-  // immediately. employees.status stays Active — cron flips on last_working_date.
-  const { data, error } = await admin.rpc('fn_pre_insert_termination_slices', {
-    p_termination_id: termination_id,
+  // ── Phase 1: Pre-insert employment slices ─────────────────────────────────
+  // Always runs on approval. Closes Active slice + inserts LWD+1 Inactive marker.
+  const { data: sliceData, error: sliceError } = await admin.rpc(
+    'fn_pre_insert_termination_slices',
+    { p_termination_id: termination_id },
+  );
+
+  if (sliceError) {
+    console.error('apply-termination-approval: fn_pre_insert_termination_slices error', sliceError);
+    return json({ ok: false, error: sliceError.message }, 500);
+  }
+
+  const sliceResult = sliceData as { ok: boolean; skipped?: boolean; reason?: string; error?: string; lwd?: string };
+
+  if (!sliceResult.ok) {
+    console.error('apply-termination-approval: slice RPC returned not-ok', sliceResult.error);
+    return json({ ok: false, error: sliceResult.error }, 400);
+  }
+
+  console.log(
+    'apply-termination-approval: slices',
+    sliceResult.skipped ? `skipped — ${sliceResult.reason}` : `written (lwd: ${sliceResult.lwd})`,
+  );
+
+  // ── Phase 2: Finalize immediately if LWD <= today ─────────────────────────
+  // For backdated or same-day terminations, run fn_finalize_termination_execution
+  // now rather than waiting for the next cron at 00:05 UTC.
+  // For future-dated, the cron handles it on the last_working_date.
+  const today = new Date().toISOString().slice(0, 10);
+  const lwd   = sliceResult.lwd ?? null;
+
+  if (lwd && lwd <= today) {
+    console.log(`apply-termination-approval: LWD ${lwd} <= today ${today} — running finalize immediately`);
+
+    const { data: finalizeData, error: finalizeError } = await admin.rpc(
+      'fn_finalize_termination_execution',
+      { p_termination_id: termination_id },
+    );
+
+    if (finalizeError) {
+      // Non-fatal: slices are already written. Cron will retry finalize.
+      console.error('apply-termination-approval: fn_finalize_termination_execution error', finalizeError);
+      return json({
+        ok:       true,
+        termination_id,
+        slices:   sliceResult,
+        finalize: { ok: false, error: finalizeError.message, note: 'cron will retry' },
+      });
+    }
+
+    const finalizeResult = finalizeData as { ok: boolean; skipped?: boolean; reason?: string; error?: string; dr_errors?: unknown[] };
+
+    console.log(
+      'apply-termination-approval: finalize',
+      finalizeResult.skipped
+        ? `skipped — ${finalizeResult.reason}`
+        : finalizeResult.ok
+        ? 'done'
+        : `failed — ${finalizeResult.error}`,
+    );
+
+    return json({
+      ok:            true,
+      termination_id,
+      slices:        sliceResult,
+      finalize:      finalizeResult,
+      immediate:     true,
+    });
+  }
+
+  // Future-dated: Phase 2 deferred to cron
+  console.log(`apply-termination-approval: LWD ${lwd} is future-dated — finalize deferred to cron`);
+  return json({
+    ok:            true,
+    termination_id,
+    slices:        sliceResult,
+    immediate:     false,
+    note:          `finalize deferred — cron will run on ${lwd}`,
   });
-
-  if (error) {
-    console.error('apply-termination-approval: RPC error', error);
-    return json({ ok: false, error: error.message }, 500);
-  }
-
-  const result = data as { ok: boolean; skipped?: boolean; reason?: string; error?: string };
-
-  if (!result.ok) {
-    console.error('apply-termination-approval: RPC error', result.error);
-    return json({ ok: false, error: result.error }, 400);
-  }
-
-  console.log('apply-termination-approval:', result.skipped ? `skipped — ${result.reason}` : `slices written for ${termination_id}`);
-  return json({ ok: true, termination_id, ...result });
 });

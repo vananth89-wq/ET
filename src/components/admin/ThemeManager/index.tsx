@@ -48,6 +48,7 @@ const DEFAULT_PROFILE_SECTIONS: ProfileSection[] = [
   { id: 'dependents',        label: 'Dependents',           icon: 'fa-people-group',      visible: true, order: 9  },
   { id: 'job_relationships', label: 'Job Relationships',    icon: 'fa-sitemap',           visible: true, order: 10 },
   { id: 'education',         label: 'Education',            icon: 'fa-graduation-cap',    visible: true, order: 11 },
+  { id: 'termination',      label: 'Termination',          icon: 'fa-person-walking-arrow-right', visible: true, order: 12 },
 ];
 
 type UploadKey =

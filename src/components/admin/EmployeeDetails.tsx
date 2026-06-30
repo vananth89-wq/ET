@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useEmployees, type Employee } from '../../hooks/useEmployees';
 import WorkflowGateBanner from '../../workflow/components/WorkflowGateBanner';
 import { usePicklistValues }           from '../../hooks/usePicklistValues';
@@ -188,7 +188,9 @@ export default function EmployeeDetails() {
   const { currencies }                                    = useCurrencies();
   const { can }                                           = usePermissions();
 
-  const [editingEmpId, setEditingEmpId] = useState<string | null>(null);
+  const [editingEmpId,                    setEditingEmpId]                    = useState<string | null>(null);
+  const [editingEmpInitMode,              setEditingEmpInitMode]              = useState<'edit' | 'insert' | undefined>(undefined);
+  const [editingEmpInitEffectiveFrom,     setEditingEmpInitEffectiveFrom]     = useState<string | undefined>(undefined);
 
   // Employment history panel
   const [histEmployeeId, setHistEmployeeId] = useState<string | null>(null);
@@ -275,10 +277,42 @@ export default function EmployeeDetails() {
     }
   }
 
-  // Active / non-draft employees only
+  // ── Stuck hire activations ─────────────────────────────────────────────────
+  const [stuckHireIds,    setStuckHireIds]    = useState<Set<string>>(new Set());
+  const [fixingHireId,    setFixingHireId]    = useState<string | null>(null);
+  const [hireFixResult,   setHireFixResult]   = useState<{ id: string; ok: boolean; msg: string } | null>(null);
+
+  const loadStuckHires = useCallback(async () => {
+    const { data } = await supabase.rpc('get_stuck_hire_activations');
+    const ids = ((data ?? []) as { employee_id: string }[]).map(r => r.employee_id);
+    setStuckHireIds(new Set(ids));
+  }, []);
+
+  useEffect(() => { loadStuckHires(); }, [loadStuckHires]);
+
+  async function handleFixHire(emp: FullEmployee) {
+    if (!emp.id) return;
+    setFixingHireId(emp.id);
+    setHireFixResult(null);
+    const { data, error } = await supabase.rpc('fix_hire_activation', { p_employee_id: emp.id });
+    const res = data as { ok?: boolean; reason?: string; profile_linked?: boolean } | null;
+    if (error || !res?.ok) {
+      setHireFixResult({ id: emp.id, ok: false, msg: error?.message ?? res?.reason ?? 'Fix failed' });
+    } else {
+      setHireFixResult({
+        id: emp.id, ok: true,
+        msg: res.profile_linked ? 'Activated & profile linked.' : 'Activated. Use Resend Invite to send login email.',
+      });
+      loadStuckHires();
+      refetch();
+    }
+    setFixingHireId(null);
+  }
+
+  // Active / non-draft employees only — but include stuck hires (approved, not yet active)
   const activeEmployees = useMemo(
-    () => employees.filter(e => !e.status || e.status === 'Active' || e.status === 'Inactive'),
-    [employees]
+    () => employees.filter(e => !e.status || e.status === 'Active' || e.status === 'Inactive' || stuckHireIds.has(e.id as string)),
+    [employees, stuckHireIds]
   );
 
   // Unique designations for dropdown
@@ -343,8 +377,10 @@ export default function EmployeeDetails() {
       return (
         <EmployeeEditPanel
           emp={editingEmp as any}
-          onClose={() => setEditingEmpId(null)}
+          onClose={() => { setEditingEmpId(null); setEditingEmpInitMode(undefined); setEditingEmpInitEffectiveFrom(undefined); }}
           onSaved={() => refetch()}
+          initialEmploymentMode={editingEmpInitMode}
+          initialEmploymentEffectiveFrom={editingEmpInitEffectiveFrom}
         />
       );
     }
@@ -478,10 +514,16 @@ export default function EmployeeDetails() {
               </tr>
             ) : (
               filtered.map((emp, idx) => {
+                const isStuck = stuckHireIds.has(emp.id as string);
                 const status = (emp.status as string | undefined) || 'Active';
-                const sc = STATUS_COLORS[status] ?? { bg: '#F3F4F6', color: '#374151' };
+                const sc = isStuck
+                  ? { bg: '#FEF3C7', color: '#92400E' }
+                  : STATUS_COLORS[status] ?? { bg: '#F3F4F6', color: '#374151' };
                 return (
-                  <tr key={emp.employeeId}>
+                  <tr
+                    key={emp.employeeId}
+                    style={isStuck ? { background: '#FFFBEB' } : undefined}
+                  >
                     <td className="emp-th-num" style={{ color: '#9CA3AF', fontSize: 12 }}>{idx + 1}</td>
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -492,6 +534,11 @@ export default function EmployeeDetails() {
                         <div>
                           <div style={{ fontWeight: 600, fontSize: 13.5, color: '#111827' }}>{emp.name}</div>
                           <div style={{ fontSize: 11.5, color: '#9CA3AF' }}>{emp.employeeId}</div>
+                          {hireFixResult?.id === emp.id && (
+                            <div style={{ fontSize: 11, marginTop: 2, color: hireFixResult.ok ? '#15803D' : '#DC2626', fontWeight: 500 }}>
+                              {hireFixResult.msg}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </td>
@@ -506,46 +553,70 @@ export default function EmployeeDetails() {
                         : <span style={{ background: '#F3F4F6', color: '#374151', padding: '2px 10px', borderRadius: 12, fontSize: 12, fontWeight: 600 }}>Employee</span>}
                     </td>
                     <td>
-                      <span style={{
-                        background: sc.bg, color: sc.color,
-                        borderRadius: 6, padding: '3px 10px',
-                        fontSize: 11.5, fontWeight: 600,
-                      }}>{status}</span>
+                      {isStuck ? (
+                        <span style={{ background: '#FEF3C7', color: '#92400E', borderRadius: 6, padding: '3px 10px', fontSize: 11.5, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                          <i className="fa-solid fa-circle-exclamation" style={{ marginRight: 4 }} />
+                          Approved — not activated
+                        </span>
+                      ) : (
+                        <span style={{
+                          background: sc.bg, color: sc.color,
+                          borderRadius: 6, padding: '3px 10px',
+                          fontSize: 11.5, fontWeight: 600,
+                        }}>{status}</span>
+                      )}
                     </td>
                     <td>
                       <div className="emp-action-btns" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                        <button
-                          className="btn-edit" title="Edit employee"
-                          onClick={() => setEditingEmpId(emp.employeeId)}
-                        >
-                          <i className="fa-solid fa-pen-to-square" />
-                        </button>
-                        {/* Resend Invite — Active employees only; RPC validates no-auth-account server-side */}
-                        {(emp.status === 'Active' || !emp.status) && (
+                        {isStuck ? (
+                          /* Stuck hire — show Fix activation button */
                           <button
                             className="btn-edit"
-                            title="Resend invite email"
-                            disabled={resendingIds.has(emp.id as string)}
-                            onClick={() => handleResendInvite(emp)}
-                            style={{ color: '#6366F1' }}
+                            title="Fix hire activation"
+                            disabled={fixingHireId === emp.id}
+                            onClick={() => handleFixHire(emp)}
+                            style={{ color: '#D97706', fontWeight: 600 }}
                           >
-                            {resendingIds.has(emp.id as string)
+                            {fixingHireId === emp.id
                               ? <i className="fa-solid fa-spinner fa-spin" />
-                              : <i className="fa-solid fa-paper-plane" />}
+                              : <i className="fa-solid fa-wrench" />}
                           </button>
-                        )}
-                        {can('employment.history') && (
-                          <button
-                            className="btn-edit"
-                            title="Employment history"
-                            style={{ background: histEmployeeId === emp.id ? '#EEF2FF' : undefined, color: histEmployeeId === emp.id ? '#4F46E5' : undefined }}
-                            onClick={() => {
-                              if (histEmployeeId === emp.id) { setHistEmployeeId(null); setHistRows([]); }
-                              else openEmploymentHistory(emp.id as string);
-                            }}
-                          >
-                            <i className="fa-solid fa-clock-rotate-left" />
-                          </button>
+                        ) : (
+                          <>
+                            <button
+                              className="btn-edit" title="Edit employee"
+                              onClick={() => setEditingEmpId(emp.employeeId)}
+                            >
+                              <i className="fa-solid fa-pen-to-square" />
+                            </button>
+                            {/* Resend Invite — Active employees only; RPC validates no-auth-account server-side */}
+                            {(emp.status === 'Active' || !emp.status) && (
+                              <button
+                                className="btn-edit"
+                                title="Resend invite email"
+                                disabled={resendingIds.has(emp.id as string)}
+                                onClick={() => handleResendInvite(emp)}
+                                style={{ color: '#6366F1' }}
+                              >
+                                {resendingIds.has(emp.id as string)
+                                  ? <i className="fa-solid fa-spinner fa-spin" />
+                                  : <i className="fa-solid fa-paper-plane" />}
+                              </button>
+                            )}
+                            {can('employment.history') && (
+                              <button
+                                className="btn-edit"
+                                title="Employment history"
+                                style={{ background: histEmployeeId === emp.id ? '#EEF2FF' : undefined, color: histEmployeeId === emp.id ? '#4F46E5' : undefined }}
+                                onClick={() => {
+                                  if (histEmployeeId === emp.id) { setHistEmployeeId(null); setHistRows([]); }
+                                  else openEmploymentHistory(emp.id as string);
+                                }}
+                              >
+                                <i className="fa-solid fa-clock-rotate-left" />
+                              </button>
+                            )}
+                          </>
                         )}
                       </div>
                     </td>
@@ -569,12 +640,55 @@ export default function EmployeeDetails() {
               <i className="fa-solid fa-clock-rotate-left" style={{ marginRight: 8, color: '#4F46E5' }} />
               Employment History — {employees.find(e => e.id === histEmployeeId)?.name ?? histEmployeeId}
             </h3>
-            <button
-              onClick={() => { setHistEmployeeId(null); setHistRows([]); }}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280', fontSize: 18 }}
-            >
-              <i className="fa-solid fa-xmark" />
-            </button>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              {/* Insert — opens edit panel in insert mode (new time slice) */}
+              {can('employment.create') && (
+                <button
+                  onClick={() => {
+                    const emp = employees.find(e => e.id === histEmployeeId);
+                    if (!emp) return;
+                    setEditingEmpInitMode('insert');
+                    setEditingEmpInitEffectiveFrom(undefined);
+                    setHistEmployeeId(null); setHistRows([]);
+                    setEditingEmpId(emp.employeeId);
+                  }}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                    padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600,
+                    background: '#EFF6FF', color: '#2563EB', border: '1px solid #BFDBFE', cursor: 'pointer',
+                  }}
+                >
+                  <i className="fa-solid fa-plus" /> Insert
+                </button>
+              )}
+              {/* Edit — opens edit panel in edit mode for the selected slice */}
+              {can('employment.edit') && histRows.length > 0 && (
+                <button
+                  onClick={() => {
+                    const emp = employees.find(e => e.id === histEmployeeId);
+                    if (!emp) return;
+                    const selectedSlice = histRows[histSelIdx];
+                    setEditingEmpInitMode('edit');
+                    setEditingEmpInitEffectiveFrom(selectedSlice ? String(selectedSlice.effective_from) : undefined);
+                    setHistEmployeeId(null); setHistRows([]);
+                    setEditingEmpId(emp.employeeId);
+                  }}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                    padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600,
+                    background: '#fff', color: '#374151', border: '1px solid #E5E7EB', cursor: 'pointer',
+                  }}
+                >
+                  <i className="fa-solid fa-pen-to-square" /> Edit
+                </button>
+              )}
+              <button
+                onClick={() => { setHistEmployeeId(null); setHistRows([]); }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280', fontSize: 18 }}
+              >
+                <i className="fa-solid fa-xmark" />
+              </button>
+            </div>
           </div>
 
           {histLoading ? (

@@ -2,9 +2,11 @@
  * TerminationImpactModal
  *
  * Shown before submitting a termination for an employee who has direct reports
- * or JR matrix assignments. Calls get_termination_deactivation_impact() (mig 489).
+ * or JR matrix assignments. Calls get_termination_deactivation_impact() (mig 617).
  *
- * Allows HR to optionally search and select a new manager for each direct report.
+ * Each DR is pre-populated with the terminated employee's manager (manager's manager)
+ * as the default fallback. HR can override per DR or leave the default.
+ * If cleared, the DR still falls back to the terminating manager at execution time.
  * Reassignments are passed back via onConfirm() and stored on the termination record.
  * New slices are applied by fn_finalize_termination_execution() at lwd+1.
  */
@@ -174,14 +176,18 @@ function ManagerPicker({
 
 // ── Main modal ─────────────────────────────────────────────────────────────────
 export default function TerminationImpactModal({ employeeId, employeeName, onConfirm, onCancel }: TerminationImpactModalProps) {
-  const [directReports,  setDirectReports]  = useState<DirectReport[]>([]);
-  const [jrAssignments,  setJrAssignments]  = useState<JRAssignment[]>([]);
-  const [drCount,        setDrCount]        = useState(0);
-  const [jrCount,        setJrCount]        = useState(0);
-  const [loading,        setLoading]        = useState(true);
-  const [error,          setError]          = useState('');
+  const [directReports,          setDirectReports]          = useState<DirectReport[]>([]);
+  const [jrAssignments,          setJrAssignments]          = useState<JRAssignment[]>([]);
+  const [drCount,                setDrCount]                = useState(0);
+  const [jrCount,                setJrCount]                = useState(0);
+  const [loading,                setLoading]                = useState(true);
+  const [error,                  setError]                  = useState('');
+  const [terminatingManagerId,   setTerminatingManagerId]   = useState<string>('');
+  const [terminatingManagerName, setTerminatingManagerName] = useState<string>('');
+  const [terminatingManagerCode, setTerminatingManagerCode] = useState<string>('');
 
   // manager selections: direct_report employee_id → new manager employee_id
+  // pre-populated with terminating manager as default; '' means fallback will apply
   const [reassignments,  setReassignments]  = useState<Record<string, string>>({});
   const [managerOptions, setManagerOptions] = useState<EmployeeOption[]>([]);
 
@@ -195,17 +201,35 @@ export default function TerminationImpactModal({ employeeId, employeeName, onCon
         ok: boolean; error?: string;
         direct_reports: DirectReport[]; direct_report_count: number;
         jr_assignments: JRAssignment[]; jr_assignment_count: number;
+        terminating_manager_id?:   string;
+        terminating_manager_name?: string;
+        terminating_manager_code?: string;
       } | null;
       if (!p?.ok) { setError(p?.error ?? 'Failed to load impact data.'); setLoading(false); return; }
 
-      setDirectReports(p.direct_reports ?? []);
+      const drs = p.direct_reports ?? [];
+      setDirectReports(drs);
       setDrCount(p.direct_report_count ?? 0);
       setJrAssignments(p.jr_assignments ?? []);
       setJrCount(p.jr_assignment_count ?? 0);
 
+      const mgrId   = p.terminating_manager_id   ?? '';
+      const mgrName = p.terminating_manager_name ?? '';
+      const mgrCode = p.terminating_manager_code ?? '';
+      setTerminatingManagerId(mgrId);
+      setTerminatingManagerName(mgrName);
+      setTerminatingManagerCode(mgrCode);
+
+      // Pre-populate each DR with the terminating manager as default
+      if (mgrId) {
+        const defaults: Record<string, string> = {};
+        drs.forEach((r: DirectReport) => { defaults[r.employee_id] = mgrId; });
+        setReassignments(defaults);
+      }
+
       // Fetch manager candidates: Active employees excluding the terminated employee
       // and the direct reports (they can't be each other's managers in this flow)
-      const drIds = (p.direct_reports ?? []).map((r: DirectReport) => r.employee_id);
+      const drIds = drs.map((r: DirectReport) => r.employee_id);
       const excludeIds = [employeeId, ...drIds];
 
       const { data: empRows } = await supabase
@@ -229,15 +253,14 @@ export default function TerminationImpactModal({ employeeId, employeeName, onCon
 
   const totalImpact = drCount + jrCount;
 
-  // All direct reports must have a manager selected before confirming
-  const allAssigned = drCount === 0 ||
-    directReports.every(r => !!reassignments[r.employee_id]);
-
+  // Submit is always enabled — unassigned DRs fall back to terminating manager at execution
   function handleConfirm() {
-    if (!allAssigned) return;
     const result: ManagerReassignment[] = directReports
-      .filter(r => reassignments[r.employee_id])
-      .map(r => ({ employee_id: r.employee_id, new_manager_id: reassignments[r.employee_id] }));
+      .map(r => ({
+        employee_id:    r.employee_id,
+        new_manager_id: reassignments[r.employee_id] || terminatingManagerId,
+      }))
+      .filter(r => !!r.new_manager_id);
     onConfirm(result);
   }
 
@@ -287,7 +310,22 @@ export default function TerminationImpactModal({ employeeId, employeeName, onCon
                     Direct Reports ({drCount}) — Reassign Manager
                   </div>
                   <div style={{ fontSize: 12, color: '#9CA3AF', marginBottom: 10 }}>
-                    New manager takes effect from Last Working Day + 1. Required for all direct reports.
+                    New manager takes effect from Last Working Day + 1.
+                  </div>
+
+                  {/* Fallback behaviour note */}
+                  <div style={{
+                    padding: '9px 12px', background: '#EFF6FF', borderRadius: 7,
+                    border: '1px solid #BFDBFE', fontSize: 12, color: '#1D4ED8',
+                    display: 'flex', gap: 7, alignItems: 'flex-start', marginBottom: 10,
+                  }}>
+                    <i className="fa-solid fa-circle-info" style={{ marginTop: 1, flexShrink: 0 }} />
+                    <span>
+                      {terminatingManagerId
+                        ? <>Direct reports are pre-assigned to <strong>{terminatingManagerName}</strong> ({terminatingManagerCode}) — {employeeName}'s manager. You can override per person.</>
+                        : <>{employeeName} has no manager on record. Please assign a new manager to each direct report manually.</>
+                      }
+                    </span>
                   </div>
 
                   {directReports.map(r => (
@@ -340,10 +378,10 @@ export default function TerminationImpactModal({ employeeId, employeeName, onCon
 
         {/* Footer */}
         <div style={{ ...s.footer, flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
-          {!allAssigned && !loading && (
+          {drCount > 0 && !loading && !terminatingManagerId && (
             <div style={{ fontSize: 11, color: '#D97706', display: 'flex', alignItems: 'center', gap: 4 }}>
               <i className="fa-solid fa-circle-exclamation" />
-              Assign a new manager to all direct reports before proceeding.
+              No fallback manager available — please assign a manager to each direct report.
             </div>
           )}
           <div style={{ display: 'flex', gap: 8 }}>
@@ -351,11 +389,10 @@ export default function TerminationImpactModal({ employeeId, employeeName, onCon
               className="emp-btn-ghost">
               Cancel
             </button>
-            <button onClick={handleConfirm} disabled={loading || !allAssigned}
+            <button onClick={handleConfirm} disabled={loading}
               style={{
                 padding: '8px 18px', fontSize: 13, borderRadius: 6, border: 'none',
-                background: allAssigned ? '#DC2626' : '#FCA5A5',
-                color: '#fff', cursor: allAssigned ? 'pointer' : 'not-allowed',
+                background: '#DC2626', color: '#fff', cursor: loading ? 'not-allowed' : 'pointer',
                 fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6,
               }}>
               <i className="fa-solid fa-user-slash" />Confirm & Submit

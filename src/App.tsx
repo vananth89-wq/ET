@@ -25,6 +25,7 @@ import { usePermissions }                                         from './hooks/
 import ProtectedRoute                                             from './components/auth/ProtectedRoute';
 import LoginPage                                                  from './components/auth/LoginPage';
 import ResetPasswordPage                                          from './components/auth/ResetPasswordPage';
+import ForceChangePasswordPage                                    from './components/auth/ForceChangePasswordPage';
 import MyReports                                                  from './components/employee/MyReports';
 import MyProfile                                                  from './components/employee/MyProfile';
 import { ProfileContextProvider }                                 from './contexts/ProfileContext';
@@ -58,6 +59,7 @@ import RoleAssignments                                            from './compon
 import RbpTroubleshoot                                            from './components/admin/permissions/RbpTroubleshoot';
 import TargetGroups                                               from './components/admin/permissions/TargetGroups';
 import PermissionMatrix                                           from './components/admin/permissions/PermissionMatrix';
+import PasswordResetAdmin                                          from './components/admin/security/PasswordResetAdmin';
 import ComingSoon                                                 from './components/shared/ComingSoon';
 import NotificationBell                                           from './components/shared/NotificationBell';
 import { ErrorBoundary }                                          from './components/shared/ErrorBoundary';
@@ -666,7 +668,7 @@ function AppShell() {
   const isEmployeeMode = /^\/profile(\/[^/]+)?$/.test(loc.pathname);
   const isHomePage     = loc.pathname === '/home';
   const isAdminArea    = loc.pathname === '/admin' || loc.pathname.startsWith('/admin/');
-  const isFullPage     = ['/org-chart', '/expense', '/workflow/my-requests', '/workflow/inbox', '/workflow/delegations'].some(
+  const isFullPage     = ['/org-chart', '/expense', '/workflow/my-requests', '/workflow/inbox', '/workflow/delegations', '/workflow/review'].some(
     p => loc.pathname === p || loc.pathname.startsWith(p + '/')
   );
   const hideSidebar    = isEmployeeMode || isHomePage || isFullPage || isAdminArea;
@@ -694,8 +696,9 @@ export default function App() {
   return (
     <Routes>
       {/* ── Public ────────────────────────────────────────────────────────── */}
-      <Route path="/login"          element={<LoginPage />} />
-      <Route path="/reset-password" element={<ResetPasswordPage />} />
+      <Route path="/login"                  element={<LoginPage />} />
+      <Route path="/reset-password"         element={<ResetPasswordPage />} />
+      <Route path="/force-change-password"  element={<ForceChangePasswordPage />} />
 
       {/* ── Single persistent AppShell wrapping all authenticated routes ──── */}
       <Route element={<ProtectedRoute><AppShell /></ProtectedRoute>}>
@@ -751,6 +754,8 @@ export default function App() {
           <Route index element={<AdminHome />} />
 
           {/* ── Employees section ─────────────────────────────────────────── */}
+          {/* Org chart is a direct route (full-page, no sub-sidebar) */}
+          <Route path="employees/org-chart" element={<ProtectedRoute requiredPermission="org_chart.view"><EmpOrgChart /></ProtectedRoute>} />
           <Route path="employees" element={
             <AdminSectionLayout title="Employees" subtitle="Manage employee records, org charts, and onboarding." items={[
               { path: '/admin/employees/list',     label: 'Employee Details',   icon: 'fa-table-list',      permission: 'employee_details.edit'     },
@@ -761,7 +766,6 @@ export default function App() {
           }>
             <Route index element={<Navigate to="list" replace />} />
             <Route path="list"      element={<ProtectedRoute requiredPermission="employee_details.edit"><EmployeeDetails /></ProtectedRoute>} />
-            <Route path="org-chart" element={<ProtectedRoute requiredPermission="org_chart.view"><EmpOrgChart /></ProtectedRoute>} />
             <Route path="inactive"  element={<ProtectedRoute requiredPermission="inactive_employees.view"><InactiveEmployees /></ProtectedRoute>} />
             <Route path="add"       element={<ProtectedRoute requiredPermission="hire_employee.create"><AddEmployee /></ProtectedRoute>} />
           </Route>
@@ -772,6 +776,8 @@ export default function App() {
           <Route path="add-employee"        element={<Navigate to="/admin/employees/add" replace />} />
 
           {/* ── Organization section ──────────────────────────────────────── */}
+          {/* Org chart is a direct route (full-page, no sub-sidebar) */}
+          <Route path="organization/org-chart" element={<ProtectedRoute requiredPermission="org_chart.view"><OrgChartAdmin /></ProtectedRoute>} />
           <Route path="organization" element={
             <AdminSectionLayout title="Organization" subtitle="Manage departments and organizational structure." items={[
               { path: '/admin/organization/departments', label: 'Departments', icon: 'fa-sitemap',         permission: 'departments.edit' },
@@ -780,7 +786,6 @@ export default function App() {
           }>
             <Route index element={<Navigate to="departments" replace />} />
             <Route path="departments" element={<ProtectedRoute requiredPermission="departments.edit"><Departments /></ProtectedRoute>} />
-            <Route path="org-chart"   element={<ProtectedRoute requiredPermission="org_chart.view"><OrgChartAdmin /></ProtectedRoute>} />
           </Route>
           {/* backward-compat redirects */}
           <Route path="departments" element={<Navigate to="/admin/organization/departments" replace />} />
@@ -818,7 +823,8 @@ export default function App() {
               { path: '/admin/security/assignments',   label: 'Role Assignments',     icon: 'fa-users-gear',             permission: 'sec_role_assignments.view'   },
               { path: '/admin/security/target-groups', label: 'Target Groups',        icon: 'fa-people-group',           permission: 'sec_target_groups.view'      },
               { path: '/admin/security/catalog',       label: 'Permission Catalog',   icon: 'fa-key',                    permission: 'sec_permission_catalog.view' },
-              { path: '/admin/security/rbp',           label: 'RBP Troubleshooting',  icon: 'fa-magnifying-glass-chart', permission: 'sec_rbp_troubleshoot.view'   },
+              { path: '/admin/security/rbp',            label: 'RBP Troubleshooting',  icon: 'fa-magnifying-glass-chart', permission: 'sec_rbp_troubleshoot.view'   },
+              { path: '/admin/security/password-reset', label: 'Password Reset',        icon: 'fa-key',                    permission: 'sec_password_reset.view'     },
             ]} />
           }>
             <Route index element={<Navigate to="matrix" replace />} />
@@ -826,7 +832,8 @@ export default function App() {
             <Route path="assignments"   element={<ProtectedRoute requiredPermission="sec_role_assignments.view"><RoleAssignments /></ProtectedRoute>} />
             <Route path="target-groups" element={<ProtectedRoute requiredPermission="sec_target_groups.view"><TargetGroups /></ProtectedRoute>} />
             <Route path="catalog"       element={<ProtectedRoute requiredPermission="sec_permission_catalog.view"><PermissionCatalog /></ProtectedRoute>} />
-            <Route path="rbp"           element={<ProtectedRoute requiredPermission="sec_rbp_troubleshoot.view"><RbpTroubleshoot /></ProtectedRoute>} />
+            <Route path="rbp"            element={<ProtectedRoute requiredPermission="sec_rbp_troubleshoot.view"><RbpTroubleshoot /></ProtectedRoute>} />
+            <Route path="password-reset" element={<ProtectedRoute requiredPermission="sec_password_reset.view"><PasswordResetAdmin /></ProtectedRoute>} />
           </Route>
           {/* backward-compat redirects */}
           <Route path="permissions/matrix"       element={<Navigate to="/admin/security/matrix" replace />} />

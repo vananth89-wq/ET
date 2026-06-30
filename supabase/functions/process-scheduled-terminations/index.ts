@@ -27,9 +27,11 @@ const JOB_NAME = 'Process Scheduled Terminations';
 /** Translate raw DB/RPC errors into admin-readable messages */
 function friendlyError(msg: string): string {
   if (msg.includes('chk_ee_effective_order'))
-    return 'This employee\'s employment start date is after the terminated employee\'s Last Working Date. The system updated their manager in-place without creating a history boundary. No action needed — run the job again to retry.';
+    return 'Employment record date conflict: the system could not create or close an employment slice because it would produce an end date earlier than the start date. Check the employee\'s employment history for overlapping or out-of-order date ranges, then re-run the job.';
   if (msg.includes('chk_ep_effective_order'))
-    return 'Personal info effective dates are out of order for this employee. Check their employment history in the HR system.';
+    return 'Personal info date conflict: effective dates are out of order for this employee. Check their personal info history, then re-run the job.';
+  if (msg.includes('duplicate key') || msg.includes('unique'))
+    return 'A duplicate employment record exists for this date range. Check the employee\'s employment history for overlapping records, then re-run the job.';
   if (msg.includes('not found'))
     return 'Termination record not found — it may have been deleted or reversed.';
   if (msg.includes('not APPROVED'))
@@ -101,6 +103,7 @@ async function processDueTerminations(triggeredBy: string | null = null) {
     if (fetchErr) {
       console.error('process-scheduled-terminations: fetch failed', fetchErr);
       await finaliseLog(admin, logId, 'failed', results, fetchErr.message);
+      await sendFailureEmail(admin, results, fetchErr.message);
       return results;
     }
 
@@ -129,66 +132,61 @@ async function processDueTerminations(triggeredBy: string | null = null) {
           const drErrors = (result as any)?.dr_errors as Array<{ employee_id: string; employee_name: string; error: string }> | undefined;
 
           if (drErrors && drErrors.length > 0) {
-            // Per-DR errors returned by migration 564+ SAVEPOINT handler
+            // Per-DR errors from mig-573 SAVEPOINT handler — each DR failed independently.
+            // Fetch human-readable employee_id (EMP-xxx) for each DR UUID.
+            const drUuids = drErrors.map(dr => dr.employee_id);
+            const { data: drEmpRows } = await admin
+              .from('employees')
+              .select('id, employee_id')
+              .in('id', drUuids);
+            const drEmpIdMap = Object.fromEntries((drEmpRows ?? []).map(e => [e.id, e.employee_id as string]));
+
             for (const dr of drErrors) {
-              const drMsg = friendlyError(dr.error);
-              results.errors.push({ termination_id: row.id, employee_name: `${empName} → ${dr.employee_name}`, last_working_date: row.last_working_date, error: drMsg });
-              results.details.push({ termination_id: row.id, employee_id: dr.employee_id, employee_name: `${empName} → ${dr.employee_name}`, terminated_employee_name: empName, terminated_employee_id: empEmpId, affected_employee_name: dr.employee_name, affected_employee_id: dr.employee_id, last_working_date: row.last_working_date, separation_date: row.separation_date, outcome: 'failed', error: drMsg });
+              const drMsg   = friendlyError(dr.error);
+              const drEmpId = drEmpIdMap[dr.employee_id] ?? dr.employee_id;
+              results.errors.push({
+                termination_id: row.id,
+                employee_name:  `${empName} → ${dr.employee_name}`,
+                last_working_date: row.last_working_date,
+                error: drMsg,
+              });
+              results.details.push({
+                termination_id:          row.id,
+                employee_id:             drEmpId,
+                employee_name:           `${empName} → ${dr.employee_name}`,
+                terminated_employee_name: empName,
+                terminated_employee_id:  empEmpId,
+                affected_employee_name:  dr.employee_name,
+                affected_employee_id:    drEmpId,
+                last_working_date:       row.last_working_date,
+                separation_date:         row.separation_date,
+                outcome:                 'failed',
+                error:                   drMsg,
+              });
               console.error(`process-scheduled-terminations: ${row.id} DR ${dr.employee_name} failed:`, drMsg);
             }
-          } else if (rawMsg.includes('chk_ee_effective_order') || rawMsg.includes('effective_order')) {
-            // DB-level constraint — fetch direct reports to build per-employee detail
-            const { data: termData } = await admin
-              .from('employee_terminations')
-              .select('direct_report_reassignments')
-              .eq('id', row.id)
-              .single();
-
-            const reassignments = (termData?.direct_report_reassignments ?? []) as Array<{
-              employee_id: string; employee_name?: string; new_manager_id?: string; new_manager_name?: string;
-            }>;
-
-            if (reassignments.length > 0) {
-              const drIds = reassignments.map(r => r.employee_id);
-
-              // Fetch names + employee numbers
-              const { data: empRows } = await admin
-                .from('employees')
-                .select('id, name, employee_id')
-                .in('id', drIds);
-
-              // Fetch current open employment slice for each DR
-              const { data: slices } = await admin
-                .from('employee_employment')
-                .select('employee_id, effective_from, effective_to')
-                .in('employee_id', drIds)
-                .eq('effective_to', '9999-12-31')
-                .eq('is_active', true);
-
-              const empMap   = Object.fromEntries((empRows  ?? []).map(e => [e.id, e]));
-              const sliceMap = Object.fromEntries((slices   ?? []).map(s => [s.employee_id, s]));
-
-              for (const r of reassignments) {
-                const emp     = empMap[r.employee_id];
-                const slice   = sliceMap[r.employee_id];
-                const drName  = emp?.name ?? r.employee_name ?? r.employee_id;
-                const drEmpId = emp?.employee_id ?? r.employee_id;
-                const drMsg   = slice
-                  ? `Employment starts ${slice.effective_from} which is after the Last Working Date ${row.last_working_date}. Cannot close the employment record at LWD. Action: correct the employment start date or the Last Working Date.`
-                  : `Employment record conflict — could not apply manager reassignment. Check employment history for this employee.`;
-                results.errors.push({ termination_id: row.id, employee_name: `${empName} → ${drName}`, last_working_date: row.last_working_date, error: drMsg });
-                results.details.push({ termination_id: row.id, employee_id: drEmpId, employee_name: `${empName} → ${drName}`, terminated_employee_name: empName, terminated_employee_id: empEmpId, affected_employee_name: drName, affected_employee_id: drEmpId, last_working_date: row.last_working_date, separation_date: row.separation_date, outcome: 'failed', error: drMsg });
-              }
-            } else {
-              const msg = friendlyError(rawMsg);
-              results.errors.push({ termination_id: row.id, employee_name: empName, last_working_date: row.last_working_date, error: msg });
-              results.details.push({ termination_id: row.id, employee_id: row.employee_id, employee_name: empName, terminated_employee_name: empName, terminated_employee_id: empEmpId, affected_employee_name: '—', affected_employee_id: '—', last_working_date: row.last_working_date, separation_date: row.separation_date, outcome: 'failed', error: msg });
-            }
-            console.error(`process-scheduled-terminations: ${row.id} effective_order constraint:`, rawMsg);
           } else {
+            // Whole-termination failure (not a per-DR issue).
             const msg = friendlyError(rawMsg);
-            results.errors.push({ termination_id: row.id, employee_name: empName, last_working_date: row.last_working_date, error: msg });
-            results.details.push({ termination_id: row.id, employee_id: row.employee_id, employee_name: empName, terminated_employee_name: empName, terminated_employee_id: empEmpId, affected_employee_name: '—', affected_employee_id: '—', last_working_date: row.last_working_date, separation_date: row.separation_date, outcome: 'failed', error: msg });
+            results.errors.push({
+              termination_id:   row.id,
+              employee_name:    empName,
+              last_working_date: row.last_working_date,
+              error:            msg,
+            });
+            results.details.push({
+              termination_id:          row.id,
+              employee_id:             row.employee_id,
+              employee_name:           empName,
+              terminated_employee_name: empName,
+              terminated_employee_id:  empEmpId,
+              affected_employee_name:  '—',
+              affected_employee_id:    '—',
+              last_working_date:       row.last_working_date,
+              separation_date:         row.separation_date,
+              outcome:                 'failed',
+              error:                   msg,
+            });
             console.error(`process-scheduled-terminations: ${row.id} failed:`, msg);
           }
         } else if (result.skipped) {
@@ -202,9 +200,21 @@ async function processDueTerminations(triggeredBy: string | null = null) {
         }
       } catch (err) {
         results.failed++;
-        const msg = (err as Error).message;
+        const msg = friendlyError((err as Error).message);
         results.errors.push({ termination_id: row.id, employee_name: empName, last_working_date: row.last_working_date, error: msg });
-        results.details.push({ termination_id: row.id, employee_id: row.employee_id, employee_name: empName, last_working_date: row.last_working_date, separation_date: row.separation_date, outcome: 'failed', error: msg });
+        results.details.push({
+          termination_id:          row.id,
+          employee_id:             row.employee_id,
+          employee_name:           empName,
+          terminated_employee_name: empName,
+          terminated_employee_id:  empEmpId,
+          affected_employee_name:  '—',
+          affected_employee_id:    '—',
+          last_working_date:       row.last_working_date,
+          separation_date:         row.separation_date,
+          outcome:                 'failed',
+          error:                   msg,
+        });
         console.error(`process-scheduled-terminations: ${row.id} threw:`, err);
       }
     }
@@ -218,8 +228,9 @@ async function processDueTerminations(triggeredBy: string | null = null) {
     await finaliseLog(admin, logId, status, results);
     if (results.failed > 0) await sendFailureEmail(admin, results);
   } catch (err) {
-    await finaliseLog(admin, logId, 'failed', results, (err as Error).message);
-    if (results.failed > 0) await sendFailureEmail(admin, results);
+    const msg = (err as Error).message;
+    await finaliseLog(admin, logId, 'failed', results, msg);
+    await sendFailureEmail(admin, results, msg);
   }
 
   console.log('process-scheduled-terminations: summary', results);
@@ -253,7 +264,8 @@ async function finaliseLog(
 
 async function sendFailureEmail(
   admin: ReturnType<typeof createClient>,
-  results: { total: number; succeeded: number; failed: number; skipped: number; errors: Array<{ employee_name: string; last_working_date: string | null; error: string }> },
+  results: { total: number; succeeded: number; failed: number; skipped: number; errors: Array<{ employee_name: string; last_working_date: string | null; error: string }>; details?: unknown[] },
+  error_message?: string,
 ) {
   const { data: cfg } = await admin
     .from('app_config')
@@ -266,14 +278,16 @@ async function sendFailureEmail(
 
   const alertPayload = {
     to,
-    job_name:  'Process Scheduled Terminations',
-    job_code:  'process_scheduled_terminations',
-    run_date:  new Date().toISOString().slice(0, 10),
-    total:     results.total,
-    succeeded: results.succeeded,
-    failed:    results.failed,
-    skipped:   results.skipped,
-    errors:    results.errors.map(e => ({ label: e.employee_name, error: e.error })),
+    job_name:      'Process Scheduled Terminations',
+    job_code:      'process_scheduled_terminations',
+    run_date:      new Date().toISOString().slice(0, 10),
+    total:         results.total,
+    succeeded:     results.succeeded,
+    failed:        results.failed,
+    skipped:       results.skipped,
+    errors:        results.errors.map(e => ({ label: e.employee_name, error: e.error })),
+    details:       results.details ?? [],
+    error_message: error_message ?? null,
   };
 
   await fetch(`${SUPABASE_URL}/functions/v1/send-job-alert`, {

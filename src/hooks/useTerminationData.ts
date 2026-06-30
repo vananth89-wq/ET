@@ -39,6 +39,7 @@ export interface TerminationRecord {
   final_settlement_processed: boolean;
   final_settlement_date: string | null;
   submitted_at: string | null;
+  scheduled_executed: boolean;
   created_at: string;
   updated_at: string;
   attachments: TerminationAttachment[];

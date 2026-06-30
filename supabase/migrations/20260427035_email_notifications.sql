@@ -84,7 +84,7 @@ BEGIN
   );
 
   -- Fire non-blocking HTTP POST (pg_net queues it asynchronously)
-  PERFORM extensions.http_post(
+  PERFORM net.http_post(
     url     := v_functions_url || '/send-notification-email',
     headers := jsonb_build_object(
                  'Content-Type',      'application/json',

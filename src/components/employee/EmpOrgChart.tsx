@@ -2,6 +2,7 @@ import {
   useState, useMemo, useEffect,
   useRef, useCallback,
 } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useEmployees } from '../../hooks/useEmployees';
 import { useDepartments } from '../../hooks/useDepartments';
@@ -369,14 +370,25 @@ function DetailsPanel({ empId, empMap, deptMap, plVals, onClose, onFocus }: {
 
       {emp && (
         <div className="oc-details-body">
-          {/* Hero */}
+          {/* Hero — click avatar or name to open profile in new tab */}
           <div className="eoc-det-hero">
-            {emp.photo
-              ? <img src={emp.photo as string} alt={emp.name}
-                  style={{ width: 56, height: 56, borderRadius: '50%', objectFit: 'cover', marginBottom: 10 }} />
-              : <div className="eoc-det-avatar" style={{ background: avatarColor(emp.name) }}>{initial}</div>
-            }
-            <div className="eoc-det-name">{emp.name}</div>
+            <a
+              href={`/profile/${emp.id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Open profile in new tab"
+              style={{ display: 'contents', textDecoration: 'none' }}
+            >
+              {emp.photo
+                ? <img src={emp.photo as string} alt={emp.name}
+                    style={{ width: 56, height: 56, borderRadius: '50%', objectFit: 'cover', marginBottom: 10, cursor: 'pointer', boxShadow: '0 0 0 2px #2F77B5' }} />
+                : <div className="eoc-det-avatar" style={{ background: avatarColor(emp.name), cursor: 'pointer' }}>{initial}</div>
+              }
+              <div className="eoc-det-name" style={{ cursor: 'pointer', color: '#2F77B5' }}>
+                {emp.name}
+                <i className="fa-solid fa-arrow-up-right-from-square" style={{ fontSize: 10, marginLeft: 5, opacity: 0.7 }} />
+              </div>
+            </a>
             <div className="eoc-det-desg" style={{ color: colour }}>{desigLabel}</div>
             <div className="eoc-det-id">{emp.employeeId}</div>
           </div>
@@ -463,17 +475,19 @@ function Legend({ depts, orderedDeptIds, activeDeptIds }: {
 // Main Component — exported, used by both /org-chart and /admin/emp-org-chart
 // ─────────────────────────────────────────────────────────────────────────────
 export default function EmpOrgChart() {
+  const navigate = useNavigate();
   const { employee: authEmployee }     = useAuth();
-  const { employees: supabaseEmps }    = useEmployees();
+
+  const todayVal = todayStr();
+  const [viewDate, setViewDate]   = useState(todayVal);
+
+  const { employees: supabaseEmps }    = useEmployees(false, viewDate);
   const { departments: supabaseDepts } = useDepartments();
   const { picklistValues: plVals }     = usePicklistValues();
 
   // Cast to local Emp/Dept shapes (compatible supersets)
   const allEmployees = supabaseEmps as unknown as Emp[];
   const departments  = supabaseDepts as unknown as Dept[];
-
-  const todayVal = todayStr();
-  const [viewDate, setViewDate]   = useState(todayVal);
   const [searchQ,  setSearchQ]    = useState('');
   const [deptFilter, setDeptFilter] = useState('');
   const [collapsed,  setCollapsed]  = useState<Set<string>>(new Set());
@@ -897,12 +911,19 @@ export default function EmpOrgChart() {
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div className="page-content" style={{ padding: '28px 32px', display: 'flex', flexDirection: 'column', height: 'calc(100vh - 60px)', overflow: 'hidden' }}>
-      <h2 className="page-title" style={{ marginBottom: 18, flexShrink: 0 }}>Employee Organisation Chart</h2>
+    <div style={{ margin: '-28px -48px', display: 'flex', flexDirection: 'column', height: 'calc(100vh - 60px)', overflow: 'hidden' }}>
 
       {/* ── Toolbar ── */}
       <div className="oc-toolbar" style={{ flexShrink: 0 }}>
         <div className="oc-toolbar-left">
+          {/* Breadcrumb back link */}
+          <button
+            onClick={() => navigate('/admin/employees/list')}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', color: '#2F77B5', fontSize: 13, fontWeight: 600, padding: '0 4px', flexShrink: 0 }}
+          >
+            <i className="fa-solid fa-chevron-left" style={{ fontSize: 10 }} /> Employees
+          </button>
+          <span style={{ width: 1, height: 18, background: '#d1d5db', flexShrink: 0 }} />
           <div className="oc-search-wrap">
             <i className="fa-solid fa-magnifying-glass" />
             <input

@@ -11,19 +11,23 @@
 import WorkflowSubmitModal from '../../workflow/components/WorkflowSubmitModal';
 
 interface Props {
-  isSelf:          boolean;
-  terminationDate: string;
-  employeeName?:   string;
-  onConfirm:       (comment: string) => void;
-  onCancel:        () => void;
-  submitting:      boolean;
-  submitError?:    string | null;
+  isSelf:              boolean;
+  terminationDate:     string;
+  employeeName?:       string;
+  /** For admin-submitted terminations: the subject employee's id so the modal
+   *  resolves the subject's manager (not the admin's) for MANAGER-type steps. */
+  subjectEmployeeId?:  string | null;
+  onConfirm:           (comment: string) => void;
+  onCancel:            () => void;
+  submitting:          boolean;
+  submitError?:        string | null;
 }
 
 export default function TerminationConfirmDialog({
   isSelf,
   terminationDate,
   employeeName,
+  subjectEmployeeId,
   onConfirm,
   onCancel,
   submitting,
@@ -46,6 +50,7 @@ export default function TerminationConfirmDialog({
       title={title}
       moduleCode={moduleCode}
       employeeName={employeeName}
+      subjectEmployeeId={subjectEmployeeId}
     />
   );
 }

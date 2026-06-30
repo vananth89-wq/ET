@@ -394,6 +394,7 @@ export default function AddEmployee() {
   const [isSaving, setIsSaving] = useState(false);
   const [submittingForApproval, setSubmittingForApproval] = useState(false);
   const [incompleteSectionsModal, setIncompleteSectionsModal] = useState<string[]>([]);
+  const [submitErrorModal, setSubmitErrorModal] = useState<string | null>(null);
 
   // ── Approver return comment (shown when status=Incomplete) ────────────────
   const [returnComment, setReturnComment] = useState<{
@@ -1647,16 +1648,17 @@ export default function AddEmployee() {
     setSubmittingForApproval(true);
 
     // ── Detect sent-back resubmit ─────────────────────────────────────────
-    // If an awaiting_clarification instance exists for this employee+module, we
-    // must call wf_resubmit (resumes the existing thread) not submit_hire
-    // (which would create a second parallel instance for the same record).
-    const { data: existingInst } = await supabase
-      .from('workflow_instances')
-      .select('id')
-      .eq('module_code', 'employee_hire')
-      .eq('record_id', empUUID)
-      .eq('status', 'awaiting_clarification')
-      .maybeSingle();
+    // Employee status 'Incomplete' means the approver sent this back — there is
+    // always an awaiting_clarification workflow instance. Use the status as the
+    // primary gate (no DB query needed), then fetch the instance id via a
+    // SECURITY DEFINER RPC so any authorised HR analyst can resume it regardless
+    // of who originally submitted (RLS submitted_by check would block others).
+    let existingInst: { id: string } | null = null;
+    if (loadedEmpStatus === 'Incomplete') {
+      const { data: clarificationInstanceId } = await supabase
+        .rpc('get_hire_clarification_instance', { p_employee_id: empUUID });
+      existingInst = clarificationInstanceId ? { id: clarificationInstanceId as string } : null;
+    }
 
     let rpcError: { message: string } | null = null;
 
@@ -1677,7 +1679,7 @@ export default function AddEmployee() {
     setSubmittingForApproval(false);
 
     if (rpcError) {
-      setErrors({ _global: rpcError.message } as Record<string, string>);
+      setSubmitErrorModal(rpcError.message.replace(/^ERROR:\s*/i, ''));
       return;
     }
 
@@ -1808,7 +1810,7 @@ export default function AddEmployee() {
         if ((error as any).code === 'PGRST116') {
           showToast('This record was modified by someone else. Please reload and re-apply your changes.', 'error');
         } else {
-          setErrors({ _global: error.message } as Record<string, string>);
+          setSubmitErrorModal(error.message.replace(/^ERROR:\s*/i, ''));
         }
         return;
       }
@@ -1821,7 +1823,7 @@ export default function AddEmployee() {
         .insert({ ...corePayload, status: 'Draft' } as any)
         .select('id, updated_at')
         .single();
-      if (error || !inserted) { setErrors({ _global: error?.message ?? 'Insert failed' } as Record<string, string>); return; }
+      if (error || !inserted) { setSubmitErrorModal((error?.message ?? 'Insert failed').replace(/^ERROR:\s*/i, '')); return; }
       empUUID = inserted.id;
       if (inserted.updated_at) loadedEmpUpdatedAtRef.current = inserted.updated_at;
     }
@@ -1848,7 +1850,7 @@ export default function AddEmployee() {
       { p_employee_id: empUUID! }
     );
     if (activateError) {
-      setErrors({ _global: activateError.message } as Record<string, string>);
+      setSubmitErrorModal(activateError.message.replace(/^ERROR:\s*/i, ''));
       return;
     }
 
@@ -1882,19 +1884,26 @@ export default function AddEmployee() {
         });
       } else {
         // 2. Link the auth profile → employee + grant ESS.
-        const { data: rpcData, error: rpcError } = await supabase.rpc(
-          'link_profile_to_employee',
-          { p_email: businessEmail }
-        );
-        const linkReason = (rpcData as { ok?: boolean; reason?: string } | null)?.reason ?? '';
-        const isExpected = linkReason.includes('auth user not found');
-        if (rpcError || (!isExpected && linkReason && !(rpcData as { ok?: boolean })?.ok)) {
+        // Retry with backoff — auth.users row may not be immediately visible cross-transaction.
+        let rpcData: { ok?: boolean; reason?: string } | null = null;
+        let rpcError: { message: string } | null = null;
+        for (let attempt = 0; attempt < 4; attempt++) {
+          if (attempt > 0) await new Promise(r => setTimeout(r, 800 * attempt));
+          const result = await supabase.rpc('link_profile_to_employee', { p_email: businessEmail });
+          rpcError = result.error as { message: string } | null;
+          rpcData = result.data as { ok?: boolean; reason?: string } | null;
+          if (!rpcError && rpcData?.ok) break;
+          const reason = rpcData?.reason ?? '';
+          if (!reason.includes('auth user not found') && !reason.includes('profile row not yet')) break;
+        }
+        const linkReason = rpcData?.reason ?? '';
+        if (rpcError || (linkReason && !rpcData?.ok)) {
           const detail = rpcError?.message ?? linkReason;
           setInfoModal({
             open: true,
             type: 'warning',
             title: 'Profile Link Issue',
-            message: `The employee was activated and the welcome email was sent, but linking the auth profile failed.\n\nReason: ${detail}\n\nThis will resolve automatically when the employee first signs in.`,
+            message: `The employee was activated and the welcome email was sent, but linking the auth profile failed.\n\nReason: ${detail}\n\nPlease verify the employee appears in Admin → Security → Password Reset. If not, ask them to use "Forgot password" on the login page.`,
           });
         } else {
           showToast('Employee activated and welcome email sent!', 'success');
@@ -3330,6 +3339,30 @@ export default function AddEmployee() {
                 }}
               >
                 <i className="fa-solid fa-arrow-right" /> Go to Section
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Submit / Save error modal ───────────────────────────────────── */}
+      {submitErrorModal && (
+        <div className="modal-overlay" onClick={() => setSubmitErrorModal(null)}>
+          <div className="modal-box" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <i className="fa-solid fa-circle-xmark modal-icon" style={{ color: '#DC2626' }} />
+              <h3>Action Failed</h3>
+            </div>
+            <div className="modal-body">
+              {submitErrorModal}
+            </div>
+            <div className="modal-actions">
+              <button
+                className="emp-btn-primary"
+                style={{ padding: '9px 28px', fontSize: 13.5 }}
+                onClick={() => setSubmitErrorModal(null)}
+              >
+                OK
               </button>
             </div>
           </div>

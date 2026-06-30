@@ -1,0 +1,2 @@
+-- Migration 606: superseded by mig 607 which fixes this plus two more gaps.
+-- This file is a no-op kept only to preserve the migration sequence.

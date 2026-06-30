@@ -1362,7 +1362,10 @@ export default function WorkflowTemplates() {
                               {step.escalationAfterHours != null && (
                                 <StepChip icon="fa-arrow-trend-up" label={`Escalate ${step.escalationAfterHours}h`} color={C.red} bg={C.redL} />
                               )}
-                              {!step.approvalMode && step.allowDelegation && (
+                              {step.isCc && (
+                                <StepChip icon="fa-bell" label="Notify Only" color="#0369A1" bg="#E0F2FE" />
+                              )}
+                              {!step.isCc && !step.approvalMode && step.allowDelegation && (
                                 <StepChip icon="fa-rotate" label="Delegation OK" />
                               )}
                               {step.allowEdit && (

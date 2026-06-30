@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useEmployees, type Employee } from '../../hooks/useEmployees';
 import { useDepartments } from '../../hooks/useDepartments';
 import { usePicklistValues } from '../../hooks/usePicklistValues';
@@ -417,6 +418,7 @@ function EmpPopover({ state, plVals, departments, onClose }: {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function OrgChart() {
+  const navigate = useNavigate();
   const { departments: supabaseDepts } = useDepartments();
   const { employees: supabaseEmps }   = useEmployees();
   const { picklistValues: plValsRaw }    = usePicklistValues();
@@ -735,20 +737,20 @@ export default function OrgChart() {
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div className="ar-panel" style={{ position: 'relative' }}>
+    <div style={{ margin: '-28px -48px', display: 'flex', flexDirection: 'column', height: 'calc(100vh - 60px)', overflow: 'hidden', position: 'relative' }}>
 
-      {/* Page title */}
-      <h2 className="page-title">Organisation Chart</h2>
-      <p className="page-subtitle" style={{ marginBottom: 16 }}>
-        Visualise the department hierarchy. Drag to pan, scroll to zoom, click a card for details.
-      </p>
-
-      {/* Chart container */}
-      <div style={{ borderRadius: 10, border: '1px solid #e8edf5', overflow: 'hidden', boxShadow: '0 2px 10px rgba(24,52,91,0.05)' }}>
-
-        {/* Toolbar */}
+      {/* Toolbar */}
+      <div style={{ flexShrink: 0 }}>
         <div className="oc-toolbar">
           <div className="oc-toolbar-left">
+            {/* Breadcrumb back link */}
+            <button
+              onClick={() => navigate('/admin/organization/departments')}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', color: '#2F77B5', fontSize: 13, fontWeight: 600, padding: '0 4px', flexShrink: 0 }}
+            >
+              <i className="fa-solid fa-chevron-left" style={{ fontSize: 10 }} /> Organization
+            </button>
+            <span style={{ width: 1, height: 18, background: '#d1d5db', flexShrink: 0 }} />
             {/* Date filter */}
             <div className="dept-date-bar" style={{ border: 'none', padding: 0, margin: 0, background: 'transparent' }}>
               <i className="fa-regular fa-calendar" style={{ color: '#2F77B5' }} />
@@ -817,10 +819,14 @@ export default function OrgChart() {
           </div>
         )}
 
-        {/* Viewport — clicking empty canvas closes the details panel */}
+      </div>{/* end toolbar wrapper */}
+
+      {/* Viewport — fills remaining height */}
+      <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
         <div
           className="oc-viewport"
           ref={viewportRef}
+          style={{ height: '100%', borderRadius: 0, border: 'none', borderTop: '1px solid var(--border)' }}
           onClick={() => { if (selectedId) setSelectedId(null); }}
         >
           <div className="oc-canvas" ref={canvasRef}>

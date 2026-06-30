@@ -552,6 +552,14 @@ export default function MyProfile() {
   const [employmentHistRows,    setEmploymentHistRows]    = useState<Record<string, unknown>[]>([]);
   const [employmentHistLoading, setEmploymentHistLoading] = useState(false);
   const [employmentHistSelIdx,  setEmploymentHistSelIdx]  = useState(0);
+  const [employmentEditMode,    setEmploymentEditMode]    = useState<'edit' | 'insert'>('insert');
+  const [empPropagate,          setEmpPropagate]          = useState(false);
+  const [showPropagateModal,    setShowPropagateModal]    = useState(false);
+  const [pendingEmpSave,        setPendingEmpSave]        = useState<(() => Promise<void>) | null>(null);
+
+  // Personal info history panel
+  const [personalEditMode,           setPersonalEditMode]           = useState<'edit' | 'insert'>('insert');
+  const [showPersonalPropagateModal, setShowPersonalPropagateModal] = useState(false);
 
   // Delete confirmation dialog
   const [deleteConfirm, setDeleteConfirm] = useState<{
@@ -820,6 +828,10 @@ export default function MyProfile() {
     setPassportFieldErrors({});
     setPassportCountryPending(null);
     setMobileFieldError('');
+    setEmpPropagate(false);
+    setShowPropagateModal(false);
+    setPendingEmpSave(null);
+    setShowPersonalPropagateModal(false);
   }
 
   function showSuccess(msg: string) {
@@ -876,18 +888,18 @@ export default function MyProfile() {
   }
 
   // ── Save: Personal ─────────────────────────────────────────────────────
-  async function savePersonal() {
+  async function savePersonal(propagate = false) {
     if (!viewedEmployeeId) return;
-    const firstName = fd('firstName').trim();
+    const firstName  = fd('firstName').trim();
     const middleName = fd('middleName').trim();
-    const lastName  = fd('lastName').trim();
+    const lastName   = fd('lastName').trim();
     const nat = fd('nationality');
     const ms  = fd('maritalStatus');
     const gen = fd('gender');
     const dob = fd('dob');
 
-    const today          = new Date().toISOString().split('T')[0];
-    const effectiveFrom  = fd('effectiveFrom') || today;
+    const today         = new Date().toISOString().split('T')[0];
+    const effectiveFrom = fd('effectiveFrom') || today;
 
     if (!effectiveFrom)  { setSaveError('Effective from is required.');  return; }
     if (!firstName)      { setSaveError('First name is required.');       return; }
@@ -896,6 +908,7 @@ export default function MyProfile() {
     if (!ms)             { setSaveError('Marital status is required.');    return; }
     if (!gen)            { setSaveError('Gender is required.');            return; }
     if (!dob)            { setSaveError('Date of birth is required.');     return; }
+
     const fn = firstName.trim(), mn = middleName.trim(), ln = lastName.trim();
     const computedName = fn && mn && ln ? `${fn} ${mn} ${ln}`
                        : fn && ln       ? `${fn} ${ln}`
@@ -911,6 +924,7 @@ export default function MyProfile() {
       marital_status: ms  || null,
       gender:         gen || null,
       dob:            dob || null,
+      _propagate:     propagate,   // stored in proposed_data for workflow approval path
     };
 
     if ((pendingCounts['profile_personal'] ?? 0) > 0) {
@@ -928,21 +942,28 @@ export default function MyProfile() {
       return;
     }
 
+    // Show propagate modal only when inserting mid-history (future slices exist after chosen date).
+    if (!propagate && !showPersonalPropagateModal && personalEditMode === 'insert') {
+      const { count } = await supabase
+        .from('employee_personal')
+        .select('id', { count: 'exact', head: true })
+        .eq('employee_id', viewedEmployeeId)
+        .gt('effective_from', effectiveFrom)
+        .not('is_active', 'eq', false);
+      if ((count ?? 0) > 0) {
+        setShowPersonalPropagateModal(true);
+        return;
+      }
+    }
+
     setSaving(true); setSaveError(null);
+    setShowPersonalPropagateModal(false);
     try {
-      // ── Direct save path — routes through upsert_personal_info RPC ──────
       const { data: result, error } = await supabase.rpc('upsert_personal_info', {
         p_employee_id:    viewedEmployeeId,
-        p_proposed_data:  {
-          first_name:     firstName,
-          middle_name:    middleName || null,
-          last_name:      lastName  || null,
-          nationality:    nat || null,
-          marital_status: ms  || null,
-          gender:         gen || null,
-          dob:            dob || null,
-        },
+        p_proposed_data:  proposedPersonal,
         p_effective_from: effectiveFrom,
+        p_propagate:      propagate,
       });
       if (error) throw error;
       if (result && !result.ok) throw new Error(result.error ?? 'Save failed');
@@ -959,7 +980,7 @@ export default function MyProfile() {
   }
 
   // ── Save: Employment ──────────────────────────────────────────────────
-  async function saveEmployment() {
+  async function saveEmployment(propagate = false) {
     if (!viewedEmployeeId) return;
     const today         = new Date().toISOString().split('T')[0];
     const effectiveFrom = fd('empEffectiveFrom') || today;
@@ -972,14 +993,15 @@ export default function MyProfile() {
     const workLocation     = fd('empWorkLocation')   || null;
 
     const proposedEmployment = {
-      effective_from:    effectiveFrom,
-      designation:       designation,
-      job_title:         jobTitle,
-      dept_id:           deptId,
-      manager_id:        managerId,
+      effective_from:     effectiveFrom,
+      designation:        designation,
+      job_title:          jobTitle,
+      dept_id:            deptId,
+      manager_id:         managerId,
       notice_period_days: noticePeriodDays,
-      work_country:      workCountry,
-      work_location:     workLocation,
+      work_country:       workCountry,
+      work_location:      workLocation,
+      _propagate:         propagate,   // stored in proposed_data for workflow approval path
     };
 
     if ((pendingCounts['profile_employment'] ?? 0) > 0) {
@@ -997,12 +1019,30 @@ export default function MyProfile() {
       return;
     }
 
+    // Show propagate modal only when inserting mid-history (future slices exist after chosen date).
+    // Editing the current/latest slice (amendment/correction) never has future slices to propagate to.
+    if (!propagate && !showPropagateModal && employmentEditMode === 'insert') {
+      const { count } = await supabase
+        .from('employee_employment')
+        .select('id', { count: 'exact', head: true })
+        .eq('employee_id', viewedEmployeeId)
+        .gt('effective_from', effectiveFrom)
+        .not('is_active', 'eq', false);   // exclude soft-deleted rows
+      if ((count ?? 0) > 0) {
+        setPendingEmpSave(() => () => saveEmployment(true));
+        setShowPropagateModal(true);
+        return;
+      }
+    }
+
     setSaving(true); setSaveError(null);
+    setShowPropagateModal(false);
     try {
       const { data: result, error } = await supabase.rpc('upsert_employment_info', {
         p_employee_id:    viewedEmployeeId,
         p_proposed_data:  proposedEmployment,
         p_effective_from: effectiveFrom,
+        p_propagate:      propagate,
       });
       if (error) throw error;
       if (result && !result.ok) {
@@ -1432,23 +1472,23 @@ export default function MyProfile() {
     { id: 'termination',       label: 'Termination',       icon: 'fa-user-slash',       viewPermission: 'termination.view'        },
   ];
 
-  // Apply theme ordering + visibility (termination is always shown if permitted — not theme-controlled)
+  // Apply theme ordering + visibility — all sections including termination are now configurable
   const SECTIONS = (() => {
     if (profileSectionCfg.length === 0) return ALL_SECTIONS.filter(s => can(s.viewPermission));
     const cfgMap = new Map(profileSectionCfg.map(c => [c.id, c]));
     return ALL_SECTIONS
       .filter(s => can(s.viewPermission))
-      .filter(s => s.id === 'termination' || (cfgMap.get(s.id)?.visible ?? true))
-      .sort((a, b) => {
-        if (a.id === 'termination') return 1;
-        if (b.id === 'termination') return -1;
-        return (cfgMap.get(a.id)?.order ?? 99) - (cfgMap.get(b.id)?.order ?? 99);
-      });
+      .filter(s => (cfgMap.get(s.id)?.visible ?? true))
+      .sort((a, b) => (cfgMap.get(a.id)?.order ?? 99) - (cfgMap.get(b.id)?.order ?? 99));
   })();
 
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const endDate = emp.endDate ? new Date((emp.endDate as string) + 'T00:00:00') : null;
-  const isActive = !endDate || emp.endDate === '9999-12-31' || endDate >= today;
+  // Trust employees.status (base table) as the source of truth — set by termination workflow.
+  // Fall back to date-based logic only when status is missing (legacy records).
+  const isActive = emp.status === 'Inactive' ? false
+    : emp.status === 'Active'  ? true
+    : (!endDate || emp.endDate === '9999-12-31' || endDate >= today);
 
   const identifications: Record<string, unknown>[] = (emp.idRecords as Record<string, unknown>[] | undefined) || [];
 
@@ -1530,11 +1570,14 @@ export default function MyProfile() {
 
   // ── Section header with optional Edit button ──────────────────────────
   function SectionHeader({
-    icon, text, section, permission, editValues, pendingCount, moduleCode,
+    icon, text, section, permission, insertPermission, editValues, onInsert, onEdit, pendingCount, moduleCode,
     historyPermission, histOpen, onToggleHistory,
   }: {
     icon: string; text: string; section: string;
-    permission?: string; editValues?: Record<string, string>;
+    permission?: string; insertPermission?: string;
+    editValues?: Record<string, string>;
+    onInsert?: () => void;
+    onEdit?: () => void;
     pendingCount?: number;
     moduleCode?: string;
     historyPermission?: string;
@@ -1542,6 +1585,7 @@ export default function MyProfile() {
     onToggleHistory?: () => void;
   }) {
     const canEdit    = permission && (isSelf || viewedEmployee?.status !== 'Inactive') ? can(permission) : false;
+    const canInsert  = insertPermission && (isSelf || viewedEmployee?.status !== 'Inactive') ? can(insertPermission) : false;
     const canHistory = historyPermission ? can(historyPermission) : false;
     const isEditing  = editingSection === section;
     return (
@@ -1569,8 +1613,23 @@ export default function MyProfile() {
               {histOpen ? 'Close' : 'History'}
             </button>
           )}
+          {canInsert && !isEditing && !editingSection && onInsert && (
+            <button
+              onClick={onInsert}
+              title="Insert new time slice"
+              style={{
+                background: '#EFF6FF', border: '1px solid #BFDBFE',
+                borderRadius: 6, padding: '4px 10px', cursor: 'pointer',
+                color: '#2563EB', fontSize: 12, fontWeight: 600,
+                display: 'flex', alignItems: 'center', gap: 4,
+              }}
+            >
+              <i className="fa-solid fa-plus" style={{ fontSize: 11 }} />
+              Insert
+            </button>
+          )}
           {canEdit && !isEditing && !editingSection && editValues && (
-            <EditButton onClick={() => startEdit(section, editValues)} />
+            <EditButton onClick={onEdit ?? (() => startEdit(section, editValues))} />
           )}
         </div>
       </div>
@@ -1858,18 +1917,22 @@ export default function MyProfile() {
               <SectionHeader
                 icon="fa-circle-user" text="Personal Information"
                 section="personal"
-                permission="personal_info.edit"
+                insertPermission="personal_info.create"
                 moduleCode="profile_personal"
                 pendingCount={pendingCounts['profile_personal'] ?? 0}
-                editValues={{
-                  firstName:     (emp.firstName     as string) || '',
-                  middleName:    (emp.middleName    as string) || '',
-                  lastName:      (emp.lastName      as string) || '',
-                  nationality:   (emp.nationality   as string) || '',
-                  maritalStatus: (emp.maritalStatus as string) || '',
-                  gender:        (emp.gender        as string) || '',
-                  dob:           (emp.dob           as string) || '',
-                  effectiveFrom: new Date().toISOString().split('T')[0],
+                onInsert={() => {
+                  setPersonalEditMode('insert');
+                  setPersonalHistOpen(false);
+                  startEdit('personal', {
+                    firstName:     '',
+                    middleName:    '',
+                    lastName:      '',
+                    nationality:   '',
+                    maritalStatus: '',
+                    gender:        '',
+                    dob:           '',
+                    effectiveFrom: new Date().toISOString().split('T')[0],
+                  });
                 }}
                 historyPermission="personal_info.history"
                 histOpen={personalHistOpen}
@@ -1884,20 +1947,37 @@ export default function MyProfile() {
 
               {editingSection === 'personal' ? (
                 <>
+                  {/* Mode banner */}
+                  {personalEditMode === 'edit' && (
+                    <div style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 12px', background:'#FFF7ED', border:'1px solid #FED7AA', borderRadius:8, marginBottom:12, fontSize:13, color:'#92400E' }}>
+                      <i className="fa-solid fa-pen-to-square" style={{ color:'#F97316' }} />
+                      Editing existing record — effective date is locked
+                    </div>
+                  )}
                   <div className="ev-field-grid ev-grid-2">
-                    <FormInput
-                      label="Effective From *"
-                      type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31"
-                      value={fd('effectiveFrom')}
-                      onChange={v => setFd('effectiveFrom', v)}
-                      hint={
-                        fd('effectiveFrom') > new Date().toISOString().split('T')[0]
-                          ? '⏰ Future-dated — change takes effect on this date'
-                          : fd('effectiveFrom') && fd('effectiveFrom') < new Date().toISOString().split('T')[0]
-                          ? '↩ Backdated — history updated from this date'
-                          : undefined
-                      }
-                    />
+                    {personalEditMode === 'insert' ? (
+                      <FormInput
+                        label="Effective From *"
+                        type="date" min="1900-01-01" max="2100-12-31"
+                        value={fd('effectiveFrom')}
+                        onChange={v => setFd('effectiveFrom', v)}
+                        hint={
+                          fd('effectiveFrom') > new Date().toISOString().split('T')[0]
+                            ? '⏰ Future-dated — change takes effect on this date'
+                            : fd('effectiveFrom') && fd('effectiveFrom') < new Date().toISOString().split('T')[0]
+                            ? '↩ Backdated — history updated from this date'
+                            : undefined
+                        }
+                      />
+                    ) : (
+                      <div className="ev-field">
+                        <div className="ev-field-label">Effective From</div>
+                        <div style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 10px', background:'#F9FAFB', border:'1px solid #E5E7EB', borderRadius:6, fontSize:13, color:'#6B7280' }}>
+                          <i className="fa-solid fa-lock" style={{ fontSize:11 }} />
+                          {fd('effectiveFrom')} <span style={{ fontSize:11, color:'#9CA3AF' }}>locked</span>
+                        </div>
+                      </div>
+                    )}
                     <div /> {/* spacer to keep grid alignment */}
                     <FormInput
                       label="First Name *"
@@ -1991,7 +2071,7 @@ export default function MyProfile() {
                     )}
                   </div>
 
-                  <SaveCancelRow onSave={savePersonal} onCancel={cancelEdit} saving={saving} error={saveError} gated={activeGates.has('profile_personal')} isDirty={isDirty} />
+                  <SaveCancelRow onSave={() => savePersonal(false)} onCancel={cancelEdit} saving={saving} error={saveError} gated={activeGates.has('profile_personal')} isDirty={isDirty} />
                 </>
               ) : personalHistOpen ? (
                 /* ── History panel — replaces the field grid in-place ── */
@@ -2062,28 +2142,55 @@ export default function MyProfile() {
                               <Field label="Date of Birth"  value={(h.dob         as string) || undefined} />
                               {h.dob && <Field label="Age" value={calcAge(h.dob as string) !== null ? `${calcAge(h.dob as string)} years` : undefined} />}
                             </div>
-                            {can('personal_info.delete') && (
-                              <div style={{ marginTop: 12, display: 'flex', justifyContent: 'flex-end' }}>
-                                <button
-                                  disabled={personalHistRows.length <= 1}
-                                  title={personalHistRows.length <= 1 ? 'Cannot delete — at least one personal info record must exist at all times' : 'Delete this record'}
-                                  style={{
-                                    ...deleteIconBtn, fontSize: 12, display: 'flex', alignItems: 'center', gap: 5,
-                                    padding: '5px 10px', border: '1px solid #FCA5A5', borderRadius: 6,
-                                    opacity: personalHistRows.length <= 1 ? 0.4 : 1,
-                                    cursor: personalHistRows.length <= 1 ? 'not-allowed' : 'pointer',
-                                  }}
-                                  onClick={() => {
-                                    if (personalHistRows.length <= 1) return;
-                                    confirmDelete(
-                                      'Delete Personal Info Record',
-                                      `Delete the record effective from ${h.effective_from as string}? The timeline will be adjusted automatically.`,
-                                      () => deletePersonalInfoRecord(h.id as string),
-                                    );
-                                  }}
-                                >
-                                  <i className="fa-solid fa-trash-can" /> Delete this record
-                                </button>
+                            {(can('personal_info.edit') || can('personal_info.delete')) && (
+                              <div style={{ marginTop: 12, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                                {can('personal_info.edit') && (
+                                  <button
+                                    style={{
+                                      fontSize: 12, display: 'flex', alignItems: 'center', gap: 5,
+                                      padding: '5px 10px', border: '1px solid #BFDBFE', borderRadius: 6,
+                                      background: '#EFF6FF', color: '#1D4ED8', cursor: 'pointer',
+                                    }}
+                                    onClick={() => {
+                                      setPersonalEditMode('edit');
+                                      setPersonalHistOpen(false);
+                                      startEdit('personal', {
+                                        firstName:     String(h.first_name    ?? ''),
+                                        middleName:    String(h.middle_name   ?? ''),
+                                        lastName:      String(h.last_name     ?? ''),
+                                        nationality:   String(h.nationality   ?? ''),
+                                        maritalStatus: String(h.marital_status ?? ''),
+                                        gender:        String(h.gender        ?? ''),
+                                        dob:           String(h.dob           ?? ''),
+                                        effectiveFrom: String(h.effective_from ?? ''),
+                                      });
+                                    }}
+                                  >
+                                    <i className="fa-solid fa-pen-to-square" /> Edit this record
+                                  </button>
+                                )}
+                                {can('personal_info.delete') && (
+                                  <button
+                                    disabled={personalHistRows.length <= 1}
+                                    title={personalHistRows.length <= 1 ? 'Cannot delete — at least one personal info record must exist at all times' : 'Delete this record'}
+                                    style={{
+                                      ...deleteIconBtn, fontSize: 12, display: 'flex', alignItems: 'center', gap: 5,
+                                      padding: '5px 10px', border: '1px solid #FCA5A5', borderRadius: 6,
+                                      opacity: personalHistRows.length <= 1 ? 0.4 : 1,
+                                      cursor: personalHistRows.length <= 1 ? 'not-allowed' : 'pointer',
+                                    }}
+                                    onClick={() => {
+                                      if (personalHistRows.length <= 1) return;
+                                      confirmDelete(
+                                        'Delete Personal Info Record',
+                                        `Delete the record effective from ${h.effective_from as string}? The timeline will be adjusted automatically.`,
+                                        () => deletePersonalInfoRecord(h.id as string),
+                                      );
+                                    }}
+                                  >
+                                    <i className="fa-solid fa-trash-can" /> Delete this record
+                                  </button>
+                                )}
                               </div>
                             )}
                           </div>
@@ -2208,19 +2315,35 @@ export default function MyProfile() {
               <SectionHeader
                 icon="fa-briefcase" text="Employment Information"
                 section="employment"
-                permission="employment.edit"
+                insertPermission="employment.create"
                 moduleCode="profile_employment"
                 pendingCount={pendingCounts['profile_employment'] ?? 0}
-                editValues={{
-                  empDesignation:   (emp.designation   as string) || '',
-                  empJobTitle:      (emp.jobTitle       as string) || '',
-                  empDeptId:             (emp.deptId            as string) || '',
-                  empManagerId:          (emp.managerId         as string) || '',
-                  empManagerName:        managerName(emp.managerId as string | undefined) === '—' ? '' : managerName(emp.managerId as string | undefined),
-                  empNoticePeriodDays:   String((emp.noticePeriodDays as number | null | undefined) ?? 30),
-                  empWorkCountry:        (emp.workCountry        as string) || '',
-                  empWorkLocation:       (emp.workLocation       as string) || '',
-                  empEffectiveFrom:      new Date().toISOString().split('T')[0],
+                onInsert={() => {
+                  setEmploymentEditMode('insert');
+                  setEmploymentHistOpen(false);
+                  const today = new Date().toISOString().split('T')[0];
+                  // Clear inherited manager if inactive (terminated)
+                  const inheritedMgrId = (emp.managerId as string) || '';
+                  const mgrIsInactive  = inheritedMgrId
+                    ? employees.find(e => e.id === inheritedMgrId)?.status === 'Inactive'
+                    : false;
+                  // Clear inherited department if closed as of today
+                  const inheritedDeptId = (emp.deptId as string) || '';
+                  const dept = inheritedDeptId ? departments.find(d => d.id === inheritedDeptId) : null;
+                  const deptIsClosed = dept
+                    ? (dept.endDate != null && dept.endDate !== '9999-12-31' && dept.endDate < today)
+                    : false;
+                  startEdit('employment', {
+                    empDesignation:      (emp.designation   as string) || '',
+                    empJobTitle:         (emp.jobTitle       as string) || '',
+                    empDeptId:           deptIsClosed ? '' : inheritedDeptId,
+                    empManagerId:        mgrIsInactive ? '' : inheritedMgrId,
+                    empManagerName:      mgrIsInactive ? '' : (managerName(emp.managerId as string | undefined) === '—' ? '' : managerName(emp.managerId as string | undefined)),
+                    empNoticePeriodDays: String((emp.noticePeriodDays as number | null | undefined) ?? 30),
+                    empWorkCountry:      (emp.workCountry        as string) || '',
+                    empWorkLocation:     (emp.workLocation       as string) || '',
+                    empEffectiveFrom:    today,
+                  });
                 }}
                 historyPermission="employment.history"
                 histOpen={employmentHistOpen}
@@ -2233,25 +2356,69 @@ export default function MyProfile() {
 
               {editingSection === 'employment' ? (
                 <>
+                  {/* Mode banner */}
+                  <div style={{
+                    marginBottom: 12, padding: '6px 12px', borderRadius: 6, fontSize: 12, fontWeight: 600,
+                    background: employmentEditMode === 'insert' ? '#EFF6FF' : '#F0FDF4',
+                    color: employmentEditMode === 'insert' ? '#1D4ED8' : '#166534',
+                    border: `1px solid ${employmentEditMode === 'insert' ? '#BFDBFE' : '#BBF7D0'}`,
+                    display: 'flex', alignItems: 'center', gap: 6,
+                  }}>
+                    <i className={`fa-solid ${employmentEditMode === 'insert' ? 'fa-plus' : 'fa-pen-to-square'}`} />
+                    {employmentEditMode === 'insert'
+                      ? 'Inserting new time slice — choose effective date below'
+                      : 'Editing existing record — date is locked to current slice'}
+                  </div>
                   <div className="ev-field-grid ev-grid-2">
-                    <FormInput
-                      label="Effective From *"
-                      type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31"
-                      value={fd('empEffectiveFrom')}
-                      onChange={v => setFd('empEffectiveFrom', v)}
-                      hint={
-                        fd('empEffectiveFrom') > new Date().toISOString().split('T')[0]
-                          ? '⏰ Future-dated — change takes effect on this date'
-                          : fd('empEffectiveFrom') && fd('empEffectiveFrom') < new Date().toISOString().split('T')[0]
-                          ? '↩ Backdated — history updated from this date'
-                          : undefined
-                      }
-                    />
+                    {employmentEditMode === 'insert' ? (
+                      <FormInput
+                        label="Effective From *"
+                        type="date" min="1900-01-01" max="2100-12-31"
+                        value={fd('empEffectiveFrom')}
+                        onChange={v => {
+                          setFd('empEffectiveFrom', v);
+                          // Re-check manager: clear if inactive
+                          const currentMgrId = fd('empManagerId');
+                          if (currentMgrId && employees.find(e => e.id === currentMgrId)?.status === 'Inactive') {
+                            setFd('empManagerId', ''); setFd('empManagerName', '');
+                          }
+                          // Re-check department: clear if closed on the new effective date
+                          const currentDeptId = fd('empDeptId');
+                          if (currentDeptId && v) {
+                            const d = departments.find(dep => dep.id === currentDeptId);
+                            if (d && d.endDate != null && d.endDate !== '9999-12-31' && d.endDate < v) {
+                              setFd('empDeptId', '');
+                            }
+                          }
+                        }}
+                        hint={
+                          fd('empEffectiveFrom') > new Date().toISOString().split('T')[0]
+                            ? '⏰ Future-dated — change takes effect on this date'
+                            : fd('empEffectiveFrom') && fd('empEffectiveFrom') < new Date().toISOString().split('T')[0]
+                            ? '↩ Backdated — history updated from this date'
+                            : undefined
+                        }
+                      />
+                    ) : (
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: '#6B7280', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Effective From</div>
+                        <div style={{ fontSize: 13, color: '#374151', display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 6 }}>
+                          <i className="fa-solid fa-lock" style={{ color: '#9CA3AF', fontSize: 11 }} />
+                          {fd('empEffectiveFrom') || '—'}
+                          <span style={{ fontSize: 11, color: '#9CA3AF', marginLeft: 4 }}>locked</span>
+                        </div>
+                      </div>
+                    )}
                     <div />
                     <FormSelect
                       label="Designation"
                       value={fd('empDesignation')}
-                      onChange={v => setFd('empDesignation', v)}
+                      onChange={v => {
+                        setFd('empDesignation', v);
+                        // Auto-fill job title from designation label
+                        const label = picklistValues.find(p => p.id === v)?.value;
+                        if (label) setFd('empJobTitle', label);
+                      }}
                       options={picklistOpts('DESIGNATION')}
                       placeholder="— Select Designation —"
                     />
@@ -2265,7 +2432,14 @@ export default function MyProfile() {
                       label="Department"
                       value={fd('empDeptId')}
                       onChange={v => setFd('empDeptId', v)}
-                      options={departments.map(d => ({ value: d.id, label: d.name ?? d.deptId }))}
+                      options={departments
+                        .filter(d => {
+                          const effDate = fd('empEffectiveFrom') || new Date().toISOString().split('T')[0];
+                          const afterStart = !d.startDate || d.startDate <= effDate;
+                          const beforeEnd  = !d.endDate || d.endDate === '9999-12-31' || d.endDate >= effDate;
+                          return afterStart && beforeEnd;
+                        })
+                        .map(d => ({ value: d.id, label: d.name ?? d.deptId }))}
                       placeholder="— Select Department —"
                     />
                     <ManagerSearchInput
@@ -2303,12 +2477,25 @@ export default function MyProfile() {
                     <div className="ev-field">
                       <div className="ev-field-label">Base Currency</div>
                       <div style={{ fontSize: 13, color: '#6B7280', paddingTop: 6 }}>
-                        {currencies.find(c => c.id === emp.baseCurrencyId)?.name ?? '—'}
+                        {(() => {
+                          const selectedCountry = fd('empWorkCountry');
+                          if (selectedCountry) {
+                            // Derive currency from picklist meta (same logic as DB function)
+                            const countryPv = picklistValues.find(p => p.id === selectedCountry);
+                            const currencyPlId = countryPv?.meta?.['currencyId'];
+                            const currencyPv = currencyPlId ? picklistValues.find(p => p.id === currencyPlId) : null;
+                            const currencyName = currencyPv?.value;
+                            const currency = currencyName ? currencies.find(c => c.name === currencyName) : null;
+                            if (currency) return currency.name;
+                          }
+                          // Fallback to saved value
+                          return currencies.find(c => c.id === emp.baseCurrencyId)?.name ?? '—';
+                        })()}
                         <span style={{ fontSize: 11, marginLeft: 6, color: '#9CA3AF' }}>(auto-derived from country)</span>
                       </div>
                     </div>
                   </div>
-                  <SaveCancelRow onSave={saveEmployment} onCancel={cancelEdit} saving={saving} error={saveError} gated={activeGates.has('profile_employment')} isDirty={isDirty} />
+                  <SaveCancelRow onSave={() => saveEmployment(false)} onCancel={cancelEdit} saving={saving} error={saveError} gated={activeGates.has('profile_employment')} isDirty={isDirty} />
                 </>
               ) : employmentHistOpen ? (
                 <div style={{ border: '1px solid #E0E7FF', borderRadius: 10, overflow: 'hidden' }}>
@@ -2376,8 +2563,34 @@ export default function MyProfile() {
                               <Field label="Base Currency"   value={currencies.find(c => c.id === h.base_currency_id)?.name} />
                               <Field label="Status"          value={h.status as string | undefined} />
                             </div>
-                            {can('employment.delete') && (
-                              <div style={{ marginTop: 12, display: 'flex', justifyContent: 'flex-end' }}>
+                            <div style={{ marginTop: 12, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                              {can('employment.edit') && (
+                                <button
+                                  style={{
+                                    fontSize: 12, display: 'flex', alignItems: 'center', gap: 5,
+                                    padding: '5px 10px', border: '1px solid #BFDBFE', borderRadius: 6,
+                                    background: '#EFF6FF', color: '#1D4ED8', cursor: 'pointer', fontWeight: 600,
+                                  }}
+                                  onClick={() => {
+                                    setEmploymentEditMode('edit');
+                                    setEmploymentHistOpen(false);
+                                    startEdit('employment', {
+                                      empDesignation:      String(h.designation      ?? ''),
+                                      empJobTitle:         String(h.job_title        ?? ''),
+                                      empDeptId:           String(h.dept_id          ?? ''),
+                                      empManagerId:        String(h.manager_id       ?? ''),
+                                      empManagerName:      managerName(h.manager_id as string | undefined) === '—' ? '' : managerName(h.manager_id as string | undefined),
+                                      empNoticePeriodDays: String(h.notice_period_days ?? 30),
+                                      empWorkCountry:      String(h.work_country     ?? ''),
+                                      empWorkLocation:     String(h.work_location    ?? ''),
+                                      empEffectiveFrom:    String(h.effective_from   ?? ''),
+                                    });
+                                  }}
+                                >
+                                  <i className="fa-solid fa-pen-to-square" /> Edit this record
+                                </button>
+                              )}
+                              {can('employment.delete') && (
                                 <button
                                   disabled={employmentHistRows.length <= 1}
                                   title={employmentHistRows.length <= 1 ? 'Cannot delete — at least one employment record must exist at all times' : 'Delete this record'}
@@ -2398,8 +2611,8 @@ export default function MyProfile() {
                                 >
                                   <i className="fa-solid fa-trash-can" /> Delete this record
                                 </button>
-                              </div>
-                            )}
+                              )}
+                            </div>
                           </div>
                         );
                       })()}
@@ -2434,6 +2647,138 @@ export default function MyProfile() {
                 </div>
               )}
             </section>
+
+            {/* ── Employment Propagation Modal ──────────────────────── */}
+            {showPropagateModal && (
+              <div style={{
+                position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999,
+              }}>
+                <div style={{
+                  background: '#fff', borderRadius: 14, padding: '28px 32px',
+                  maxWidth: 440, width: '90%', boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+                    <div style={{ width: 40, height: 40, borderRadius: 10, background: '#FEF3C7', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <i className="fa-solid fa-forward" style={{ color: '#D97706', fontSize: 18 }} />
+                    </div>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 16, color: '#111827' }}>Propagate to future records?</div>
+                      <div style={{ fontSize: 13, color: '#6B7280', marginTop: 2 }}>Choose how to apply this change</div>
+                    </div>
+                  </div>
+                  <p style={{ fontSize: 13, color: '#374151', margin: '0 0 20px', lineHeight: 1.6 }}>
+                    Do you want to apply the changes you made here to <strong>all future employment records</strong> as well?
+                    Only the fields you explicitly changed will be updated in later slices.
+                  </p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <button
+                      onClick={async () => { await saveEmployment(true); }}
+                      style={{
+                        padding: '10px 16px', borderRadius: 8, border: '1px solid #FCD34D',
+                        background: '#FFFBEB', color: '#92400E', fontWeight: 600, fontSize: 13,
+                        cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 10,
+                      }}
+                    >
+                      <i className="fa-solid fa-forward" style={{ color: '#D97706' }} />
+                      <div>
+                        <div>Yes, propagate to future records</div>
+                        <div style={{ fontSize: 11, fontWeight: 400, color: '#B45309', marginTop: 2 }}>Updates all later slices with the changed fields</div>
+                      </div>
+                    </button>
+                    <button
+                      onClick={async () => { await saveEmployment(false); setShowPropagateModal(false); }}
+                      style={{
+                        padding: '10px 16px', borderRadius: 8, border: '1px solid #E5E7EB',
+                        background: '#F9FAFB', color: '#374151', fontWeight: 600, fontSize: 13,
+                        cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 10,
+                      }}
+                    >
+                      <i className="fa-solid fa-minus" style={{ color: '#6B7280' }} />
+                      <div>
+                        <div>No, only insert this record</div>
+                        <div style={{ fontSize: 11, fontWeight: 400, color: '#6B7280', marginTop: 2 }}>Future slices remain unchanged</div>
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => setShowPropagateModal(false)}
+                      style={{
+                        padding: '8px 16px', borderRadius: 8, border: 'none',
+                        background: 'none', color: '#9CA3AF', fontSize: 13, cursor: 'pointer',
+                      }}
+                    >
+                      Cancel — go back to editing
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── Personal Info Propagation Modal ──────────────────── */}
+            {showPersonalPropagateModal && (
+              <div style={{
+                position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999,
+              }}>
+                <div style={{
+                  background: '#fff', borderRadius: 14, padding: '28px 32px',
+                  maxWidth: 440, width: '90%', boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+                    <div style={{ width: 40, height: 40, borderRadius: 10, background: '#F0FDF4', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <i className="fa-solid fa-forward" style={{ color: '#16A34A', fontSize: 18 }} />
+                    </div>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 16, color: '#111827' }}>Propagate to future records?</div>
+                      <div style={{ fontSize: 13, color: '#6B7280', marginTop: 2 }}>Choose how to apply this change</div>
+                    </div>
+                  </div>
+                  <p style={{ fontSize: 13, color: '#374151', margin: '0 0 20px', lineHeight: 1.6 }}>
+                    Do you want to apply the changes you made here to <strong>all future personal info records</strong> as well?
+                    Only the fields you explicitly changed will be updated in later slices.
+                  </p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <button
+                      onClick={async () => { await savePersonal(true); }}
+                      style={{
+                        padding: '10px 16px', borderRadius: 8, border: '1px solid #BBF7D0',
+                        background: '#F0FDF4', color: '#14532D', fontWeight: 600, fontSize: 13,
+                        cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 10,
+                      }}
+                    >
+                      <i className="fa-solid fa-forward" style={{ color: '#16A34A' }} />
+                      <div>
+                        <div>Yes, propagate to future records</div>
+                        <div style={{ fontSize: 11, fontWeight: 400, color: '#166534', marginTop: 2 }}>Updates all later slices with the changed fields</div>
+                      </div>
+                    </button>
+                    <button
+                      onClick={async () => { await savePersonal(false); setShowPersonalPropagateModal(false); }}
+                      style={{
+                        padding: '10px 16px', borderRadius: 8, border: '1px solid #E5E7EB',
+                        background: '#F9FAFB', color: '#374151', fontWeight: 600, fontSize: 13,
+                        cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 10,
+                      }}
+                    >
+                      <i className="fa-solid fa-minus" style={{ color: '#6B7280' }} />
+                      <div>
+                        <div>No, only this record</div>
+                        <div style={{ fontSize: 11, fontWeight: 400, color: '#6B7280', marginTop: 2 }}>Future slices remain unchanged</div>
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => setShowPersonalPropagateModal(false)}
+                      style={{
+                        padding: '8px 16px', borderRadius: 8, border: 'none',
+                        background: 'none', color: '#9CA3AF', fontSize: 13, cursor: 'pointer',
+                      }}
+                    >
+                      Cancel — go back to editing
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* ── Manager Cycle Detection Modal ─────────────────────── */}
             {cycleError && (

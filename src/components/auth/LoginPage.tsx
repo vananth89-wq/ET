@@ -3,6 +3,10 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 
+// Flag set when user explicitly submits credentials.
+// Cleared on redirect so it doesn't persist across refreshes.
+const EXPLICIT_LOGIN_KEY = '__prowess_explicit_login__';
+
 type Mode = 'password' | 'magic' | 'forgot';
 
 interface ThemeSettings {
@@ -55,15 +59,19 @@ export default function LoginPage() {
   const location  = useLocation();
   const { session } = useAuth();
 
-  // If already logged in, redirect immediately.
-  // Only restore the previous path if it's a non-profile or self-profile path.
-  // Never redirect to /profile/:someUUID — that would drop the user onto
-  // another employee's page if their session expired while viewing one.
+  // Redirect once session is established.
+  // • Explicit login (user submitted credentials) → always /home
+  // • Session restore on refresh → return to original page (from ProtectedRoute state)
   useEffect(() => {
     if (session) {
-      const from = (location.state as any)?.from?.pathname as string | undefined;
-      const isOtherEmployeeProfile = from && /^\/profile\/[0-9a-f-]{36}/i.test(from);
-      navigate(isOtherEmployeeProfile || !from ? '/home' : from, { replace: true });
+      const isExplicit = sessionStorage.getItem(EXPLICIT_LOGIN_KEY) === '1';
+      sessionStorage.removeItem(EXPLICIT_LOGIN_KEY);
+      if (isExplicit) {
+        navigate('/home', { replace: true });
+      } else {
+        const from = (location.state as { from?: { pathname?: string } })?.from?.pathname;
+        navigate(from || '/home', { replace: true });
+      }
     }
   }, [session, navigate, location]);
 
@@ -74,15 +82,16 @@ export default function LoginPage() {
 
     if (mode === 'password') {
       const { error: err } = await supabase.auth.signInWithPassword({ email, password });
-      if (err) setError(err.message);
+      if (err) { setError(err.message); }
+      else { sessionStorage.setItem(EXPLICIT_LOGIN_KEY, '1'); }
       // On success, AuthContext listener will fire and redirect happens in App
     } else if (mode === 'magic') {
       const { error: err } = await supabase.auth.signInWithOtp({
         email,
         options: { shouldCreateUser: false }, // don't auto-create accounts
       });
-      if (err) setError(err.message);
-      else     setSent(true);
+      if (err) { setError(err.message); }
+      else { sessionStorage.setItem(EXPLICIT_LOGIN_KEY, '1'); setSent(true); }
     } else {
       // Forgot password — send reset email
       const appUrl = import.meta.env.VITE_APP_URL || window.location.origin;

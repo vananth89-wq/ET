@@ -47,6 +47,7 @@ interface OpsRow {
   assignee_job_title:string | null;
   submitter_id:      string;
   submitter_name:    string;
+  subject_name:      string;        // subject employee (= submitter for self-service)
   department_id:     string | null;
   department_name:   string | null;
   submitted_at:      string;
@@ -76,6 +77,7 @@ interface GroupedRow {
   age_days:        number;          // max across all tasks
   submitter_id:    string;
   submitter_name:  string;
+  subject_name:    string;
   department_id:   string | null;
   department_name: string | null;
   submitted_at:    string;
@@ -103,7 +105,7 @@ interface PersonResult {
 
 type ActionMode = 'idle' | 'reassign' | 'force_advance' | 'decline' | 'final_reject';
 
-type SortKey = 'age_days' | 'sla_status' | 'submitter_name' | 'assignee_name' | 'template_name';
+type SortKey = 'age_days' | 'sla_status' | 'subject_name' | 'submitter_name' | 'assignee_name' | 'template_name';
 type SortDir = 'asc' | 'desc';
 
 const PAGE_SIZE = 25;
@@ -195,6 +197,7 @@ function groupRows(rows: OpsRow[]): GroupedRow[] {
         age_days:        row.age_days,
         submitter_id:    row.submitter_id,
         submitter_name:  row.submitter_name,
+        subject_name:    row.subject_name ?? row.submitter_name,
         department_id:   row.department_id,
         department_name: row.department_name,
         submitted_at:    row.submitted_at,
@@ -514,6 +517,107 @@ export default function WorkflowOperations() {
     });
   }, [rows]);
 
+  // ── Stuck hire activations ───────────────────────────────────────────────────
+
+  interface StuckHire {
+    employee_id:    string;
+    employee_ref:   string;
+    name:           string;
+    business_email: string;
+    department:     string | null;
+    job_title:      string | null;
+    approved_at:    string | null;
+    instance_id:    string;
+  }
+
+  const [stuckHires,      setStuckHires]      = useState<StuckHire[]>([]);
+  const [stuckDismissed,  setStuckDismissed]  = useState(false);
+  const [fixingId,        setFixingId]        = useState<string | null>(null);
+  const [fixResult,       setFixResult]       = useState<{ id: string; ok: boolean; msg: string } | null>(null);
+
+  const loadStuckHires = useCallback(async () => {
+    const { data } = await supabase.rpc('get_stuck_hire_activations');
+    setStuckHires((data ?? []) as StuckHire[]);
+  }, []);
+
+  useEffect(() => { loadStuckHires(); }, [loadStuckHires]);
+
+  // ── Stalled workflows ────────────────────────────────────────────────────────
+  interface StalledWorkflow {
+    instance_id:   string;
+    module_code:   string;
+    record_id:     string;
+    template_name: string;
+    subject_name:  string | null;
+    submitted_at:  string | null;
+    last_acted_at: string | null;
+  }
+
+  const [stalledWfs,       setStalledWfs]       = useState<StalledWorkflow[]>([]);
+  const [stalledDismissed, setStalledDismissed] = useState(false);
+  const [stalledFixingId,  setStalledFixingId]  = useState<string | null>(null);
+  const [stalledFixResult, setStalledFixResult] = useState<{ id: string; ok: boolean; msg: string } | null>(null);
+
+  const loadStalledWorkflows = useCallback(async () => {
+    const { data } = await supabase.rpc('get_stalled_workflows');
+    setStalledWfs((data ?? []) as StalledWorkflow[]);
+  }, []);
+
+  useEffect(() => { loadStalledWorkflows(); }, [loadStalledWorkflows]);
+
+  async function handleFixStalledWorkflow(wf: StalledWorkflow) {
+    setStalledFixingId(wf.instance_id);
+    setStalledFixResult(null);
+
+    const { data, error } = await supabase.rpc('admin_force_complete_workflow', {
+      p_instance_id: wf.instance_id,
+    });
+
+    if (error || !data?.ok) {
+      setStalledFixResult({ id: wf.instance_id, ok: false, msg: error?.message ?? data?.error ?? 'Fix failed.' });
+      setStalledFixingId(null);
+      return;
+    }
+
+    // Fire the appropriate Edge Function for termination module
+    const moduleCode: string = data.module_code ?? wf.module_code;
+    const recordId:   string = data.record_id   ?? wf.record_id;
+
+    if ((moduleCode === 'termination' || moduleCode === 'termination_reversal') && recordId) {
+      if (moduleCode === 'termination_reversal') {
+        await supabase.functions
+          .invoke('apply-termination-reversal', { body: { reversal_id: recordId } })
+          .catch(e => console.error('apply-termination-reversal:', e));
+      } else {
+        await supabase.functions
+          .invoke('apply-termination-approval', { body: { termination_id: recordId } })
+          .catch(e => console.error('apply-termination-approval:', e));
+      }
+    }
+
+    setStalledFixResult({ id: wf.instance_id, ok: true, msg: 'Workflow completed successfully.' });
+    setStalledFixingId(null);
+    loadStalledWorkflows();
+  }
+
+  async function handleFixActivation(hire: StuckHire) {
+    setFixingId(hire.employee_id);
+    setFixResult(null);
+    const { data, error } = await supabase.rpc('fix_hire_activation', { p_employee_id: hire.employee_id });
+    const res = data as { ok?: boolean; reason?: string; profile_linked?: boolean; profile_note?: string } | null;
+    if (error || !res?.ok) {
+      setFixResult({ id: hire.employee_id, ok: false, msg: error?.message ?? res?.reason ?? 'Fix failed' });
+    } else {
+      setFixResult({ id: hire.employee_id, ok: true, msg: `${hire.name} activated.${res.profile_linked ? ' Profile linked.' : ' Profile not yet linked — use Resend Invite in Password Reset.'}` });
+      loadStuckHires();
+    }
+    setFixingId(null);
+  }
+
+  function initials(name: string) {
+    return name.split(' ').map(p => p[0]).join('').toUpperCase().slice(0, 2);
+  }
+
   // ── Sort toggle ─────────────────────────────────────────────────────────────
 
   function toggleSort(key: SortKey) {
@@ -565,6 +669,7 @@ export default function WorkflowOperations() {
       .eq('template_id', group.template_id)
       .gt('step_order', group.step_order)
       .eq('is_active', true)
+      .eq('is_cc', false)        // exclude notify-only (CC) steps — not valid Force Advance targets
       .order('step_order');
 
     setRemainSteps((stepsData ?? []) as WorkflowStep[]);
@@ -924,12 +1029,158 @@ export default function WorkflowOperations() {
 
         {/* KPI bar */}
         <div style={{ display: 'flex', gap: 12, paddingBottom: 16, flexWrap: 'wrap' }}>
-          <KpiCard label="Total Pending"      value={kpis.total}    icon="fa-inbox"                color={C.blue}   bg={C.blueL}   />
-          <KpiCard label="Overdue"            value={kpis.overdue}  icon="fa-clock"                color={C.amber}  bg={C.amberL}  />
-          <KpiCard label="Critical"           value={kpis.critical} icon="fa-triangle-exclamation" color={C.red}    bg={C.redL}    />
-          <KpiCard label="Awaiting Submitter" value={kpis.blocked}  icon="fa-comment-dots"         color={C.purple} bg={C.purpleL} />
+          <KpiCard label="Total Pending"      value={kpis.total}         icon="fa-inbox"                color={C.blue}   bg={C.blueL}   />
+          <KpiCard label="Overdue"            value={kpis.overdue}       icon="fa-clock"                color={C.amber}  bg={C.amberL}  />
+          <KpiCard label="Critical"           value={kpis.critical}      icon="fa-triangle-exclamation" color={C.red}    bg={C.redL}    />
+          <KpiCard label="Awaiting Submitter" value={kpis.blocked}       icon="fa-comment-dots"         color={C.purple} bg={C.purpleL} />
+          <KpiCard label="Stuck Activations"  value={stuckHires.length}  icon="fa-user-clock"           color={stuckHires.length > 0 ? C.amber : C.muted} bg={stuckHires.length > 0 ? C.amberL : '#F9FAFB'} />
         </div>
+
+        {/* Stuck hire activation banner */}
+        {stuckHires.length > 0 && !stuckDismissed && (
+          <div style={{
+            margin: '0 0 16px',
+            background: '#FFFBEB',
+            border: `1px solid #FDE68A`,
+            borderRadius: 10,
+            padding: '14px 18px',
+            display: 'flex', alignItems: 'flex-start', gap: 12,
+          }}>
+            <i className="fa-solid fa-triangle-exclamation" style={{ color: '#D97706', fontSize: 18, marginTop: 2, flexShrink: 0 }} />
+            <div style={{ flex: 1 }}>
+              <p style={{ margin: '0 0 3px', fontSize: 14, fontWeight: 700, color: '#92400E' }}>
+                {stuckHires.length} hire{stuckHires.length > 1 ? 's' : ''} approved but employee not yet activated
+              </p>
+              <p style={{ margin: '0 0 12px', fontSize: 13, color: '#B45309' }}>
+                The hire workflow completed but employees.status was not flipped to Active. They cannot log in until fixed.
+              </p>
+
+              {/* Stuck employees table */}
+              <div style={{ background: '#fff', border: '1px solid #FDE68A', borderRadius: 8, overflow: 'hidden' }}>
+                {stuckHires.map((hire, i) => (
+                  <div key={hire.employee_id} style={{
+                    display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px',
+                    borderBottom: i < stuckHires.length - 1 ? '1px solid #FEF3C7' : 'none',
+                  }}>
+                    <div style={{
+                      width: 34, height: 34, borderRadius: '50%', flexShrink: 0,
+                      background: '#FDE68A', display: 'flex', alignItems: 'center',
+                      justifyContent: 'center', fontSize: 12, fontWeight: 700, color: '#92400E',
+                    }}>
+                      {initials(hire.name)}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: '#1F2937' }}>{hire.name}</p>
+                      <p style={{ margin: 0, fontSize: 11, color: '#6B7280' }}>
+                        {hire.employee_ref} · {hire.job_title ?? '—'} · {hire.department ?? '—'}
+                        {hire.approved_at ? ` · Approved ${new Date(hire.approved_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}
+                      </p>
+                      {fixResult?.id === hire.employee_id && (
+                        <p style={{ margin: '3px 0 0', fontSize: 11, color: fixResult.ok ? '#15803D' : '#DC2626', fontWeight: 500 }}>
+                          {fixResult.msg}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => handleFixActivation(hire)}
+                      disabled={fixingId === hire.employee_id}
+                      style={{
+                        flexShrink: 0, padding: '6px 14px', fontSize: 12, fontWeight: 600,
+                        border: '1px solid #D97706', borderRadius: 6, cursor: 'pointer',
+                        background: fixingId === hire.employee_id ? '#FEF3C7' : '#FFFBEB',
+                        color: '#92400E',
+                      }}
+                    >
+                      {fixingId === hire.employee_id
+                        ? <><i className="fa-solid fa-spinner fa-spin" style={{ marginRight: 5 }} />Fixing…</>
+                        : <><i className="fa-solid fa-wrench" style={{ marginRight: 5 }} />Fix activation</>
+                      }
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <button
+              onClick={() => setStuckDismissed(true)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#B45309', fontSize: 16, flexShrink: 0, padding: 2 }}
+              title="Dismiss"
+            >
+              <i className="fa-solid fa-xmark" />
+            </button>
+          </div>
+        )}
       </div>
+
+        {/* ── Stalled workflows banner ─────────────────────────────────────── */}
+        {stalledWfs.length > 0 && !stalledDismissed && (
+          <div style={{
+            display: 'flex', gap: 12, alignItems: 'flex-start',
+            background: '#FFFBEB', border: '1px solid #FCD34D',
+            borderRadius: 8, padding: '14px 16px', margin: '0 16px 12px',
+          }}>
+            <i className="fa-solid fa-triangle-exclamation" style={{ color: '#D97706', fontSize: 18, marginTop: 2, flexShrink: 0 }} />
+            <div style={{ flex: 1 }}>
+              <p style={{ margin: '0 0 3px', fontSize: 14, fontWeight: 700, color: '#92400E' }}>
+                {stalledWfs.length} workflow{stalledWfs.length > 1 ? 's' : ''} stalled — all approved but not completed
+              </p>
+              <p style={{ margin: '0 0 12px', fontSize: 13, color: '#B45309' }}>
+                All approvers have acted but the system did not close these workflows automatically.
+              </p>
+              <div style={{ background: '#fff', border: '1px solid #FDE68A', borderRadius: 8, overflow: 'hidden' }}>
+                {stalledWfs.map((wf, i) => (
+                  <div key={wf.instance_id} style={{
+                    display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px',
+                    borderBottom: i < stalledWfs.length - 1 ? '1px solid #FEF3C7' : 'none',
+                  }}>
+                    <div style={{
+                      width: 34, height: 34, borderRadius: '50%', flexShrink: 0,
+                      background: '#FDE68A', display: 'flex', alignItems: 'center',
+                      justifyContent: 'center', fontSize: 12, fontWeight: 700, color: '#92400E',
+                    }}>
+                      {initials(wf.subject_name ?? wf.template_name)}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: '#1F2937' }}>
+                        {wf.subject_name ?? '—'}
+                      </p>
+                      <p style={{ margin: 0, fontSize: 11, color: '#6B7280' }}>
+                        {wf.template_name}
+                        {wf.last_acted_at ? ` · Last approved ${new Date(wf.last_acted_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}
+                      </p>
+                      {stalledFixResult?.id === wf.instance_id && (
+                        <p style={{ margin: '3px 0 0', fontSize: 11, fontWeight: 500, color: stalledFixResult.ok ? '#15803D' : '#DC2626' }}>
+                          {stalledFixResult.msg}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => handleFixStalledWorkflow(wf)}
+                      disabled={stalledFixingId === wf.instance_id}
+                      style={{
+                        flexShrink: 0, padding: '6px 14px', fontSize: 12, fontWeight: 600,
+                        border: '1px solid #D97706', borderRadius: 6, cursor: stalledFixingId === wf.instance_id ? 'not-allowed' : 'pointer',
+                        background: stalledFixingId === wf.instance_id ? '#FEF3C7' : '#FFFBEB',
+                        color: '#92400E',
+                      }}
+                    >
+                      {stalledFixingId === wf.instance_id
+                        ? <><i className="fa-solid fa-spinner fa-spin" style={{ marginRight: 5 }} />Fixing…</>
+                        : <><i className="fa-solid fa-wrench" style={{ marginRight: 5 }} />Fix workflow</>
+                      }
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <button
+              onClick={() => setStalledDismissed(true)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#B45309', fontSize: 16, flexShrink: 0, padding: 2 }}
+              title="Dismiss"
+            >
+              <i className="fa-solid fa-xmark" />
+            </button>
+          </div>
+        )}
 
       {/* ── Body (table + side panel) ───────────────────────────────────────── */}
       <div style={{ flex: 1, display: 'flex', minHeight: 0, overflow: 'hidden' }}>
@@ -1168,7 +1419,7 @@ export default function WorkflowOperations() {
                       />
                     </th>
                     <Th label="ID"            currentKey={sortKey} dir={sortDir} onSort={toggleSort} />
-                    <Th label="Employee"      sortKey="submitter_name" currentKey={sortKey} dir={sortDir} onSort={toggleSort} />
+                    <Th label="Employee"      sortKey="subject_name"   currentKey={sortKey} dir={sortDir} onSort={toggleSort} />
                     <Th label="Module"        currentKey={sortKey} dir={sortDir} onSort={toggleSort} />
                     <Th label="Stage"         currentKey={sortKey} dir={sortDir} onSort={toggleSort} />
                     <Th label="Assigned To"   currentKey={sortKey} dir={sortDir} onSort={toggleSort} />
@@ -1241,9 +1492,9 @@ export default function WorkflowOperations() {
                           )}
                         </td>
 
-                        {/* Employee (submitter) */}
+                        {/* Employee (subject of the workflow — same as submitter for self-service) */}
                         <td style={tdStyle}>
-                          <div style={{ fontWeight: 600, color: C.navy }}>{group.submitter_name}</div>
+                          <div style={{ fontWeight: 600, color: C.navy }}>{group.subject_name}</div>
                           {group.department_name && (
                             <div style={{ fontSize: 10, color: C.faint }}>{group.department_name}</div>
                           )}
@@ -1312,8 +1563,8 @@ export default function WorkflowOperations() {
             background: '#fff', display: 'flex', flexDirection: 'column',
             overflow: 'hidden',
           }}>
-            {/* Non-scrolling top section */}
-            <div style={{ flexShrink: 0 }}>
+            {/* Scrollable top section — action panels can be taller than viewport */}
+            <div style={{ flexShrink: 0, overflowY: 'auto', maxHeight: 'calc(100vh - 80px)' }}>
 
               {/* Panel header */}
               <div style={{

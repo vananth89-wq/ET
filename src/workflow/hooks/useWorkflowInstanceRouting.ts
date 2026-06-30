@@ -16,7 +16,7 @@ import { useState, useEffect } from 'react';
 import { supabase }            from '../../lib/supabase';
 import type { WfRoleMember }   from './useWorkflowParticipants';
 
-export type RoutingStepStatus = 'completed' | 'active' | 'pending';
+export type RoutingStepStatus = 'completed' | 'active' | 'pending' | 'skipped';
 
 export interface RoutingStep {
   stepOrder:            number;
@@ -38,22 +38,33 @@ export interface RoutingStep {
   roleMembers?:         WfRoleMember[] | null;
 }
 
+export interface WorkflowInstanceMeta {
+  status:      string;
+  moduleCode:  string;
+  recordId:    string;
+}
+
 interface UseWorkflowInstanceRoutingResult {
-  loading: boolean;
-  error:   string | null;
-  steps:   RoutingStep[];
+  loading:      boolean;
+  error:        string | null;
+  steps:        RoutingStep[];
+  instanceMeta: WorkflowInstanceMeta | null;
+  /** True when all steps are terminal but instance is still in_progress */
+  isStalled:    boolean;
 }
 
 export function useWorkflowInstanceRouting(
   instanceId: string | null | undefined,
 ): UseWorkflowInstanceRoutingResult {
-  const [loading, setLoading] = useState(false);
-  const [error,   setError]   = useState<string | null>(null);
-  const [steps,   setSteps]   = useState<RoutingStep[]>([]);
+  const [loading,      setLoading]      = useState(false);
+  const [error,        setError]        = useState<string | null>(null);
+  const [steps,        setSteps]        = useState<RoutingStep[]>([]);
+  const [instanceMeta, setInstanceMeta] = useState<WorkflowInstanceMeta | null>(null);
 
   useEffect(() => {
     if (!instanceId) {
       setSteps([]);
+      setInstanceMeta(null);
       return;
     }
 
@@ -61,25 +72,47 @@ export function useWorkflowInstanceRouting(
     setLoading(true);
     setError(null);
     setSteps([]);
+    setInstanceMeta(null);
 
-    supabase
-      .rpc('get_workflow_instance_routing', { p_instance_id: instanceId })
-      .then(({ data, error: rpcError }) => {
-        if (cancelled) return;
+    Promise.all([
+      supabase.rpc('get_workflow_instance_routing', { p_instance_id: instanceId }),
+      supabase
+        .from('workflow_instances')
+        .select('status, module_code, record_id')
+        .eq('id', instanceId)
+        .single(),
+    ]).then(([routingRes, metaRes]) => {
+      if (cancelled) return;
 
-        if (rpcError) {
-          console.error('[useWorkflowInstanceRouting] RPC error:', rpcError);
-          setError(rpcError.message);
-          setLoading(false);
-          return;
-        }
-
-        setSteps((data ?? []) as RoutingStep[]);
+      if (routingRes.error) {
+        console.error('[useWorkflowInstanceRouting] RPC error:', routingRes.error);
+        setError(routingRes.error.message);
         setLoading(false);
-      });
+        return;
+      }
+
+      setSteps((routingRes.data ?? []) as RoutingStep[]);
+
+      if (!metaRes.error && metaRes.data) {
+        setInstanceMeta({
+          status:     metaRes.data.status,
+          moduleCode: metaRes.data.module_code,
+          recordId:   metaRes.data.record_id,
+        });
+      }
+
+      setLoading(false);
+    });
 
     return () => { cancelled = true; };
   }, [instanceId]);
 
-  return { loading, error, steps };
+  // Stalled = instance is still in_progress but every non-CC step is terminal
+  const isStalled = !!(
+    instanceMeta?.status === 'in_progress' &&
+    steps.length > 0 &&
+    steps.filter(s => !s.isCC).every(s => s.status === 'completed' || s.status === 'skipped')
+  );
+
+  return { loading, error, steps, instanceMeta, isStalled };
 }

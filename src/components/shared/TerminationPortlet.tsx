@@ -18,6 +18,7 @@
 
 import { useState, useCallback } from 'react';
 import { supabase }              from '../../lib/supabase';
+import { useAuth }               from '../../contexts/AuthContext';
 import ConfirmationModal         from './ConfirmationModal';
 import { useTerminationData }    from '../../hooks/useTerminationData';
 import TerminationForm           from './TerminationForm';
@@ -113,6 +114,7 @@ export default function TerminationPortlet({
   sectionTitle,
 }: TerminationPortletProps) {
 
+  const { isAdmin }                                        = useAuth();
   const { termination, reversal, loading, error, refetch } = useTerminationData(employeeId);
 
   const [mode,                 setMode]                 = useState<ViewMode>('read');
@@ -123,10 +125,50 @@ export default function TerminationPortlet({
   const [apiError,             setApiError]             = useState('');
   const [submitError,          setSubmitError]          = useState<string | null>(null);
   const [participantsOpen,     setParticipantsOpen]     = useState(false);
+  const [reversalParticipantsOpen, setReversalParticipantsOpen] = useState(false);
   const [pendingReassignments, setPendingReassignments] = useState<import('../admin/TerminationImpactModal').ManagerReassignment[]>([]);
+  const [rerunning,            setRerunning]            = useState(false);
+  const [rerunResult,          setRerunResult]          = useState<{ ok: boolean; msg: string } | null>(null);
 
   const isPending    = termination?.workflow_status === 'PENDING';
   const pendingCount = isPending ? 1 : 0;
+
+  // Show "Re-run finalization" when: super admin + APPROVED + not yet executed + LWD is past
+  const today = new Date().toISOString().slice(0, 10);
+  const showRerunButton = isAdmin
+    && !isSelfService
+    && termination?.workflow_status === 'APPROVED'
+    && termination?.scheduled_executed === false
+    && !!termination?.last_working_date
+    && termination.last_working_date <= today;
+
+  async function handleRerunFinalize() {
+    if (!termination) return;
+    setRerunning(true);
+    setRerunResult(null);
+    try {
+      const { data, error } = await supabase.functions.invoke('apply-termination-approval', {
+        body: { termination_id: termination.id },
+      });
+      if (error) {
+        // Try to extract the real error message from the response body
+        const detail = (data as any)?.error ?? error?.message ?? 'Re-run failed. Check Edge Function logs.';
+        setRerunResult({ ok: false, msg: detail });
+        return;
+      }
+      const result = data as { ok: boolean; finalize?: { ok: boolean; error?: string; dr_errors?: unknown[] } };
+      if (result?.finalize?.ok === false) {
+        setRerunResult({ ok: false, msg: result.finalize.error ?? 'Finalization failed — check DR reassignments.' });
+      } else {
+        setRerunResult({ ok: true, msg: 'Finalization re-run complete. Manager reassignments applied.' });
+        refetch();
+      }
+    } catch (err: any) {
+      setRerunResult({ ok: false, msg: err?.message ?? 'Re-run failed. Check Edge Function logs.' });
+    } finally {
+      setRerunning(false);
+    }
+  }
 
   // ── Submit flow ────────────────────────────────────────────────────────────
 
@@ -205,20 +247,24 @@ export default function TerminationPortlet({
 
   // ── Withdraw ───────────────────────────────────────────────────────────────
 
+  const [showWithdrawConfirm, setShowWithdrawConfirm] = useState(false);
+  const [withdrawLoading,     setWithdrawLoading]     = useState(false);
+  const [withdrawError,       setWithdrawError]       = useState<string | null>(null);
+
   async function handleWithdraw() {
     if (!termination) return;
-    if (!window.confirm('Withdraw this termination submission?')) return;
-    setSubmitting(true);
-    setApiError('');
+    setWithdrawLoading(true);
+    setWithdrawError(null);
     const { data, error: err } = await supabase.rpc('withdraw_termination', {
       p_termination_id: termination.id,
     });
-    setSubmitting(false);
+    setWithdrawLoading(false);
     const result = data as { ok: boolean; error?: string } | null;
     if (err || !result?.ok) {
-      setApiError(err?.message ?? result?.error ?? 'Withdraw failed.');
+      setWithdrawError(err?.message ?? result?.error ?? 'Withdraw failed.');
       return;
     }
+    setShowWithdrawConfirm(false);
     refetch();
     onChanged?.();
   }
@@ -248,6 +294,30 @@ export default function TerminationPortlet({
     onChanged?.();
   }
 
+  // ── Withdraw Reversal ──────────────────────────────────────────────────────
+
+  const [showWithdrawReversalConfirm, setShowWithdrawReversalConfirm] = useState(false);
+  const [withdrawReversalLoading,     setWithdrawReversalLoading]     = useState(false);
+  const [withdrawReversalError,       setWithdrawReversalError]       = useState<string | null>(null);
+
+  async function handleWithdrawReversal() {
+    if (!reversal) return;
+    setWithdrawReversalLoading(true);
+    setWithdrawReversalError(null);
+    const { data, error: err } = await supabase.rpc('withdraw_termination_reversal', {
+      p_reversal_id: reversal.id,
+    });
+    setWithdrawReversalLoading(false);
+    const result = data as { ok: boolean; error?: string } | null;
+    if (err || !result?.ok) {
+      setWithdrawReversalError(err?.message ?? result?.error ?? 'Withdraw failed.');
+      return;
+    }
+    setShowWithdrawReversalConfirm(false);
+    refetch();
+    onChanged?.();
+  }
+
   // ── Reversal submit ────────────────────────────────────────────────────────
 
   async function handleReversalSubmit(reversalData: { reversal_reason: string; comments: string }) {
@@ -272,7 +342,7 @@ export default function TerminationPortlet({
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
-  const showSubmitButton = canEdit && !readOnly && (!termination || termination.workflow_status === 'REJECTED' || termination.workflow_status === 'WITHDRAWN');
+  const showSubmitButton = canEdit && !readOnly && !termination;
   const showWithdrawButton = canEdit && !readOnly && termination?.workflow_status === 'PENDING';
   const showReversalButton = canEdit && !readOnly && !isSelfService && termination?.workflow_status === 'APPROVED' && !reversal;
 
@@ -400,6 +470,32 @@ export default function TerminationPortlet({
               </div>
               <Row label="Reason" value={reversal.reversal_reason} />
               <Row label="Comments" value={reversal.comments} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8 }}>
+                {reversal.workflow_status === 'PENDING' && reversal.workflow_instance_id && (
+                  <button
+                    onClick={() => setReversalParticipantsOpen(true)}
+                    style={{
+                      background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', gap: 4,
+                      fontSize: 12, color: '#6D28D9',
+                      textDecoration: 'underline', textUnderlineOffset: '2px',
+                    }}
+                  >
+                    <i className="fa-solid fa-users" style={{ fontSize: 11 }} />
+                    View approval progress
+                    <i className="fa-solid fa-arrow-right" style={{ fontSize: 10 }} />
+                  </button>
+                )}
+                {canDelete && reversal.workflow_status === 'PENDING' && !readOnly && (
+                  <button
+                    onClick={() => { setWithdrawReversalError(null); setShowWithdrawReversalConfirm(true); }}
+                    style={{ padding: '6px 12px', fontSize: 12, borderRadius: 6, background: '#F3F4F6', color: '#374151', border: '1px solid #D1D5DB', cursor: 'pointer', fontWeight: 600 }}
+                  >
+                    <i className="fa-solid fa-xmark" style={{ marginRight: 5 }} />
+                    Withdraw Reversal
+                  </button>
+                )}
+              </div>
             </div>
           )}
 
@@ -413,12 +509,12 @@ export default function TerminationPortlet({
               </button>
             )}
             {showWithdrawButton && (
-              <button onClick={handleWithdraw} disabled={submitting}
+              <button onClick={() => { setWithdrawError(null); setShowWithdrawConfirm(true); }}
                 style={{ padding: '8px 16px', fontSize: 13, borderRadius: 6, background: '#F3F4F6', color: '#374151', border: '1px solid #D1D5DB', cursor: 'pointer' }}>
                 <i className="fa-solid fa-xmark" style={{ marginRight: 6 }} />Withdraw
               </button>
             )}
-            {canDelete && termination && !readOnly && (
+            {canDelete && termination && !readOnly && !reversal && (
               <button
                 onClick={() => { setDeleteError(null); setShowDeleteConfirm(true); }}
                 style={{ padding: '8px 16px', fontSize: 13, borderRadius: 6, background: '#FEF2F2', color: '#DC2626', border: '1px solid #FCA5A5', cursor: 'pointer', fontWeight: 600 }}
@@ -432,7 +528,27 @@ export default function TerminationPortlet({
                 <i className="fa-solid fa-rotate-left" style={{ marginRight: 6 }} />Reverse Termination
               </button>
             )}
+            {showRerunButton && (
+              <button
+                onClick={handleRerunFinalize}
+                disabled={rerunning}
+                style={{ padding: '8px 16px', fontSize: 13, borderRadius: 6, background: '#D97706', color: '#fff', border: 'none', cursor: rerunning ? 'not-allowed' : 'pointer', fontWeight: 600, opacity: rerunning ? 0.7 : 1 }}
+              >
+                <i className={`fa-solid ${rerunning ? 'fa-spinner fa-spin' : 'fa-person-walking-arrow-right'}`} style={{ marginRight: 6 }} />
+                {rerunning ? 'Running…' : 'Re-run Finalization'}
+              </button>
+            )}
           </div>
+          {rerunResult && (
+            <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 6, fontSize: 13,
+              background: rerunResult.ok ? '#ECFDF5' : '#FEF2F2',
+              color:      rerunResult.ok ? '#065F46'  : '#991B1B',
+              border:     `1px solid ${rerunResult.ok ? '#A7F3D0' : '#FCA5A5'}`,
+            }}>
+              <i className={`fa-solid ${rerunResult.ok ? 'fa-circle-check' : 'fa-triangle-exclamation'}`} style={{ marginRight: 6 }} />
+              {rerunResult.msg}
+            </div>
+          )}
         </>
       )}
 
@@ -491,6 +607,7 @@ export default function TerminationPortlet({
           isSelf={isSelfService}
           terminationDate={formData.separation_date}
           employeeName={employeeName}
+          subjectEmployeeId={isSelfService ? null : employeeId}
           onConfirm={handleConfirmedSubmit}
           onCancel={() => { setShowConfirm(false); setSubmitError(null); }}
           submitting={submitting}
@@ -505,6 +622,26 @@ export default function TerminationPortlet({
         instanceId={termination?.workflow_instance_id ?? null}
         title="Termination Approval Progress"
       />
+      <WorkflowParticipantsModal
+        open={reversalParticipantsOpen}
+        onClose={() => setReversalParticipantsOpen(false)}
+        instanceId={reversal?.workflow_instance_id ?? null}
+        title="Reversal Approval Progress"
+      />
+
+      {/* ── WITHDRAW CONFIRMATION ──────────────────────────────────────────── */}
+      <ConfirmationModal
+        isOpen={showWithdrawConfirm}
+        title="Withdraw Termination"
+        message="Withdraw this termination submission? The request will be cancelled and can be resubmitted."
+        confirmText="Withdraw"
+        cancelText="Cancel"
+        destructive={false}
+        loading={withdrawLoading}
+        warning={withdrawError ?? undefined}
+        onConfirm={handleWithdraw}
+        onCancel={() => { setShowWithdrawConfirm(false); setWithdrawError(null); }}
+      />
 
       {/* ── DELETE CONFIRMATION ────────────────────────────────────────────── */}
       <ConfirmationModal
@@ -518,6 +655,20 @@ export default function TerminationPortlet({
         warning={deleteError ?? undefined}
         onConfirm={handleDeleteTermination}
         onCancel={() => { setShowDeleteConfirm(false); setDeleteError(null); }}
+      />
+
+      {/* ── WITHDRAW REVERSAL CONFIRMATION ─────────────────────────────────── */}
+      <ConfirmationModal
+        isOpen={showWithdrawReversalConfirm}
+        title="Withdraw Reversal"
+        message="Withdraw this pending reversal? You can submit a new reversal afterwards."
+        confirmText="Withdraw"
+        cancelText="Cancel"
+        destructive={false}
+        loading={withdrawReversalLoading}
+        warning={withdrawReversalError ?? undefined}
+        onConfirm={handleWithdrawReversal}
+        onCancel={() => { setShowWithdrawReversalConfirm(false); setWithdrawReversalError(null); }}
       />
     </div>
   );

@@ -55,7 +55,10 @@ function StepBubble({
   const isRole  = participant.approverType === 'ROLE' || participant.approverType === 'RULE_BASED';
   const isMgr   = participant.approverType === 'MANAGER' || participant.approverType === 'DEPT_HEAD';
   const showAsGenericRole = isRole && !participant.hasResolvedPerson;
-  const bg = skipped ? '#d1d5db' : (showAsGenericRole || isMgr) ? '#d97706' : avatarBg(name);
+  // For MANAGER/DEPT_HEAD, use generic icon only when name hasn't been resolved to a real person
+  const mgrResolved = isMgr && participant.hasResolvedPerson;
+  const showGeneric = showAsGenericRole || (isMgr && !mgrResolved);
+  const bg = skipped ? '#d1d5db' : showGeneric ? '#d97706' : avatarBg(name);
 
   if (skipped) {
     return (
@@ -112,10 +115,10 @@ function StepBubble({
           width: 48, height: 48, borderRadius: '50%',
           background: bg, color: '#fff',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: showAsGenericRole || isMgr ? 20 : 14,
+          fontSize: showGeneric ? 20 : 14,
           fontWeight: 500, flexShrink: 0,
         }}>
-          {showAsGenericRole || isMgr
+          {showGeneric
             ? <i className={`fa-solid ${isMgr ? 'fa-user-tie' : 'fa-users'}`} />
             : initials(name)}
         </div>
@@ -130,21 +133,26 @@ function StepBubble({
         </div>
       </div>
 
-      {/* Name */}
-      <div style={{
-        fontSize: 11, fontWeight: 500, textAlign: 'center',
-        lineHeight: 1.3, color: '#1f2937',
-        maxWidth: 80, wordBreak: 'break-word',
-      }}>
-        {name}
+      {/* Name — for resolved manager steps show role label; full name on hover */}
+      <div
+        title={isMgr && mgrResolved ? `${name}${participant.resolvedDesignation ? ` · ${participant.resolvedDesignation}` : ''}` : undefined}
+        style={{
+          fontSize: 11, fontWeight: 500, textAlign: 'center',
+          lineHeight: 1.3, color: '#1f2937',
+          maxWidth: 80, wordBreak: 'break-word',
+        }}
+      >
+        {isMgr ? participant.stepName : name}
       </div>
 
-      {/* Designation / sub-label */}
+      {/* Designation / sub-label — for resolved manager steps show person name */}
       <div style={{
         fontSize: 10, color: '#6b7280', textAlign: 'center',
         lineHeight: 1.3, maxWidth: 80,
       }}>
-        {participant.resolvedDesignation ?? (isMgr ? 'Auto-resolved' : (showAsGenericRole ? 'Any member' : ''))}
+        {isMgr && mgrResolved
+          ? name
+          : (participant.resolvedDesignation ?? (isMgr ? 'Auto-resolved' : (showAsGenericRole ? 'Any member' : '')))}
       </div>
     </div>
   );
@@ -370,26 +378,32 @@ function RoleGroupBubble({
 /* ── Main modal ────────────────────────────────────────────────────────────── */
 
 interface Props {
-  open:          boolean;
-  onClose:       () => void;
-  onConfirm:     (comment: string) => void;
-  confirming:    boolean;
-  title:         string;
-  moduleCode:    string;
-  employeeName?: string;
-  submitError?:  string | null;
+  open:                boolean;
+  onClose:             () => void;
+  onConfirm:           (comment: string) => void;
+  confirming:          boolean;
+  title:               string;
+  moduleCode:          string;
+  employeeName?:       string;
+  submitError?:        string | null;
+  /** For admin-submitted workflows: the SUBJECT employee's id.
+   *  Passed to get_workflow_participants so MANAGER steps resolve the
+   *  subject's manager, not the admin's (who may have no manager). */
+  subjectEmployeeId?:  string | null;
 }
 
 export default function WorkflowSubmitModal({
   open, onClose, onConfirm, confirming,
   title, moduleCode, employeeName, submitError,
+  subjectEmployeeId,
 }: Props) {
   const [comment, setComment] = useState('');
   const { profile } = useAuth();
 
   const { loading, approvers, ccParticipants } = useWorkflowParticipants(
     open ? moduleCode : '',
-    profile?.id,     // lets the RPC resolve manager-type steps to a real name
+    profile?.id,        // lets the RPC resolve manager-type steps for self-service
+    subjectEmployeeId,  // for admin-submitted: override MANAGER resolution to subject's manager
   );
 
   if (!open) return null;

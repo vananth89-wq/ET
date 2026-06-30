@@ -49,26 +49,37 @@ export interface Employee {
 // Row shape when fetched with:
 //   .select('*, employee_personal(*), employee_contact(*), employee_employment!employee_id(*)')
 // FK hint !employee_id required since mig 351 added manager_id → employees (two FKs to same table).
-export function mapEmployee(row: EmployeeRow): Employee {
+//
+// viewDate (YYYY-MM-DD): pick satellite rows effective on this date.
+// Defaults to today so all existing callers that omit it are unaffected.
+function pickSatelliteRow(rows: EmployeeRow[], viewDate: string): EmployeeRow {
+  if (!Array.isArray(rows)) return rows ?? {};
+  // Historical rows have is_active = false + effective_to < '9999-12-31' (mig 351).
+  // The date range is authoritative for point-in-time queries — do NOT filter on is_active.
+  // Only exclude terminal soft-deletes: is_active = false AND effective_to = '9999-12-31'.
+  const candidates = rows.filter((r: EmployeeRow) =>
+    !(r.is_active === false && r.effective_to === '9999-12-31')
+  );
+  const hit = candidates.find((r: EmployeeRow) =>
+    r.effective_from <= viewDate &&
+    r.effective_to   >= viewDate
+  );
+  if (hit) return hit;
+  // Fallback: latest row by effective_from
+  const sorted = [...candidates].sort((a, b) =>
+    (b.effective_from ?? '').localeCompare(a.effective_from ?? '')
+  );
+  return sorted[0] ?? {};
+}
+
+export function mapEmployee(row: EmployeeRow, viewDate?: string): Employee {
+  const asOf = viewDate ?? new Date().toISOString().slice(0, 10);
+
   // employee_personal is now multi-row (effective-dated, mig 315).
-  // PostgREST returns an array; pick the currently-active open-ended slice.
-  const personalRaw = row.employee_personal;
-  const personal: EmployeeRow = Array.isArray(personalRaw)
-    ? (personalRaw.find((p: EmployeeRow) =>
-        p.effective_to === '9999-12-31' && p.is_active === true)
-       ?? personalRaw[0]
-       ?? {})
-    : (personalRaw ?? {});
+  const personal: EmployeeRow = pickSatelliteRow(row.employee_personal, asOf);
   const contact:    EmployeeRow = row.employee_contact ?? {};
   // employee_employment is now multi-row (effective-dated, mig 351).
-  // PostgREST returns an array; pick the currently-active open-ended slice.
-  const employmentRaw = row.employee_employment;
-  const employment: EmployeeRow = Array.isArray(employmentRaw)
-    ? (employmentRaw.find((e: EmployeeRow) =>
-        e.effective_to === '9999-12-31' && e.is_active === true)
-       ?? employmentRaw[0]
-       ?? {})
-    : (employmentRaw ?? {});
+  const employment: EmployeeRow = pickSatelliteRow(row.employee_employment, asOf);
 
   return {
     id:               row.id,
@@ -120,7 +131,7 @@ interface UseEmployeesResult {
   refetch:   () => void;
 }
 
-export function useEmployees(includeDeleted = false): UseEmployeesResult {
+export function useEmployees(includeDeleted = false, viewDate?: string): UseEmployeesResult {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState<string | null>(null);
@@ -192,6 +203,8 @@ export function useEmployees(includeDeleted = false): UseEmployeesResult {
         // Build a Set of employee IDs that are someone's manager
         const managerIds = new Set(rows.map(r => r.manager_id).filter(Boolean) as string[]);
 
+        const asOf = viewDate ?? new Date().toISOString().slice(0, 10);
+
         if (mounted) {
           setEmployees(rows.map((row) => {
             let role: string;
@@ -202,7 +215,7 @@ export function useEmployees(includeDeleted = false): UseEmployeesResult {
             } else {
               role = 'Employee';
             }
-            return { ...mapEmployee(row), role };
+            return { ...mapEmployee(row, asOf), role };
           }));
         }
       } catch (err: unknown) {
@@ -218,7 +231,7 @@ export function useEmployees(includeDeleted = false): UseEmployeesResult {
 
     load();
     return () => { mounted = false; };
-  }, [includeDeleted, tick]);
+  }, [includeDeleted, viewDate, tick]);
 
   return { employees, loading, error, refetch };
 }

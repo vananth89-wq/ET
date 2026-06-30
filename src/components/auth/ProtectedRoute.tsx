@@ -83,6 +83,16 @@ export default function ProtectedRoute({
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
+  // ── Step 2b: Force-change password check ────────────────────────────────────
+  // If an admin set a temporary password for this user, they must change it
+  // before accessing any other page. Allow /force-change-password itself through.
+  if (
+    session.user?.user_metadata?.force_password_change === true &&
+    location.pathname !== '/force-change-password'
+  ) {
+    return <Navigate to="/force-change-password" replace />;
+  }
+
   // ── Step 3: Wait for authorization data to load ─────────────────────────────
   // For routes that have an access requirement, we must wait for both:
   //   - profileLoading  (profile_roles from AuthContext)

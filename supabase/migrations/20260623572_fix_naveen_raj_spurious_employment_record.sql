@@ -1,0 +1,6 @@
+-- =============================================================================
+-- Migration 572: SUPERSEDED — see migration 573
+-- This file intentionally left as a no-op.
+-- Original intent (closing Naveen's Jun-16 record) was incorrect.
+-- Migration 573 contains the correct fix + fn_finalize_termination_execution rewrite.
+-- =============================================================================

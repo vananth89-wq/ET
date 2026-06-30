@@ -75,8 +75,9 @@ interface UseWorkflowParticipantsResult {
 }
 
 export function useWorkflowParticipants(
-  moduleCode: string,
-  profileId?: string | null,
+  moduleCode:          string,
+  profileId?:          string | null,
+  subjectEmployeeId?:  string | null,
 ): UseWorkflowParticipantsResult {
   const [loading,        setLoading]        = useState(false);
   const [approvers,      setApprovers]      = useState<WfParticipant[]>([]);
@@ -92,10 +93,13 @@ export function useWorkflowParticipants(
 
     supabase
       .rpc('get_workflow_participants', {
-        p_module_code: moduleCode,
+        p_module_code:          moduleCode,
         // Pass profile_id so the RPC can resolve manager-type steps.
         // null is fine — the DB param defaults to NULL and degrades gracefully.
-        p_profile_id: profileId ?? null,
+        p_profile_id:           profileId ?? null,
+        // For admin-submitted workflows (e.g. termination), pass the SUBJECT
+        // employee's id so MANAGER steps resolve their manager, not the admin's.
+        p_subject_employee_id:  subjectEmployeeId ?? null,
       })
       .then(({ data, error }) => {
         if (cancelled) return;
@@ -113,7 +117,7 @@ export function useWorkflowParticipants(
       });
 
     return () => { cancelled = true; };
-  }, [moduleCode, profileId]);
+  }, [moduleCode, profileId, subjectEmployeeId]);
 
   return { loading, approvers, ccParticipants };
 }

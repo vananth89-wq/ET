@@ -43,9 +43,11 @@ export const MYPROFILE_PERMISSION_CODES: string[] = [
   'education.view',
   'termination.view',
   // Edit permissions
+  'personal_info.create',
   'personal_info.edit',
   'personal_info.history',
   'contact_info.edit',
+  'employment.create',
   'employment.edit',
   'employment.history',
   'address.edit',

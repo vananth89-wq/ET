@@ -3139,11 +3139,10 @@ tbody td:last-child {
     position: relative;
     overflow: hidden;
     background: #f0f4fa;
-    min-height: 520px;
+    min-height: 0;
     cursor: grab;
-    border-radius: 0 0 10px 10px;
-    border: 1px solid var(--border);
-    border-top: none;
+    border-radius: 0;
+    border: none;
     background-image: none;
 }
 .oc-viewport:active { cursor: grabbing; }

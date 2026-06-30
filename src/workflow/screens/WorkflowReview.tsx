@@ -767,7 +767,7 @@ export default function WorkflowReview() {
   // ── Job Relationships Change Review — set-snapshot model ─────────────────
   const isJobRelationshipsModule  = moduleCode === 'profile_job_relationships';
   const isProfileEducationModule  = moduleCode === 'profile_education';
-  const isTerminationModule       = moduleCode === 'termination';
+  const isTerminationModule       = moduleCode === 'termination' || moduleCode === 'termination_reversal';
 
   type WfrJRItem = {
     relationship_code:   string;
@@ -1631,8 +1631,10 @@ export default function WorkflowReview() {
           .select('status')
           .eq('module_code', 'employee_hire')
           .eq('record_id', recordId)
+          .eq('status', 'approved')
+          .limit(1)
           .maybeSingle();
-        isFinalStep = (inst as any)?.status === 'approved';
+        isFinalStep = inst !== null;
 
         if (isFinalStep) {
           // Final approval — send the welcome / magic-link email
@@ -1658,18 +1660,27 @@ export default function WorkflowReview() {
                 message: `The employee was activated successfully, but the welcome email could not be sent.\n\nReason: ${otpErr.message}\n\nThe employee can still sign in by requesting a magic link from the login page. You may also retry by re-activating from the hire record.`,
               });
             } else {
-              const { data: linkData, error: linkErr } = await supabase.rpc(
-                'link_profile_to_employee',
-                { p_email: email }
-              );
-              const linkReason = (linkData as { ok?: boolean; reason?: string } | null)?.reason ?? '';
-              const isExpected = linkReason.includes('auth user not found');
-              if (linkErr || (!isExpected && linkReason && !(linkData as { ok?: boolean })?.ok)) {
+              // Retry link_profile_to_employee up to 4 times with backoff.
+              // auth.users row may not be immediately visible cross-transaction.
+              let linkData: { ok?: boolean; reason?: string } | null = null;
+              let linkErr: { message: string } | null = null;
+              for (let attempt = 0; attempt < 4; attempt++) {
+                if (attempt > 0) await new Promise(r => setTimeout(r, 800 * attempt));
+                const result = await supabase.rpc('link_profile_to_employee', { p_email: email });
+                linkErr = result.error as { message: string } | null;
+                linkData = result.data as { ok?: boolean; reason?: string } | null;
+                if (!linkErr && linkData?.ok) break;
+                // Stop retrying if it's a non-transient failure
+                const reason = linkData?.reason ?? '';
+                if (!reason.includes('auth user not found') && !reason.includes('profile row not yet')) break;
+              }
+              const linkReason = linkData?.reason ?? '';
+              if (linkErr || (linkReason && !linkData?.ok)) {
                 const detail = linkErr?.message ?? linkReason;
                 setInviteErrorModal({
                   open: true,
                   title: 'Profile Link Issue',
-                  message: `The employee was activated and the welcome email was sent, but linking the auth profile failed.\n\nReason: ${detail}\n\nThis will resolve automatically when the employee first signs in. No action is required.`,
+                  message: `The employee was activated and the welcome email was sent, but linking the auth profile failed.\n\nReason: ${detail}\n\nPlease go to Admin → Security → Password Reset and verify the employee appears. If not, ask the employee to click "Forgot password" on the login page.`,
                 });
               }
             }

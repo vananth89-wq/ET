@@ -1,0 +1,70 @@
+-- Migration 622: get_stuck_hire_activations — exclude terminated employees
+--
+-- Problem: employees who were hired (employee_hire approved → Active) and then
+-- legitimately terminated appear in the stuck-activation banner because their
+-- e.status is no longer 'Active'. The banner is only meant to catch employees
+-- whose hire workflow completed but the status flip never happened.
+--
+-- Fix: exclude any employee who has an approved or REVERSED termination record
+-- (workflow_status IN ('APPROVED', 'REVERSED')). Also exclude employees who
+-- have any active termination workflow in flight (workflow_status = 'PENDING')
+-- to avoid the banner fighting with a reversal in progress.
+
+CREATE OR REPLACE FUNCTION get_stuck_hire_activations()
+RETURNS TABLE (
+  employee_id    uuid,
+  employee_ref   text,
+  name           text,
+  business_email text,
+  department     text,
+  job_title      text,
+  approved_at    timestamptz,
+  instance_id    uuid
+)
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  WITH latest AS (
+    SELECT DISTINCT ON (wi.record_id)
+      wi.record_id   AS emp_id,
+      wi.id          AS instance_id,
+      wi.completed_at
+    FROM   workflow_instances wi
+    JOIN   employees e ON e.id = wi.record_id
+    WHERE  wi.module_code = 'employee_hire'
+      AND  wi.status      = 'approved'
+      AND  e.status      != 'Active'
+      AND  e.deleted_at  IS NULL
+      -- Exclude employees who have been legitimately terminated
+      AND  NOT EXISTS (
+        SELECT 1
+        FROM   employee_terminations et
+        WHERE  et.employee_id     = wi.record_id
+          AND  et.workflow_status IN ('APPROVED', 'REVERSED', 'PENDING')
+      )
+    ORDER  BY wi.record_id, wi.completed_at DESC
+  )
+  SELECT
+    e.id            AS employee_id,
+    e.employee_id   AS employee_ref,
+    e.name,
+    e.business_email,
+    d.name          AS department,
+    e.job_title,
+    l.completed_at  AS approved_at,
+    l.instance_id
+  FROM   latest l
+  JOIN   employees    e ON e.id  = l.emp_id
+  LEFT   JOIN departments d ON d.id = e.dept_id
+  ORDER  BY l.completed_at DESC;
+$$;
+
+REVOKE ALL     ON FUNCTION get_stuck_hire_activations() FROM PUBLIC;
+GRANT  EXECUTE ON FUNCTION get_stuck_hire_activations() TO authenticated;
+
+DO $$
+BEGIN
+  RAISE NOTICE 'Migration 622: get_stuck_hire_activations excludes terminated employees — OK';
+END;
+$$;
