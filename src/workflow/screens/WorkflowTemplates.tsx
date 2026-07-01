@@ -371,6 +371,41 @@ export default function WorkflowTemplates() {
   const [showStepModal,setShowStepModal]= useState(false);
   const [editingStepId,setEditingStepId]= useState<string | null>(null);
 
+  // Copy-template modal
+  const [copyModal, setCopyModal] = useState<{
+    sourceId:    string;
+    sourceName:  string;
+    sourceCode:  string;
+    sourceDesc:  string;
+  } | null>(null);
+  const [copyDraft, setCopyDraft] = useState({
+    name: '', code: '', description: '', effectiveFrom: '',
+  });
+  const [copyingSaving, setCopyingSaving] = useState(false);
+
+  async function submitCopyTemplate() {
+    if (!copyModal) return;
+    if (!copyDraft.name.trim() || !copyDraft.code.trim() || !copyDraft.effectiveFrom) {
+      showToast('err', 'Name, Module Code and Effective From are required.');
+      return;
+    }
+    setCopyingSaving(true);
+    const { data, error } = await supabase.rpc('wf_copy_template', {
+      p_source_id:      copyModal.sourceId,
+      p_name:           copyDraft.name.trim(),
+      p_code:           copyDraft.code.trim().toUpperCase(),
+      p_description:    copyDraft.description.trim() || null,
+      p_effective_from: copyDraft.effectiveFrom,
+    });
+    setCopyingSaving(false);
+    if (error) { showToast('err', error.message); return; }
+    if (data && !data.ok) { showToast('err', data.error ?? 'Copy failed.'); return; }
+    showToast('ok', `Template copied successfully. Publish it to make it active.`);
+    setCopyModal(null);
+    loadTemplates();
+    if (data?.template_id) setSelectedId(data.template_id);
+  }
+
   // Confirm modal (replaces native browser confirm())
   const [confirmModal, setConfirmModal] = useState<{
     title:         string;
@@ -514,8 +549,6 @@ export default function WorkflowTemplates() {
         removeDuplicateApprover: t.remove_duplicate_approver ?? false,
       }));
       setTemplates(mapped);
-      // Auto-expand all groups
-      setExpandedCode(new Set(mapped.map(t => t.code)));
     }
     setLoadingTpl(false);
   }, []);
@@ -1028,7 +1061,7 @@ export default function WorkflowTemplates() {
               const groupName = versions[0].name;
 
               return (
-                <div key={code}>
+                <div key={code} className="wf-group">
                   {/* Group header */}
                   <div
                     onClick={() => setExpandedCode(prev => {
@@ -1039,7 +1072,15 @@ export default function WorkflowTemplates() {
                     style={{
                       display: 'flex', alignItems: 'center', gap: 6,
                       padding: '8px 14px', cursor: 'pointer',
-                      userSelect: 'none',
+                      userSelect: 'none', position: 'relative',
+                    }}
+                    onMouseEnter={e => {
+                      const btn = (e.currentTarget as HTMLElement).querySelector<HTMLElement>('.wf-copy-btn');
+                      if (btn) btn.style.opacity = '1';
+                    }}
+                    onMouseLeave={e => {
+                      const btn = (e.currentTarget as HTMLElement).querySelector<HTMLElement>('.wf-copy-btn');
+                      if (btn) btn.style.opacity = '0';
                     }}
                   >
                     <i
@@ -1058,6 +1099,36 @@ export default function WorkflowTemplates() {
                         v{activeVersion.version} live
                       </span>
                     )}
+                    {/* Copy template icon — visible on hover */}
+                    <button
+                      className="wf-copy-btn"
+                      title="Copy template to new module code"
+                      onClick={e => {
+                        e.stopPropagation();
+                        const srcVersion = activeVersion ?? versions[0];
+                        setCopyDraft({
+                          name:          groupName,
+                          code:          '',
+                          description:   srcVersion.description ?? '',
+                          effectiveFrom: new Date().toISOString().split('T')[0],
+                        });
+                        setCopyModal({
+                          sourceId:   srcVersion.id,
+                          sourceName: groupName,
+                          sourceCode: code,
+                          sourceDesc: srcVersion.description ?? '',
+                        });
+                      }}
+                      style={{
+                        opacity: 0, transition: 'opacity 0.15s',
+                        background: 'none', border: 'none', cursor: 'pointer',
+                        padding: '2px 4px', borderRadius: 4,
+                        color: C.muted, fontSize: 11,
+                        display: 'flex', alignItems: 'center', gap: 3,
+                      }}
+                    >
+                      <i className="fas fa-copy" />
+                    </button>
                   </div>
 
                   {/* Version rows */}
@@ -1425,6 +1496,58 @@ export default function WorkflowTemplates() {
           onConfirm={confirmModal.onConfirm}
           onCancel={() => setConfirmModal(null)}
         />
+      )}
+
+      {/* ════════════════════════════════════════════════════════
+          MODAL — Copy Template
+      ════════════════════════════════════════════════════════ */}
+      {copyModal && (
+        <Modal
+          title="Copy Template"
+          icon="fa-copy"
+          onClose={() => setCopyModal(null)}
+          onConfirm={submitCopyTemplate}
+          confirmLabel="Copy Template"
+          saving={copyingSaving}
+        >
+          <div style={{ padding: '8px 12px', background: C.blueL, borderRadius: 6, fontSize: 12, color: C.blue, marginBottom: 8 }}>
+            <i className="fas fa-info-circle" style={{ marginRight: 6 }} />
+            Copying from <strong>{copyModal.sourceName}</strong> ({copyModal.sourceCode}). The copy will be a draft — publish it when ready.
+          </div>
+          <ModalRow label="Name *">
+            <input
+              value={copyDraft.name}
+              onChange={e => setCopyDraft(p => ({ ...p, name: e.target.value }))}
+              placeholder="e.g. Personal Info Edit – APAC"
+              style={iStyle}
+            />
+          </ModalRow>
+          <ModalRow label="Module Code *" hint="Must be unique · uppercase + underscores only">
+            <input
+              value={copyDraft.code}
+              onChange={e => setCopyDraft(p => ({ ...p, code: e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '') }))}
+              placeholder="e.g. PERSONAL_INFO_EDIT_APAC"
+              style={{ ...iStyle, fontFamily: 'monospace' }}
+            />
+          </ModalRow>
+          <ModalRow label="Description">
+            <textarea
+              value={copyDraft.description}
+              onChange={e => setCopyDraft(p => ({ ...p, description: e.target.value }))}
+              placeholder="Optional description"
+              rows={2}
+              style={{ ...iStyle, resize: 'vertical' }}
+            />
+          </ModalRow>
+          <ModalRow label="Effective From *">
+            <input
+              type="date" min="1900-01-01" max="2100-12-31"
+              value={copyDraft.effectiveFrom}
+              onChange={e => setCopyDraft(p => ({ ...p, effectiveFrom: e.target.value }))}
+              style={iStyle}
+            />
+          </ModalRow>
+        </Modal>
       )}
 
       {/* ════════════════════════════════════════════════════════
