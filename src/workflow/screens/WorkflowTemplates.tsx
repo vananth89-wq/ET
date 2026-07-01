@@ -371,6 +371,32 @@ export default function WorkflowTemplates() {
   const [showStepModal,setShowStepModal]= useState(false);
   const [editingStepId,setEditingStepId]= useState<string | null>(null);
 
+  // Inline name/description editing
+  const [editingName, setEditingName] = useState(false);
+  const [editingDesc, setEditingDesc] = useState(false);
+  const [nameValue,   setNameValue]   = useState('');
+  const [descValue,   setDescValue]   = useState('');
+
+  async function saveTemplateName() {
+    if (!selectedId || !nameValue.trim()) { setEditingName(false); return; }
+    const { error } = await supabase.from('workflow_templates')
+      .update({ name: nameValue.trim(), updated_at: new Date().toISOString() })
+      .eq('id', selectedId);
+    if (error) { showToast('err', error.message); return; }
+    setTemplates(prev => prev.map(t => t.id === selectedId ? { ...t, name: nameValue.trim() } : t));
+    setEditingName(false);
+  }
+
+  async function saveTemplateDesc() {
+    if (!selectedId) { setEditingDesc(false); return; }
+    const { error } = await supabase.from('workflow_templates')
+      .update({ description: descValue.trim() || null, updated_at: new Date().toISOString() })
+      .eq('id', selectedId);
+    if (error) { showToast('err', error.message); return; }
+    setTemplates(prev => prev.map(t => t.id === selectedId ? { ...t, description: descValue.trim() || null } : t));
+    setEditingDesc(false);
+  }
+
   // Copy-template modal
   const [copyModal, setCopyModal] = useState<{
     sourceId:    string;
@@ -1143,7 +1169,7 @@ export default function WorkflowTemplates() {
                   {isExpanded && versions.map(v => (
                     <div
                       key={v.id}
-                      onClick={() => setSelectedId(v.id)}
+                      onClick={() => { setSelectedId(v.id); setEditingName(false); setEditingDesc(false); }}
                       style={{
                         display: 'flex', alignItems: 'center', gap: 8,
                         padding: '7px 14px 7px 32px',
@@ -1224,9 +1250,29 @@ export default function WorkflowTemplates() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                    <h2 style={{ fontSize: 18, fontWeight: 700, color: C.navy, margin: 0 }}>
-                      {selected.name}
-                    </h2>
+                    {editingName && selectedId === selected.id ? (
+                      <input
+                        autoFocus
+                        value={nameValue}
+                        onChange={e => setNameValue(e.target.value)}
+                        onBlur={saveTemplateName}
+                        onKeyDown={e => { if (e.key === 'Enter') saveTemplateName(); if (e.key === 'Escape') setEditingName(false); }}
+                        style={{ ...iStyle, fontSize: 18, fontWeight: 700, color: C.navy, padding: '2px 6px', width: 280 }}
+                      />
+                    ) : (
+                      <h2
+                        title="Click to edit name"
+                        onClick={() => { setNameValue(selected.name); setEditingName(true); setEditingDesc(false); }}
+                        style={{ fontSize: 18, fontWeight: 700, color: C.navy, margin: 0, cursor: 'text',
+                          borderBottom: `1px dashed transparent`,
+                        }}
+                        onMouseEnter={e => (e.currentTarget.style.borderBottomColor = C.faint)}
+                        onMouseLeave={e => (e.currentTarget.style.borderBottomColor = 'transparent')}
+                      >
+                        {selected.name}
+                        <i className="fas fa-pen" style={{ fontSize: 10, color: C.faint, marginLeft: 6, verticalAlign: 'middle' }} />
+                      </h2>
+                    )}
                     <span style={{
                       fontSize: 11, fontWeight: 700, color: C.blue,
                       background: C.blueL, borderRadius: 4, padding: '2px 8px',
@@ -1235,9 +1281,29 @@ export default function WorkflowTemplates() {
                     </span>
                     <StatusBadge isActive={selected.isActive} draft={!selected.isActive && !selected.publishedAt} />
                   </div>
-                  <p style={{ fontSize: 13, color: C.muted, margin: '6px 0 0' }}>
-                    {selected.description ?? 'No description'}
-                  </p>
+                  {editingDesc && selectedId === selected.id ? (
+                    <input
+                      autoFocus
+                      value={descValue}
+                      onChange={e => setDescValue(e.target.value)}
+                      onBlur={saveTemplateDesc}
+                      onKeyDown={e => { if (e.key === 'Enter') saveTemplateDesc(); if (e.key === 'Escape') setEditingDesc(false); }}
+                      placeholder="Add a description…"
+                      style={{ ...iStyle, fontSize: 13, marginTop: 6, width: '100%' }}
+                    />
+                  ) : (
+                    <p
+                      title="Click to edit description"
+                      onClick={() => { setDescValue(selected.description ?? ''); setEditingDesc(true); setEditingName(false); }}
+                      style={{ fontSize: 13, color: selected.description ? C.muted : C.faint, margin: '6px 0 0',
+                        cursor: 'text', fontStyle: selected.description ? 'normal' : 'italic',
+                      }}
+                      onMouseEnter={e => (e.currentTarget.style.textDecoration = 'underline dotted')}
+                      onMouseLeave={e => (e.currentTarget.style.textDecoration = 'none')}
+                    >
+                      {selected.description ?? 'Add a description…'}
+                    </p>
+                  )}
                   <div style={{ display: 'flex', gap: 16, marginTop: 10, flexWrap: 'wrap' }}>
                     <MetaTag icon="fa-code"        label={selected.code} mono />
                     {selected.effectiveFrom && (
