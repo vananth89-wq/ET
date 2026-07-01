@@ -27,6 +27,8 @@
 -- 1. get_workflow_summary  (step_times now uses acted_at window)
 -- ════════════════════════════════════════════════════════════════════════════
 
+DROP FUNCTION IF EXISTS get_workflow_summary(timestamptz, timestamptz, text);
+
 CREATE OR REPLACE FUNCTION get_workflow_summary(
   p_from          timestamptz,
   p_to            timestamptz,
@@ -93,6 +95,8 @@ COMMENT ON FUNCTION get_workflow_summary(timestamptz, timestamptz, text) IS
 -- ════════════════════════════════════════════════════════════════════════════
 -- 2. get_approver_performance  (actioned CTE now uses acted_at window)
 -- ════════════════════════════════════════════════════════════════════════════
+
+DROP FUNCTION IF EXISTS get_approver_performance(timestamptz, timestamptz, text);
 
 CREATE OR REPLACE FUNCTION get_approver_performance(
   p_from          timestamptz,
@@ -204,6 +208,8 @@ COMMENT ON FUNCTION get_approver_performance(timestamptz, timestamptz, text) IS
 -- 3. get_step_bottlenecks  (total_tasks = created OR acted in period;
 --                           avg/median = only tasks acted in period)
 -- ════════════════════════════════════════════════════════════════════════════
+
+DROP FUNCTION IF EXISTS get_step_bottlenecks(timestamptz, timestamptz, text);
 
 CREATE OR REPLACE FUNCTION get_step_bottlenecks(
   p_from          timestamptz,
