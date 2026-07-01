@@ -94,9 +94,9 @@ BEGIN
 
   -- ── 7. Create workflow assignment ─────────────────────────────────────────
   INSERT INTO workflow_assignments (
-    module_code, wf_template_id, is_active, effective_from, effective_to
+    module_code, wf_template_id, assignment_type, entity_id, is_active, effective_from, effective_to
   ) VALUES (
-    p_code, v_new_tpl_id, false, p_effective_from, NULL
+    p_code, v_new_tpl_id, 'GLOBAL', NULL, false, p_effective_from, NULL
   );
 
   RETURN jsonb_build_object('ok', true, 'template_id', v_new_tpl_id);
