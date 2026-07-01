@@ -83,13 +83,11 @@ BEGIN
   -- ── 6. Copy steps verbatim ────────────────────────────────────────────────
   INSERT INTO workflow_steps (
     template_id, step_order, name, approver_type, approver_profile_id,
-    approver_role, is_mandatory, is_active, is_cc, approval_mode,
-    delegation_allowed
+    approver_role, is_mandatory, is_active, is_cc, approval_mode
   )
   SELECT
     v_new_tpl_id, step_order, name, approver_type, approver_profile_id,
-    approver_role, is_mandatory, is_active, is_cc, approval_mode,
-    delegation_allowed
+    approver_role, is_mandatory, is_active, is_cc, approval_mode
   FROM workflow_steps
   WHERE template_id = v_active_tpl_id
   ORDER BY step_order;
