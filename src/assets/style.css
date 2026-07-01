@@ -10793,13 +10793,13 @@ tbody td:last-child {
 
 /* background changes when submitting — keep inline */
 .wfi-edit-submit-btn {
-  flex: 1; padding: 8px 16px; border-radius: 6px; border: none;
+  width: 20%; padding: 8px 16px; border-radius: 6px; border: none;
   background: #2F77B5; color: #fff; font-weight: 700; font-size: 13px;
   cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px;
 }
 
 .wfi-edit-cancel-btn {
-  padding: 8px 16px; border-radius: 6px;
+  padding: 8px 31px; border-radius: 6px;
   border: 1px solid #D1D5DB; background: #fff;
   color: #374151; font-weight: 500; font-size: 13px; cursor: pointer;
 }

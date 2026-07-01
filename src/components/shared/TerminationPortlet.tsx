@@ -140,7 +140,7 @@ export default function TerminationPortlet({
     && termination?.workflow_status === 'APPROVED'
     && termination?.scheduled_executed === false
     && !!termination?.last_working_date
-    && termination.last_working_date <= today;
+    && termination.last_working_date < today;  // < not <=: show button only AFTER LWD has passed
 
   async function handleRerunFinalize() {
     if (!termination) return;

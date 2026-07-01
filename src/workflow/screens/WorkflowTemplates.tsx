@@ -1076,11 +1076,11 @@ export default function WorkflowTemplates() {
                     }}
                     onMouseEnter={e => {
                       const btn = (e.currentTarget as HTMLElement).querySelector<HTMLElement>('.wf-copy-btn');
-                      if (btn) btn.style.opacity = '1';
+                      if (btn) { btn.style.background = C.blueL; btn.style.color = C.blue; btn.style.borderColor = C.blue; }
                     }}
                     onMouseLeave={e => {
                       const btn = (e.currentTarget as HTMLElement).querySelector<HTMLElement>('.wf-copy-btn');
-                      if (btn) btn.style.opacity = '0';
+                      if (btn) { btn.style.background = 'transparent'; btn.style.color = C.faint; btn.style.borderColor = C.border; }
                     }}
                   >
                     <i
@@ -1107,10 +1107,10 @@ export default function WorkflowTemplates() {
                         e.stopPropagation();
                         const srcVersion = activeVersion ?? versions[0];
                         setCopyDraft({
-                          name:          groupName,
+                          name:          '',
                           code:          '',
-                          description:   srcVersion.description ?? '',
-                          effectiveFrom: new Date().toISOString().split('T')[0],
+                          description:   '',
+                          effectiveFrom: '',
                         });
                         setCopyModal({
                           sourceId:   srcVersion.id,
@@ -1120,14 +1120,22 @@ export default function WorkflowTemplates() {
                         });
                       }}
                       style={{
-                        opacity: 0, transition: 'opacity 0.15s',
-                        background: 'none', border: 'none', cursor: 'pointer',
-                        padding: '2px 4px', borderRadius: 4,
-                        color: C.muted, fontSize: 11,
-                        display: 'flex', alignItems: 'center', gap: 3,
+                        transition: 'background 0.15s, color 0.15s, border-color 0.15s',
+                        background: 'transparent',
+                        border: `1px solid ${C.border}`,
+                        borderRadius: 4,
+                        cursor: 'pointer',
+                        padding: '2px 7px',
+                        color: C.faint,
+                        fontSize: 10,
+                        fontWeight: 600,
+                        letterSpacing: '0.02em',
+                        display: 'flex', alignItems: 'center', gap: 4,
+                        flexShrink: 0,
                       }}
                     >
-                      <i className="fas fa-copy" />
+                      <i className="fas fa-copy" style={{ fontSize: 9 }} />
+                      Copy
                     </button>
                   </div>
 
@@ -1517,7 +1525,14 @@ export default function WorkflowTemplates() {
           <ModalRow label="Name *">
             <input
               value={copyDraft.name}
-              onChange={e => setCopyDraft(p => ({ ...p, name: e.target.value }))}
+              onChange={e => {
+                const name = e.target.value;
+                setCopyDraft(p => ({
+                  ...p,
+                  name,
+                  code: name.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_|_$/g, ''),
+                }));
+              }}
               placeholder="e.g. Personal Info Edit – APAC"
               style={iStyle}
             />

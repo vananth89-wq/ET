@@ -97,8 +97,9 @@ Deno.serve(async (req: Request) => {
   const today = new Date().toISOString().slice(0, 10);
   const lwd   = sliceResult.lwd ?? null;
 
-  if (lwd && lwd <= today) {
-    console.log(`apply-termination-approval: LWD ${lwd} <= today ${today} — running finalize immediately`);
+  if (lwd && lwd < today) {
+    // < not <=: finalize AFTER last working day, not on it
+    console.log(`apply-termination-approval: LWD ${lwd} < today ${today} — running finalize immediately`);
 
     const { data: finalizeData, error: finalizeError } = await admin.rpc(
       'fn_finalize_termination_execution',

@@ -3,7 +3,7 @@
  *
  * HR / admin screen surfacing approver performance metrics:
  *   - Summary KPI cards (submitted, completed, in-progress, avg completion time)
- *   - Step bottleneck bars (avg hours per step vs SLA)
+ *   - Step bottleneck bars (avg hours per step vs SLA), grouped by template
  *   - Approver table (sortable, colour-coded by avg response time)
  *   - Currently overdue tasks
  *
@@ -86,10 +86,20 @@ function rangeToFrom(key: RangeKey): Date {
   return d;
 }
 
+/**
+ * Safely convert a value from Postgres to a JS number.
+ * Postgres numeric NaN serialises as the JSON string "NaN" — guard against that.
+ */
+function safeNum(v: unknown): number | null {
+  if (v === null || v === undefined) return null;
+  const n = Number(v);
+  return isNaN(n) ? null : n;
+}
+
 function fmtHours(h: number | null): string {
-  if (h === null || h === undefined) return '—';
-  if (h < 1)   return `${Math.round(h * 60)}m`;
-  if (h < 24)  return `${h.toFixed(1)}h`;
+  if (h === null || h === undefined || isNaN(h)) return '—';
+  if (h < 1)  return `${Math.round(h * 60)}m`;
+  if (h < 24) return `${h.toFixed(1)}h`;
   return `${(h / 24).toFixed(1)}d`;
 }
 
@@ -100,22 +110,27 @@ function formatDate(iso: string) {
   }).format(new Date(iso));
 }
 
-// ─── Row colour by avg hours ───────────────────────────────────────────────────
-// Green < 24h · Amber 24–72h · Red > 72h
+function formatTime(d: Date) {
+  return new Intl.DateTimeFormat('en-GB', {
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  }).format(d);
+}
+
+// ─── Colour helpers ────────────────────────────────────────────────────────────
+
 function rowBg(avgHours: number | null): string {
   if (avgHours === null) return 'transparent';
   if (avgHours <= 24)   return '#F0FDF4';
   if (avgHours <= 72)   return '#FFFBEB';
   return '#FEF2F2';
 }
-function rowBorderLeft(avgHours: number | null): string {
-  if (avgHours === null) return 'transparent';
+function rowAccent(avgHours: number | null): string {
+  if (avgHours === null) return '#E5E7EB';
   if (avgHours <= 24)   return '#16A34A';
   if (avgHours <= 72)   return '#D97706';
   return '#DC2626';
 }
 
-// ─── Bar colour vs SLA ────────────────────────────────────────────────────────
 function barColor(avgHours: number | null, slaHours: number | null): string {
   if (avgHours === null) return '#D1D5DB';
   if (slaHours === null) return avgHours <= 24 ? '#16A34A' : avgHours <= 72 ? '#D97706' : '#DC2626';
@@ -131,17 +146,21 @@ export default function WorkflowPerformanceDashboard() {
   const [templateCode,  setTemplateCode]  = useState<string>('');
   const [templates,     setTemplates]     = useState<{ code: string; name: string }[]>([]);
 
-  const [summary,  setSummary]  = useState<WorkflowSummary | null>(null);
+  const [summary,   setSummary]   = useState<WorkflowSummary | null>(null);
   const [approvers, setApprovers] = useState<ApproverRow[]>([]);
-  const [steps,    setSteps]    = useState<StepRow[]>([]);
-  const [overdue,  setOverdue]  = useState<OverdueTask[]>([]);
+  const [steps,     setSteps]     = useState<StepRow[]>([]);
+  const [overdue,   setOverdue]   = useState<OverdueTask[]>([]);
 
-  const [loading,  setLoading]  = useState(false);
-  const [error,    setError]    = useState<string | null>(null);
+  const [loading,      setLoading]      = useState(false);
+  const [error,        setError]        = useState<string | null>(null);
+  const [lastUpdated,  setLastUpdated]  = useState<Date | null>(null);
 
   // Approver table sort
   const [sortKey, setSortKey] = useState<SortKey>('avgHours');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
+
+  // Collapsed template groups in bottleneck section
+  const [collapsedTemplates, setCollapsedTemplates] = useState<Set<string>>(new Set());
 
   // ── Load templates once ────────────────────────────────────────────────────
   useEffect(() => {
@@ -173,7 +192,6 @@ export default function WorkflowPerformanceDashboard() {
         supabase.rpc('get_step_bottlenecks', {
           p_from: from, p_to: to, p_template_code: tpl,
         }),
-        // Overdue tasks: pending tasks past due_at, with approver + submitter names
         supabase
           .from('vw_wf_pending_tasks')
           .select('task_id, instance_id, step_name, template_name, submitted_by_name, due_at')
@@ -194,8 +212,8 @@ export default function WorkflowPerformanceDashboard() {
         rejectedCount:      Number(s.rejected_count      ?? 0),
         withdrawnCount:     Number(s.withdrawn_count     ?? 0),
         inProgressCount:    Number(s.in_progress_count   ?? 0),
-        avgCompletionHours: s.avg_completion_hours !== null ? Number(s.avg_completion_hours) : null,
-        avgStepHours:       s.avg_step_hours       !== null ? Number(s.avg_step_hours)       : null,
+        avgCompletionHours: safeNum(s.avg_completion_hours),
+        avgStepHours:       safeNum(s.avg_step_hours),
       } : null);
 
       setApprovers(
@@ -211,9 +229,9 @@ export default function WorkflowPerformanceDashboard() {
           reassignedCount: Number(r.reassigned_count ?? 0),
           pendingCount:    Number(r.pending_count    ?? 0),
           overdueCount:    Number(r.overdue_count    ?? 0),
-          avgHours:        r.avg_hours    !== null ? Number(r.avg_hours)    : null,
-          medianHours:     r.median_hours !== null ? Number(r.median_hours) : null,
-          approvalRate:    r.approval_rate !== null ? Number(r.approval_rate) : null,
+          avgHours:        safeNum(r.avg_hours),
+          medianHours:     safeNum(r.median_hours),
+          approvalRate:    safeNum(r.approval_rate),
         }))
       );
 
@@ -224,10 +242,10 @@ export default function WorkflowPerformanceDashboard() {
           stepOrder:    Number(r.step_order),
           stepName:     r.step_name,
           totalTasks:   Number(r.total_tasks   ?? 0),
-          avgHours:     r.avg_hours    !== null ? Number(r.avg_hours)    : null,
-          medianHours:  r.median_hours !== null ? Number(r.median_hours) : null,
+          avgHours:     safeNum(r.avg_hours),
+          medianHours:  safeNum(r.median_hours),
           overdueCount: Number(r.overdue_count ?? 0),
-          slaHours:     r.sla_hours !== null ? Number(r.sla_hours) : null,
+          slaHours:     safeNum(r.sla_hours),
         }))
       );
 
@@ -244,6 +262,8 @@ export default function WorkflowPerformanceDashboard() {
           hoursOverdue:    Math.round((now - new Date(r.due_at).getTime()) / 3_600_000),
         }))
       );
+
+      setLastUpdated(new Date());
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -269,11 +289,28 @@ export default function WorkflowPerformanceDashboard() {
     else { setSortKey(key); setSortDir('desc'); }
   }
 
+  // ── Steps grouped by template ───────────────────────────────────────────────
+  const stepsByTemplate = useMemo(() => {
+    const map = new Map<string, { templateName: string; steps: StepRow[] }>();
+    for (const s of steps) {
+      if (!map.has(s.templateCode)) map.set(s.templateCode, { templateName: s.templateName, steps: [] });
+      map.get(s.templateCode)!.steps.push(s);
+    }
+    return [...map.entries()];
+  }, [steps]);
+
   // ── Max avg hours across steps (for bar scaling) ────────────────────────────
-  const maxStepHours = useMemo(
-    () => Math.max(1, ...steps.map(s => s.avgHours ?? 0)),
-    [steps]
-  );
+  const maxStepHours = useMemo(() => {
+    const valid = steps.map(s => s.avgHours).filter((h): h is number => h !== null);
+    return Math.max(1, ...valid);
+  }, [steps]);
+
+  // Derived KPIs
+  const completionRate = summary && summary.submittedCount > 0
+    ? Math.round((summary.completedCount / summary.submittedCount) * 100)
+    : null;
+
+  const totalOverdue = overdue.length;
 
   // ─── Render ────────────────────────────────────────────────────────────────
 
@@ -281,19 +318,18 @@ export default function WorkflowPerformanceDashboard() {
     <div style={{ padding: '32px 40px', maxWidth: 1200, margin: '0 auto' }}>
 
       {/* ── Header ──────────────────────────────────────────────────────────── */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 28 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, color: '#18345B', margin: 0 }}>
             Approver Performance
           </h1>
-          <p style={{ fontSize: 13, color: '#6B7280', marginTop: 4 }}>
+          <p style={{ fontSize: 13, color: '#6B7280', marginTop: 4, margin: 0 }}>
             Bottleneck analysis and approver response times
           </p>
         </div>
 
-        {/* Filters */}
+        {/* Filters + refresh */}
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          {/* Template filter */}
           <select
             value={templateCode}
             onChange={e => setTemplateCode(e.target.value)}
@@ -305,15 +341,14 @@ export default function WorkflowPerformanceDashboard() {
             ))}
           </select>
 
-          {/* Date range chips */}
-          <div style={{ display: 'flex', gap: 4 }}>
+          <div style={{ display: 'flex', gap: 4, background: '#F3F4F6', borderRadius: 8, padding: 3 }}>
             {RANGES.map(r => (
               <button
                 key={r.key}
                 onClick={() => setRange(r.key)}
                 style={{
-                  padding: '6px 12px', borderRadius: 6, border: 'none',
-                  background: range === r.key ? '#18345B' : '#F3F4F6',
+                  padding: '5px 11px', borderRadius: 6, border: 'none',
+                  background: range === r.key ? '#18345B' : 'transparent',
                   color:      range === r.key ? '#fff'    : '#6B7280',
                   fontWeight: 600, fontSize: 12, cursor: 'pointer',
                   transition: 'all 0.15s',
@@ -342,6 +377,13 @@ export default function WorkflowPerformanceDashboard() {
         </div>
       </div>
 
+      {/* Last updated */}
+      {lastUpdated && !loading && (
+        <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 16 }}>
+          Last updated {formatTime(lastUpdated)}
+        </div>
+      )}
+
       {/* ── Error ────────────────────────────────────────────────────────────── */}
       {error && (
         <div style={{
@@ -355,16 +397,26 @@ export default function WorkflowPerformanceDashboard() {
 
       {/* ── Loading skeleton ─────────────────────────────────────────────────── */}
       {loading && (
-        <div style={{ textAlign: 'center', padding: '64px 0', color: '#9CA3AF' }}>
-          <i className="fas fa-spinner fa-spin" style={{ fontSize: 28, display: 'block', marginBottom: 12 }} />
-          Loading performance data…
-        </div>
+        <>
+          <div style={{ display: 'flex', gap: 12, marginBottom: 28 }}>
+            {[1,2,3,4,5].map(i => (
+              <div key={i} style={{
+                flex: '1 1 0', height: 90, borderRadius: 10,
+                background: 'linear-gradient(90deg, #F3F4F6 25%, #E5E7EB 50%, #F3F4F6 75%)',
+                backgroundSize: '200% 100%',
+                animation: 'shimmer 1.4s infinite',
+              }} />
+            ))}
+          </div>
+          <div style={{ height: 200, borderRadius: 12, background: '#F9FAFB', border: '1px solid #E5E7EB' }} />
+          <style>{`@keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }`}</style>
+        </>
       )}
 
       {!loading && (
         <>
           {/* ── KPI Cards ────────────────────────────────────────────────────── */}
-          <div style={{ display: 'flex', gap: 12, marginBottom: 28, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
             <KpiCard
               label="Submitted"
               value={summary?.submittedCount ?? 0}
@@ -376,12 +428,18 @@ export default function WorkflowPerformanceDashboard() {
               value={summary?.completedCount ?? 0}
               icon="fa-circle-check"
               color="#16A34A" bg="#F0FDF4" border="#BBF7D0"
+              subtitle={completionRate !== null ? `${completionRate}% completion rate` : undefined}
             />
             <KpiCard
               label="In Progress"
               value={summary?.inProgressCount ?? 0}
               icon="fa-hourglass-half"
               color="#D97706" bg="#FFFBEB" border="#FDE68A"
+              subtitle={
+                (summary?.rejectedCount || summary?.withdrawnCount)
+                  ? `${summary?.rejectedCount ?? 0} rejected · ${summary?.withdrawnCount ?? 0} withdrawn`
+                  : undefined
+              }
             />
             <KpiCard
               label="Avg Completion"
@@ -397,117 +455,184 @@ export default function WorkflowPerformanceDashboard() {
               color="#0891B2" bg="#ECFEFF" border="#A5F3FC"
               subtitle="per approval"
             />
+            {totalOverdue > 0 && (
+              <KpiCard
+                label="Overdue Now"
+                value={totalOverdue}
+                icon="fa-circle-exclamation"
+                color="#DC2626" bg="#FEF2F2" border="#FECACA"
+                subtitle="breached SLA"
+              />
+            )}
           </div>
 
-          {/* ── Step Bottleneck Bars ──────────────────────────────────────────── */}
-          {steps.length > 0 && (
-            <Section title="Step Bottlenecks" icon="fa-chart-bar"
-              subtitle="Average time spent at each approval step">
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {steps.map(step => {
-                  const pct = step.avgHours !== null
-                    ? Math.min(100, (step.avgHours / maxStepHours) * 100)
-                    : 0;
-                  const color = barColor(step.avgHours, step.slaHours);
+          {/* ── Step Bottlenecks ──────────────────────────────────────────────── */}
+          <Section title="Step Bottlenecks" icon="fa-chart-bar"
+            subtitle="Average time per approval step, grouped by workflow">
+
+            {steps.length === 0 ? (
+              <EmptyState icon="fa-chart-bar" message="No step data for this period." />
+            ) : (
+              <>
+                {stepsByTemplate.map(([tplCode, group]) => {
+                  const isCollapsed = collapsedTemplates.has(tplCode);
+                  const hasOverdue  = group.steps.some(s => s.overdueCount > 0);
 
                   return (
-                    <div key={`${step.templateCode}-${step.stepOrder}`}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div key={tplCode} style={{ marginBottom: 20 }}>
+                      {/* Template header */}
+                      <button
+                        onClick={() => setCollapsedTemplates(prev => {
+                          const next = new Set(prev);
+                          next.has(tplCode) ? next.delete(tplCode) : next.add(tplCode);
+                          return next;
+                        })}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 8,
+                          background: '#F8FAFC', border: '1px solid #E5E7EB',
+                          borderRadius: 8, padding: '7px 12px', cursor: 'pointer',
+                          width: '100%', marginBottom: isCollapsed ? 0 : 12,
+                        }}
+                      >
+                        <i
+                          className={`fas fa-chevron-${isCollapsed ? 'right' : 'down'}`}
+                          style={{ fontSize: 10, color: '#9CA3AF', width: 10 }}
+                        />
+                        <span style={{ fontWeight: 700, fontSize: 13, color: '#18345B' }}>
+                          {group.templateName}
+                        </span>
+                        <span style={{ fontSize: 11, color: '#9CA3AF', marginLeft: 'auto' }}>
+                          {group.steps.length} step{group.steps.length !== 1 ? 's' : ''}
+                        </span>
+                        {hasOverdue && (
                           <span style={{
-                            fontSize: 11, background: '#EFF6FF', color: '#1D4ED8',
+                            fontSize: 11, background: '#FEF2F2', color: '#DC2626',
                             borderRadius: 4, padding: '1px 6px', fontWeight: 600,
                           }}>
-                            {step.templateName} · Step {step.stepOrder}
+                            overdue
                           </span>
-                          <span style={{ fontSize: 13, fontWeight: 600, color: '#111827' }}>
-                            {step.stepName}
-                          </span>
-                          {step.overdueCount > 0 && (
-                            <span style={{
-                              fontSize: 11, background: '#FEF2F2', color: '#DC2626',
-                              borderRadius: 4, padding: '1px 6px', fontWeight: 600,
-                              display: 'flex', alignItems: 'center', gap: 3,
-                            }}>
-                              <i className="fas fa-circle-exclamation" style={{ fontSize: 9 }} />
-                              {step.overdueCount} overdue
-                            </span>
-                          )}
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                          {step.slaHours && (
-                            <span style={{ fontSize: 11, color: '#9CA3AF' }}>
-                              SLA: {fmtHours(step.slaHours)}
-                            </span>
-                          )}
-                          <span style={{ fontSize: 13, fontWeight: 700, color }}>
-                            {fmtHours(step.avgHours)} avg
-                          </span>
-                          <span style={{ fontSize: 11, color: '#9CA3AF' }}>
-                            {step.totalTasks} tasks
-                          </span>
-                        </div>
-                      </div>
-                      {/* Bar */}
-                      <div style={{
-                        height: 8, background: '#F3F4F6', borderRadius: 4, overflow: 'hidden',
-                      }}>
-                        <div style={{
-                          height: '100%',
-                          width: `${pct}%`,
-                          background: color,
-                          borderRadius: 4,
-                          transition: 'width 0.4s ease',
-                        }} />
-                      </div>
-                      {/* SLA line marker */}
-                      {step.slaHours && step.avgHours !== null && (
-                        <div style={{
-                          position: 'relative', height: 0,
-                        }}>
-                          <div style={{
-                            position: 'absolute',
-                            left: `${Math.min(100, (step.slaHours / maxStepHours) * 100)}%`,
-                            top: -8,
-                            width: 2,
-                            height: 8,
-                            background: '#9CA3AF',
-                            borderRadius: 1,
-                          }} />
+                        )}
+                      </button>
+
+                      {!isCollapsed && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                          {group.steps.map(step => {
+                            const pct = step.avgHours !== null
+                              ? Math.min(100, (step.avgHours / maxStepHours) * 100)
+                              : 0;
+                            const slaPct = step.slaHours !== null
+                              ? Math.min(100, (step.slaHours / maxStepHours) * 100)
+                              : null;
+                            const color = barColor(step.avgHours, step.slaHours);
+
+                            return (
+                              <div key={`${step.templateCode}-${step.stepOrder}`}
+                                style={{ paddingLeft: 22 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <span style={{
+                                      fontSize: 10, background: '#EFF6FF', color: '#1D4ED8',
+                                      borderRadius: 4, padding: '1px 6px', fontWeight: 700,
+                                    }}>
+                                      Step {step.stepOrder}
+                                    </span>
+                                    <span style={{ fontSize: 13, fontWeight: 600, color: '#111827' }}>
+                                      {step.stepName}
+                                    </span>
+                                    {step.overdueCount > 0 && (
+                                      <span style={{
+                                        fontSize: 11, background: '#FEF2F2', color: '#DC2626',
+                                        borderRadius: 4, padding: '1px 6px', fontWeight: 600,
+                                        display: 'flex', alignItems: 'center', gap: 3,
+                                      }}>
+                                        <i className="fas fa-circle-exclamation" style={{ fontSize: 9 }} />
+                                        {step.overdueCount} overdue
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                    {step.slaHours && (
+                                      <span style={{ fontSize: 11, color: '#9CA3AF' }}>
+                                        SLA: {fmtHours(step.slaHours)}
+                                      </span>
+                                    )}
+                                    <span style={{ fontSize: 13, fontWeight: 700, color }}>
+                                      {step.avgHours !== null ? `${fmtHours(step.avgHours)} avg` : 'No data'}
+                                    </span>
+                                    {step.medianHours !== null && (
+                                      <span style={{ fontSize: 11, color: '#9CA3AF' }}>
+                                        med {fmtHours(step.medianHours)}
+                                      </span>
+                                    )}
+                                    <span style={{ fontSize: 11, color: '#9CA3AF' }}>
+                                      {step.totalTasks} tasks
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {/* Bar track */}
+                                <div style={{ position: 'relative', height: 8, background: '#F3F4F6', borderRadius: 4, overflow: 'visible' }}>
+                                  <div style={{
+                                    height: '100%',
+                                    width: `${pct}%`,
+                                    background: color,
+                                    borderRadius: 4,
+                                    transition: 'width 0.4s ease',
+                                  }} />
+                                  {/* SLA marker */}
+                                  {slaPct !== null && (
+                                    <div style={{
+                                      position: 'absolute',
+                                      left: `${slaPct}%`,
+                                      top: -3, bottom: -3,
+                                      width: 2,
+                                      background: '#9CA3AF',
+                                      borderRadius: 1,
+                                    }} />
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
                     </div>
                   );
                 })}
-              </div>
-              <div style={{ marginTop: 12, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-                <Legend color="#16A34A" label="Within SLA" />
-                <Legend color="#D97706" label="≤1.5× SLA" />
-                <Legend color="#DC2626" label=">1.5× SLA" />
-                <span style={{ fontSize: 11, color: '#9CA3AF' }}>
-                  Grey tick = SLA boundary
-                </span>
-              </div>
-            </Section>
-          )}
+
+                <div style={{ marginTop: 4, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                  <Legend color="#16A34A" label="Within SLA" />
+                  <Legend color="#D97706" label="≤ 1.5× SLA" />
+                  <Legend color="#DC2626" label="> 1.5× SLA" />
+                  <span style={{ fontSize: 11, color: '#9CA3AF', display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ display: 'inline-block', width: 2, height: 12, background: '#9CA3AF', borderRadius: 1 }} />
+                    SLA boundary
+                  </span>
+                </div>
+              </>
+            )}
+          </Section>
 
           {/* ── Approver Table ────────────────────────────────────────────────── */}
-          {approvers.length > 0 ? (
-            <Section
-              title="Approver Breakdown"
-              icon="fa-users"
-              subtitle="Colour: green < 24h avg · amber 24–72h · red > 72h"
-            >
+          <Section
+            title="Approver Breakdown"
+            icon="fa-users"
+            subtitle="Green < 24h · Amber 24–72h · Red > 72h average response time"
+            badge={approvers.length > 0 ? String(approvers.length) : undefined}
+          >
+            {approvers.length === 0 ? (
+              <EmptyState icon="fa-users" message="No approver activity in this period." />
+            ) : (
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                   <thead>
-                    <tr style={{ background: '#F9FAFB', borderBottom: '1px solid #E5E7EB' }}>
-                      <Th label="Approver"     sortKey="approverName"  current={sortKey} dir={sortDir} onSort={toggleSort} />
-                      <Th label="Actioned"     sortKey="totalActioned" current={sortKey} dir={sortDir} onSort={toggleSort} align="center" />
-                      <Th label="Approval %"   sortKey="approvalRate"  current={sortKey} dir={sortDir} onSort={toggleSort} align="center" />
-                      <Th label="Avg Time"     sortKey="avgHours"      current={sortKey} dir={sortDir} onSort={toggleSort} align="center" />
-                      <Th label="Pending"      sortKey="pendingCount"  current={sortKey} dir={sortDir} onSort={toggleSort} align="center" />
-                      <Th label="Overdue Now"  sortKey="overdueCount"  current={sortKey} dir={sortDir} onSort={toggleSort} align="center" />
+                    <tr style={{ background: '#F9FAFB', borderBottom: '2px solid #E5E7EB' }}>
+                      <Th label="Approver"    sortKey="approverName"  current={sortKey} dir={sortDir} onSort={toggleSort} />
+                      <Th label="Actioned"    sortKey="totalActioned" current={sortKey} dir={sortDir} onSort={toggleSort} align="center" />
+                      <Th label="Approval %"  sortKey="approvalRate"  current={sortKey} dir={sortDir} onSort={toggleSort} align="center" />
+                      <Th label="Avg Time"    sortKey="avgHours"      current={sortKey} dir={sortDir} onSort={toggleSort} align="center" />
+                      <Th label="Pending"     sortKey="pendingCount"  current={sortKey} dir={sortDir} onSort={toggleSort} align="center" />
+                      <Th label="Overdue"     sortKey="overdueCount"  current={sortKey} dir={sortDir} onSort={toggleSort} align="center" />
                     </tr>
                   </thead>
                   <tbody>
@@ -515,9 +640,9 @@ export default function WorkflowPerformanceDashboard() {
                       <tr
                         key={a.approverId}
                         style={{
-                          background:      rowBg(a.avgHours),
-                          borderBottom:    '1px solid #F3F4F6',
-                          borderLeft:      `3px solid ${rowBorderLeft(a.avgHours)}`,
+                          background:   rowBg(a.avgHours),
+                          borderBottom: '1px solid #F3F4F6',
+                          borderLeft:   `3px solid ${rowAccent(a.avgHours)}`,
                         }}
                       >
                         <td style={{ padding: '10px 14px' }}>
@@ -527,10 +652,12 @@ export default function WorkflowPerformanceDashboard() {
                           </div>
                         </td>
                         <td style={{ padding: '10px 14px', textAlign: 'center', color: '#374151' }}>
-                          {a.totalActioned}
+                          <div style={{ fontWeight: 600 }}>{a.totalActioned}</div>
                           {a.totalActioned > 0 && (
-                            <div style={{ fontSize: 10, color: '#9CA3AF', marginTop: 1 }}>
-                              {a.approvedCount}✓ {a.rejectedCount}✗ {a.returnedCount > 0 ? `${a.returnedCount}↩` : ''}
+                            <div style={{ fontSize: 10, color: '#9CA3AF', marginTop: 2 }}>
+                              {a.approvedCount > 0 && <span style={{ color: '#16A34A' }}>{a.approvedCount} ✓ </span>}
+                              {a.rejectedCount > 0 && <span style={{ color: '#DC2626' }}>{a.rejectedCount} ✗ </span>}
+                              {a.returnedCount > 0 && <span>{a.returnedCount} ↩</span>}
                             </div>
                           )}
                         </td>
@@ -542,10 +669,10 @@ export default function WorkflowPerformanceDashboard() {
                             }}>
                               {a.approvalRate.toFixed(0)}%
                             </span>
-                          ) : '—'}
+                          ) : <span style={{ color: '#9CA3AF' }}>—</span>}
                         </td>
                         <td style={{ padding: '10px 14px', textAlign: 'center' }}>
-                          <span style={{ fontWeight: 700, color: rowBorderLeft(a.avgHours) }}>
+                          <span style={{ fontWeight: 700, color: rowAccent(a.avgHours) }}>
                             {fmtHours(a.avgHours)}
                           </span>
                           {a.medianHours !== null && (
@@ -555,10 +682,7 @@ export default function WorkflowPerformanceDashboard() {
                           )}
                         </td>
                         <td style={{ padding: '10px 14px', textAlign: 'center' }}>
-                          <span style={{
-                            fontWeight: 600,
-                            color: a.pendingCount > 5 ? '#D97706' : '#374151',
-                          }}>
+                          <span style={{ fontWeight: 600, color: a.pendingCount > 5 ? '#D97706' : '#374151' }}>
                             {a.pendingCount}
                           </span>
                         </td>
@@ -572,7 +696,7 @@ export default function WorkflowPerformanceDashboard() {
                               {a.overdueCount}
                             </span>
                           ) : (
-                            <span style={{ color: '#9CA3AF' }}>—</span>
+                            <span style={{ color: '#D1D5DB' }}>—</span>
                           )}
                         </td>
                       </tr>
@@ -580,23 +704,18 @@ export default function WorkflowPerformanceDashboard() {
                   </tbody>
                 </table>
               </div>
-            </Section>
-          ) : !loading && (
-            <Section title="Approver Breakdown" icon="fa-users" subtitle="">
-              <div style={{ textAlign: 'center', padding: '32px 0', color: '#9CA3AF' }}>
-                <i className="fas fa-users" style={{ fontSize: 28, display: 'block', marginBottom: 10 }} />
-                No approver activity in this period.
-              </div>
-            </Section>
-          )}
+            )}
+          </Section>
 
           {/* ── Overdue Tasks ─────────────────────────────────────────────────── */}
-          {overdue.length > 0 && (
+          {overdue.length > 0 ? (
             <Section
-              title={`Overdue Right Now (${overdue.length})`}
+              title={`Overdue Right Now`}
               icon="fa-circle-exclamation"
               titleColor="#DC2626"
               subtitle="Pending tasks that have already breached their SLA deadline"
+              badge={String(overdue.length)}
+              badgeColor="#DC2626"
             >
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {overdue.map(t => (
@@ -616,11 +735,14 @@ export default function WorkflowPerformanceDashboard() {
                       <div style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>
                         Step: {t.stepName}
                         {t.submittedByName && ` · Submitted by ${t.submittedByName}`}
+                        {t.assignedToName && ` · Assigned to ${t.assignedToName}`}
                       </div>
                     </div>
                     <div style={{ textAlign: 'right', flexShrink: 0 }}>
                       <div style={{ fontWeight: 700, fontSize: 13, color: '#DC2626' }}>
-                        {t.hoursOverdue}h overdue
+                        {t.hoursOverdue < 24
+                          ? `${t.hoursOverdue}h overdue`
+                          : `${(t.hoursOverdue / 24).toFixed(1)}d overdue`}
                       </div>
                       <div style={{ fontSize: 11, color: '#9CA3AF' }}>
                         Due {formatDate(t.dueAt)}
@@ -630,6 +752,10 @@ export default function WorkflowPerformanceDashboard() {
                 ))}
               </div>
             </Section>
+          ) : summary && (
+            <Section title="Overdue Right Now" icon="fa-circle-check" titleColor="#16A34A" subtitle="">
+              <EmptyState icon="fa-circle-check" iconColor="#16A34A" message="No overdue tasks — all steps within SLA." />
+            </Section>
           )}
         </>
       )}
@@ -637,7 +763,7 @@ export default function WorkflowPerformanceDashboard() {
   );
 }
 
-// ── Small helpers ──────────────────────────────────────────────────────────────
+// ── Sub-components ─────────────────────────────────────────────────────────────
 
 function KpiCard({
   label, value, icon, color, bg, border, subtitle,
@@ -651,30 +777,31 @@ function KpiCard({
       background: bg,
       border: `1.5px solid ${border}`,
       borderRadius: 10, padding: '16px 20px',
-      boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+      boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
     }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
         <span style={{
-          fontSize: 11, fontWeight: 700, color,
-          textTransform: 'uppercase', letterSpacing: '0.06em',
+          fontSize: 10, fontWeight: 700, color,
+          textTransform: 'uppercase', letterSpacing: '0.07em',
         }}>
           {label}
         </span>
-        <i className={`fas ${icon}`} style={{ fontSize: 14, color }} />
+        <i className={`fas ${icon}`} style={{ fontSize: 13, color, opacity: 0.7 }} />
       </div>
       <div style={{ fontSize: 26, fontWeight: 800, color, lineHeight: 1 }}>{value}</div>
       {subtitle && (
-        <div style={{ fontSize: 11, color, opacity: 0.7, marginTop: 3 }}>{subtitle}</div>
+        <div style={{ fontSize: 11, color, opacity: 0.65, marginTop: 4 }}>{subtitle}</div>
       )}
     </div>
   );
 }
 
 function Section({
-  title, icon, subtitle, children, titleColor,
+  title, icon, subtitle, children, titleColor, badge, badgeColor,
 }: {
   title: string; icon: string; subtitle?: string;
   children: React.ReactNode; titleColor?: string;
+  badge?: string; badgeColor?: string;
 }) {
   return (
     <div style={{
@@ -688,12 +815,35 @@ function Section({
           <span style={{ fontWeight: 700, fontSize: 15, color: titleColor ?? '#18345B' }}>
             {title}
           </span>
+          {badge && (
+            <span style={{
+              fontSize: 11, fontWeight: 700,
+              background: badgeColor ? `${badgeColor}18` : '#EFF6FF',
+              color: badgeColor ?? '#2F77B5',
+              borderRadius: 12, padding: '1px 8px',
+            }}>
+              {badge}
+            </span>
+          )}
         </div>
         {subtitle && (
           <p style={{ fontSize: 12, color: '#9CA3AF', margin: '3px 0 0 22px' }}>{subtitle}</p>
         )}
       </div>
       {children}
+    </div>
+  );
+}
+
+function EmptyState({
+  icon, message, iconColor,
+}: {
+  icon: string; message: string; iconColor?: string;
+}) {
+  return (
+    <div style={{ textAlign: 'center', padding: '32px 0', color: '#9CA3AF' }}>
+      <i className={`fas ${icon}`} style={{ fontSize: 26, display: 'block', marginBottom: 10, color: iconColor ?? '#D1D5DB' }} />
+      <span style={{ fontSize: 13 }}>{message}</span>
     </div>
   );
 }
@@ -712,7 +862,8 @@ function Th({
       onClick={() => onSort(sortKey)}
       style={{
         padding: '10px 14px', textAlign: align,
-        fontSize: 11, fontWeight: 700, color: active ? '#18345B' : '#9CA3AF',
+        fontSize: 11, fontWeight: 700,
+        color: active ? '#18345B' : '#9CA3AF',
         textTransform: 'uppercase', letterSpacing: '0.05em',
         cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap',
       }}

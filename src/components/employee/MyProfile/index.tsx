@@ -958,18 +958,8 @@ export default function MyProfile() {
       setPendingBlockSection('Personal Information');
       return;
     }
-    if (activeGates.has('profile_personal')) {
-      setConfirmPending({
-        moduleCode:   'profile_personal',
-        title:        'Personal Information',
-        recordId:     viewedEmployeeId,
-        proposedData: proposedPersonal,
-        successMsg:   'Personal details submitted for approval.',
-      });
-      return;
-    }
-
     // Show propagate modal only when inserting mid-history (future slices exist after chosen date).
+    // Must happen BEFORE the workflow gate so _propagate is set correctly in proposedPersonal.
     if (!propagate && !showPersonalPropagateModal && personalEditMode === 'insert') {
       const { count } = await supabase
         .from('employee_personal')
@@ -981,6 +971,17 @@ export default function MyProfile() {
         setShowPersonalPropagateModal(true);
         return;
       }
+    }
+
+    if (activeGates.has('profile_personal')) {
+      setConfirmPending({
+        moduleCode:   'profile_personal',
+        title:        'Personal Information',
+        recordId:     viewedEmployeeId,
+        proposedData: proposedPersonal,
+        successMsg:   'Personal details submitted for approval.',
+      });
+      return;
     }
 
     setSaving(true); setSaveError(null);
@@ -1040,19 +1041,8 @@ export default function MyProfile() {
       setPendingBlockSection('Employment Information');
       return;
     }
-    if (activeGates.has('profile_employment')) {
-      setConfirmPending({
-        moduleCode:   'profile_employment',
-        title:        'Employment Information',
-        recordId:     viewedEmployeeId,
-        proposedData: proposedEmployment,
-        successMsg:   'Employment change submitted for approval.',
-      });
-      return;
-    }
-
     // Show propagate modal only when inserting mid-history (future slices exist after chosen date).
-    // Editing the current/latest slice (amendment/correction) never has future slices to propagate to.
+    // Must happen BEFORE the workflow gate so _propagate is set correctly in proposedEmployment.
     if (!propagate && !showPropagateModal && employmentEditMode === 'insert') {
       const { count } = await supabase
         .from('employee_employment')
@@ -1065,6 +1055,17 @@ export default function MyProfile() {
         setShowPropagateModal(true);
         return;
       }
+    }
+
+    if (activeGates.has('profile_employment')) {
+      setConfirmPending({
+        moduleCode:   'profile_employment',
+        title:        'Employment Information',
+        recordId:     viewedEmployeeId,
+        proposedData: proposedEmployment,
+        successMsg:   'Employment change submitted for approval.',
+      });
+      return;
     }
 
     setSaving(true); setSaveError(null);
@@ -2807,7 +2808,7 @@ export default function MyProfile() {
                   </p>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     <button
-                      onClick={async () => { await savePersonal(true); }}
+                      onClick={async () => { setShowPersonalPropagateModal(false); await savePersonal(true); }}
                       style={{
                         padding: '10px 16px', borderRadius: 8, border: '1px solid #BBF7D0',
                         background: '#F0FDF4', color: '#14532D', fontWeight: 600, fontSize: 13,
@@ -2821,7 +2822,7 @@ export default function MyProfile() {
                       </div>
                     </button>
                     <button
-                      onClick={async () => { await savePersonal(false); setShowPersonalPropagateModal(false); }}
+                      onClick={async () => { setShowPersonalPropagateModal(false); await savePersonal(false); }}
                       style={{
                         padding: '10px 16px', borderRadius: 8, border: '1px solid #E5E7EB',
                         background: '#F9FAFB', color: '#374151', fontWeight: 600, fontSize: 13,

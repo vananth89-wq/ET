@@ -98,7 +98,7 @@ async function processDueTerminations(triggeredBy: string | null = null) {
       .eq('workflow_status', 'APPROVED')
       .eq('scheduled_executed', false)
       .not('last_working_date', 'is', null)
-      .lte('last_working_date', today);
+      .lt('last_working_date', today);  // < not <=: execute AFTER LWD, not on it
 
     if (fetchErr) {
       console.error('process-scheduled-terminations: fetch failed', fetchErr);

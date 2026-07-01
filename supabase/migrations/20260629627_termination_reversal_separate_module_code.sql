@@ -168,7 +168,7 @@ BEGIN
       FROM   employee_terminations
       WHERE  id = p_record_id;
 
-      IF v_lwd IS NOT NULL AND v_lwd <= CURRENT_DATE THEN
+      IF v_lwd IS NOT NULL AND v_lwd < CURRENT_DATE THEN  -- < not <=: execute AFTER LWD, not on it
         BEGIN
           PERFORM fn_finalize_termination_execution(p_record_id);
           RAISE LOG 'wf_sync_module_status: fn_finalize completed for termination %', p_record_id;

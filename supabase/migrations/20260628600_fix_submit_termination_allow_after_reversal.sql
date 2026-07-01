@@ -187,8 +187,8 @@ BEGIN
     -- Phase 1: insert employment slices (always)
     v_slice_result := fn_pre_insert_termination_slices(v_termination_id);
 
-    -- Phase 2: finalize immediately if LWD <= today
-    IF v_last_working_date <= CURRENT_DATE THEN
+    -- Phase 2: finalize immediately if LWD < today (execute AFTER last working day, not on it)
+    IF v_last_working_date < CURRENT_DATE THEN
       v_finalize_result := fn_finalize_termination_execution(v_termination_id);
     END IF;
 
