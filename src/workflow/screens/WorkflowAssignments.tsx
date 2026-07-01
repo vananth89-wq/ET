@@ -200,7 +200,7 @@ export default function WorkflowAssignments() {
   const [globalId,        setGlobalId]        = useState<string | null>(null);
   const [globalTemplate,  setGlobalTemplate]  = useState('');
   const [globalFrom,      setGlobalFrom]      = useState(today());
-  const [globalTo,        setGlobalTo]        = useState('');
+  const [globalTo,        setGlobalTo]        = useState('9999-12-31');
   const [globalDirty,     setGlobalDirty]     = useState(false);
   const [globalSaving,    setGlobalSaving]    = useState(false);
   const [globalError,     setGlobalError]     = useState<string | null>(null);
@@ -372,7 +372,7 @@ export default function WorkflowAssignments() {
     setGlobalId(global?.id ?? null);
     setGlobalTemplate(global?.wfTemplateId ?? '');
     setGlobalFrom(global?.effectiveFrom ?? today());
-    setGlobalTo(global?.effectiveTo ?? '');
+    setGlobalTo(global?.effectiveTo ?? '9999-12-31');
     setGlobalDirty(false);
 
     // Populate ROLE rows draft
@@ -524,7 +524,7 @@ export default function WorkflowAssignments() {
       roleId: '', roleName: '',
       wfTemplateId: globalTemplate || (templates[0]?.id ?? ''),
       priority: roleRows.length,
-      effectiveFrom: today(), effectiveTo: '',
+      effectiveFrom: today(), effectiveTo: '9999-12-31',
       dirty: true,
     }]);
   }
@@ -594,7 +594,7 @@ export default function WorkflowAssignments() {
       employeeId: '', empName: '',
       wfTemplateId: globalTemplate || (templates[0]?.id ?? ''),
       priority: empRows.length,
-      effectiveFrom: today(), effectiveTo: '',
+      effectiveFrom: today(), effectiveTo: '9999-12-31',
       dirty: true,
     }]);
   }
