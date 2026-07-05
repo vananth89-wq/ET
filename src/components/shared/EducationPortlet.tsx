@@ -199,6 +199,7 @@ function EducationCard({
   pending: boolean; onEdit: () => void; onDelete: () => void;
 }) {
   const [deleting, setDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const activeAtts = (record.attachments ?? []).filter(a => a.is_active !== false);
 
   return (
@@ -242,7 +243,7 @@ function EducationCard({
               </button>
             )}
             {canDelete && (
-              <button type="button" disabled={deleting} onClick={async () => { if (!window.confirm('Remove this education record?')) return; setDeleting(true); onDelete(); }} title="Delete" style={{
+              <button type="button" disabled={deleting} onClick={() => setConfirmDelete(true)} title="Delete" style={{
                 background: 'none', border: '1px solid #E5E7EB', borderRadius: 6,
                 cursor: 'pointer', color: deleting ? '#9CA3AF' : '#EF4444', padding: '4px 8px',
                 display: 'inline-flex', alignItems: 'center', fontSize: 12,
@@ -253,6 +254,30 @@ function EducationCard({
           </div>
         )}
       </div>
+
+      {/* Delete confirmation modal */}
+      {confirmDelete && (
+        <div className="modal-overlay" onClick={() => setConfirmDelete(false)}>
+          <div className="modal-box" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <i className="fa-solid fa-triangle-exclamation modal-icon" style={{ color: '#DC2626' }} />
+              <h3>Remove Education Record</h3>
+            </div>
+            <div className="modal-body">
+              Are you sure you want to remove <strong>{record.degree || 'this education record'}</strong>? This action cannot be undone.
+            </div>
+            <div className="modal-actions">
+              <button className="emp-btn-secondary" style={{ padding: '9px 28px', fontSize: 13.5 }}
+                onClick={() => setConfirmDelete(false)}>Cancel</button>
+              <button className="emp-btn-primary" style={{ padding: '9px 28px', fontSize: 13.5, background: '#DC2626', borderColor: '#DC2626' }}
+                disabled={deleting}
+                onClick={() => { setConfirmDelete(false); setDeleting(true); onDelete(); }}>
+                {deleting ? 'Removing…' : 'Remove'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Field grid + documents — matches BankViewCard body */}
       <div style={{ padding: '10px 14px 14px' }}>

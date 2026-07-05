@@ -424,7 +424,7 @@ export default function MyProfile() {
   const { employee: authEmployee, roles, profileLoading, refetchProfile } = useAuth();
 
   // ── ProfileContext — viewedEmployeeId is self in self mode, other employee in employee mode
-  const { viewedEmployeeId, isSelf, viewedEmployee } = useProfileContext();
+  const { viewedEmployeeId, isSelf, viewedEmployee, isLoading: profileContextLoading } = useProfileContext();
 
   // ── canFor replaces can() — target-aware in employee mode, same as can() in self mode
   // Aliased as `can` so all 31 existing can('perm.code') call sites work unchanged.
@@ -878,13 +878,18 @@ export default function MyProfile() {
     comment?:     string,
   ): Promise<void> {
     const { data, error } = await supabase.rpc('submit_change_request', {
-      p_module_code:   moduleCode,
-      p_record_id:     recordId   ?? null,
-      p_proposed_data: proposedData,
-      p_action:        'update',
-      p_comment:       comment?.trim() || null,
+      p_module_code:          moduleCode,
+      p_record_id:            recordId   ?? null,
+      p_proposed_data:        proposedData,
+      p_action:               'update',
+      p_comment:              comment?.trim() || null,
+      // When HR submits on behalf of another employee, stamp the subject so
+      // workflow_instances.subject_profile_id reflects the subject employee,
+      // not the HR actor. Without this, vw_wf_operations shows the HR user's
+      // name in the Employee column instead of the subject employee's name.
+      p_subject_employee_id:  !isSelf ? viewedEmployeeId : null,
     });
-    if (error) throw error;
+    if (error) throw new Error((error as any)?.message ?? String(error));
     if (data && !data.ok) throw new Error(data.error ?? 'Workflow submission failed.');
   }
 
@@ -1207,7 +1212,7 @@ export default function MyProfile() {
       setConfirmPending({
         moduleCode:   'profile_address',
         title:        'Address Information',
-        recordId:     (extData.addrId as string) || null,
+        recordId:     viewedEmployeeId,
         proposedData: proposed,
         successMsg:   'Address changes submitted for approval.',
       });
@@ -1283,7 +1288,7 @@ export default function MyProfile() {
       setConfirmPending({
         moduleCode:   'profile_passport',
         title:        'Passport Information',
-        recordId:     (extData.passportId as string) || null,
+        recordId:     viewedEmployeeId,
         proposedData: proposed,
         successMsg:   'Passport details submitted for approval.',
       });
@@ -1332,7 +1337,7 @@ export default function MyProfile() {
     if (!fd('ecPhone')?.trim()) { setSaveError('Phone Number is required.'); return; }
 
     const proposed = {
-      name:         fd('ecName')         || null,
+      name:         fd('ecName')         || '',   // use '' not null — Supabase JS strips null JSONB keys
       relationship: fd('ecRelationship') || null,
       phone:        fd('ecPhone')        || null,
       alt_phone:    fd('ecAltPhone')     || null,
@@ -1347,7 +1352,7 @@ export default function MyProfile() {
       setConfirmPending({
         moduleCode:   'profile_emergency_contact',
         title:        'Emergency Contact',
-        recordId:     (extData.ecId as string) || null,
+        recordId:     viewedEmployeeId,
         proposedData: proposed,
         successMsg:   'Emergency contact changes submitted for approval.',
       });
@@ -1438,7 +1443,9 @@ export default function MyProfile() {
   }
 
   // ── Loading / error states ─────────────────────────────────────────────
-  if (profileLoading) {
+  // Also gate on profileContextLoading so we never briefly render the current
+  // user's own data while fetching another employee's profile.
+  if (profileLoading || profileContextLoading) {
     return (
       <div className="auth-loading">
         <i className="fa-solid fa-spinner fa-spin" />

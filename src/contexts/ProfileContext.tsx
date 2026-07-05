@@ -144,11 +144,18 @@ export function ProfileContextProvider({
     return () => { cancelled = true; };
   }, [viewedEmployeeId, isSelf, authEmployee?.id]);
 
+  // effectiveIsLoading is true whenever the loaded record doesn't match the
+  // requested employee yet — catches the gap between a route change and the
+  // useEffect firing, which would otherwise briefly show the previous profile.
+  const effectiveIsLoading =
+    isLoading ||
+    (!!viewedEmployeeId && viewedEmployee?.id !== viewedEmployeeId);
+
   const value: ProfileContextValue = {
     viewedEmployeeId,
     isSelf,
     viewedEmployee,
-    isLoading,
+    isLoading: effectiveIsLoading,
     error,
   };
 

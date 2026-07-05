@@ -485,6 +485,7 @@ export default function AddEmployee() {
   const [idNumber,     setIdNumber]     = useState('');
   const [idExpiry,     setIdExpiry]     = useState('');
   const [idCountryPending, setIdCountryPending] = useState<string | null>(null);
+  const [editingIdIndex, setEditingIdIndex] = useState<number | null>(null);
 
   // ── Section 6: Employment ───────────────────────────────────────────────
   const [designation,    setDesignation]    = useState('');
@@ -1188,9 +1189,10 @@ export default function AddEmployee() {
       ? { designation: data.designation || null, dept_id: data.deptId || null, manager_id: data.managerId || null, hire_date: data.hireDate || null, end_date: data.endDate || null, work_country: data.workCountry || null, work_location: data.workLocation || null, probation_end_date: data.probationEndDate || null }
       : null;
 
+    const today = new Date().toISOString().split('T')[0];
     const payload = {
       personal:                  personalData,
-      personal_effective_from:   effectiveFrom,
+      personal_effective_from:   personalData ? (effectiveFrom ?? today) : null,
       contact:                   contactData,
       employment:                employmentData,
       employment_effective_from: effectiveFrom,
@@ -2013,14 +2015,16 @@ export default function AddEmployee() {
     }
     if (Object.keys(errs).length > 0) { setErrors(errs); return; }
 
-    // Only one Primary ID allowed per employee
-    if (idRecordType === 'primary' && idRecords.some(r => r.recordType === 'primary')) {
+    const isEditing = editingIdIndex !== null;
+
+    // Only one Primary ID allowed per employee (skip check if we're editing that same record)
+    if (idRecordType === 'primary' && idRecords.some((r, j) => r.recordType === 'primary' && j !== editingIdIndex)) {
       setErrors({ idRecordType: 'A Primary ID already exists. Only one Primary ID is allowed per employee.' });
       return;
     }
 
-    // Same ID type cannot be added twice for the same employee
-    if (idRecords.some(r => r.idType === idType)) {
+    // Same ID type cannot be added twice (skip check for the record being edited)
+    if (idRecords.some((r, j) => r.idType === idType && j !== editingIdIndex)) {
       setErrors({ idType: 'This ID type has already been added for this employee.' });
       return;
     }
@@ -2036,11 +2040,14 @@ export default function AddEmployee() {
     }
 
     const newRecord = { country: idCountry, idType, recordType: idRecordType, idNumber: idNumber.trim(), expiry: idExpiry };
-    const newRecords = [...idRecords, newRecord];
+    const newRecords = isEditing
+      ? idRecords.map((r, j) => j === editingIdIndex ? newRecord : r)
+      : [...idRecords, newRecord];
 
     setIdRecords(newRecords);
     setIdCountry(''); setIdType(''); setIdRecordType('');
     setIdNumber(''); setIdExpiry('');
+    setEditingIdIndex(null);
     setErrors({});
 
     // Immediately write to DB — don't wait for the debounce
@@ -2401,8 +2408,23 @@ export default function AddEmployee() {
                       <td>{r.idNumber}</td>
                       <td>{r.expiry ? fmtDate(r.expiry) : '—'}</td>
                       <td><span style={{ fontSize: 11, background: '#EFF6FF', color: '#1D4ED8', borderRadius: 4, padding: '2px 6px' }}>{r.recordType || '—'}</span></td>
-                      <td>
+                      <td style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <button style={{ background: 'none', border: 'none', color: '#3B82F6', cursor: 'pointer' }}
+                          title="Edit"
+                          onClick={() => {
+                            const rec = idRecords[i];
+                            setIdCountry(rec.country || '');
+                            setIdType(rec.idType || '');
+                            setIdRecordType(rec.recordType || '');
+                            setIdNumber(rec.idNumber || '');
+                            setIdExpiry(rec.expiry || '');
+                            setEditingIdIndex(i);
+                            setErrors({});
+                          }}>
+                          <i className="fa-solid fa-pen" />
+                        </button>
                         <button style={{ background: 'none', border: 'none', color: '#EF4444', cursor: 'pointer' }}
+                          title="Delete"
                           onClick={() => {
                             const rec = idRecords[i];
                             const hasSecondary = idRecords.some((r, j) => j !== i && r.recordType === 'secondary');
@@ -2410,6 +2432,7 @@ export default function AddEmployee() {
                               setDeletePrimaryModal({ open: true, index: i });
                             } else {
                               const updated = idRecords.filter((_, j) => j !== i);
+                              if (editingIdIndex === i) { setEditingIdIndex(null); setIdCountry(''); setIdType(''); setIdRecordType(''); setIdNumber(''); setIdExpiry(''); }
                               setIdRecords(updated);
                               saveIdentityNow(updated);
                             }
@@ -2542,8 +2565,22 @@ export default function AddEmployee() {
               </div>
             </div>
             <div className="emp-id-form-actions">
+              {editingIdIndex !== null && (
+                <button type="button" className="emp-id-cancel-btn" style={{ marginRight: 8, background: 'none', border: '1px solid #D1D5DB', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', color: '#6B7280' }}
+                  onClick={() => {
+                    setEditingIdIndex(null);
+                    setIdCountry(''); setIdType(''); setIdRecordType('');
+                    setIdNumber(''); setIdExpiry('');
+                    setErrors({});
+                  }}>
+                  Cancel
+                </button>
+              )}
               <button type="button" className="emp-id-add-btn" onClick={addIdRecord}>
-                <i className="fa-solid fa-plus" /> Add ID
+                {editingIdIndex !== null
+                  ? <><i className="fa-solid fa-check" /> Update ID</>
+                  : <><i className="fa-solid fa-plus" /> Add ID</>
+                }
               </button>
             </div>
           </div>

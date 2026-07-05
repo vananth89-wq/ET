@@ -159,8 +159,13 @@ export default function WorkflowPerformanceDashboard() {
   const [sortKey, setSortKey] = useState<SortKey>('avgHours');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
 
-  // Collapsed template groups in bottleneck section
-  const [collapsedTemplates, setCollapsedTemplates] = useState<Set<string>>(new Set());
+  // Approver table search + pagination
+  const [approverSearch, setApproverSearch] = useState('');
+  const [pageSize,        setPageSize]       = useState<10 | 25 | 50>(10);
+  const [page,            setPage]           = useState(1);
+
+  // Collapsed template groups in bottleneck section — all collapsed by default
+  const [collapsedTemplates, setCollapsedTemplates] = useState<Set<string>>(() => new Set());
 
   // ── Load templates once ────────────────────────────────────────────────────
   useEffect(() => {
@@ -235,19 +240,20 @@ export default function WorkflowPerformanceDashboard() {
         }))
       );
 
-      setSteps(
-        (stepRes.data ?? []).map((r: any) => ({
-          templateCode: r.template_code,
-          templateName: r.template_name,
-          stepOrder:    Number(r.step_order),
-          stepName:     r.step_name,
-          totalTasks:   Number(r.total_tasks   ?? 0),
-          avgHours:     safeNum(r.avg_hours),
-          medianHours:  safeNum(r.median_hours),
-          overdueCount: Number(r.overdue_count ?? 0),
-          slaHours:     safeNum(r.sla_hours),
-        }))
-      );
+      const mappedSteps = (stepRes.data ?? []).map((r: any) => ({
+        templateCode: r.template_code,
+        templateName: r.template_name,
+        stepOrder:    Number(r.step_order),
+        stepName:     r.step_name,
+        totalTasks:   Number(r.total_tasks   ?? 0),
+        avgHours:     safeNum(r.avg_hours),
+        medianHours:  safeNum(r.median_hours),
+        overdueCount: Number(r.overdue_count ?? 0),
+        slaHours:     safeNum(r.sla_hours),
+      }));
+      setSteps(mappedSteps);
+      // Collapse all template groups by default on every fresh load
+      setCollapsedTemplates(new Set(mappedSteps.map(s => s.templateCode)));
 
       const now = Date.now();
       setOverdue(
@@ -273,20 +279,28 @@ export default function WorkflowPerformanceDashboard() {
 
   useEffect(() => { load(); }, [load]);
 
-  // ── Sorted approvers ────────────────────────────────────────────────────────
-  const sortedApprovers = useMemo(() => {
-    return [...approvers].sort((a, b) => {
-      const av = a[sortKey] ?? (sortDir === 'asc' ? Infinity : -Infinity);
-      const bv = b[sortKey] ?? (sortDir === 'asc' ? Infinity : -Infinity);
-      if (typeof av === 'string' && typeof bv === 'string')
-        return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
-      return sortDir === 'asc' ? (av as number) - (bv as number) : (bv as number) - (av as number);
-    });
-  }, [approvers, sortKey, sortDir]);
+  // ── Filtered + sorted + paginated approvers ────────────────────────────────
+  const filteredApprovers = useMemo(() => {
+    const q = approverSearch.trim().toLowerCase();
+    return [...approvers]
+      .filter(a => !q || a.approverName.toLowerCase().includes(q))
+      .sort((a, b) => {
+        const av = a[sortKey] ?? (sortDir === 'asc' ? Infinity : -Infinity);
+        const bv = b[sortKey] ?? (sortDir === 'asc' ? Infinity : -Infinity);
+        if (typeof av === 'string' && typeof bv === 'string')
+          return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+        return sortDir === 'asc' ? (av as number) - (bv as number) : (bv as number) - (av as number);
+      });
+  }, [approvers, sortKey, sortDir, approverSearch]);
+
+  const totalPages      = Math.max(1, Math.ceil(filteredApprovers.length / pageSize));
+  const safePage        = Math.min(page, totalPages);
+  const pagedApprovers  = filteredApprovers.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
     else { setSortKey(key); setSortDir('desc'); }
+    setPage(1);
   }
 
   // ── Steps grouped by template ───────────────────────────────────────────────
@@ -623,6 +637,45 @@ export default function WorkflowPerformanceDashboard() {
             {approvers.length === 0 ? (
               <EmptyState icon="fa-users" message="No approver activity in this period." />
             ) : (
+              <>
+                {/* Search + page size */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, gap: 8 }}>
+                  <div style={{ position: 'relative', flex: '1 1 0', maxWidth: 280 }}>
+                    <i className="fas fa-magnifying-glass" style={{
+                      position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)',
+                      fontSize: 12, color: '#9CA3AF', pointerEvents: 'none',
+                    }} />
+                    <input
+                      type="text"
+                      placeholder="Search by name…"
+                      value={approverSearch}
+                      onChange={e => { setApproverSearch(e.target.value); setPage(1); }}
+                      style={{
+                        width: '100%', padding: '7px 10px 7px 30px', borderRadius: 6,
+                        border: '1px solid #D1D5DB', fontSize: 13, color: '#374151',
+                        outline: 'none', boxSizing: 'border-box',
+                      }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#6B7280' }}>
+                    <span>Rows:</span>
+                    {([10, 25, 50] as const).map(n => (
+                      <button
+                        key={n}
+                        onClick={() => { setPageSize(n); setPage(1); }}
+                        style={{
+                          padding: '4px 10px', borderRadius: 6, border: '1px solid #D1D5DB',
+                          background: pageSize === n ? '#18345B' : '#fff',
+                          color: pageSize === n ? '#fff' : '#374151',
+                          fontWeight: 600, fontSize: 12, cursor: 'pointer',
+                        }}
+                      >
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                   <thead>
@@ -636,7 +689,13 @@ export default function WorkflowPerformanceDashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {sortedApprovers.map(a => (
+                    {pagedApprovers.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} style={{ textAlign: 'center', padding: '24px 0', color: '#9CA3AF', fontSize: 13 }}>
+                          No approvers match "{approverSearch}"
+                        </td>
+                      </tr>
+                    ) : pagedApprovers.map(a => (
                       <tr
                         key={a.approverId}
                         style={{
@@ -704,6 +763,32 @@ export default function WorkflowPerformanceDashboard() {
                   </tbody>
                 </table>
               </div>
+
+              {/* Pagination footer */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 }}>
+                <span style={{ fontSize: 12, color: '#9CA3AF' }}>
+                  {filteredApprovers.length === 0
+                    ? 'No results'
+                    : `${(safePage - 1) * pageSize + 1}–${Math.min(safePage * pageSize, filteredApprovers.length)} of ${filteredApprovers.length}`}
+                </span>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button
+                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                    disabled={safePage === 1}
+                    style={paginationBtnStyle(safePage === 1)}
+                  >
+                    <i className="fas fa-chevron-left" style={{ fontSize: 10 }} /> Prev
+                  </button>
+                  <button
+                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                    disabled={safePage === totalPages}
+                    style={paginationBtnStyle(safePage === totalPages)}
+                  >
+                    Next <i className="fas fa-chevron-right" style={{ fontSize: 10 }} />
+                  </button>
+                </div>
+              </div>
+              </>
             )}
           </Section>
 
@@ -884,6 +969,16 @@ function Legend({ color, label }: { color: string; label: string }) {
       {label}
     </div>
   );
+}
+
+function paginationBtnStyle(disabled: boolean): React.CSSProperties {
+  return {
+    padding: '5px 12px', borderRadius: 6, border: '1px solid #D1D5DB',
+    background: disabled ? '#F9FAFB' : '#fff',
+    color: disabled ? '#D1D5DB' : '#374151',
+    fontSize: 12, fontWeight: 500, cursor: disabled ? 'not-allowed' : 'pointer',
+    display: 'flex', alignItems: 'center', gap: 5,
+  };
 }
 
 const selectStyle: React.CSSProperties = {

@@ -2879,9 +2879,22 @@ export default function WorkflowReview() {
                         </div>
                       );
                     })}
-                    {bankDiff.length === 0 && (
+                    {bankDiff.length === 0 && bankCurrentItems.length === 0 && (
                       <div style={{ textAlign: 'center', color: '#9CA3AF', fontSize: 13, padding: '16px 0' }}>
                         No bank account items in this change request.
+                      </div>
+                    )}
+                    {bankProposedItems.length === 0 && bankCurrentItems.length > 0 && (
+                      <div style={{
+                        display: 'flex', alignItems: 'flex-start', gap: 10,
+                        background: '#FEF3C7', border: '1px solid #F59E0B',
+                        borderRadius: 8, padding: '12px 14px', marginBottom: 10, fontSize: 13,
+                      }}>
+                        <i className="fa-solid fa-triangle-exclamation" style={{ color: '#D97706', fontSize: 15, marginTop: 1, flexShrink: 0 }} />
+                        <span style={{ color: '#92400E' }}>
+                          <strong>Proposed set is empty.</strong> The submitter's new account details were not captured correctly.
+                          Please <strong>reject</strong> this request and ask the employee to resubmit with the correct bank account information.
+                        </span>
                       </div>
                     )}
                   </Section>

@@ -62,10 +62,12 @@ BEGIN
     -- even for workflow instances created before p_from.
     SELECT EXTRACT(EPOCH FROM (wt.acted_at - wt.created_at)) / 3600 AS hours
     FROM   workflow_tasks     wt
+    JOIN   workflow_steps     ws  ON ws.id  = wt.step_id
     JOIN   workflow_instances wi  ON wi.id  = wt.instance_id
     JOIN   workflow_templates tpl ON tpl.id = wi.template_id
     WHERE  wt.acted_at IS NOT NULL
       AND  wt.acted_at BETWEEN p_from AND p_to
+      AND  ws.is_cc = false
       AND  (p_template_code IS NULL OR tpl.code = p_template_code)
   )
   SELECT
@@ -140,10 +142,12 @@ BEGIN
       wt.status,
       EXTRACT(EPOCH FROM (wt.acted_at - wt.created_at)) / 3600 AS hours_to_act
     FROM   workflow_tasks     wt
+    JOIN   workflow_steps     ws  ON ws.id  = wt.step_id
     JOIN   workflow_instances wi  ON wi.id  = wt.instance_id
     JOIN   workflow_templates tpl ON tpl.id = wi.template_id
     WHERE  wt.acted_at IS NOT NULL
       AND  wt.acted_at BETWEEN p_from AND p_to
+      AND  ws.is_cc = false
       AND  (p_template_code IS NULL OR tpl.code = p_template_code)
   ),
   pending_now AS (
@@ -267,11 +271,13 @@ BEGIN
   JOIN       workflow_instances  wi  ON wi.id  = wt.instance_id
   JOIN       workflow_templates  tpl ON tpl.id = wi.template_id
 
-  -- Include tasks created in the period OR acted on in the period
+  -- Include tasks created in the period OR acted on in the period.
+  -- Exclude CC (notify-only) steps — they complete instantly and skew averages.
   WHERE  (
     wt.created_at BETWEEN p_from AND p_to
     OR wt.acted_at BETWEEN p_from AND p_to
   )
+    AND  ws.is_cc = false
     AND  (p_template_code IS NULL OR tpl.code = p_template_code)
 
   GROUP BY tpl.code, tpl.name, ws.step_order, ws.name, ws.sla_hours

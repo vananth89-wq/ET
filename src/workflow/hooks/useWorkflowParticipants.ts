@@ -112,7 +112,20 @@ export function useWorkflowParticipants(
 
         const participants = (data ?? []) as WfParticipant[];
         setApprovers(participants.filter(p => !p.isCC));
-        setCcParticipants(participants.filter(p => p.isCC));
+
+        // Deduplicate CC participants — when the submitter and the subject
+        // employee are the same person (e.g. employee editing own profile),
+        // SELF and SUBJECT_EMPLOYEE both resolve to the same name. Keep only
+        // the first occurrence so the CC row and the notification fire once.
+        const seenNames = new Set<string>();
+        const uniqueCC = participants.filter(p => {
+          if (!p.isCC) return false;
+          const key = p.resolvedName ?? `step-${p.stepOrder}`;
+          if (seenNames.has(key)) return false;
+          seenNames.add(key);
+          return true;
+        });
+        setCcParticipants(uniqueCC);
         setLoading(false);
       });
 

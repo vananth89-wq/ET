@@ -45,6 +45,8 @@ export interface TerminationPortletProps {
   canDelete?:       boolean;
   pendingCount?:    number;
   onChanged?:       () => void;
+  /** Hide the primary submit/initiate button (used when parent renders it in a card header) */
+  hideSubmitButton?: boolean;
   sectionTitle?: {
     icon:            string;
     text:            string;
@@ -109,6 +111,7 @@ export default function TerminationPortlet({
   canEdit = false,
   canHistory = false,
   canDelete = false,
+  hideSubmitButton = false,
   pendingCount: _pendingCount,
   onChanged,
   sectionTitle,
@@ -501,7 +504,7 @@ export default function TerminationPortlet({
 
           {/* Action buttons */}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {showSubmitButton && mode === 'read' && (
+            {showSubmitButton && mode === 'read' && !hideSubmitButton && (
               <button onClick={() => { setApiError(''); setMode('submit'); }}
                 style={{ padding: '8px 16px', fontSize: 13, borderRadius: 6, background: isSelfService ? '#2563EB' : '#DC2626', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 600 }}>
                 <i className={`fa-solid ${isSelfService ? 'fa-file-signature' : 'fa-user-slash'}`} style={{ marginRight: 6 }} />

@@ -843,17 +843,17 @@ const MODULE_LABELS: Record<string, string> = {
   expense_reports:           'Expense Reports',
   time_off:                  'Time Off',
   employee_hire:             'New Employee Hire',
-  profile_personal:          'Profile – Personal Info',
-  profile_contact:           'Profile – Contact Details',
-  profile_address:           'Profile – Address',
-  profile_passport:          'Profile – Passport',
-  profile_emergency_contact: 'Profile – Emergency Contact',
-  profile_identification:    'Profile – Identification',
-  profile_employment:        'Profile – Employment',
-  profile_bank:              'Bank Account Update',
-  profile_dependents:        'Dependents Update',
-  profile_job_relationships: 'Job Relationships Update',
-  profile_education:         'Education Update',
+  profile_personal:          'Personal Info',
+  profile_contact:           'Contact Details',
+  profile_address:           'Address',
+  profile_passport:          'Passport',
+  profile_emergency_contact: 'Emergency Contact',
+  profile_identification:    'Identification',
+  profile_employment:        'Employment',
+  profile_bank:              'Bank Account',
+  profile_dependents:        'Dependents',
+  profile_job_relationships: 'Job Relationships',
+  profile_education:         'Education',
   termination:               'Termination',
   termination_reversal:       'Termination Reversal',
 };
@@ -883,12 +883,16 @@ function getPortletName(
     const empName = (metadata?.employee_name as string | undefined) ?? null;
     return empName ? `Termination Reversal — ${empName}` : 'Termination Reversal';
   }
-  const metaName = metadata?.name as string | undefined;
-  if (metaName) return metaName;
+  // profile_* modules always show "{employee} — {label}" — check before metaName
+  // because proposed_data can contain a 'name' field (e.g. personal info full_name)
+  // that would otherwise shadow the module label.
   if (moduleCode.startsWith('profile_')) {
     const label = MODULE_LABELS[moduleCode] ?? moduleCode.replace(/_/g, ' ');
-    return submittedByName ? `${submittedByName} — ${label}` : label;
+    const displayName = subjectEmployeeName ?? submittedByName;
+    return displayName ? `${displayName} — ${label}` : label;
   }
+  const metaName = metadata?.name as string | undefined;
+  if (metaName) return metaName;
   return templateName;
 }
 
@@ -1011,9 +1015,18 @@ function HireAttachmentChips({ atts }: { atts: HireAttachment[] }) {
                 <a href={url} target="_blank" rel="noreferrer" style={btnStyle} title="View">
                   <i className="fa-solid fa-eye" style={{ fontSize: 12 }} />
                 </a>
-                <a href={url} download={fileName} target="_blank" rel="noreferrer" style={btnStyle} title="Download">
+                <button type="button" style={btnStyle} title="Download"
+                  onClick={() => {
+                    fetch(url).then(r => r.blob()).then(blob => {
+                      const a = document.createElement('a');
+                      a.href = URL.createObjectURL(blob);
+                      a.download = fileName;
+                      a.click();
+                      URL.revokeObjectURL(a.href);
+                    });
+                  }}>
                   <i className="fa-solid fa-download" style={{ fontSize: 12 }} />
-                </a>
+                </button>
               </>
             )}
           </div>
@@ -1112,18 +1125,44 @@ function DepAttachmentRow({ att, docTypeLabel }: {
 }) {
   const [url, setUrl] = useState<string | null>(null);
 
-  useEffect(() => {
-    const path = att.file_path as string | undefined;
-    if (!path) return;
-    supabase.storage.from('hr-attachments')
-      .createSignedUrl(path, 3600)
-      .then(({ data }) => { if (data?.signedUrl) setUrl(data.signedUrl); });
-  }, [att.file_path]);
+  // Dependent attachments from hire review use 'storage_path'; from profile edits use 'file_path'
+  const filePath = String(att.storage_path ?? att.file_path ?? '');
 
-  const isImage   = String(att.mime_type ?? '').startsWith('image/');
-  const icon      = isImage ? 'fa-file-image' : 'fa-file-pdf';
-  const sizeKb    = att.file_size ? ((att.file_size as number) / 1024).toFixed(0) : null;
-  const fileName  = String(att.original_file_name ?? att.file_name ?? 'Attachment');
+  useEffect(() => {
+    if (!filePath) return;
+    supabase.storage.from('hr-attachments')
+      .createSignedUrl(filePath, 3600)
+      .then(({ data, error }) => {
+        if (error) console.warn('[DepAttachmentRow] signed URL failed', filePath, error.message);
+        if (data?.signedUrl) setUrl(data.signedUrl);
+      });
+  }, [filePath]);
+
+  const isImage  = String(att.mime_type ?? '').startsWith('image/');
+  const icon     = isImage ? 'fa-file-image' : 'fa-file-pdf';
+  const sizeKb   = att.file_size ? ((att.file_size as number) / 1024).toFixed(0) : null;
+  const fileName = String(att.original_file_name ?? att.file_name ?? 'Attachment');
+
+  const btnStyle: React.CSSProperties = {
+    width: 28, height: 28, borderRadius: 6,
+    background: '#F3F4F6', border: '1px solid #E5E7EB',
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    cursor: 'pointer', textDecoration: 'none', color: '#374151', flexShrink: 0,
+  };
+
+  function handleDownload() {
+    if (!url) return;
+    fetch(url)
+      .then(r => r.blob())
+      .then(blob => {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = fileName;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      })
+      .catch(e => console.warn('[DepAttachmentRow] download failed', e));
+  }
 
   return (
     <div style={{
@@ -1142,10 +1181,14 @@ function DepAttachmentRow({ att, docTypeLabel }: {
         </div>
       </div>
       {url && (
-        <a href={url} target="_blank" rel="noreferrer"
-          style={{ color: '#6366F1', fontSize: 12, textDecoration: 'none', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4 }}>
-          <i className="fa-solid fa-eye" /> View
-        </a>
+        <>
+          <a href={url} target="_blank" rel="noreferrer" style={btnStyle} title="View">
+            <i className="fa-solid fa-eye" style={{ fontSize: 12 }} />
+          </a>
+          <button type="button" onClick={handleDownload} style={btnStyle} title="Download">
+            <i className="fa-solid fa-download" style={{ fontSize: 12 }} />
+          </button>
+        </>
       )}
     </div>
   );
@@ -1669,10 +1712,26 @@ function EduAttachmentChip({ att, docTypeLabel }: {
         <div style={{ color: '#9CA3AF', fontSize: 10.5 }}>{docTypeLabel}</div>
       </div>
       {url && (
-        <a href={url} target="_blank" rel="noreferrer"
-          style={{ color: '#6366F1', fontSize: 11.5, textDecoration: 'none', flexShrink: 0 }}>
-          <i className="fa-solid fa-eye" /> View
-        </a>
+        <>
+          <a href={url} target="_blank" rel="noreferrer"
+            style={{ color: '#6366F1', fontSize: 11.5, textDecoration: 'none', flexShrink: 0 }}>
+            <i className="fa-solid fa-eye" /> View
+          </a>
+          <button type="button"
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6366F1', fontSize: 11.5, padding: 0, flexShrink: 0 }}
+            title="Download"
+            onClick={() => {
+              fetch(url).then(r => r.blob()).then(blob => {
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = String(att.original_file_name ?? att.file_name ?? 'Document');
+                a.click();
+                URL.revokeObjectURL(a.href);
+              });
+            }}>
+            <i className="fa-solid fa-download" />
+          </button>
+        </>
       )}
     </div>
   );
@@ -2984,7 +3043,8 @@ function DetailPanel({
             const empName = (task.metadata?.employee_name as string | undefined) ?? task.submittedByName ?? 'Submission';
             return `${empName} — ${label}`;
           }
-          return `${task.submittedByName ?? 'Submission'} — ${MODULE_LABELS[task.moduleCode] ?? task.moduleCode.replace(/_/g, ' ')}`;
+          const displayName = task.subjectEmployeeName ?? task.submittedByName ?? 'Submission';
+          return `${displayName} — ${MODULE_LABELS[task.moduleCode] ?? task.moduleCode.replace(/_/g, ' ')}`;
         })()}
         submittedByName={task.submittedByName}
       />

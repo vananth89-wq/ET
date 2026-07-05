@@ -4,6 +4,7 @@ import {
 } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import { usePermissions } from '../../hooks/usePermissions';
 import { useEmployees } from '../../hooks/useEmployees';
 import { useDepartments } from '../../hooks/useDepartments';
 import { usePicklistValues } from '../../hooks/usePicklistValues';
@@ -477,6 +478,7 @@ function Legend({ depts, orderedDeptIds, activeDeptIds }: {
 export default function EmpOrgChart() {
   const navigate = useNavigate();
   const { employee: authEmployee }     = useAuth();
+  const { can }                        = usePermissions();
 
   const todayVal = todayStr();
   const [viewDate, setViewDate]   = useState(todayVal);
@@ -916,14 +918,18 @@ export default function EmpOrgChart() {
       {/* ── Toolbar ── */}
       <div className="oc-toolbar" style={{ flexShrink: 0 }}>
         <div className="oc-toolbar-left">
-          {/* Breadcrumb back link */}
-          <button
-            onClick={() => navigate('/admin/employees/list')}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', color: '#2F77B5', fontSize: 13, fontWeight: 600, padding: '0 4px', flexShrink: 0 }}
-          >
-            <i className="fa-solid fa-chevron-left" style={{ fontSize: 10 }} /> Employees
-          </button>
-          <span style={{ width: 1, height: 18, background: '#d1d5db', flexShrink: 0 }} />
+          {/* Breadcrumb back link — only shown to users with admin access */}
+          {can('sec_admin_access.view') && (
+            <>
+              <button
+                onClick={() => navigate('/admin/employees/list')}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', color: '#2F77B5', fontSize: 13, fontWeight: 600, padding: '0 4px', flexShrink: 0 }}
+              >
+                <i className="fa-solid fa-chevron-left" style={{ fontSize: 10 }} /> Employees
+              </button>
+              <span style={{ width: 1, height: 18, background: '#d1d5db', flexShrink: 0 }} />
+            </>
+          )}
           <div className="oc-search-wrap">
             <i className="fa-solid fa-magnifying-glass" />
             <input

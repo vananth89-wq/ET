@@ -30,6 +30,7 @@ export const PROFILE_MODULE_CODES = [
   'profile_emergency_contact',
   'profile_bank',
   'profile_dependents',
+  'profile_education',
 ] as const;
 
 export type ProfileModuleCode = typeof PROFILE_MODULE_CODES[number];

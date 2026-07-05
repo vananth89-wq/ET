@@ -1225,6 +1225,7 @@ export default function BankAccountsPortlet({
   const [submitError,        setSubmitError]        = useState('');
   const [workflowPending,    setWorkflowPending]    = useState(false);
   const [showHistory,        setShowHistory]        = useState(false);
+  const [showAttachWarning,  setShowAttachWarning]  = useState(false);
 
   // ── Load active set ───────────────────────────────────────────────────────
   const loadCurrentSet = useCallback(async () => {
@@ -1426,7 +1427,7 @@ export default function BankAccountsPortlet({
   }
 
   // ── Submit ────────────────────────────────────────────────────────────────
-  async function handleSubmit(): Promise<boolean> {
+  async function handleSubmit(bypassAttachWarning = false): Promise<boolean> {
     const active = draftItems.filter(i => !i._removed);
 
     // No accounts and never had any — nothing to write
@@ -1435,6 +1436,13 @@ export default function BankAccountsPortlet({
     // Hire-flow guard: employee not yet active — an empty active set during hire
     // means no accounts to add. Never submit an empty set for a new hire.
     if (active.length === 0 && isNewHire) return true;
+
+    // Guard: cannot remove ALL accounts without adding at least one replacement.
+    // Without this, proposed_data.items would be [] which the approver can't act on.
+    if (active.length === 0 && currentItems.length > 0) {
+      setSubmitError('You must keep at least one bank account. Add a new account before removing the existing one.');
+      return false;
+    }
 
     // Attachment validation — must run before the "no changes" guard so existing
     // accounts without a proof-of-account are also caught.
@@ -1456,6 +1464,24 @@ export default function BankAccountsPortlet({
     const hasRemoved = draftItems.some(i => i._removed && !i._new);
     const hasAmended = draftItems.some(i => !i._new && !i._removed && isItemAmended(i));
     if (!hasAdded && !hasRemoved && !hasAmended) return true;
+
+    // Warn if any amended account still carries the original proof document
+    // (i.e. no new file uploaded and attachment count matches the original).
+    // User may continue anyway or go back and upload fresh proof.
+    if (!bypassAttachWarning) {
+      const amendedSameAttachment = draftItems.some(i => {
+        if (i._new || i._removed) return false;
+        if (!isItemAmended(i)) return false;
+        const atts = (i._attachments ?? []).filter(a => !(a as any)._removed);
+        const origCount = (i._original as any)?.attachmentCount ?? 0;
+        const hasNewFile = atts.some(a => (a as any)._file);
+        return atts.length === origCount && !hasNewFile;
+      });
+      if (amendedSameAttachment) {
+        setShowAttachWarning(true);
+        return false;
+      }
+    }
 
     // Validate
     const primaryCount = active.filter(i => i.is_primary).length;
@@ -1658,7 +1684,7 @@ export default function BankAccountsPortlet({
           <div className="ev-section-title" style={{ display: 'flex', alignItems: 'flex-start', flexDirection: 'column', gap: 6 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <i className={`fa-solid ${sectionTitle.icon}`} /> {sectionTitle.text}
-              {(sectionTitle.pending ?? 0) > 0 && (
+              {((sectionTitle.pending ?? 0) > 0 || (workflowPending && pendingCount === 0)) && (
                 <span style={{
                   display: 'inline-flex', alignItems: 'center', gap: 4,
                   background: '#FEF3C7', color: '#B45309', border: '1px solid #F59E0B',
@@ -1669,13 +1695,17 @@ export default function BankAccountsPortlet({
                 </span>
               )}
             </div>
-            {(sectionTitle.pending ?? 0) > 0 && sectionTitle.onViewProgress && (
+            {((sectionTitle.pending ?? 0) > 0 || (workflowPending && pendingCount === 0)) && (
               <button
-                onClick={sectionTitle.onViewProgress}
+                onClick={
+                  (sectionTitle.pending ?? 0) > 0 && sectionTitle.onViewProgress
+                    ? sectionTitle.onViewProgress
+                    : () => { setWorkflowPending(false); loadCurrentSet(); }
+                }
                 style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer',
                   color: '#6366F1', fontSize: 12, fontWeight: 500, textDecoration: 'underline' }}
               >
-                View progress
+                View approval progress
               </button>
             )}
           </div>
@@ -1702,23 +1732,23 @@ export default function BankAccountsPortlet({
         </div>
       )}
 
-      {/* Post-submit workflow-pending banner */}
-      {workflowPending && pendingCount === 0 && (
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 10,
-          background: '#FFFBEB', border: '1px solid #FCD34D',
-          borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 13,
-        }}>
-          <i className="fa-solid fa-clock" style={{ color: '#D97706', fontSize: 15 }} />
-          <span style={{ flex: 1, color: '#92400E' }}>
-            <strong>Submitted for approval</strong> — your bank account change is pending review.
-            You'll be notified once it's approved.
+      {/* Post-submit workflow-pending badge — only when no sectionTitle (sectionTitle handles it inline) */}
+      {workflowPending && pendingCount === 0 && !sectionTitle && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 14 }}>
+          <span style={{
+            display: 'inline-flex', alignItems: 'center', gap: 4,
+            background: '#FEF3C7', color: '#B45309', border: '1px solid #F59E0B',
+            borderRadius: 10, padding: '2px 8px', fontSize: 11, fontWeight: 600, lineHeight: 1.4,
+          }}>
+            <i className="fa-solid fa-hourglass-half" style={{ fontSize: 10 }} />
+            Workflow Pending Approval
           </span>
           <button
             onClick={() => { setWorkflowPending(false); loadCurrentSet(); }}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#92400E', padding: 2 }}
-            title="Dismiss">
-            <i className="fa-solid fa-xmark" />
+            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+              color: '#6366F1', fontSize: 12, fontWeight: 500, textDecoration: 'underline', textAlign: 'left' }}
+          >
+            View approval progress
           </button>
         </div>
       )}
@@ -1879,13 +1909,58 @@ export default function BankAccountsPortlet({
             />
           ))}
 
-          {/* Add Account — gated by canCreate */}
-          {canCreate && (
+          {/* Add Account — hidden while any account is open for editing */}
+          {canCreate && !draftItems.some(i => !i._removed && i._editing) && (
             <button className="emp-btn-secondary"
               style={{ marginTop: 4, padding: '7px 18px', fontSize: 13 }}
               onClick={addItem}>
               <i className="fa-solid fa-plus" style={{ marginRight: 6 }} />Add Account
             </button>
+          )}
+
+          {/* Attachment-unchanged warning modal */}
+          {showAttachWarning && (
+            <div style={{
+              position: 'fixed', inset: 0, zIndex: 9999,
+              background: 'rgba(0,0,0,0.45)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <div style={{
+                background: '#fff', borderRadius: 12, padding: '28px 32px',
+                maxWidth: 440, width: '90%', boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 18 }}>
+                  <i className="fa-solid fa-paperclip"
+                    style={{ fontSize: 22, color: '#F59E0B', marginTop: 2 }} />
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: 15, color: '#111827', marginBottom: 6 }}>
+                      Proof document not updated
+                    </div>
+                    <div style={{ fontSize: 13.5, color: '#6B7280', lineHeight: 1.55 }}>
+                      You've made changes to this bank account but haven't uploaded a new proof
+                      document. The existing proof will carry over to the amended record.
+                      <br /><br />
+                      If this change requires fresh documentation (e.g. a new passbook page or bank
+                      letter), please upload it before submitting.
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                  <button
+                    className="emp-btn-ghost"
+                    style={{ padding: '7px 18px', fontSize: 13 }}
+                    onClick={() => setShowAttachWarning(false)}>
+                    Upload New Proof
+                  </button>
+                  <button
+                    className="emp-btn-primary"
+                    style={{ padding: '7px 18px', fontSize: 13 }}
+                    onClick={() => { setShowAttachWarning(false); handleSubmit(true); }}>
+                    Continue Anyway
+                  </button>
+                </div>
+              </div>
+            </div>
           )}
 
           {/* Error banner */}

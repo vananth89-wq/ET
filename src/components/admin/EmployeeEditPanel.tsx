@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { validateMobile, mobilePlaceholder, mobileHint } from '../../utils/validateMobile';
 import { validatePassportNumber, validatePassportValidity, passportNumberPlaceholder, passportNumberHint, passportValidityHint } from '../../utils/validatePassport';
 import { validateIdentityNumber, idNumberPlaceholder, idNumberHint, defaultExpiryDate, idValidityLabel } from '../../utils/validateIdentity';
@@ -53,6 +53,7 @@ const PHONE_CODES = [
 ];
 
 const SECTIONS = [
+  { id: 'employee_record', label: 'Employee Record',       icon: 'fa-database',          optional: false },
   { id: 'personal',   label: 'Personal Information',    icon: 'fa-circle-user',       optional: false },
   { id: 'contact',    label: 'Phone',                   icon: 'fa-phone',             optional: false },
   { id: 'email',      label: 'Email',                   icon: 'fa-envelope',          optional: false },
@@ -95,6 +96,27 @@ function SummaryRow({ label, value }: { label: string; value?: string }) {
   );
 }
 
+// Grid-style field: label above, value below, dashed separator — matches edit form layout
+function GridField({ label, value, wide, children }: { label: string; value?: string | null; wide?: boolean; children?: React.ReactNode }) {
+  return (
+    <div style={wide ? { gridColumn: '1 / -1' } : {}}>
+      <label style={{ display: 'block', fontSize: 11.5, fontWeight: 600, color: '#6B7280', marginBottom: 2 }}>{label}</label>
+      <div style={{ fontSize: 13.5, color: '#374151', padding: '5px 0', fontWeight: 500, wordBreak: 'break-all' }}>
+        {children ?? value ?? '—'}
+      </div>
+      <div style={{ borderBottom: '1px dashed #E5E7EB' }} />
+    </div>
+  );
+}
+
+function GridRow({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 24px' }}>
+      {children}
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Main Component
 // ─────────────────────────────────────────────────────────────────────────────
@@ -122,6 +144,28 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved, initialEmploy
   // Local copy of the employee kept in sync after each section save
   const [liveEmp, setLiveEmp] = useState<FullEmployee>(emp);
   const [saving,  setSaving]  = useState(false);
+
+  // Employee Record
+  const [dEmpStatus,    setDEmpStatus]    = useState('');
+  const [dEmpRole,      setDEmpRole]      = useState('');
+  const [dEmpLocked,    setDEmpLocked]    = useState(false);
+  const [empRawRecord,  setEmpRawRecord]  = useState<Record<string, unknown> | null>(null);
+  const [empRawLoading, setEmpRawLoading] = useState(false);
+
+  // Load raw employees row on mount (needed for summary view of unmapped columns)
+  useEffect(() => {
+    let mounted = true;
+    supabase
+      .from('employees')
+      .select('*')
+      .eq('id', liveEmp.id as string)
+      .single()
+      .then(({ data }) => {
+        if (mounted) setEmpRawRecord(data as Record<string, unknown> | null);
+      });
+    return () => { mounted = false; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveEmp.id]);
 
   // Personal info history panel
   const [piHistOpen,    setPiHistOpen]    = useState(false);
@@ -412,6 +456,11 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved, initialEmploy
     setOpenSection(sectionId);
 
     switch (sectionId) {
+      case 'employee_record':
+        setDEmpStatus((e.status as string) || 'Active');
+        setDEmpRole((e.role as string) || 'Employee');
+        setDEmpLocked((e.locked as boolean) ?? false);
+        break;
       case 'personal':
         setDName(e.name || ''); setDNationality((e.nationality as string) || '');
         setDMarital((e.maritalStatus as string) || ''); setDGender((e.gender as string) || '');
@@ -628,6 +677,25 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved, initialEmploy
     let dbPatch: Record<string, unknown> = {};
 
     switch (sectionId) {
+      case 'employee_record': {
+        setSaving(true);
+        const { data: res, error: rpcErr } = await supabase.rpc('update_employee_core', {
+          p_employee_id: liveEmp.id as string,
+          p_status:      dEmpStatus || null,
+          p_role:        dEmpRole   || null,
+          p_locked:      dEmpLocked,
+        });
+        setSaving(false);
+        if (rpcErr || (res && !res.ok)) {
+          setErrors({ _global: rpcErr?.message ?? res?.error ?? 'Save failed' });
+          return;
+        }
+        setLiveEmp(prev => ({ ...prev, status: dEmpStatus as FullEmployee['status'], role: dEmpRole, locked: dEmpLocked }));
+        onSaved?.();
+        cancelEdit();
+        if (dirtyTarget) { setTimeout(() => doOpen(dirtyTarget!), 0); }
+        return;
+      }
       case 'personal':
         frontendPatch = { name: dName.trim(), nationality: dNationality, maritalStatus: dMarital, gender: dGender, dob: dDob, photo: dPhoto };
         // name is now synced to employees via upsert_personal_info RPC (mig 315/316).
@@ -953,81 +1021,119 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved, initialEmploy
     const e = liveEmp;
     const gap = { display: 'flex', flexWrap: 'wrap' as const, gap: '8px 20px', padding: '4px 0' };
     switch (sectionId) {
+      case 'employee_record': {
+        const raw = empRawRecord ?? {};
+        const statusColor: Record<string, { bg: string; color: string }> = {
+          Active:     { bg: '#D1FAE5', color: '#065F46' },
+          Inactive:   { bg: '#F3F4F6', color: '#374151' },
+          Draft:      { bg: '#EFF6FF', color: '#1E40AF' },
+          Incomplete: { bg: '#FEF3C7', color: '#92400E' },
+          Pending:    { bg: '#EDE9FE', color: '#5B21B6' },
+          Rejected:   { bg: '#FEE2E2', color: '#991B1B' },
+        };
+        const sc = statusColor[e.status as string] ?? { bg: '#F3F4F6', color: '#374151' };
+        const resolveEmpName = (id?: unknown) =>
+          id ? ((employees as FullEmployee[]).find(m => m.id === id)?.name ?? String(id)) : undefined;
+        return (
+          <GridRow>
+            <GridField label="Employee ID"    value={e.employeeId} />
+            <GridField label="Name"           value={e.name} />
+            <GridField label="Business Email" value={e.businessEmail as string} />
+            <GridField label="Designation"    value={resolve('DESIGNATION', e.designation)} />
+            <GridField label="Job Title"      value={(e as { jobTitle?: string }).jobTitle} />
+            <GridField label="Department"     value={departments.find(d => d.id === e.deptId || d.deptId === e.deptId)?.name} />
+            <GridField label="Manager"        value={resolveEmpName(e.managerId)} />
+            <GridField label="Hire Date"      value={fmtDate(e.hireDate as string)} />
+            <GridField label="Work Country"   value={resolve('ID_COUNTRY', e.workCountry)} />
+            <GridField label="Work Location"  value={resolve('LOCATION', e.workLocation)} />
+            <GridField label="Currency"       value={currencyList.find(c => c.id === (e.baseCurrencyId as string))?.name} />
+            <GridField label="Status">
+              <span style={{ padding: '3px 12px', borderRadius: 12, fontSize: 12, fontWeight: 600, background: sc.bg, color: sc.color }}>
+                {e.status as string || '—'}
+              </span>
+            </GridField>
+            <GridField label="Role"   value={e.role as string} />
+            <GridField label="Locked" value={e.locked ? 'Yes' : 'No'} />
+          </GridRow>
+        );
+      }
       case 'personal': return (
-        <div style={gap}>
-          <SummaryRow label="Name" value={e.name} />
-          <SummaryRow label="ID" value={e.employeeId} />
-          <SummaryRow label="Nationality" value={e.nationality as string} />
-          <SummaryRow label="Marital Status" value={resolve('MARITAL_STATUS', e.maritalStatus)} />
-          <SummaryRow label="Gender" value={e.gender as string} />
-          <SummaryRow label="Date of Birth" value={e.dob as string} />
-          {e.dob && <SummaryRow label="Age" value={calcAge(e.dob as string) !== null ? `${calcAge(e.dob as string)} years` : undefined} />}
-        </div>
+        <GridRow>
+          <GridField label="Name"           value={e.name} />
+          <GridField label="Employee ID"    value={e.employeeId} />
+          <GridField label="Nationality"    value={e.nationality as string} />
+          <GridField label="Marital Status" value={resolve('MARITAL_STATUS', e.maritalStatus)} />
+          <GridField label="Gender"         value={e.gender as string} />
+          <GridField label="Date of Birth"  value={e.dob as string} />
+          <GridField label="Age"            value={e.dob && calcAge(e.dob as string) !== null ? `${calcAge(e.dob as string)} years` : undefined} />
+        </GridRow>
       );
       case 'contact': return (
-        <div style={gap}>
-          <SummaryRow label="Mobile" value={`${e.countryCode as string || ''} ${e.mobile as string || ''}`.trim() || undefined} />
-        </div>
+        <GridRow>
+          <GridField label="Country Code" value={e.countryCode as string} />
+          <GridField label="Mobile"       value={e.mobile as string} />
+        </GridRow>
       );
       case 'email': return (
-        <div style={gap}>
-          <SummaryRow label="Business" value={e.businessEmail as string} />
-          <SummaryRow label="Personal" value={e.personalEmail as string} />
-        </div>
+        <GridRow>
+          <GridField label="Business Email" value={e.businessEmail as string} />
+          <GridField label="Personal Email" value={e.personalEmail as string} />
+        </GridRow>
       );
       case 'employment': return (
-        <div style={gap}>
-          <SummaryRow label="Designation" value={resolve('DESIGNATION', e.designation)} />
-          <SummaryRow label="Department" value={departments.find(d => d.id === e.deptId || d.deptId === e.deptId)?.name} />
-          <SummaryRow label="Manager" value={(employees as FullEmployee[]).find(m => m.id === e.managerId || m.employeeId === e.managerId)?.name} />
-          <SummaryRow label="Hired" value={fmtDate(e.hireDate as string)} />
-          <SummaryRow label="Location" value={resolve('LOCATION', e.workLocation)} />
-          <SummaryRow label="Currency" value={
-            currencyList.find(c => c.id === (e.baseCurrencyId as string))?.name
-            ?? resolve('CURRENCY', e.baseCurrency)
-          } />
-        </div>
+        <GridRow>
+          <GridField label="Designation"  value={resolve('DESIGNATION', e.designation)} />
+          <GridField label="Department"   value={departments.find(d => d.id === e.deptId || d.deptId === e.deptId)?.name} />
+          <GridField label="Manager"      value={(employees as FullEmployee[]).find(m => m.id === e.managerId || m.employeeId === e.managerId)?.name} />
+          <GridField label="Hire Date"    value={fmtDate(e.hireDate as string)} />
+          <GridField label="Work Country" value={resolve('ID_COUNTRY', e.workCountry)} />
+          <GridField label="Location"     value={resolve('LOCATION', e.workLocation)} />
+          <GridField label="Currency"     value={currencyList.find(c => c.id === (e.baseCurrencyId as string))?.name ?? resolve('CURRENCY', e.baseCurrency)} />
+        </GridRow>
       );
       case 'identity': {
         const recs = (e.idRecords as IdRecord[] | undefined) || [];
+        if (recs.length === 0) return (
+          <div style={{ padding: '8px 0', color: '#9CA3AF', fontSize: 12.5, fontStyle: 'italic' }}>No identity records</div>
+        );
         return (
-          <div style={gap}>
-            {recs.length === 0
-              ? <span style={{ color: '#9CA3AF', fontSize: 12.5, fontStyle: 'italic' }}>No identity records</span>
-              : recs.map((r, i) => (
-                <span key={i} style={{ fontSize: 12.5, color: '#374151' }}>
-                  <span style={{ fontWeight: 500 }}>{resolve('ID_TYPE', r.idType)}</span>
-                  <span style={{ color: '#9CA3AF' }}> · {r.idNumber} · expires {fmtDate(r.expiry)}</span>
-                </span>
-              ))}
-          </div>
+          <GridRow>
+            {recs.map((r, i) => (
+              <GridField key={i} label={resolve('ID_TYPE', r.idType)} value={`${r.idNumber} · expires ${fmtDate(r.expiry)}`} />
+            ))}
+          </GridRow>
         );
       }
-      case 'passport': return (
-        <div style={gap}>
-          {!e.passportNumber
-            ? <span style={{ color: '#9CA3AF', fontSize: 12.5, fontStyle: 'italic' }}>Not provided</span>
-            : <>
-                <SummaryRow label="Country" value={resolve('ID_COUNTRY', e.passportCountry)} />
-                <SummaryRow label="Number" value={e.passportNumber as string} />
-                <SummaryRow label="Expires" value={fmtDate(e.passportExpiryDate as string)} />
-              </>}
-        </div>
-      );
+      case 'passport': return !e.passportNumber
+        ? <div style={{ padding: '8px 0', color: '#9CA3AF', fontSize: 12.5, fontStyle: 'italic' }}>Not provided</div>
+        : (
+          <GridRow>
+            <GridField label="Country" value={resolve('ID_COUNTRY', e.passportCountry)} />
+            <GridField label="Number"  value={e.passportNumber as string} />
+            <GridField label="Issued"  value={fmtDate(e.passportIssueDate as string)} />
+            <GridField label="Expires" value={fmtDate(e.passportExpiryDate as string)} />
+          </GridRow>
+        );
       case 'address': return (
-        <div style={gap}>
-          <SummaryRow label="Address"
-            value={[e.addrLine1, e.addrCity, e.addrState].filter(Boolean).join(', ') || undefined} />
-          <SummaryRow label="PIN" value={e.addrPin as string} />
-          <SummaryRow label="Country" value={e.addrCountry as string} />
-        </div>
+        <GridRow>
+          <GridField label="Line 1"   value={e.addrLine1 as string} />
+          <GridField label="Line 2"   value={e.addrLine2 as string} />
+          <GridField label="Landmark" value={e.addrLandmark as string} />
+          <GridField label="City"     value={e.addrCity as string} />
+          <GridField label="District" value={e.addrDistrict as string} />
+          <GridField label="State"    value={e.addrState as string} />
+          <GridField label="PIN / ZIP" value={e.addrPin as string} />
+          <GridField label="Country"  value={e.addrCountry as string} />
+        </GridRow>
       );
       case 'emergency': return (
-        <div style={gap}>
-          <SummaryRow label="Name" value={e.ecName as string} />
-          <SummaryRow label="Relationship" value={resolve('RELATIONSHIP_TYPE', e.ecRelationship)} />
-          <SummaryRow label="Phone" value={e.ecPhone as string} />
-        </div>
+        <GridRow>
+          <GridField label="Name"         value={e.ecName as string} />
+          <GridField label="Relationship" value={resolve('RELATIONSHIP_TYPE', e.ecRelationship)} />
+          <GridField label="Phone"        value={e.ecPhone as string} />
+          <GridField label="Alt Phone"    value={e.ecAltPhone as string} />
+          <GridField label="Email"        value={e.ecEmail as string} />
+        </GridRow>
       );
       case 'bank': return (
         <BankAccountsPortlet
@@ -1085,6 +1191,78 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved, initialEmploy
   // ── Edit forms ────────────────────────────────────────────────────────────
   function editForm(sectionId: string) {
     switch (sectionId) {
+      // ── Employee Record ────────────────────────────────────────────────────
+      case 'employee_record': return (
+        <div className="emp-section">
+          {/* Read-only mirror fields */}
+          {/* Read-only mirror fields */}
+          <GridRow>
+            <GridField label="Employee ID"    value={liveEmp.employeeId} />
+            <GridField label="Name"           value={liveEmp.name} />
+            <GridField label="Business Email" value={liveEmp.businessEmail as string} />
+            <GridField label="Designation"    value={resolve('DESIGNATION', liveEmp.designation)} />
+            <GridField label="Job Title"      value={(liveEmp as { jobTitle?: string }).jobTitle} />
+            <GridField label="Department"     value={departments.find(d => d.id === liveEmp.deptId || d.deptId === liveEmp.deptId)?.name} />
+            <GridField label="Manager"        value={(employees as FullEmployee[]).find(m => m.id === liveEmp.managerId || m.employeeId === liveEmp.managerId)?.name} />
+            <GridField label="Hire Date"      value={fmtDate(liveEmp.hireDate as string)} />
+            <GridField label="Work Country"   value={resolve('ID_COUNTRY', liveEmp.workCountry)} />
+            <GridField label="Work Location"  value={resolve('LOCATION', liveEmp.workLocation)} />
+            <GridField label="Currency"       value={currencyList.find(c => c.id === (liveEmp.baseCurrencyId as string))?.name} />
+          </GridRow>
+
+          <div style={{ borderTop: '1px solid #F3F4F6', paddingTop: 16, marginTop: 4, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px 24px' }}>
+            {/* Status */}
+            <div>
+              <label className="emp-label">Status</label>
+              <select className="emp-select" value={dEmpStatus} onChange={e => { setDEmpStatus(e.target.value); setIsDirty(true); }}>
+                {['Draft', 'Incomplete', 'Pending', 'Active', 'Inactive', 'Rejected'].map(s => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Role */}
+            <div>
+              <label className="emp-label">Role</label>
+              <select className="emp-select" value={dEmpRole} onChange={e => { setDEmpRole(e.target.value); setIsDirty(true); }}>
+                {['Employee', 'Manager', 'Department Manager'].map(r => (
+                  <option key={r} value={r}>{r}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Locked */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingTop: 8 }}>
+              <label className="emp-label" style={{ marginBottom: 0 }}>Account Locked</label>
+              <button
+                type="button"
+                onClick={() => { setDEmpLocked(v => !v); setIsDirty(true); }}
+                style={{
+                  width: 42, height: 24, borderRadius: 12,
+                  background: dEmpLocked ? '#DC2626' : '#D1FAE5',
+                  border: 'none', cursor: 'pointer', position: 'relative', transition: 'background 0.2s',
+                }}
+              >
+                <span style={{
+                  position: 'absolute', top: 3, left: dEmpLocked ? 21 : 3,
+                  width: 18, height: 18, borderRadius: '50%',
+                  background: dEmpLocked ? '#fff' : '#10B981',
+                  transition: 'left 0.2s',
+                }} />
+              </button>
+              <span style={{ fontSize: 12.5, color: dEmpLocked ? '#DC2626' : '#065F46', fontWeight: 500 }}>
+                {dEmpLocked ? 'Locked' : 'Unlocked'}
+              </span>
+            </div>
+          </div>
+
+          <div style={{ marginTop: 14, padding: '10px 14px', background: '#FEF9C3', borderRadius: 8, fontSize: 12, color: '#92400E', display: 'flex', gap: 8 }}>
+            <i className="fa-solid fa-triangle-exclamation" />
+            <span>Status, role, and lock changes take effect immediately and bypass workflow. Employment fields above are managed via the Employment section.</span>
+          </div>
+        </div>
+      );
+
       // ── Personal ───────────────────────────────────────────────────────────
       case 'personal': return (
         <div className="emp-section">
@@ -1861,6 +2039,7 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved, initialEmploy
           readOnly={!can('termination.edit')}
           canEdit={can('termination.edit')}
           canHistory={can('termination.history')}
+          hideSubmitButton
           onChanged={refetchPendingSections}
           sectionTitle={{ icon: 'fa-user-slash', text: 'Termination' }}
         />
@@ -2000,9 +2179,15 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved, initialEmploy
                             )}
                           </div>
                         )
-                        : <button className="emp-edit-btn-edit" onClick={e => { e.stopPropagation(); requestOpen(sec.id); }}>
-                            <i className="fa-solid fa-pen-to-square" /> Edit
-                          </button>
+                        : sec.id === 'termination'
+                          ? (can('termination.edit') && (
+                              <button className="emp-edit-btn-edit" onClick={e => { e.stopPropagation(); requestOpen(sec.id); }}>
+                                <i className="fa-solid fa-user-slash" /> Initiate Termination
+                              </button>
+                            ))
+                          : <button className="emp-edit-btn-edit" onClick={e => { e.stopPropagation(); requestOpen(sec.id); }}>
+                              <i className="fa-solid fa-pen-to-square" /> Edit
+                            </button>
                       : <button className="emp-edit-btn-close" onClick={e => { e.stopPropagation(); cancelEdit(); }}>
                           <i className="fa-solid fa-xmark" />
                         </button>

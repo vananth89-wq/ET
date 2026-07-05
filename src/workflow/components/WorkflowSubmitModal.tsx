@@ -19,7 +19,7 @@
  *   />
  */
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useAuth }   from '../../contexts/AuthContext';
 import { useWorkflowParticipants } from '../hooks/useWorkflowParticipants';
 import type { WfParticipant, WfRoleMember } from '../hooks/useWorkflowParticipants';
@@ -399,6 +399,9 @@ export default function WorkflowSubmitModal({
 }: Props) {
   const [comment, setComment] = useState('');
   const { profile } = useAuth();
+
+  // Reset comment whenever the modal opens fresh
+  useEffect(() => { if (open) setComment(''); }, [open]);
 
   const { loading, approvers, ccParticipants } = useWorkflowParticipants(
     open ? moduleCode : '',
