@@ -8,8 +8,8 @@ export interface ExchangeRate {
   rate:           number;
   effectiveDate:  string;
   // Joined fields
-  fromCode?:      string;
-  toCode?:        string;
+  fromCode:       string;
+  toCode:         string;
 }
 
 interface UseExchangeRatesResult {
@@ -60,8 +60,8 @@ export function useExchangeRates(): UseExchangeRatesResult {
               toCurrencyId:   row.to_currency_id,
               rate:           Number(row.rate),
               effectiveDate:  row.effective_date,
-              fromCode:       (row.from_currency as { code: string } | null)?.code ?? '',
-              toCode:         (row.to_currency   as { code: string } | null)?.code ?? '',
+              fromCode:       (row.from_currency as unknown as { code: string } | null)?.code ?? '',
+              toCode:         (row.to_currency   as unknown as { code: string } | null)?.code ?? '',
             }))
           );
         }

@@ -84,7 +84,7 @@ const DEFAULT_HERO = '/Human AI.png';
 export default function LandingPage() {
   const { employee }                      = useAuth();
   const navigate                          = useNavigate();
-  const [theme, setTheme]                 = useState<ThemeSettings>({ landing_hero_image: null, landing_graphic_image: null, suggested_tasks: null });
+  const [theme, setTheme]                 = useState<ThemeSettings>({ landing_hero_image: null, landing_graphic_image: null, suggested_tasks: null, most_used_apps: null });
   const [suggestedTasks, setSuggestedTasks] = useState<SuggestedTask[]>(DEFAULT_SUGGESTED_TASKS);
   const [mostUsedApps,   setMostUsedApps]   = useState<MostUsedApp[]>(DEFAULT_MOST_USED_APPS);
   const [themeLoaded, setThemeLoaded]     = useState(false);

@@ -170,18 +170,6 @@ function OverallBadge({ status }: { status: OverallStatus }) {
   );
 }
 
-function ChannelPill({ label, cfg }: { label: string; cfg: { label: string; color: string; bg: string } }) {
-  return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', gap: 4,
-      fontSize: 10, fontWeight: 600, borderRadius: 4, padding: '2px 7px',
-      background: cfg.bg, color: cfg.color,
-    }}>
-      {label}: {cfg.label}
-    </span>
-  );
-}
-
 function Th({ label, sortKey, currentKey, dir, onSort }: {
   label: string; sortKey?: SortKey;
   currentKey: SortKey; dir: SortDir; onSort: (k: SortKey) => void;
@@ -474,7 +462,7 @@ export default function NotificationMonitor() {
 
             {/* Date from */}
             <input
-              type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31"
+              type="date" min="1900-01-01" max="2100-12-31"
               value={fDateFrom}
               onChange={e => setFDateFrom(e.target.value)}
               style={{ ...selStyle, colorScheme: 'light' }}
@@ -483,7 +471,7 @@ export default function NotificationMonitor() {
 
             {/* Date to */}
             <input
-              type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31"
+              type="date" min="1900-01-01" max="2100-12-31"
               value={fDateTo}
               onChange={e => setFDateTo(e.target.value)}
               style={{ ...selStyle, colorScheme: 'light' }}

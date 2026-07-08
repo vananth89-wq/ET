@@ -484,7 +484,6 @@ function InlineEducationForm({
     setSaving(true);
     setSaveError('');
     try {
-      const crypto = window.crypto ?? (window as unknown as { msCrypto: Crypto }).msCrypto;
       const stageId = educationId ?? `_new_${randomUUID()}`;
       const withPaths = await uploadStagedFiles(form.attachments.filter(a => !a._removed), stageId);
       const allAtts = [...withPaths, ...form.attachments.filter(a => a._removed && !a._file)];
@@ -867,10 +866,6 @@ export default function EducationPortlet({
       <i className="fa-solid fa-circle-exclamation" style={{ marginRight: 6 }} />{loadErr}
     </div>
   );
-
-  const editingRecord = inlineTarget && inlineTarget !== 'new'
-    ? records.find(r => r.id === inlineTarget) ?? null
-    : null;
 
   return (
     <div className="edu-portlet">

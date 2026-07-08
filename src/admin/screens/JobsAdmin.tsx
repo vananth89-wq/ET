@@ -936,7 +936,7 @@ export default function JobsAdmin() {
             <div style={{ marginBottom: 14 }}>
               <label style={{ fontSize: 11, fontWeight: 600, color: C.muted, display: 'block', marginBottom: 4 }}>As of Date</label>
               <input
-                type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31"
+                type="date" min="1900-01-01" max="2100-12-31"
                 value={piDate}
                 onChange={e => setPiDate(e.target.value)}
                 style={{ width: '100%', padding: '7px 10px', borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 13, boxSizing: 'border-box' }}
@@ -982,7 +982,7 @@ export default function JobsAdmin() {
             <div style={{ marginBottom: 14 }}>
               <label style={{ fontSize: 11, fontWeight: 600, color: C.muted, display: 'block', marginBottom: 4 }}>As of Date</label>
               <input
-                type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31"
+                type="date" min="1900-01-01" max="2100-12-31"
                 value={piAllDate}
                 onChange={e => setPiAllDate(e.target.value)}
                 style={{ width: '100%', padding: '7px 10px', borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 13, boxSizing: 'border-box' }}

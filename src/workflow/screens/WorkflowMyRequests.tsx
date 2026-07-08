@@ -409,11 +409,11 @@ export default function WorkflowMyRequests() {
             <div style={{ display: 'flex', gap: 8 }}>
               <div style={{ flex: 1 }}>
                 <span style={dateRangeLabelStyle}>From</span>
-                <input type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31" value={submittedFrom} onChange={e => setSubmittedFrom(e.target.value)} style={dateInputStyle} />
+                <input type="date" min="1900-01-01" max="2100-12-31" value={submittedFrom} onChange={e => setSubmittedFrom(e.target.value)} style={dateInputStyle} />
               </div>
               <div style={{ flex: 1 }}>
                 <span style={dateRangeLabelStyle}>To</span>
-                <input type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31" value={submittedTo} onChange={e => setSubmittedTo(e.target.value)} style={dateInputStyle} />
+                <input type="date" min="1900-01-01" max="2100-12-31" value={submittedTo} onChange={e => setSubmittedTo(e.target.value)} style={dateInputStyle} />
               </div>
             </div>
           </div>
@@ -426,11 +426,11 @@ export default function WorkflowMyRequests() {
             <div style={{ display: 'flex', gap: 8 }}>
               <div style={{ flex: 1 }}>
                 <span style={dateRangeLabelStyle}>From</span>
-                <input type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31" value={completedFrom} onChange={e => setCompletedFrom(e.target.value)} style={dateInputStyle} />
+                <input type="date" min="1900-01-01" max="2100-12-31" value={completedFrom} onChange={e => setCompletedFrom(e.target.value)} style={dateInputStyle} />
               </div>
               <div style={{ flex: 1 }}>
                 <span style={dateRangeLabelStyle}>To</span>
-                <input type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31" value={completedTo} onChange={e => setCompletedTo(e.target.value)} style={dateInputStyle} />
+                <input type="date" min="1900-01-01" max="2100-12-31" value={completedTo} onChange={e => setCompletedTo(e.target.value)} style={dateInputStyle} />
               </div>
             </div>
           </div>

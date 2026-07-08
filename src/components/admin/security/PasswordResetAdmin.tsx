@@ -449,7 +449,7 @@ export default function PasswordResetAdmin() {
                         </div>
                       ) : (
                         <>
-                          {employees.map((emp, i) => (
+                          {employees.map((emp, _i) => (
                             <button key={emp.id} type="button"
                               onMouseDown={e => e.preventDefault()}
                               onClick={() => { setSelected(emp); setShowDropdown(false); setEmpSearch(''); }}

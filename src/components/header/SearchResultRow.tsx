@@ -27,10 +27,10 @@ export default function SearchResultRow({
   onClick,
   onMouseEnter,
 }: SearchResultRowProps) {
-  const name  = 'full_name'     in data ? data.full_name     : data.full_name;
-  const code  = 'employee_code' in data ? data.employee_code : data.employee_code;
-  const email = 'email'         in data ? data.email         : null;
-  const status = 'status' in data ? data.status : undefined;
+  const name   = data.full_name;
+  const code   = data.employee_code;
+  const email  = 'email'      in data ? data.email      : null;
+  const status = 'status'     in data ? data.status     : undefined;
   const avatar = 'avatar_url' in data ? data.avatar_url : undefined;
 
   const initials = name

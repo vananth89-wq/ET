@@ -44,18 +44,6 @@ function fmtDateTime(iso: string) {
   }).format(new Date(iso));
 }
 
-function attIcon(mime: string) {
-  if (mime === 'application/pdf') return 'fa-file-pdf';
-  if (mime.startsWith('image/'))  return 'fa-file-image';
-  return 'fa-file';
-}
-
-function attFmtSize(bytes: number) {
-  if (bytes < 1024)    return `${bytes} B`;
-  if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1048576).toFixed(1)} MB`;
-}
-
 // Attachment row used by profile_bank and profile_dependents review sections.
 // Reads either field-shape pair (storage_path / file_path, file_type / mime_type)
 // and fetches a 1-hour signed URL from the hr-attachments bucket on mount.
@@ -571,7 +559,7 @@ export default function WorkflowReview() {
 
   // Expense report detail — only fetched when we have confirmed module = expense_reports.
   // Passing null suppresses the fetch for all other modules (and during loading).
-  const { detail, loading, error, refetch: refetchDetail } = useApproverReportDetail(
+  const { detail, loading, error } = useApproverReportDetail(
     moduleCode === 'expense_reports' ? (recordId ?? null) : null
   );
 
@@ -954,7 +942,7 @@ export default function WorkflowReview() {
   const eduSaveAllRef  = useRef<(() => Promise<boolean>) | null>(null);
   const [saveFailures,      setSaveFailures]      = useState<{ section: string; label: string; error: string }[]>([]);
   // Hire-module completeness violations — shown when approver tries to activate with missing required fields
-  const [hireViolations,  setHireViolations]  = useState<{ section: string; label: string }[]>([]);
+  const [hireViolations,  setHireViolations]  = useState<{ section: string; label: string; formatError?: string }[]>([]);
   // Picklist data for section edit dropdowns (loaded once when hire module active)
   const { picklistValues: hirePl } = usePicklistValues(true);
 
@@ -1272,10 +1260,9 @@ export default function WorkflowReview() {
     setIsSavingHireEdits(true);
     const failures: { section: string; label: string; error: string }[] = [];
 
-    // Track whether work_country was saved — it atomically updates base_currency_id
-    // on the DB side (mig 248), so we need a full re-fetch to reflect the new
-    // currency in the Base Currency row rather than patching it locally.
-    let workCountrySaved = false;
+    // work_country atomically updates base_currency_id on the DB side (mig 248),
+    // so we always do a full re-fetch after saving to reflect the new currency
+    // rather than patching it locally.
 
     for (const sec of hireSections) {
       for (const f of sec.fields) {
@@ -1292,9 +1279,7 @@ export default function WorkflowReview() {
           });
           if (error) throw error;
 
-          if (f.key === 'emp.work_country') {
-            workCountrySaved = true;
-          } else {
+          if (f.key !== 'emp.work_country') {
             // Patch local hireSections so read view reflects the saved value.
             // work_country is handled below by a full re-fetch.
             const displayLabel = resolveDisplayLabel(f.key, newValue, f.input_type);
@@ -1493,7 +1478,7 @@ export default function WorkflowReview() {
   }
 
   // ── Picklist option renderer (needs hirePl from hook) ────────────────────
-  function renderPicklistOptions(fieldKey: string, plCode: string | null, currentRaw: string) {
+  function renderPicklistOptions(fieldKey: string, plCode: string | null) {
     const col = fieldKey.split('.').pop() ?? '';
 
     // Department select — options from departments table
@@ -1692,7 +1677,7 @@ export default function WorkflowReview() {
       if (isHireModule) {
         return isFinalStep ? 'Hire approved — employee activated!' : 'Approved — awaiting next step';
       }
-    });
+    }, 'Approved successfully');
   }
 
   function handleReject() {
@@ -1766,7 +1751,6 @@ export default function WorkflowReview() {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   const lineItems = detail?.lineItems ?? [];
-  const allAttachments = lineItems.flatMap(li => (li.attachments ?? []).map(a => ({ ...a, categoryName: li.categoryName })));
   const baseCurr = detail?.baseCurrencyCode ?? '';
 
   const actionBarProps = {
@@ -2453,7 +2437,7 @@ export default function WorkflowReview() {
                                         onChange={e => handleFieldChange(f.key!, e.target.value)}
                                       >
                                         <option value="">— select —</option>
-                                        {renderPicklistOptions(f.key, plCode, val)}
+                                        {renderPicklistOptions(f.key, plCode)}
                                       </select>
                                     ) : (
                                       <>
@@ -2837,13 +2821,13 @@ export default function WorkflowReview() {
                                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                 {String(data.bank_name || '—')}
                               </div>
-                              {data.account_holder_name && (
+                              {Boolean(data.account_holder_name) && (
                                 <div style={{ fontSize: 11.5, color: '#9CA3AF', marginTop: 1 }}>
                                   {String(data.account_holder_name)}
                                 </div>
                               )}
                             </div>
-                            {data.is_primary && (
+                            {Boolean(data.is_primary) && (
                               <span style={{ background: '#EEF2FF', color: '#4F46E5', borderRadius: 5, padding: '2px 7px', fontSize: 10, fontWeight: 700 }}>Primary</span>
                             )}
                             <span style={{ background: ss.badgeBg, color: ss.color, borderRadius: 5, padding: '2px 8px', fontSize: 10, fontWeight: 700 }}>{ss.label}</span>
@@ -3237,7 +3221,7 @@ export default function WorkflowReview() {
                         <span className="wfr-card-header-label">
                           {eduCurrentData ? 'Edit Education Record' : 'New Education Record'}
                         </span>
-                        {eduProposedData.is_highest_qualification && (
+                        {Boolean(eduProposedData.is_highest_qualification) && (
                           <span style={{ marginLeft: 8, fontSize: 11, color: '#F59E0B', fontWeight: 600 }}>
                             ⭐ Highest Qualification
                           </span>
@@ -3761,14 +3745,14 @@ export default function WorkflowReview() {
 
       {/* ── Bottom action bar — always anchored at bottom ────────────────── */}
       {/* Show for approvers (myTask) OR for initiators viewing a sent-back hire */}
-      {(myTask || isInitiator) && (detail || (isHireModule && hireSections.length > 0) || (isProfileBankModule && bankChangeData) || isProfileDependentsModule || isJobRelationshipsModule || isProfileEducationModule || isTerminationModule) && (
+      {(myTask || isInitiator) && (detail || (isHireModule && hireSections.length > 0) || (isProfileBankModule && (bankProposedItems.length > 0 || bankCurrentItems.length > 0)) || isProfileDependentsModule || isJobRelationshipsModule || isProfileEducationModule || isTerminationModule) && (
         <div className="wfr-action-bar-wrapper">
           <ActionBar {...actionBarProps} />
         </div>
       )}
 
       {/* No task — read-only notice */}
-      {!isInitiator && !myTask && !loading && (detail || (isHireModule && hireSections.length > 0) || (isProfileBankModule && bankChangeData) || isProfileDependentsModule || isJobRelationshipsModule || isProfileEducationModule || isTerminationModule) && (
+      {!isInitiator && !myTask && !loading && (detail || (isHireModule && hireSections.length > 0) || (isProfileBankModule && (bankProposedItems.length > 0 || bankCurrentItems.length > 0)) || isProfileDependentsModule || isJobRelationshipsModule || isProfileEducationModule || isTerminationModule) && (
         <div className="wfr-readonly-notice">
           <i className="fas fa-circle-info" />
           {isHireModule

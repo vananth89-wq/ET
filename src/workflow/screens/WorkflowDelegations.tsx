@@ -119,7 +119,7 @@ export default function WorkflowDelegations({ adminView = false }: Props) {
   const isAdmin               = can('workflow.admin');
 
   // Lock tab based on view mode — no toggle shown
-  const [tab, setTab]               = useState<'mine' | 'all'>(adminView ? 'all' : 'mine');
+  const [tab]               = useState<'mine' | 'all'>(adminView ? 'all' : 'mine');
   const [delegations, setDelegations] = useState<Delegation[]>([]);
   const [loading, setLoading]       = useState(false);
   const [showForm, setShowForm]     = useState(false);
@@ -625,11 +625,11 @@ export default function WorkflowDelegations({ adminView = false }: Props) {
             {/* Date range */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
               <FormRow label="From *" compact>
-                <input type="date" max="2100-12-31" value={fromDate} min={today()} max="2100-12-31"
+                <input type="date" value={fromDate} min={today()} max="2100-12-31"
                   onChange={e => setFromDate(e.target.value)} style={iStyle} />
               </FormRow>
               <FormRow label="To *" compact>
-                <input type="date" max="2100-12-31" value={toDate} min={fromDate} max="2100-12-31"
+                <input type="date" value={toDate} min={fromDate} max="2100-12-31"
                   onChange={e => setToDate(e.target.value)} style={iStyle} />
               </FormRow>
             </div>

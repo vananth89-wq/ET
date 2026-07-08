@@ -5,7 +5,7 @@ import { useExpenseData } from '../../../hooks/useExpenseData';
 import { useCurrenciesLookup } from '../../../hooks/useCurrencies';
 import { useExchangeRates } from '../../../hooks/useExchangeRates';
 import { usePicklistValues } from '../../../hooks/usePicklistValues';
-import { useProjects, useProjectsLookup } from '../../../hooks/useProjects';
+import { useProjectsLookup } from '../../../hooks/useProjects';
 import { usePermissions } from '../../../hooks/usePermissions';
 import { useWorkflowInstance } from '../../../workflow/hooks/useWorkflowInstance';
 import type { LineItem, Attachment } from '../../../types';
@@ -526,13 +526,6 @@ export default function ReportDetail() {
     }
   }
 
-  // ── Derive send-back context ─────────────────────────────────────
-  // Find the most recent clarification_requested event so we can show
-  // the approver's message in the Action Required banner.
-  const sendBackEvent = wf.instance?.status === 'awaiting_clarification'
-    ? [...wf.history].reverse().find(h => h.action === 'returned_to_initiator')
-    : undefined;
-
   return (
     <div className="exp-detail-wrap">
 
@@ -698,7 +691,7 @@ export default function ReportDetail() {
                     <label htmlFor="fi-date">Date <span style={{ color: '#e53e3e' }}>*</span></label>
                     <input
                       id="fi-date"
-                      type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31"
+                      type="date" min="1900-01-01"
                       max={today}
                       value={form.date || ''}
                       onChange={e => {

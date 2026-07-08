@@ -62,18 +62,6 @@ function relativeTime(iso: string) {
   return `${Math.floor(diffHr / 24)}d ago`;
 }
 
-function attIcon(mime: string) {
-  if (mime === 'application/pdf')  return 'fa-file-pdf';
-  if (mime.startsWith('image/'))   return 'fa-file-image';
-  return 'fa-file';
-}
-
-function attFmtSize(bytes: number) {
-  if (bytes < 1024)    return `${bytes} B`;
-  if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1048576).toFixed(1)} MB`;
-}
-
 function getNextTask(tasks: WorkflowTask[], currentId: string): WorkflowTask | null {
   const idx = tasks.findIndex(t => t.taskId === currentId);
   if (idx === -1) return tasks[0] ?? null;
@@ -768,9 +756,6 @@ function ExpenseEnrichment({
 
   const lineItems = detail.lineItems;
   const isLarge   = lineItems.length > LARGE_THRESHOLD;
-  const allAtts   = lineItems.flatMap(li =>
-    (li.attachments ?? []).map(a => ({ ...a, categoryName: li.categoryName }))
-  );
 
   return (
     <>
@@ -932,7 +917,7 @@ const PROFILE_FIELD_LABELS: Record<string, string> = {
   work_country: 'Work Country', work_location: 'Work Location',
   base_currency_id: 'Base Currency',
   // Job Relationships fields
-  effective_from: 'Effective From', items: 'Assignments',
+  items: 'Assignments',
   // Education fields
   education_level: 'Education Level', degree: 'Degree', institution: 'Institution',
   start_date: 'Start Date',
@@ -958,7 +943,7 @@ const PROFILE_FIELD_ORDER: Record<string, string[]> = {
   ],
 };
 
-// Fields that render as <input type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31"> in edit mode
+// Fields that render as <input type="date" min="1900-01-01" max="2100-12-31"> in edit mode
 const PROFILE_DATE_FIELDS = new Set(['dob', 'issue_date', 'expiry_date', 'effective_from', 'end_date', 'start_date']);
 
 // Gender options for the inline select (not a picklist in the DB — stored as plain text)
@@ -1088,35 +1073,6 @@ function HireEnrichment({ recordId }: { recordId: string }) {
     </div>
   );
 }
-
-// Internal fields that should never render as user-facing rows for profile_dependents
-const DEP_INTERNAL_KEYS = new Set([
-  'operation', 'employee_id', 'dependent_code', 'prev_data', 'attachments',
-]);
-
-// Relationship labels are resolved at call-time from the DEPENDENT_RELATIONSHIP_TYPE
-// picklist (see DependentsEnrichment). Pass `labels` keyed by ref_id (or id) → display
-// value so any newly-seeded entries resolve without code changes.
-function fmtDepValue(key: string, val: unknown, labels?: Record<string, string>): string {
-  if (val == null || val === '') return '—';
-  if (typeof val === 'boolean' || val === 'true' || val === 'false')
-    return (val === true || val === 'true') ? 'Yes' : 'No';
-  const s = String(val);
-  if (labels && labels[s]) return labels[s];
-  if (/^\d{4}-\d{2}-\d{2}/.test(s))
-    return new Date(s + 'T00:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-  return s || '—';
-}
-
-const DEP_FIELD_ORDER = [
-  ['dependent_name',    'Dependent Name'],
-  ['relationship_type', 'Relationship'],
-  ['date_of_birth',     'Date of Birth'],
-  ['gender',            'Gender'],
-  ['insurance_eligible','Insurance Eligible'],
-  ['effective_from',    'Effective From'],
-  ['removal_date',      'Removal Date'],
-] as const;
 
 // Sub-component: one attachment row — fetches signed URL on mount
 function DepAttachmentRow({ att, docTypeLabel }: {
@@ -2193,7 +2149,7 @@ function BankEnrichment({ metadata }: {
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {String(data.bank_name || '—')}
               </div>
-              {data.is_primary && (
+              {Boolean(data.is_primary) && (
                 <span style={{ background: '#EEF2FF', color: '#4F46E5', borderRadius: 4, padding: '1px 6px', fontSize: 10, fontWeight: 700 }}>Primary</span>
               )}
               <span style={{ background: ss.bg, color: ss.color, border: `1px solid ${ss.border}`, borderRadius: 4, padding: '1px 6px', fontSize: 10, fontWeight: 700 }}>{ss.label}</span>
@@ -2540,7 +2496,7 @@ function ProfileEnrichment({ moduleCode, metadata, currentData, editMode, editVa
                   </select>
                 ) : PROFILE_DATE_FIELDS.has(k) ? (
                   <input
-                    type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31"
+                    type="date" min="1900-01-01" max="2100-12-31"
                     value={editValues?.[k] ?? ''}
                     onChange={e => onEditChange(k, e.target.value)}
                     className="wfi-profile-input"
@@ -2764,10 +2720,9 @@ function DetailPanel({
       }
       // Validate ID number format if the approver edited it
       const idNum     = editValues['id_number'];
-      const countryId = editValues['country'] ?? (task.proposedData?.['country'] as string);
-      const idTypeId  = editValues['id_type']  ?? (task.proposedData?.['id_type']  as string);
+      const countryId = editValues['country'] ?? (task.metadata?.['country'] as string);
+      const idTypeId  = editValues['id_type']  ?? (task.metadata?.['id_type']  as string);
       if (idNum && countryId && idTypeId) {
-        const countryName = usePicklistValues ? '' : ''; // resolved below
         // Resolve picklist labels from task metadata — same approach as the field renders
         const _allPl  = (task.metadata?.picklists ?? {}) as Record<string, { id: number; value: string }[]>;
         const _idPl   = (_allPl['id_type_by_country'] ?? []) as { id: number; value: string }[];
@@ -3404,7 +3359,7 @@ export default function ApproverInbox() {
     // This handler is only reached for expense_reports.
     const item = sentItems.find(i => i.instanceId === instanceId);
     if (!item || item.moduleCode !== 'expense_reports') return;
-    const { moduleCode, recordId } = await update(instanceId);
+    const { recordId } = await update(instanceId);
     navigate(`/expense/report/${recordId}?resume_instance=${instanceId}`);
   }
   async function handleRespond(instanceId: string, response?: string) {

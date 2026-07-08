@@ -355,7 +355,7 @@ function NewHiresTable({ employees, onContinue, onDelete, picklistVals, departme
 // Main Component
 // ─────────────────────────────────────────────────────────────────────────────
 export default function AddEmployee() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const editId = searchParams.get('edit');
   // mode=edit  → opened by approver via Edit-in-Flight (Update button in WorkflowReview)
@@ -533,7 +533,7 @@ export default function AddEmployee() {
   const [gateMsg, setGateMsg] = useState(false);
 
   // ── Toast notification ───────────────────────────────────────────────────
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null);
 
   // ── Info / success modal (replaces browser alert) ───────────────────────
   const [infoModal, setInfoModal] = useState<{
@@ -843,7 +843,7 @@ export default function AddEmployee() {
   }
 
   // ── Utility: brief toast notification ───────────────────────────────────
-  function showToast(message: string, type: 'success' | 'error' = 'success') {
+  function showToast(message: string, type: 'success' | 'error' | 'warning' = 'success') {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
   }
@@ -1698,7 +1698,13 @@ export default function AddEmployee() {
   // ── Save and return to approver review (Edit-in-Flight) ──────────────────
   // Called when the approver has opened the form via the Update button.
   async function handleSaveAndReturn() {
-    const errs = validateSection(activeSection);
+    // Flush portlet forms before validation; collect preSaved for state bypass
+    const preSaved = new Set<string>();
+    if (bankSaveTriggerRef.current) { const ok = await bankSaveTriggerRef.current(); if (!ok) return; preSaved.add('bank'); }
+    if (eduSaveTriggerRef.current)  { const ok = await eduSaveTriggerRef.current();  if (!ok) return; preSaved.add('education'); }
+    if (depSaveTriggerRef.current)  { const ok = await depSaveTriggerRef.current();  if (!ok) return; preSaved.add('dependents'); }
+
+    const errs = validateSection(activeSection, preSaved);
     if (Object.keys(errs).length > 0) { setErrors(errs); return; }
     setErrors({});
 
@@ -2185,7 +2191,7 @@ export default function AddEmployee() {
             <div className={`form-group ${errors.dob ? 'form-group--error' : ''}`}>
               <label><i className="fa-solid fa-cake-candles fa-fw" /> Date of Birth</label>
               <input
-                type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31"
+                type="date" min="1900-01-01"
                 value={dob}
                 onChange={e => setDob(e.target.value)}
                 max={new Date().toISOString().slice(0, 10)}
@@ -2693,7 +2699,7 @@ export default function AddEmployee() {
             </div>
             <div className={`form-group ${errors.probationEnd ? 'form-group--error' : ''}`}>
               <label><i className="fa-solid fa-hourglass-half fa-fw" /> Probation End Date</label>
-              <input type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31" value={probationEnd}
+              <input type="date" min="1900-01-01" max="2100-12-31" value={probationEnd}
                 onChange={e => handleProbationChange(e.target.value)} required />
               <FieldError msg={errors.probationEnd} />
             </div>

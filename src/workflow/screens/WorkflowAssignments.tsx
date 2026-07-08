@@ -192,7 +192,7 @@ export default function WorkflowAssignments() {
   const [templates,     setTemplates]     = useState<WfTemplate[]>([]);
   const [roles,         setRoles]         = useState<RoleOption[]>([]);
   const [activeCount,   setActiveCount]   = useState<number>(0);
-  const [assignments,   setAssignments]   = useState<Assignment[]>([]);
+  const [, setAssignments]   = useState<Assignment[]>([]);
   const [steps,         setSteps]         = useState<WfStep[]>([]);
   const [loadingRight,  setLoadingRight]  = useState(false);
 
@@ -787,12 +787,12 @@ export default function WorkflowAssignments() {
                   </select>
                 </FieldCol>
                 <FieldCol label="Effective From *">
-                  <input type="date" max="2100-12-31" min="1900-01-01" max="2100-12-31" value={globalFrom}
+                  <input type="date" min="1900-01-01" max="2100-12-31" value={globalFrom}
                     onChange={e => { setGlobalFrom(e.target.value); setGlobalDirty(true); }}
                     style={iStyle} />
                 </FieldCol>
                 <FieldCol label="Effective To">
-                  <input type="date" max="2100-12-31" value={globalTo} min={globalFrom} max="2100-12-31"
+                  <input type="date" value={globalTo} min={globalFrom} max="2100-12-31"
                     onChange={e => { setGlobalTo(e.target.value); setGlobalDirty(true); }}
                     style={iStyle} />
                 </FieldCol>
@@ -864,12 +864,12 @@ export default function WorkflowAssignments() {
                             </select>
                           </td>
                           <td style={{ padding: '8px 10px' }}>
-                            <input type="date" max="2100-12-31" min="1900-01-01" max="2100-12-31" value={row.effectiveFrom}
+                            <input type="date" min="1900-01-01" max="2100-12-31" value={row.effectiveFrom}
                               onChange={e => updateRoleRow(row._key, { effectiveFrom: e.target.value })}
                               style={{ ...iStyle, minWidth: 130 }} />
                           </td>
                           <td style={{ padding: '8px 10px' }}>
-                            <input type="date" max="2100-12-31" value={row.effectiveTo} min={row.effectiveFrom} max="2100-12-31"
+                            <input type="date" value={row.effectiveTo} min={row.effectiveFrom} max="2100-12-31"
                               onChange={e => updateRoleRow(row._key, { effectiveTo: e.target.value })}
                               style={{ ...iStyle, minWidth: 130 }} />
                           </td>
@@ -971,12 +971,12 @@ export default function WorkflowAssignments() {
                             </select>
                           </td>
                           <td style={{ padding: '8px 10px' }}>
-                            <input type="date" max="2100-12-31" min="1900-01-01" max="2100-12-31" value={row.effectiveFrom}
+                            <input type="date" min="1900-01-01" max="2100-12-31" value={row.effectiveFrom}
                               onChange={e => updateEmpRow(row._key, { effectiveFrom: e.target.value })}
                               style={{ ...iStyle, minWidth: 130 }} />
                           </td>
                           <td style={{ padding: '8px 10px' }}>
-                            <input type="date" max="2100-12-31" value={row.effectiveTo} min={row.effectiveFrom} max="2100-12-31"
+                            <input type="date" value={row.effectiveTo} min={row.effectiveFrom} max="2100-12-31"
                               onChange={e => updateEmpRow(row._key, { effectiveTo: e.target.value })}
                               style={{ ...iStyle, minWidth: 130 }} />
                           </td>

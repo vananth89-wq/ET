@@ -173,19 +173,8 @@ function fmtDate(val?: string): string {
   });
 }
 
-function fmtMonthYear(isoDate: string): string {
-  const d = new Date(isoDate + 'T00:00:00');
-  return d.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
-}
-
 function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
-}
-
-/** Snap an ISO date string to the 1st of its month. */
-function snapToFirstOfMonth(iso: string): string {
-  if (!iso) return iso;
-  return iso.slice(0, 7) + '-01';
 }
 
 function isItemAmended(item: DraftItem): boolean {
@@ -477,7 +466,7 @@ function DraftItemEditor({ item, onChange, relationshipTypes, documentTypes, has
         <div className={`form-group ${hasError && !item.date_of_birth ? 'form-group--error' : ''}`}>
           <label><i className="fa-solid fa-cake-candles fa-fw" /> Date of Birth *</label>
           <input
-            type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31"
+            type="date" min="1900-01-01"
             value={item.date_of_birth}
             max={todayISO()}
             onChange={e => onChange({ date_of_birth: e.target.value })}
@@ -760,13 +749,14 @@ function HistoryPanel({ employeeId, resolveRelationship }: {
     if (loaded.current) return;
     loaded.current = true;
     setLoading(true);
-    supabase.rpc('get_employee_dependent_set_history', { p_employee_id: employeeId })
-      .then(({ data, error }) => {
-        if (error) { setErr(error.message); return; }
-        const payload = data as { ok: boolean; sets: SetHistoryRow[] } | null;
-        setSets(payload?.sets ?? []);
-      })
-      .finally(() => setLoading(false));
+    Promise.resolve(
+      supabase.rpc('get_employee_dependent_set_history', { p_employee_id: employeeId })
+        .then(({ data, error }) => {
+          if (error) { setErr(error.message); return; }
+          const payload = data as { ok: boolean; sets: SetHistoryRow[] } | null;
+          setSets(payload?.sets ?? []);
+        })
+    ).finally(() => setLoading(false));
   }, [employeeId]);
 
   if (loading) return (
@@ -1357,7 +1347,7 @@ export default function DependentsPortlet({
                   Effective From
                 </div>
                 <input
-                  type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31"
+                  type="date" min="1900-01-01" max="2100-12-31"
                   value={draftEffectiveFrom}
                   style={{
                     fontSize: 13, padding: '5px 8px', borderRadius: 6,

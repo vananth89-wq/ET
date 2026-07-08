@@ -233,8 +233,6 @@ export default function ThemeManager() {
   const [profileSecDragIdx,  setProfileSecDragIdx]  = useState<number | null>(null);
   const [profileSecSaving,   setProfileSecSaving]   = useState(false);
   const [profileSecSaved,    setProfileSecSaved]    = useState(false);
-  const profileHeroRef = useRef<HTMLInputElement>(null);
-
   // File refs
   const brandRef    = useRef<HTMLInputElement>(null);
   const cardRef     = useRef<HTMLInputElement>(null);

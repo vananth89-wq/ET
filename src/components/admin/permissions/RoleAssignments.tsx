@@ -553,9 +553,9 @@ export default function RoleAssignments() {
 
       // Flatten nested structure into AssignedUser[]
       const users: AssignedUser[] = (data ?? []).map(row => {
-        const profile = (row.profiles as Record<string, unknown> | null);
-        const emp     = (profile?.employees as Record<string, unknown> | null);
-        const dept    = (emp?.departments   as Record<string, unknown> | null);
+        const profile = (row.profiles as unknown as Record<string, unknown> | null);
+        const emp     = (profile?.employees as unknown as Record<string, unknown> | null);
+        const dept    = (emp?.departments   as unknown as Record<string, unknown> | null);
         return {
           assignment_id: row.id,
           profile_id:    row.profile_id,
@@ -618,7 +618,7 @@ export default function RoleAssignments() {
           employee_id:    e.id,
           name:           e.name,
           business_email: e.business_email as string | null,
-          dept_name:      (e.departments as Record<string, unknown> | null)?.name as string | null ?? null,
+          dept_name:      (e.departments as unknown as Record<string, unknown> | null)?.name as string | null ?? null,
           photo_url:      null,
         }));
 

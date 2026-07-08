@@ -253,7 +253,7 @@ export default function WorkflowPerformanceDashboard() {
       }));
       setSteps(mappedSteps);
       // Collapse all template groups by default on every fresh load
-      setCollapsedTemplates(new Set(mappedSteps.map(s => s.templateCode)));
+      setCollapsedTemplates(new Set(mappedSteps.map((s: StepRow) => s.templateCode)));
 
       const now = Date.now();
       setOverdue(

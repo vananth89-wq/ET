@@ -751,7 +751,7 @@ export default function JobRelationshipsPortlet({
               Effective Date
             </label>
             <input
-              type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31"
+              type="date" min="1900-01-01" max="2100-12-31"
               value={draftEffectiveFrom}
               onChange={e => setDraftEffectiveFrom(e.target.value)}
               style={{

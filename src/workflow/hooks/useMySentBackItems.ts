@@ -24,6 +24,7 @@ export interface SentBackItem {
   templateCode:         string;
   templateName:         string;
   submittedAt:          string;
+  submittedByName:      string | null;
   updatedAt:            string;
   clarificationMessage: string;
   clarificationFrom:    string | null;
@@ -64,6 +65,7 @@ export function useMySentBackItems() {
           templateCode:         r.template_code,
           templateName:         r.template_name,
           submittedAt:          r.submitted_at,
+          submittedByName:      r.submitted_by_name ?? null,
           updatedAt:            r.updated_at,
           clarificationMessage: r.clarification_message ?? '',
           clarificationFrom:    r.clarification_from    ?? null,

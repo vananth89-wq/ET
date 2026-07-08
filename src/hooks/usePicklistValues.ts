@@ -62,7 +62,7 @@ export function usePicklistValues(activeOnly = true): UsePicklistValuesResult {
           setPicklistValues(
             (data ?? []).map((row) => ({
               id:            row.id,
-              picklistId:    (row.picklists as { picklist_id: string } | null)?.picklist_id ?? '',
+              picklistId:    (row.picklists as unknown as { picklist_id: string } | null)?.picklist_id ?? '',
               value:         row.value,
               parentValueId: row.parent_value_id,
               refId:         row.ref_id,

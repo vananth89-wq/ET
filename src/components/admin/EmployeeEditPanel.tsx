@@ -87,15 +87,6 @@ function FieldError({ msg }: { msg?: string }) {
   );
 }
 
-function SummaryRow({ label, value }: { label: string; value?: string }) {
-  return (
-    <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center', color: '#6B7280', fontSize: 12.5 }}>
-      <span style={{ color: '#9CA3AF', fontSize: 11 }}>{label}</span>
-      <span style={{ color: '#374151', fontWeight: 500 }}>{value || '—'}</span>
-    </span>
-  );
-}
-
 // Grid-style field: label above, value below, dashed separator — matches edit form layout
 function GridField({ label, value, wide, children }: { label: string; value?: string | null; wide?: boolean; children?: React.ReactNode }) {
   return (
@@ -149,8 +140,7 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved, initialEmploy
   const [dEmpStatus,    setDEmpStatus]    = useState('');
   const [dEmpRole,      setDEmpRole]      = useState('');
   const [dEmpLocked,    setDEmpLocked]    = useState(false);
-  const [empRawRecord,  setEmpRawRecord]  = useState<Record<string, unknown> | null>(null);
-  const [empRawLoading, setEmpRawLoading] = useState(false);
+  const [, setEmpRawRecord]  = useState<Record<string, unknown> | null>(null);
 
   // Load raw employees row on mount (needed for summary view of unmapped columns)
   useEffect(() => {
@@ -232,7 +222,7 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved, initialEmploy
   const depSaveAllRef = useRef<(() => Promise<boolean>) | null>(null);
   const [depSaving, setDepSaving] = useState(false);
 
-  const jrSaveAllRef = useRef<(() => Promise<boolean>) | null>(null);
+  const jrSaveAllRef = useRef<(() => Promise<boolean>) | undefined>(undefined);
   const [jrSaving, setJrSaving] = useState(false);
 
   // ── Deactivation impact modal ─────────────────────────────────────────────
@@ -272,7 +262,7 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved, initialEmploy
   // 'edit'   = in-place correction of an existing slice (CORRECTION)
   const [employmentMode,          setEmploymentMode]          = useState<'edit' | 'insert'>('insert');
   const [employmentEffectiveFrom, setEmploymentEffectiveFrom] = useState<string>('');
-  const [eeHistOpen,    setEeHistOpen]    = useState(false);
+  const [, setEeHistOpen]    = useState(false);
   const [eeHistRows,    setEeHistRows]    = useState<Record<string, unknown>[]>([]);
   const [eeHistLoading, setEeHistLoading] = useState(false);
   const [eeHistSelIdx,  setEeHistSelIdx]  = useState(0);
@@ -1019,10 +1009,8 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved, initialEmploy
   // ── Read summaries ────────────────────────────────────────────────────────
   function readSummary(sectionId: string) {
     const e = liveEmp;
-    const gap = { display: 'flex', flexWrap: 'wrap' as const, gap: '8px 20px', padding: '4px 0' };
     switch (sectionId) {
       case 'employee_record': {
-        const raw = empRawRecord ?? {};
         const statusColor: Record<string, { bg: string; color: string }> = {
           Active:     { bg: '#D1FAE5', color: '#065F46' },
           Inactive:   { bg: '#F3F4F6', color: '#374151' },
@@ -1343,13 +1331,13 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved, initialEmploy
                           )}
                         </div>
                         <div className="emp-field-grid emp-grid-2" style={{ gap: 8, fontSize: 13 }}>
-                          {h.name           && <><span style={{ color: '#6B7280' }}>Full Name</span><span>{h.name as string}</span></>}
-                          {h.nationality    && <><span style={{ color: '#6B7280' }}>Nationality</span><span>{h.nationality as string}</span></>}
-                          {h.marital_status && <><span style={{ color: '#6B7280' }}>Marital Status</span><span>{h.marital_status as string}</span></>}
-                          {h.gender         && <><span style={{ color: '#6B7280' }}>Gender</span><span>{h.gender as string}</span></>}
-                          {h.dob            && <><span style={{ color: '#6B7280' }}>Date of Birth</span><span>{h.dob as string}</span></>}
-                          {h.middle_name    && <><span style={{ color: '#6B7280' }}>Middle Name</span><span>{h.middle_name as string}</span></>}
-                          {h.preferred_name && <><span style={{ color: '#6B7280' }}>Preferred Name</span><span>{h.preferred_name as string}</span></>}
+                          {Boolean(h.name)           && <><span style={{ color: '#6B7280' }}>Full Name</span><span>{String(h.name ?? '')}</span></>}
+                          {Boolean(h.nationality)    && <><span style={{ color: '#6B7280' }}>Nationality</span><span>{String(h.nationality ?? '')}</span></>}
+                          {Boolean(h.marital_status) && <><span style={{ color: '#6B7280' }}>Marital Status</span><span>{String(h.marital_status ?? '')}</span></>}
+                          {Boolean(h.gender)         && <><span style={{ color: '#6B7280' }}>Gender</span><span>{String(h.gender ?? '')}</span></>}
+                          {Boolean(h.dob)            && <><span style={{ color: '#6B7280' }}>Date of Birth</span><span>{String(h.dob ?? '')}</span></>}
+                          {Boolean(h.middle_name)    && <><span style={{ color: '#6B7280' }}>Middle Name</span><span>{String(h.middle_name ?? '')}</span></>}
+                          {Boolean(h.preferred_name) && <><span style={{ color: '#6B7280' }}>Preferred Name</span><span>{String(h.preferred_name ?? '')}</span></>}
                         </div>
                       </div>
                     );
@@ -1410,7 +1398,7 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved, initialEmploy
             <div className={`form-group ${errors.dob ? 'form-group--error' : ''}`}>
               <label><i className="fa-solid fa-cake-candles fa-fw" /> Date of Birth</label>
               <input
-                type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31"
+                type="date" min="1900-01-01"
                 value={dDob}
                 onChange={e => { setDDob(e.target.value); setIsDirty(true); setErrors(p => ({ ...p, dob: '' })); }}
                 max={new Date().toISOString().slice(0, 10)}

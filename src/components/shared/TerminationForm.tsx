@@ -65,7 +65,7 @@ export default function TerminationForm({
 }: Props) {
   const [form,       setForm]       = useState<FormState>({ ...EMPTY, ...initialValues });
   const [errors,     setErrors]     = useState<Partial<Record<keyof FormState, string>>>({});
-  const [lwdTouched, setLwdTouched] = useState(false);
+  const [lwdTouched] = useState(false);
 
   const { getValues } = usePicklistValuesLookup();
   const reasons = getValues('RESIGNATION_REASON');
@@ -80,11 +80,6 @@ export default function TerminationForm({
   function set(field: keyof FormState, value: string) {
     setForm(f => ({ ...f, [field]: value }));
     setErrors(e => ({ ...e, [field]: '' }));
-  }
-
-  function setLwd(value: string) {
-    setLwdTouched(true);
-    set('last_working_date', value);
   }
 
   function validate(): boolean {

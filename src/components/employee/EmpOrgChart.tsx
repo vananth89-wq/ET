@@ -993,7 +993,7 @@ export default function EmpOrgChart() {
         <i className="fa-solid fa-calendar-day" />
         <label>View as of</label>
         <input
-          type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31"
+          type="date" min="1900-01-01" max="2100-12-31"
           className="oc-date-input"
           value={viewDate}
           onChange={e => setViewDate(e.target.value || todayVal)}

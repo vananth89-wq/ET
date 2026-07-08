@@ -16,7 +16,7 @@
  * Design spec: docs/termination-design.md §6
  */
 
-import { useState, useCallback } from 'react';
+import { useState } from 'react';
 import { supabase }              from '../../lib/supabase';
 import { useAuth }               from '../../contexts/AuthContext';
 import ConfirmationModal         from './ConfirmationModal';
@@ -109,7 +109,7 @@ export default function TerminationPortlet({
   noticePeriodDays = 30,
   readOnly = false,
   canEdit = false,
-  canHistory = false,
+  canHistory: _canHistory = false,
   canDelete = false,
   hideSubmitButton = false,
   pendingCount: _pendingCount,
@@ -134,7 +134,6 @@ export default function TerminationPortlet({
   const [rerunResult,          setRerunResult]          = useState<{ ok: boolean; msg: string } | null>(null);
 
   const isPending    = termination?.workflow_status === 'PENDING';
-  const pendingCount = isPending ? 1 : 0;
 
   // Show "Re-run finalization" when: super admin + APPROVED + not yet executed + LWD is past
   const today = new Date().toISOString().slice(0, 10);
@@ -624,12 +623,14 @@ export default function TerminationPortlet({
         onClose={() => setParticipantsOpen(false)}
         instanceId={termination?.workflow_instance_id ?? null}
         title="Termination Approval Progress"
+        submittedByName={employeeName}
       />
       <WorkflowParticipantsModal
         open={reversalParticipantsOpen}
         onClose={() => setReversalParticipantsOpen(false)}
         instanceId={reversal?.workflow_instance_id ?? null}
         title="Reversal Approval Progress"
+        submittedByName={employeeName}
       />
 
       {/* ── WITHDRAW CONFIRMATION ──────────────────────────────────────────── */}

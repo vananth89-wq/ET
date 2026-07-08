@@ -472,7 +472,7 @@ interface DraftBankItemEditorProps {
   employeeId: string;
 }
 
-function DraftBankItemEditor({ item, onChange, onSetPrimary, hasError, employeeId }: DraftBankItemEditorProps) {
+function DraftBankItemEditor({ item, onChange, onSetPrimary, hasError, employeeId: _employeeId }: DraftBankItemEditorProps) {
   const { picklistValues } = usePicklistValues();
 
   const countries = picklistValues.filter(p => p.picklistId === 'ID_COUNTRY' && p.active !== false);
@@ -1044,7 +1044,7 @@ function BankPendingSetCard({ proposedData }: {
                 <div style={{ fontWeight: 600, fontSize: 13, color: '#78350F', flex: 1 }}>
                   {String(it.bank_name ?? 'Bank account')}
                 </div>
-                {it.is_primary && (
+                {Boolean(it.is_primary) && (
                   <span style={{ background: '#FEF3C7', color: '#92400E',
                     borderRadius: 4, padding: '1px 6px', fontSize: 10, fontWeight: 700 }}>
                     Primary
@@ -1056,11 +1056,11 @@ function BankPendingSetCard({ proposedData }: {
                 {cell('Account Number', it.account_number ? maskAccount(String(it.account_number)) : '—', true)}
                 {cell('Country', it.country_code)}
                 {cell('Currency', it.currency_code)}
-                {rules.branchName !== 'hidden' && it.branch_name && cell('Branch', it.branch_name)}
-                {rules.branchCode !== 'hidden' && it.branch_code && cell('Branch Code', it.branch_code, true)}
-                {rules.ifsc !== 'hidden' && it.ifsc_code && cell('IFSC', it.ifsc_code, true)}
-                {rules.iban !== 'hidden' && it.iban && cell('IBAN', it.iban, true)}
-                {it.swift_bic && cell('SWIFT / BIC', it.swift_bic, true)}
+                {rules.branchName !== 'hidden' && Boolean(it.branch_name) && cell('Branch', it.branch_name)}
+                {rules.branchCode !== 'hidden' && Boolean(it.branch_code) && cell('Branch Code', it.branch_code, true)}
+                {rules.ifsc !== 'hidden' && Boolean(it.ifsc_code) && cell('IFSC', it.ifsc_code, true)}
+                {rules.iban !== 'hidden' && Boolean(it.iban) && cell('IBAN', it.iban, true)}
+                {Boolean(it.swift_bic) && cell('SWIFT / BIC', it.swift_bic, true)}
               </div>
             </div>
           );
@@ -1085,13 +1085,14 @@ function BankSetHistoryPanel({ employeeId }: { employeeId: string }) {
     if (loaded.current) return;
     loaded.current = true;
     setLoading(true);
-    supabase.rpc('get_employee_bank_account_set_history', { p_employee_id: employeeId })
-      .then(({ data, error }) => {
-        if (error) { setErr(error.message); return; }
-        const payload = data as { ok: boolean; sets: BankSetHistoryRow[] } | null;
-        setSets(payload?.sets ?? []);
-      })
-      .finally(() => setLoading(false));
+    Promise.resolve(
+      supabase.rpc('get_employee_bank_account_set_history', { p_employee_id: employeeId })
+        .then(({ data, error }) => {
+          if (error) { setErr(error.message); return; }
+          const payload = data as { ok: boolean; sets: BankSetHistoryRow[] } | null;
+          setSets(payload?.sets ?? []);
+        })
+    ).finally(() => setLoading(false));
   }, [employeeId]);
 
   if (loading) return (
@@ -1670,7 +1671,7 @@ export default function BankAccountsPortlet({
   ) : null;
 
   const editBtn = (canCreate || canEdit || canDelete) && !readOnly && !reviewMode && pendingCount === 0 && !submissionClosed ? (
-    <button style={editBtnStyle} onClick={enterDraft}>
+    <button style={editBtnStyle} onClick={() => enterDraft()}>
       <i className="fa-solid fa-pen" style={{ fontSize: 11 }} />
       Edit
     </button>
@@ -1831,7 +1832,7 @@ export default function BankAccountsPortlet({
                 ) : (
                   <>
                     <input
-                      type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31"
+                      type="date" min="1900-01-01" max="2100-12-31"
                       value={draftEffectiveFrom}
                       style={{
                         fontSize: 13, padding: '5px 8px', borderRadius: 6,
@@ -1983,7 +1984,7 @@ export default function BankAccountsPortlet({
                 className="emp-btn-primary"
                 style={{ padding: '8px 22px', fontSize: 13 }}
                 disabled={submitting}
-                onClick={handleSubmit}>
+                onClick={() => handleSubmit()}>
                 {submitting
                   ? <><i className="fa-solid fa-spinner fa-spin" style={{ marginRight: 6 }} />Submitting…</>
                   : <><i className="fa-solid fa-check" style={{ marginRight: 6 }} />Submit Changes</>

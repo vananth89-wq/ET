@@ -365,12 +365,6 @@ function ExpenseReportDetail({ onBack }: { onBack: () => void }) {
     return ids;
   }, [popResults]);
 
-  // Build a fast UUID→Employee map so allRows can look up emp.id for filtering.
-  const empByUUID = useMemo(
-    () => new Map(supabaseEmps.map(e => [e.id, e])),
-    [supabaseEmps],
-  );
-
   // Scope the reports list to the merged target population before building allRows.
   const reports = useMemo(() => {
     if (targetPop === 'ALL') return allReports;
@@ -599,16 +593,16 @@ function ExpenseReportDetail({ onBack }: { onBack: () => void }) {
           <div className="er-chip er-chip-date">
             <i className="fa-solid fa-calendar-days er-chip-icon" />
             <span className="er-date-lbl">Exp. Date</span>
-            <input type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31" className="er-date-inp" value={expFrom} onChange={e => setExpFrom(e.target.value)} />
+            <input type="date" min="1900-01-01" max="2100-12-31" className="er-date-inp" value={expFrom} onChange={e => setExpFrom(e.target.value)} />
             <span className="er-date-sep">–</span>
-            <input type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31" className="er-date-inp" value={expTo} onChange={e => setExpTo(e.target.value)} />
+            <input type="date" min="1900-01-01" max="2100-12-31" className="er-date-inp" value={expTo} onChange={e => setExpTo(e.target.value)} />
           </div>
           <div className="er-chip er-chip-date">
             <i className="fa-solid fa-calendar-check er-chip-icon" />
             <span className="er-date-lbl">Approval Date</span>
-            <input type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31" className="er-date-inp" value={appFrom} onChange={e => setAppFrom(e.target.value)} />
+            <input type="date" min="1900-01-01" max="2100-12-31" className="er-date-inp" value={appFrom} onChange={e => setAppFrom(e.target.value)} />
             <span className="er-date-sep">–</span>
-            <input type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31" className="er-date-inp" value={appTo} onChange={e => setAppTo(e.target.value)} />
+            <input type="date" min="1900-01-01" max="2100-12-31" className="er-date-inp" value={appTo} onChange={e => setAppTo(e.target.value)} />
           </div>
         </div>
 

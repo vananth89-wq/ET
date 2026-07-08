@@ -17,7 +17,6 @@
  */
 
 import { useRef, useState, useEffect }                            from 'react';
-import { phoneFlag }                                              from './constants/phoneCodes';
 import { Routes, Route, Navigate, NavLink, Outlet,
          useLocation, useNavigate, useParams }                    from 'react-router-dom';
 import { useAuth }                                                from './contexts/AuthContext';
@@ -60,7 +59,6 @@ import RbpTroubleshoot                                            from './compon
 import TargetGroups                                               from './components/admin/permissions/TargetGroups';
 import PermissionMatrix                                           from './components/admin/permissions/PermissionMatrix';
 import PasswordResetAdmin                                          from './components/admin/security/PasswordResetAdmin';
-import ComingSoon                                                 from './components/shared/ComingSoon';
 import NotificationBell                                           from './components/shared/NotificationBell';
 import { ErrorBoundary }                                          from './components/shared/ErrorBoundary';
 import BulkOperations                                             from './components/admin/BulkOperations';
@@ -267,12 +265,10 @@ function SidebarProfileCard() {
 
 function UserMenu() {
   const navigate = useNavigate();
-  const loc      = useLocation();
-  const { signOut, user, employee }   = useAuth();
+  const { signOut, user }   = useAuth();
   const { canAny }          = usePermissions();
   const [open,    setOpen]  = useState(false);
   const menuRef             = useRef<HTMLDivElement>(null);
-  const isAdminPath         = loc.pathname.startsWith('/admin');
 
   // Change-password modal state
   const [showPwd,   setShowPwd]   = useState(false);

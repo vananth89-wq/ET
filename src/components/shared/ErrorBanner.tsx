@@ -2,6 +2,8 @@ interface ErrorBannerProps {
   message: string;
   /** Optional retry callback — shows a Retry button when provided */
   onRetry?: () => void;
+  /** Optional dismiss callback — shows a Dismiss button when provided */
+  onDismiss?: () => void;
 }
 
 /**
@@ -12,7 +14,7 @@ interface ErrorBannerProps {
  *   const { data, error, refetch } = useSomeHook();
  *   if (error) return <ErrorBanner message={error} onRetry={refetch} />;
  */
-export default function ErrorBanner({ message, onRetry }: ErrorBannerProps) {
+export default function ErrorBanner({ message, onRetry, onDismiss }: ErrorBannerProps) {
   return (
     <div style={{
       display: 'flex', flexDirection: 'column', alignItems: 'center',
@@ -36,6 +38,19 @@ export default function ErrorBanner({ message, onRetry }: ErrorBannerProps) {
         >
           <i className="fa-solid fa-rotate-right" />
           Retry
+        </button>
+      )}
+      {onDismiss && (
+        <button
+          onClick={onDismiss}
+          style={{
+            marginTop: 4, padding: '6px 18px', borderRadius: 6, border: '1px solid #D1D5DB',
+            background: '#F9FAFB', cursor: 'pointer', fontSize: 13, color: '#374151',
+            display: 'flex', alignItems: 'center', gap: 6,
+          }}
+        >
+          <i className="fa-solid fa-xmark" />
+          Dismiss
         </button>
       )}
     </div>

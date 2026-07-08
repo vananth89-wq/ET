@@ -157,7 +157,7 @@ function KpiCard({ label, value, sub, icon, color }: {
 
 export default function ExpenseAnalytics() {
   const navigate          = useNavigate();
-  const { can, canAny }   = usePermissions();
+  const { can }   = usePermissions();
   useAuth();
 
   // ── Permission checks ────────────────────────────────────────────────────
@@ -344,11 +344,11 @@ export default function ExpenseAnalytics() {
           <>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               <label style={{ fontSize: 11, color: 'var(--text-secondary)', fontWeight: 600 }}>FROM</label>
-              <input type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31" className="form-input" value={customFrom} onChange={e => setCustomFrom(e.target.value)} />
+              <input type="date" min="1900-01-01" max="2100-12-31" className="form-input" value={customFrom} onChange={e => setCustomFrom(e.target.value)} />
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               <label style={{ fontSize: 11, color: 'var(--text-secondary)', fontWeight: 600 }}>TO</label>
-              <input type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31" className="form-input" value={customTo} onChange={e => setCustomTo(e.target.value)} />
+              <input type="date" min="1900-01-01" max="2100-12-31" className="form-input" value={customTo} onChange={e => setCustomTo(e.target.value)} />
             </div>
           </>
         )}

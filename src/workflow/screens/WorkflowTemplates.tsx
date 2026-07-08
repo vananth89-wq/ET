@@ -992,6 +992,7 @@ export default function WorkflowTemplates() {
       notificationTemplateId:  step.notificationTemplateId,
       stepOrder:               step.stepOrder,
       relationshipCode:        step.relationshipCode,
+      approvalMode:            step.approvalMode,
     });
     setEditingStepId(step.id);
     // If editing a SPECIFIC_USER step, pre-load the user name
@@ -1677,7 +1678,7 @@ export default function WorkflowTemplates() {
           </ModalRow>
           <ModalRow label="Effective From">
             <input
-              type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31"
+              type="date" min="1900-01-01" max="2100-12-31"
               value={newTpl.effectiveFrom}
               onChange={e => setNewTpl(d => ({ ...d, effectiveFrom: e.target.value }))}
               style={iStyle}
@@ -2322,7 +2323,6 @@ export default function WorkflowTemplates() {
               ? conditions.map(c => ({ key: c.id, fieldPath: c.fieldPath, operator: c.operator, value: c.value, skipStep: c.skipStep, dbId: c.id }))
               : pendingConditions.map((c, i) => ({ key: `pending-${i}`, fieldPath: c.fieldPath, operator: c.operator, value: c.value, skipStep: c.skipStep, pendingIdx: i }));
 
-            const selectedTpl   = templates.find(t => t.id === selectedId);
             const availableFields = CONDITION_FIELDS['_default'];
             const selectedField   = availableFields.find(f => f.value === conditionDraft.fieldPath) ?? availableFields[0];
             const availableOps    = CONDITION_OPERATORS.filter(o => o.types.includes(selectedField?.type ?? 'text'));

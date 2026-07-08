@@ -25,7 +25,7 @@ import type { ExpenseReport, ExpenseStatus } from '../../../types';
 const PAGE_SIZE = 15;
 
 // Statuses where a report is still pending action (not terminal)
-const TERMINAL_STATUSES: ExpenseStatus[] = ['approved', 'rejected', 'cancelled'];
+const TERMINAL_STATUSES: ExpenseStatus[] = ['approved', 'rejected'];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

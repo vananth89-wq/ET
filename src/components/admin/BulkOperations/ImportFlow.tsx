@@ -47,17 +47,13 @@ interface Props {
   onJobSettled:   () => void;
 }
 
-export default function ImportFlow({ template, activeJob, onJobStarted, onJobSettled }: Props) {
+export default function ImportFlow({ template, activeJob: _activeJob, onJobStarted, onJobSettled }: Props) {
   const fileRef         = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState<Step>('idle');
   const [msg,  setMsg]  = useState('');
   const [validation, setValidation] = useState<ValidationResponse | null>(null);
   const [jobId, setJobId]           = useState<string | null>(null);
   const [hasDeleteRecord, setHasDeleteRecord] = useState(false);
-
-  // Show in-flight job state from parent polling
-  const inflight = activeJob &&
-    ['validating', 'awaiting_user', 'processing'].includes(activeJob.status);
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];

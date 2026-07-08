@@ -1,10 +1,8 @@
-import { useRef, useEffect, useState, useCallback } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import { useEmployeeSearch } from '../../../hooks/useEmployeeSearch';
-import { phoneFlag } from '../../../constants/phoneCodes';
 import { validateMobile, mobilePlaceholder, mobileHint } from '../../../utils/validateMobile';
 import { validatePassportNumber, validatePassportValidity, passportNumberPlaceholder, passportNumberHint, passportValidityHint } from '../../../utils/validatePassport';
 import { useAuth } from '../../../contexts/AuthContext';
-import { usePermissions } from '../../../hooks/usePermissions';
 import { useProfileContext } from '../../../contexts/ProfileContext';
 import { usePermissionsForEmployee } from '../../../hooks/usePermissionsForEmployee';
 import { usePicklistValues } from '../../../hooks/usePicklistValues';
@@ -300,10 +298,11 @@ const inputStyle: React.CSSProperties = {
 };
 
 function FormInput({
-  label, value, onChange, type = 'text', placeholder = '', hint, error,
+  label, value, onChange, type = 'text', placeholder = '', hint, error, min, max,
 }: {
   label: string; value: string; onChange: (v: string) => void;
   type?: string; placeholder?: string; hint?: string; error?: string;
+  min?: string; max?: string;
 }) {
   return (
     <div className="ev-field">
@@ -312,6 +311,8 @@ function FormInput({
         type={type}
         value={value}
         placeholder={placeholder}
+        min={min}
+        max={max}
         onChange={e => onChange(e.target.value)}
         style={{ ...inputStyle, ...(error ? { borderColor: '#EF4444' } : {}) }}
       />
@@ -517,7 +518,7 @@ export default function MyProfile() {
     moduleCode:   string;
     title:        string;
     recordId:     string | null;
-    proposedData: Record<string, string | null>;
+    proposedData: Record<string, string | number | boolean | null>;
     successMsg:   string;
   } | null>(null);
 
@@ -554,9 +555,9 @@ export default function MyProfile() {
   const [employmentHistLoading, setEmploymentHistLoading] = useState(false);
   const [employmentHistSelIdx,  setEmploymentHistSelIdx]  = useState(0);
   const [employmentEditMode,    setEmploymentEditMode]    = useState<'edit' | 'insert'>('insert');
-  const [empPropagate,          setEmpPropagate]          = useState(false);
+  const [, setEmpPropagate]          = useState(false);
   const [showPropagateModal,    setShowPropagateModal]    = useState(false);
-  const [pendingEmpSave,        setPendingEmpSave]        = useState<(() => Promise<void>) | null>(null);
+  const [, setPendingEmpSave]        = useState<(() => Promise<void>) | null>(null);
 
   // Personal info history panel
   const [personalEditMode,           setPersonalEditMode]           = useState<'edit' | 'insert'>('insert');
@@ -874,7 +875,7 @@ export default function MyProfile() {
   async function submitViaWorkflow(
     moduleCode:   string,
     recordId:     string | null,
-    proposedData: Record<string, string | null>,
+    proposedData: Record<string, string | number | boolean | null>,
     comment?:     string,
   ): Promise<void> {
     const { data, error } = await supabase.rpc('submit_change_request', {
@@ -2097,7 +2098,7 @@ export default function MyProfile() {
                     />
                     <FormInput
                       label="Date of Birth *"
-                      type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31"
+                      type="date" min="1900-01-01" max="2100-12-31"
                       value={fd('dob')}
                       onChange={v => setFd('dob', v)}
                     />
@@ -2180,9 +2181,6 @@ export default function MyProfile() {
                       {(() => {
                         const h = personalHistRows[personalHistSelIdx];
                         if (!h) return null;
-                        const today = new Date().toISOString().slice(0, 10);
-                        const isCurrent  = (h.effective_from as string) <= today && (h.effective_to as string) >= today;
-                        const isUpcoming = (h.effective_from as string) > today;
                         return (
                           <div style={{ flex: 1, padding: '14px 16px', display: 'flex', flexDirection: 'column' }}>
                             <div className="ev-field-grid ev-grid-2" style={{ gap: 8 }}>
@@ -2195,7 +2193,7 @@ export default function MyProfile() {
                               <Field label="Marital Status" value={resolvePicklist('MARITAL_STATUS', (h.marital_status as string | undefined))} />
                               <Field label="Gender"         value={(h.gender      as string) || undefined} />
                               <Field label="Date of Birth"  value={(h.dob         as string) || undefined} />
-                              {h.dob && <Field label="Age" value={calcAge(h.dob as string) !== null ? `${calcAge(h.dob as string)} years` : undefined} />}
+                              {!!h.dob && <Field label="Age" value={calcAge(h.dob as string) !== null ? `${calcAge(h.dob as string)} years` : undefined} />}
                             </div>
                             {(can('personal_info.edit') || can('personal_info.delete')) && (
                               <div style={{ marginTop: 12, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
@@ -2622,9 +2620,6 @@ export default function MyProfile() {
                       {(() => {
                         const h = employmentHistRows[employmentHistSelIdx];
                         if (!h) return null;
-                        const today = new Date().toISOString().slice(0, 10);
-                        const isCurrent  = (h.effective_from as string) <= today && (h.effective_to as string) >= today;
-                        const isUpcoming = (h.effective_from as string) > today;
                         return (
                           <div style={{ flex: 1, padding: '14px 16px', display: 'flex', flexDirection: 'column' }}>
                             <div className="ev-field-grid ev-grid-2">

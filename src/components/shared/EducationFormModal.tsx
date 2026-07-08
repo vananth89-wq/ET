@@ -98,7 +98,7 @@ const PURSUING_CODE  = 'ES02';
 
 function AttachmentRow({
   att,
-  index,
+  index: _index,
   documentTypes,
   onRemove,
   onDocTypeChange,
@@ -195,7 +195,7 @@ export default function EducationFormModal({
   initialData,
   onClose,
   onSaved,
-  isNewHire = false,
+  isNewHire: _isNewHire = false,
 }: EducationFormModalProps) {
   const { picklistValues } = usePicklistValues();
 
@@ -304,7 +304,6 @@ export default function EducationFormModal({
     return Promise.all(
       attachments.map(async (att): Promise<EduAttachment> => {
         if (!att._file) return att; // already-saved attachment
-        const ext  = att.file_name.split('.').pop() ?? 'bin';
         const ts   = Date.now();
         const path = `education/${employeeId}/${stageId}/${ts}_${att.file_name}`;
         const { error } = await supabase.storage.from(HR_BUCKET).upload(path, att._file, { upsert: false });
@@ -332,7 +331,6 @@ export default function EducationFormModal({
 
     try {
       // Stage ID: use existing educationId for edits, or a temp UUID for new records
-      const crypto = window.crypto ?? (window as unknown as { msCrypto: Crypto }).msCrypto;
       const stageId = educationId ?? `_new_${randomUUID()}`;
 
       // 1. Upload any staged files
@@ -525,7 +523,7 @@ export default function EducationFormModal({
                   <i className="fa-solid fa-calendar-plus fa-fw" /> Start Date *
                 </label>
                 <input
-                  type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31"
+                  type="date" min="1900-01-01" max="2100-12-31"
                   value={form.start_date}
                   onChange={e => set('start_date', e.target.value)}
                   style={fe(showErrors && !form.start_date)}
@@ -539,7 +537,7 @@ export default function EducationFormModal({
                   {isCompleted && <span style={{ color: '#EF4444' }}> *</span>}
                 </label>
                 <input
-                  type="date" min="1900-01-01" max="2100-12-31" min="1900-01-01" max="2100-12-31"
+                  type="date" min="1900-01-01"
                   value={form.end_date}
                   onChange={e => set('end_date', e.target.value)}
                   disabled={isPursuing}

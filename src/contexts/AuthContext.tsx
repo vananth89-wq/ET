@@ -148,7 +148,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Each row: { roles: { code: 'admin' } }
         setRoles(
           (roleResult.data ?? [])
-            .map(r => (r.roles as { code: string } | null)?.code)
+            .map(r => (r.roles as unknown as { code: string } | null)?.code)
             .filter((c): c is string => !!c)
         );
       }
