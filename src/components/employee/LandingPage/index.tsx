@@ -24,7 +24,7 @@ interface SuggestedTask {
 }
 
 const DEFAULT_SUGGESTED_TASKS: SuggestedTask[] = [
-  { id: 'my_profile',         label: 'My Profile',         path: '/profile', visible: true,  order: 1 },
+  { id: 'my_profile',         label: 'My Profile.',        path: '/profile', visible: true,  order: 1 },
   { id: 'my_expense_reports', label: 'My Expense Reports', path: '/expense', visible: true,  order: 2 },
 ];
 

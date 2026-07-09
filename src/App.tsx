@@ -362,7 +362,7 @@ function UserMenu() {
             {/* My Profile — always visible, navigates to self-service view (no param = self mode) */}
             <button type="button" className="user-menu-item"
               onClick={() => { setOpen(false); navigate('/profile'); }}>
-              <i className="fa-solid fa-circle-user" /> My Profile
+              <i className="fa-solid fa-circle-user" /> My Profile.
             </button>
 
             {/* Admin Center — only for users with admin access */}
@@ -573,7 +573,7 @@ function Sidebar() {
           <>
             <div className="sidebar-section-label">Employee</div>
             <NavLink to="/profile"  className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
-              <i className="fa-solid fa-id-badge" /> My Profile
+              <i className="fa-solid fa-id-badge" /> My Profile.
             </NavLink>
             <NavLink to="/org-chart" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
               <i className="fa-solid fa-diagram-project" /> Org Chart
