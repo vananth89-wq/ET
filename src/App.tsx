@@ -39,6 +39,7 @@ import ReferenceData                                              from './compon
 import EmployeeDetails                                            from './components/admin/EmployeeDetails';
 import InactiveEmployees                                          from './components/admin/InactiveEmployees';
 import AddEmployee                                                from './components/admin/AddEmployee';
+import ManageSequence                                             from './components/admin/ManageSequence';
 import EmpOrgChart                                                from './components/employee/EmpOrgChart';
 import ApproverInbox                                             from './workflow/screens/ApproverInbox';
 import WorkflowReview                                           from './workflow/screens/WorkflowReview';
@@ -754,16 +755,18 @@ export default function App() {
           <Route path="employees/org-chart" element={<ProtectedRoute requiredPermission="org_chart.view"><EmpOrgChart /></ProtectedRoute>} />
           <Route path="employees" element={
             <AdminSectionLayout title="Employees" subtitle="Manage employee records, org charts, and onboarding." items={[
-              { path: '/admin/employees/list',     label: 'Employee Details',   icon: 'fa-table-list',      permission: 'employee_details.edit'     },
-              { path: '/admin/employees/org-chart',label: 'Org Chart',          icon: 'fa-diagram-project', permission: 'org_chart.view'             },
-              { path: '/admin/employees/inactive', label: 'Inactive Employees', icon: 'fa-user-slash',      permission: 'inactive_employees.view'   },
-              { path: '/admin/employees/add',      label: 'Add New Employee',   icon: 'fa-user-plus',       permission: 'hire_employee.create'       },
+              { path: '/admin/employees/list',             label: 'Employee Details',   icon: 'fa-table-list',      permission: 'employee_details.edit'         },
+              { path: '/admin/employees/org-chart',        label: 'Org Chart',          icon: 'fa-diagram-project', permission: 'org_chart.view'                 },
+              { path: '/admin/employees/inactive',         label: 'Inactive Employees', icon: 'fa-user-slash',      permission: 'inactive_employees.view'       },
+              { path: '/admin/employees/add',              label: 'Add New Employee',   icon: 'fa-user-plus',       permission: 'hire_employee.create'           },
+              { path: '/admin/employees/manage-sequence',  label: 'Manage Sequence',    icon: 'fa-list-ol',         permission: 'manage_emp_sequence.view'       },
             ]} />
           }>
             <Route index element={<Navigate to="list" replace />} />
-            <Route path="list"      element={<ProtectedRoute requiredPermission="employee_details.edit"><EmployeeDetails /></ProtectedRoute>} />
-            <Route path="inactive"  element={<ProtectedRoute requiredPermission="inactive_employees.view"><InactiveEmployees /></ProtectedRoute>} />
-            <Route path="add"       element={<ProtectedRoute requiredPermission="hire_employee.create"><AddEmployee /></ProtectedRoute>} />
+            <Route path="list"              element={<ProtectedRoute requiredPermission="employee_details.edit"><EmployeeDetails /></ProtectedRoute>} />
+            <Route path="inactive"          element={<ProtectedRoute requiredPermission="inactive_employees.view"><InactiveEmployees /></ProtectedRoute>} />
+            <Route path="add"               element={<ProtectedRoute requiredPermission="hire_employee.create"><AddEmployee /></ProtectedRoute>} />
+            <Route path="manage-sequence"   element={<ProtectedRoute requiredPermission="manage_emp_sequence.view"><ManageSequence /></ProtectedRoute>} />
           </Route>
           {/* backward-compat redirects */}
           <Route path="employee-details"    element={<Navigate to="/admin/employees/list" replace />} />

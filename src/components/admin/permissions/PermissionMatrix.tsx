@@ -158,6 +158,13 @@ const ADMIN_GROUPS: MatrixGroup[] = [
         history: 'View deactivation and reactivation audit trail',
       },
     },
+    { code: 'manage_emp_sequence', label: 'Manage sequence', availableActions: ['view','edit'],
+      rowHint: 'Employee ID sequence admin — see current/next EMP-XXXX value, jump the sequence forward (forward-only)',
+      actionHints: {
+        view: 'Open the Manage Sequence page and see current + next employee ID values',
+        edit: 'Manually advance the employee ID sequence to a new next value (forward-only)',
+      },
+    },
   ]},
   { groupLabel: 'Department', rows: [
     { code: 'departments', label: 'Manage department', availableActions: ['view','create','edit','delete'],

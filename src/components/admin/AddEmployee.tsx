@@ -115,12 +115,13 @@ export const COUNTRIES = [
 
 // generateEmpId is kept as a local fallback only — the canonical ID is always
 // fetched from the server via generate_employee_id() RPC (collision-safe sequence).
+// Format: pure numeric string (no prefix).
 function generateEmpId(employees: FullEmployee[]): string {
   const nums = employees
     .map(e => parseInt((e.employeeId || '').replace(/\D/g, ''), 10))
     .filter(n => !isNaN(n));
   const max = nums.length ? Math.max(...nums) : 0;
-  return `EMP${String(max + 1).padStart(3, '0')}`;
+  return String(max + 1);
 }
 
 function getAvatar(emp?: Partial<FullEmployee>): string {
@@ -802,11 +803,27 @@ export default function AddEmployee() {
 
   // ── Fetch a server-assigned employee ID (collision-safe) ─────────────────
   // Calls the generate_employee_id() RPC which increments emp_id_seq atomically.
+  // CONSUMES the sequence — do NOT call this for previews. Use peekNewEmpId()
+  // for the mount/resetForm preview and only call fetchNewEmpId() at actual
+  // save time (inside performSave, on the INSERT-new-employee path).
   // Falls back to the client-side generator if the RPC fails (network error, etc.).
   async function fetchNewEmpId(): Promise<string> {
     const { data, error } = await supabase.rpc('generate_employee_id');
     if (error || !data) {
       console.warn('[fetchNewEmpId] RPC failed, using local fallback:', error);
+      return generateEmpId(employees);
+    }
+    return data as string;
+  }
+
+  // ── Peek at the NEXT employee ID without advancing the sequence ─────────
+  // Used for preview only (mount, resetForm). Actual consumption happens at
+  // save time inside performSave via fetchNewEmpId(). Backed by the
+  // peek_next_employee_id() RPC (mig 682) which reads last_value/is_called.
+  async function peekNewEmpId(): Promise<string> {
+    const { data, error } = await supabase.rpc('peek_next_employee_id');
+    if (error || !data) {
+      console.warn('[peekNewEmpId] RPC failed, using local fallback:', error);
       return generateEmpId(employees);
     }
     return data as string;
@@ -820,9 +837,12 @@ export default function AddEmployee() {
     loadedEmpUpdatedAtRef.current = null;
     setReturnComment(null);
     setPhoto('');
-    // Clear ID first (shows blank briefly), then fetch server-assigned ID async
+    // Clear ID first (shows blank briefly), then peek server-assigned ID async.
+    // PEEK — not consume. Sequence is only advanced at actual save time inside
+    // performSave (fixes the historical bug where every form reset burned a
+    // sequence number, leaving gaps in EMP-XXXX numbering).
     setFirstName(''); setMiddleName(''); setLastName(''); setEmpId('');
-    fetchNewEmpId().then(id => setEmpId(id));
+    peekNewEmpId().then(id => setEmpId(id));
     setNationality(''); setMaritalStatus(''); setGender(''); setDob('');
     setCountryCode('+91'); setMobile('');
     setBusinessEmail(''); setPersonalEmail('');
@@ -1004,6 +1024,16 @@ export default function AddEmployee() {
       if (updated?.updated_at) loadedEmpUpdatedAtRef.current = updated.updated_at;
       empUUID = knownUUID;
     } else {
+      // NEW employee — this is the ONLY code path that should consume emp_id_seq.
+      // The empId shown in the form up to this point was a PEEK; the real value
+      // is fetched here at commit time so cancelled/discarded drafts do not burn
+      // sequence numbers. Concurrent sessions each get a distinct value from
+      // generate_employee_id() (backed by nextval(), collision-safe).
+      const realEmpId = await fetchNewEmpId();
+      dbPayload.employee_id = realEmpId;
+      data.employeeId = realEmpId;              // keep downstream saveExtendedData consistent
+      setEmpId(realEmpId);                       // reflect the consumed number in the UI
+
       const { data: inserted, error: dbErr } = await supabase
         .from('employees')
         .insert(dbPayload as any)
@@ -1065,13 +1095,14 @@ export default function AddEmployee() {
     if (isLocked || !hasUnsavedChanges()) { resetForm(); } else { setExitModal(true); }
   }
 
-  // ── Fetch server-assigned employee ID on initial load (new hire only) ─────
+  // ── Peek at server-assigned employee ID on initial load (new hire only) ────
   // Fires once when the component mounts for a fresh hire (no editId/editingEmpId).
-  // Uses the generate_employee_id() RPC (backed by emp_id_seq) to guarantee
-  // collision-safety across concurrent sessions.
+  // PEEK — not consume. Sequence is only advanced at actual save time inside
+  // performSave (fixes the historical bug where every mount burned a sequence
+  // number even if the user never saved).
   useEffect(() => {
     if (editId || editingEmpId) return;    // don't overwrite while editing an existing record
-    fetchNewEmpId().then(id => {
+    peekNewEmpId().then(id => {
       setEmpId(prev => {
         // Only set if blank or still showing a prior auto-generated value
         if (!prev || /^EMP[-\d]+$/.test(prev)) return id;
