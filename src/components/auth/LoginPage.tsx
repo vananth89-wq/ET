@@ -7,7 +7,7 @@ import { supabase } from '../../lib/supabase';
 // Cleared on redirect so it doesn't persist across refreshes.
 const EXPLICIT_LOGIN_KEY = '__prowess_explicit_login__';
 
-type Mode = 'password' | 'magic' | 'forgot';
+type Mode = 'password' | 'forgot';
 
 interface ThemeSettings {
   login_brand_logo: string | null;
@@ -85,13 +85,6 @@ export default function LoginPage() {
       if (err) { setError(err.message); }
       else { sessionStorage.setItem(EXPLICIT_LOGIN_KEY, '1'); }
       // On success, AuthContext listener will fire and redirect happens in App
-    } else if (mode === 'magic') {
-      const { error: err } = await supabase.auth.signInWithOtp({
-        email,
-        options: { shouldCreateUser: false }, // don't auto-create accounts
-      });
-      if (err) { setError(err.message); }
-      else { sessionStorage.setItem(EXPLICIT_LOGIN_KEY, '1'); setSent(true); }
     } else {
       // Forgot password — send reset email
       const appUrl = import.meta.env.VITE_APP_URL || window.location.origin;
@@ -134,32 +127,11 @@ export default function LoginPage() {
 
         <h1 className="login-title">Sign in to {theme.app_name ?? THEME_DEFAULTS.app_name}</h1>
 
-          {/* Tab switcher */}
-          <div className="login-tabs">
-            <button
-              type="button"
-              className={`login-tab ${mode === 'password' ? 'active' : ''}`}
-              onClick={() => { setMode('password'); setError(null); setSent(false); }}
-            >
-              Password
-            </button>
-            <button
-              type="button"
-              className={`login-tab ${mode === 'magic' ? 'active' : ''}`}
-              onClick={() => { setMode('magic'); setError(null); setSent(false); }}
-            >
-              Magic Link
-            </button>
-          </div>
-
           {/* Sent confirmation */}
           {sent ? (
             <div className="login-sent">
               <i className="fa-solid fa-envelope-circle-check" />
-              {mode === 'forgot'
-                ? <p>Check your inbox — we sent a password reset link to <strong>{email}</strong>.</p>
-                : <p>Check your inbox — we sent a sign-in link to <strong>{email}</strong>.</p>
-              }
+              <p>Check your inbox — we sent a password reset link to <strong>{email}</strong>.</p>
               <button
                 type="button"
                 className="login-btn-secondary"

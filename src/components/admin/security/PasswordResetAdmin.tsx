@@ -267,38 +267,27 @@ export default function PasswordResetAdmin() {
     setRelinking(emp.id);
     setRelinkResult(null);
 
-    // 1. Resend OTP (creates auth user if missing, else refreshes)
-    const { error: otpErr } = await supabase.auth.signInWithOtp({
-      email: emp.business_email,
-      options: { shouldCreateUser: true, emailRedirectTo: `${window.location.origin}/reset-password` },
-    });
-    if (otpErr) {
-      setRelinkResult({ empId: emp.id, ok: false, msg: `Could not send invite: ${otpErr.message}` });
+    // Invoke Edge Function — creates auth user if missing, links profile,
+    // and sends a password-recovery email via Resend.
+    const { data: fnData, error: fnErr } = await supabase.functions.invoke(
+      'activate-employee',
+      { body: { employee_id: emp.id } },
+    );
+    const fnResult = fnData as { ok?: boolean; email_error?: string; error?: string } | null;
+
+    if (fnErr || !fnResult?.ok) {
+      const reason = fnResult?.email_error ?? fnResult?.error ?? fnErr?.message ?? 'Unknown error';
+      setRelinkResult({ empId: emp.id, ok: false, msg: `Could not send activation email: ${reason}` });
       setRelinking(null);
       return;
     }
 
-    // 2. Retry link_profile_to_employee with backoff
-    let linkData: { ok?: boolean; reason?: string } | null = null;
-    let linkErr: { message: string } | null = null;
-    for (let attempt = 0; attempt < 5; attempt++) {
-      if (attempt > 0) await new Promise(r => setTimeout(r, 800 * attempt));
-      const result = await supabase.rpc('link_profile_to_employee', { p_email: emp.business_email });
-      linkErr = result.error as { message: string } | null;
-      linkData = result.data as { ok?: boolean; reason?: string } | null;
-      if (!linkErr && linkData?.ok) break;
-      const reason = linkData?.reason ?? '';
-      if (!reason.includes('auth user not found') && !reason.includes('profile row not yet')) break;
-    }
-
-    if (!linkErr && linkData?.ok) {
-      setRelinkResult({ empId: emp.id, ok: true, msg: `Invite sent and profile linked for ${emp.name}. They will now appear in this search.` });
-      // Refresh the search so they move from unlinked → linked
-      loadEmployees(empSearch);
-    } else {
-      const detail = linkErr?.message ?? linkData?.reason ?? 'Unknown error';
-      setRelinkResult({ empId: emp.id, ok: false, msg: `Invite sent but profile link failed: ${detail}` });
-    }
+    setRelinkResult({
+      empId: emp.id,
+      ok:    true,
+      msg:   `Activation email sent and profile linked for ${emp.name}. They will now appear in this search.`,
+    });
+    loadEmployees(empSearch);
     setRelinking(null);
   }
 

@@ -702,10 +702,9 @@ export default function RoleAssignments() {
 
   // ── Invite an employee to the system ──────────────────────────────────────
   //
-  // Uses Supabase's magic-link OTP flow with shouldCreateUser: true.
-  // Supabase creates an auth account and emails the employee a sign-in link.
-  // When they click it, the handle_new_auth_user trigger fires, creates their
-  // profile, links it to their employee record, and grants ESS automatically.
+  // Calls the activate-employee Edge Function which creates the auth user via
+  // admin API and sends a password-recovery email. The handle_new_user trigger
+  // auto-creates the profile, links to employee, and grants ESS.
 
   async function inviteEmployee(emp: UnlinkedEmployee) {
     if (!emp.business_email) {
@@ -715,34 +714,23 @@ export default function RoleAssignments() {
 
     setInviting(prev => new Set(prev).add(emp.employee_id));
     try {
-      // Step 1: Create the auth user and send the magic-link invite email.
-      // The minimal trigger (handle_new_auth_user) creates a bare profile row.
-      // Use VITE_APP_URL so the link works for teammates on other machines.
-      // Set this to your LAN IP (http://192.168.x.x:5174) or deployed URL.
-      const appUrl = import.meta.env.VITE_APP_URL || window.location.origin;
+      const { data: fnData, error: fnErr } = await supabase.functions.invoke(
+        'activate-employee',
+        { body: { employee_id: emp.employee_id } },
+      );
+      const fnResult = fnData as { ok?: boolean; email_error?: string; error?: string } | null;
 
-      const { error: inviteErr } = await supabase.auth.signInWithOtp({
-        email: emp.business_email,
-        options: {
-          shouldCreateUser: true,
-          emailRedirectTo:  `${appUrl}/reset-password`,
-          data: { full_name: emp.name },
-        },
-      });
-      if (inviteErr) throw inviteErr;
+      if (fnErr || !fnResult?.ok) {
+        const reason = fnResult?.email_error ?? fnResult?.error ?? fnErr?.message ?? 'Unknown error';
+        throw new Error(reason);
+      }
 
-      // Step 2: Link the new profile to the employee record and grant ESS.
-      // Runs outside the auth transaction so a failure here doesn't affect the invite.
-      const { data: linkResult } = await supabase.rpc('link_profile_to_employee', {
-        p_email: emp.business_email,
-      });
-
-      const linked = (linkResult as { ok?: boolean })?.ok ?? false;
+      const linked = true; // trigger handles linking synchronously
 
       addToast(
         linked
-          ? `Invite sent to ${emp.name} — account linked and ESS granted`
-          : `Invite sent to ${emp.name} (${emp.business_email})`,
+          ? `Activation email sent to ${emp.name} — account linked and ESS granted`
+          : `Activation email sent to ${emp.name} (${emp.business_email})`,
         'success',
       );
 

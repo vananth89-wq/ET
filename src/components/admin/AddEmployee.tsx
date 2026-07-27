@@ -1893,60 +1893,32 @@ export default function AddEmployee() {
       return;
     }
 
-    // ── Step 4: Send welcome email + link profile → employee ──────────────
-    // The invite record and invite_sent_at stamp are already handled by the
-    // RPC above. We only need to trigger the auth OTP and link the profile.
+    // ── Step 4: Send activation email via Edge Function ─────────────────
+    // The Edge Function creates the auth user (if needed) and emails a
+    // password-recovery link. The handle_new_user trigger auto-creates
+    // the profile, links to employee, and grants ESS.
     const businessEmail = (data.businessEmail ?? '').trim();
     if (businessEmail) {
-      // 1. Send the welcome / magic-link email via Supabase Auth.
-      const { error: otpError } = await supabase.auth.signInWithOtp({
-        email: businessEmail,
-        options: {
-          shouldCreateUser: true,
-          emailRedirectTo: `${window.location.origin}/reset-password`,
-          data: { full_name: data.name },
-        },
-      });
+      const { data: fnData, error: fnError } = await supabase.functions.invoke(
+        'activate-employee',
+        { body: { employee_id: empUUID! } },
+      );
+      const fnResult = fnData as { ok?: boolean; email_sent?: boolean; email_error?: string; error?: string } | null;
 
-      if (otpError) {
-        // G-D fix: mark the employee_invites row as failed so the audit trail
-        // reflects actual delivery. Same pattern as EmployeeDetails.tsx resend path.
+      if (fnError || !fnResult?.ok) {
+        const reason = fnResult?.email_error ?? fnResult?.error ?? fnError?.message ?? 'Unknown error';
         await supabase.rpc('mark_invite_failed', {
           p_employee_id: empUUID!,
-          p_error:       otpError.message,
+          p_error:       reason,
         });
         setInfoModal({
           open: true,
           type: 'warning',
-          title: 'Invite Email Not Sent',
-          message: `The employee was activated successfully, but the welcome email could not be sent.\n\nReason: ${otpError.message}\n\nThe employee can still sign in by requesting a magic link from the login page.`,
+          title: 'Activation Email Not Sent',
+          message: `The employee was activated, but the activation email could not be sent.\n\nReason: ${reason}\n\nUse Admin → Security → Password Reset to resend, or ask the employee to use "Forgot password" on the login page.`,
         });
       } else {
-        // 2. Link the auth profile → employee + grant ESS.
-        // Retry with backoff — auth.users row may not be immediately visible cross-transaction.
-        let rpcData: { ok?: boolean; reason?: string } | null = null;
-        let rpcError: { message: string } | null = null;
-        for (let attempt = 0; attempt < 4; attempt++) {
-          if (attempt > 0) await new Promise(r => setTimeout(r, 800 * attempt));
-          const result = await supabase.rpc('link_profile_to_employee', { p_email: businessEmail });
-          rpcError = result.error as { message: string } | null;
-          rpcData = result.data as { ok?: boolean; reason?: string } | null;
-          if (!rpcError && rpcData?.ok) break;
-          const reason = rpcData?.reason ?? '';
-          if (!reason.includes('auth user not found') && !reason.includes('profile row not yet')) break;
-        }
-        const linkReason = rpcData?.reason ?? '';
-        if (rpcError || (linkReason && !rpcData?.ok)) {
-          const detail = rpcError?.message ?? linkReason;
-          setInfoModal({
-            open: true,
-            type: 'warning',
-            title: 'Profile Link Issue',
-            message: `The employee was activated and the welcome email was sent, but linking the auth profile failed.\n\nReason: ${detail}\n\nPlease verify the employee appears in Admin → Security → Password Reset. If not, ask them to use "Forgot password" on the login page.`,
-          });
-        } else {
-          showToast('Employee activated and welcome email sent!', 'success');
-        }
+        showToast('Employee activated and activation email sent!', 'success');
       }
     } else {
       showToast('Employee activated (no email address — invite not sent).', 'warning');

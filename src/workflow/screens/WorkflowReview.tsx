@@ -1622,53 +1622,21 @@ export default function WorkflowReview() {
         isFinalStep = inst !== null;
 
         if (isFinalStep) {
-          // Final approval — send the welcome / magic-link email
-          const { data: empRow } = await supabase
-            .from('employees')
-            .select('business_email, name')
-            .eq('id', recordId)
-            .maybeSingle();
-          const email = (empRow as any)?.business_email;
-          if (email) {
-            const { error: otpErr } = await supabase.auth.signInWithOtp({
-              email,
-              options: {
-                shouldCreateUser: true,
-                emailRedirectTo: `${window.location.origin}/reset-password`,
-                data: { full_name: (empRow as any)?.name },
-              },
+          // Final approval — send activation email via Edge Function.
+          // The Edge Function creates the auth user (if not exists) and
+          // sends a password-recovery email. Trigger handles profile linking.
+          const { data: fnData, error: fnErr } = await supabase.functions.invoke(
+            'activate-employee',
+            { body: { employee_id: recordId } },
+          );
+          const fnResult = fnData as { ok?: boolean; email_error?: string; error?: string } | null;
+          if (fnErr || !fnResult?.ok) {
+            const reason = fnResult?.email_error ?? fnResult?.error ?? fnErr?.message ?? 'Unknown error';
+            setInviteErrorModal({
+              open: true,
+              title: 'Activation Email Not Sent',
+              message: `The employee was activated successfully, but the activation email could not be sent.\n\nReason: ${reason}\n\nUse Admin → Security → Password Reset to resend, or ask the employee to click "Forgot password" on the login page.`,
             });
-            if (otpErr) {
-              setInviteErrorModal({
-                open: true,
-                title: 'Invite Email Not Sent',
-                message: `The employee was activated successfully, but the welcome email could not be sent.\n\nReason: ${otpErr.message}\n\nThe employee can still sign in by requesting a magic link from the login page. You may also retry by re-activating from the hire record.`,
-              });
-            } else {
-              // Retry link_profile_to_employee up to 4 times with backoff.
-              // auth.users row may not be immediately visible cross-transaction.
-              let linkData: { ok?: boolean; reason?: string } | null = null;
-              let linkErr: { message: string } | null = null;
-              for (let attempt = 0; attempt < 4; attempt++) {
-                if (attempt > 0) await new Promise(r => setTimeout(r, 800 * attempt));
-                const result = await supabase.rpc('link_profile_to_employee', { p_email: email });
-                linkErr = result.error as { message: string } | null;
-                linkData = result.data as { ok?: boolean; reason?: string } | null;
-                if (!linkErr && linkData?.ok) break;
-                // Stop retrying if it's a non-transient failure
-                const reason = linkData?.reason ?? '';
-                if (!reason.includes('auth user not found') && !reason.includes('profile row not yet')) break;
-              }
-              const linkReason = linkData?.reason ?? '';
-              if (linkErr || (linkReason && !linkData?.ok)) {
-                const detail = linkErr?.message ?? linkReason;
-                setInviteErrorModal({
-                  open: true,
-                  title: 'Profile Link Issue',
-                  message: `The employee was activated and the welcome email was sent, but linking the auth profile failed.\n\nReason: ${detail}\n\nPlease go to Admin → Security → Password Reset and verify the employee appears. If not, ask the employee to click "Forgot password" on the login page.`,
-                });
-              }
-            }
           }
         }
       }

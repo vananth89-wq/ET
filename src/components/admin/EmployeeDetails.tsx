@@ -251,24 +251,24 @@ export default function EmployeeDetails() {
       const result = data as { ok: boolean; email: string; name: string } | null;
       if (!result?.ok || !result.email) throw new Error('Unexpected response from server.');
 
-      // Fire the OTP — same mechanism as RoleAssignments.tsx inviteEmployee()
-      const appUrl = (import.meta as any).env?.VITE_APP_URL || window.location.origin;
-      const { error: otpErr } = await supabase.auth.signInWithOtp({
-        email: result.email,
-        options: { shouldCreateUser: true, emailRedirectTo: `${appUrl}/reset-password`, data: { full_name: result.name } },
-      });
+      // Invoke Edge Function — creates auth user if needed and sends
+      // password-recovery email via Resend. Trigger handles profile linking.
+      const { data: fnData, error: fnErr } = await supabase.functions.invoke(
+        'activate-employee',
+        { body: { employee_id: emp.id } },
+      );
+      const fnResult = fnData as { ok?: boolean; email_error?: string; error?: string } | null;
 
-      if (otpErr) {
-        // G-D fix: mark the employee_invites row as failed so the audit trail
-        // reflects actual delivery rather than showing a spurious 'sent' status.
+      if (fnErr || !fnResult?.ok) {
+        const reason = fnResult?.email_error ?? fnResult?.error ?? fnErr?.message ?? 'Unknown error';
         await supabase.rpc('mark_invite_failed', {
           p_employee_id: emp.id,
-          p_error:       otpErr.message,
+          p_error:       reason,
         });
-        throw new Error(otpErr.message);
+        throw new Error(reason);
       }
 
-      setResendModal({ ok: true, text: `Invite resent to ${result.email}` });
+      setResendModal({ ok: true, text: `Activation email resent to ${result.email}` });
     } catch (err: unknown) {
       const msg = (err as Error)?.message ?? String(err);
       setResendModal({ ok: false, text: msg });
