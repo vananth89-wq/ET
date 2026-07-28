@@ -69,16 +69,41 @@ Deno.serve(async (req: Request) => {
   });
 
   // ── 1. Authenticate the caller ──────────────────────────────────────────
-  const authHeader = req.headers.get('Authorization') ?? '';
-  const callerJwt  = authHeader.replace(/^Bearer\s+/i, '').trim();
-  if (!callerJwt) {
-    return json({ ok: false, error: 'Missing Authorization header' }, 401);
-  }
+  // Two entry modes:
+  //   (a) JWT — from browser client (WorkflowReview, AddEmployee, etc.).
+  //             Permission check runs as the caller.
+  //   (b) x-service-role: true — from Postgres trigger/cron via pg_net.
+  //             No JWT available. We validate a shared webhook secret
+  //             and skip the JWT/permission check (the DB-side trigger
+  //             is the authoritative caller — it only fires on legit
+  //             workflow_instances.status='approved' transitions).
+  const serviceRoleFlag  = req.headers.get('x-service-role') === 'true';
+  const webhookSecretHdr = req.headers.get('x-webhook-secret') ?? '';
+  const webhookSecretEnv = Deno.env.get('WEBHOOK_SECRET') ?? '';
 
-  const userClient = createClient(supabaseUrl, anonKey, {
-    auth:   { persistSession: false },
-    global: { headers: { Authorization: `Bearer ${callerJwt}` } },
-  });
+  let userClient: ReturnType<typeof createClient> | null = null;
+  let skipPermissionCheck = false;
+
+  if (serviceRoleFlag) {
+    // Trigger-initiated call: validate webhook secret
+    if (!webhookSecretEnv) {
+      return json({ ok: false, error: 'x-service-role call received but WEBHOOK_SECRET not configured' }, 500);
+    }
+    if (webhookSecretHdr !== webhookSecretEnv) {
+      return json({ ok: false, error: 'Invalid webhook secret' }, 401);
+    }
+    skipPermissionCheck = true;
+  } else {
+    const authHeader = req.headers.get('Authorization') ?? '';
+    const callerJwt  = authHeader.replace(/^Bearer\s+/i, '').trim();
+    if (!callerJwt) {
+      return json({ ok: false, error: 'Missing Authorization header' }, 401);
+    }
+    userClient = createClient(supabaseUrl, anonKey, {
+      auth:   { persistSession: false },
+      global: { headers: { Authorization: `Bearer ${callerJwt}` } },
+    });
+  }
 
   // ── 2. Parse payload ─────────────────────────────────────────────────────
   let payload: Payload;
@@ -95,20 +120,23 @@ Deno.serve(async (req: Request) => {
 
   // ── 3. Permission check (runs as caller) ─────────────────────────────────
   //     Allow: super admin OR user_can('hire_employee', 'edit')
-  const { data: superOk }  = await userClient.rpc('is_super_admin');
-  let allowed = superOk === true;
+  //     Skipped when called from Postgres trigger (already validated by webhook secret).
+  if (!skipPermissionCheck && userClient) {
+    const { data: superOk }  = await userClient.rpc('is_super_admin');
+    let allowed = superOk === true;
 
-  if (!allowed) {
-    const { data: hireOk } = await userClient.rpc('user_can', {
-      p_module_code: 'hire_employee',
-      p_action:      'edit',
-      p_dept_id:     null,
-    });
-    allowed = hireOk === true;
-  }
+    if (!allowed) {
+      const { data: hireOk } = await userClient.rpc('user_can', {
+        p_module_code: 'hire_employee',
+        p_action:      'edit',
+        p_dept_id:     null,
+      });
+      allowed = hireOk === true;
+    }
 
-  if (!allowed) {
-    return json({ ok: false, error: 'Insufficient permissions to activate employees' }, 403);
+    if (!allowed) {
+      return json({ ok: false, error: 'Insufficient permissions to activate employees' }, 403);
+    }
   }
 
   // ── 4. Load employee ─────────────────────────────────────────────────────

@@ -1603,39 +1603,41 @@ export default function WorkflowReview() {
 
       await approve(myTask.taskId, comment.trim() || undefined);
 
-      // ── Check if this was the final approval step ─────────────────────────
-      // Done once and reused for both OTP dispatch and toast message.
-      // DB-side activation (status=Active, locked=false, invite record) is
-      // handled by wf_sync_module_status → wf_activate_employee (mig 224).
-      // We only need to fire the OTP magic-link here because Supabase Auth
-      // cannot be called from PostgreSQL.
-      let isFinalStep = false;
+      // ── Fire activation Edge Function on every hire approval ──────────────
+      // Belt+suspenders design:
+      //   - DB-side trigger (mig 691) fires the Edge Function on
+      //     workflow_instances.status→'approved' — the authoritative path.
+      //   - This frontend call fires it too so the approver sees an
+      //     instant toast/error rather than waiting on the trigger.
+      //   - The Edge Function is fully idempotent: safe to call twice.
+      //     If this is NOT the final step, the function's own guards
+      //     return early (employee.status != 'Active') — harmless.
+      //   - pg_cron retry (mig 691) re-fires for any stuck activations.
+      //
+      // Previously we ran a SELECT here to detect isFinalStep, but that
+      // check swallowed errors on the SELECT and silently skipped the
+      // Edge Function call, leaving hires stuck in a half-activated state.
+      let activatedNow = false;
       if (isHireModule && recordId) {
-        const { data: inst } = await supabase
-          .from('workflow_instances')
-          .select('status')
-          .eq('module_code', 'employee_hire')
-          .eq('record_id', recordId)
-          .eq('status', 'approved')
-          .limit(1)
-          .maybeSingle();
-        isFinalStep = inst !== null;
+        const { data: fnData, error: fnErr } = await supabase.functions.invoke(
+          'activate-employee',
+          { body: { employee_id: recordId } },
+        );
+        const fnResult = fnData as { ok?: boolean; email_error?: string; error?: string } | null;
 
-        if (isFinalStep) {
-          // Final approval — send activation email via Edge Function.
-          // The Edge Function creates the auth user (if not exists) and
-          // sends a password-recovery email. Trigger handles profile linking.
-          const { data: fnData, error: fnErr } = await supabase.functions.invoke(
-            'activate-employee',
-            { body: { employee_id: recordId } },
-          );
-          const fnResult = fnData as { ok?: boolean; email_error?: string; error?: string } | null;
-          if (fnErr || !fnResult?.ok) {
-            const reason = fnResult?.email_error ?? fnResult?.error ?? fnErr?.message ?? 'Unknown error';
+        if (fnErr) {
+          // Network/CORS failure — DB trigger is our fallback. Warn but don't block.
+          console.warn('activate-employee invoke failed (DB trigger will retry):', fnErr);
+        } else if (fnResult?.ok) {
+          activatedNow = true;
+        } else {
+          const reason = fnResult?.email_error ?? fnResult?.error ?? '';
+          // "not Active" simply means this wasn't the final step — silent no-op
+          if (!/not Active/i.test(reason)) {
             setInviteErrorModal({
               open: true,
               title: 'Activation Email Not Sent',
-              message: `The employee was activated successfully, but the activation email could not be sent.\n\nReason: ${reason}\n\nUse Admin → Security → Password Reset to resend, or ask the employee to click "Forgot password" on the login page.`,
+              message: `The workflow was approved, but the activation email could not be sent.\n\nReason: ${reason}\n\nThe system will retry automatically. If it still fails, use Admin → Security → Password Reset.`,
             });
           }
         }
@@ -1643,7 +1645,7 @@ export default function WorkflowReview() {
 
       // Return dynamic message so run() can display the correct toast
       if (isHireModule) {
-        return isFinalStep ? 'Hire approved — employee activated!' : 'Approved — awaiting next step';
+        return activatedNow ? 'Hire approved — employee activated!' : 'Approved — awaiting next step';
       }
     }, 'Approved successfully');
   }
