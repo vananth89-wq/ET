@@ -22,6 +22,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../../lib/supabase';
 import { usePicklistValues } from '../../hooks/usePicklistValues';
 import { randomUUID } from '../../utils/randomUUID';
+import { WorkflowGatedSection } from '../../workflow/components/WorkflowGatedSection';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types (re-exported so ApproverInbox / WorkflowReview can import them)
@@ -870,38 +871,25 @@ export default function EducationPortlet({
   return (
     <div className="edu-portlet">
 
-      {/* Section header (MyProfile pattern) */}
+      {/* Section header + pending banner via shared component (Phase 1 rollout) */}
       {sectionTitle && (
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
-          <div className="ev-section-title" style={{ display: 'flex', alignItems: 'flex-start', flexDirection: 'column', gap: 6 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <i className={`fa-solid ${sectionTitle.icon}`} /> {sectionTitle.text}
-              {(sectionTitle.pending ?? 0) > 0 && (
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#FEF3C7', color: '#B45309', border: '1px solid #F59E0B', borderRadius: 10, padding: '2px 8px', fontSize: 11, fontWeight: 600, lineHeight: 1.4 }}>
-                  <i className="fa-solid fa-hourglass-half" style={{ fontSize: 10 }} />Workflow Pending Approval
-                </span>
-              )}
-            </div>
-            {(sectionTitle.pending ?? 0) > 0 && sectionTitle.onViewProgress && (
-              <button onClick={sectionTitle.onViewProgress} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: '#6366F1', fontSize: 12, fontWeight: 500, textDecoration: 'underline' }}>
-                View progress
+        <WorkflowGatedSection
+          icon={sectionTitle.icon}
+          title={sectionTitle.text}
+          pendingCount={sectionTitle.pending ?? 0}
+          onViewProgress={sectionTitle.onViewProgress}
+          changeNoun="education change"
+          actions={
+            !readOnly && canCreate && !inlineTarget ? (
+              <button type="button" className="emp-btn-ghost" style={{ fontSize: 13 }} onClick={() => setInlineTarget('new')}>
+                <i className="fa-solid fa-plus" style={{ marginRight: 6 }} /> Add Education
               </button>
-            )}
-          </div>
-          {!readOnly && !blocked && canCreate && !inlineTarget && (
-            <button type="button" className="emp-btn-ghost" style={{ fontSize: 13 }} onClick={() => setInlineTarget('new')}>
-              <i className="fa-solid fa-plus" style={{ marginRight: 6 }} /> Add Education
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* Pending workflow banner */}
-      {blocked && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', background: '#FFFBEB', borderBottom: '1px solid #FEF3C7', fontSize: 12.5, color: '#92400E' }}>
-          <i className="fa-solid fa-clock" style={{ color: '#D97706' }} />
-          <span>{pendingCount > 1 ? `${pendingCount} education changes are pending approval. Editing is paused.` : 'An education change is pending approval. Editing is paused.'}</span>
-        </div>
+            ) : null
+          }
+        >
+          {/* Body rendered below — WorkflowGatedSection expects children */}
+          <></>
+        </WorkflowGatedSection>
       )}
 
       {/* Success / delete error messages */}
