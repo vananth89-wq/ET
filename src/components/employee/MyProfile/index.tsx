@@ -3303,6 +3303,8 @@ export default function MyProfile() {
                   canDelete={can('education.delete')}
 
                   pendingCount={pendingCounts['profile_education'] ?? 0}
+                  workflowGated={activeGates.has('profile_education')}
+                  employeeName={emp?.name}
                   onChanged={refetchGates}
                   sectionTitle={{
                     icon: 'fa-graduation-cap',

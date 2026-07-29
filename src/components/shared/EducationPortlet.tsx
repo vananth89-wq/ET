@@ -23,6 +23,7 @@ import { supabase } from '../../lib/supabase';
 import { usePicklistValues } from '../../hooks/usePicklistValues';
 import { randomUUID } from '../../utils/randomUUID';
 import { WorkflowGatedSection } from '../../workflow/components/WorkflowGatedSection';
+import WorkflowSubmitModal      from '../../workflow/components/WorkflowSubmitModal';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types (re-exported so ApproverInbox / WorkflowReview can import them)
@@ -95,6 +96,14 @@ export interface EducationPortletProps {
     onViewProgress?: () => void;
   };
   hideToolbar?:  boolean;
+  /**
+   * When true, the inline form opens WorkflowSubmitModal before submitting
+   * — matches Address / Personal flow. Set from parent when the caller is
+   * scoped to Path B (workflow-gated for this module).
+   */
+  workflowGated?: boolean;
+  /** Employee display name for the WorkflowSubmitModal header */
+  employeeName?:  string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -360,6 +369,8 @@ function InlineEducationForm({
   educationLevels,
   completionStatuses,
   documentTypes,
+  workflowGated = false,
+  employeeName,
 }: {
   employeeId:    string;
   educationId:   string | null;
@@ -372,12 +383,28 @@ function InlineEducationForm({
   educationLevels:    Array<{ id: unknown; refId?: unknown; value: string }>;
   completionStatuses: Array<{ id: unknown; refId?: unknown; value: string }>;
   documentTypes:      Array<{ id: unknown; refId?: unknown; value: string }>;
+  /**
+   * When true, submit routes through workflow — instead of firing upsert_education
+   * directly, we open WorkflowSubmitModal for routing preview + comment (matches
+   * Address / Personal / Contact behaviour).
+   */
+  workflowGated?: boolean;
+  /** Passed to WorkflowSubmitModal for display */
+  employeeName?:  string;
 }) {
   const [form,       setForm]       = useState<InlineFormState>(initialData);
   const [saving,     setSaving]     = useState(false);
   const [saveError,  setSaveError]  = useState('');
   const [showErrors, setShowErrors] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Workflow-preview modal state (Address-style flow — matches mig 692 behavior).
+  // Non-null = we have a validated payload waiting for the user to confirm the
+  // routing + comment in WorkflowSubmitModal, at which point we fire the RPC.
+  const [pendingConfirm, setPendingConfirm] = useState<{
+    payload:     Record<string, unknown>;
+    educationId: string | null;
+  } | null>(null);
 
   // Always keep a ref pointing at the latest doSubmit so the outer wizard
   // doesn't capture a stale closure over an old form state.
@@ -477,7 +504,39 @@ function InlineEducationForm({
     }));
   }
 
-  // Core submit logic — called by form onSubmit AND by saveTriggerRef
+  // Fires the actual upsert_education RPC (with optional workflow comment)
+  async function callUpsertRpc(
+    payload:      Record<string, unknown>,
+    edId:         string | null,
+    comment:      string | null,
+  ): Promise<boolean> {
+    setSaving(true);
+    setSaveError('');
+    try {
+      const { data, error: rpcErr } = await supabase.rpc('upsert_education', {
+        p_employee_id:    employeeId,
+        p_education_data: payload,
+        p_education_id:   edId ?? undefined,
+        p_comment:        comment ?? undefined,
+      });
+      if (rpcErr) throw new Error(rpcErr.message);
+      const result = data as { ok: boolean; workflow?: boolean; error?: string; message?: string } | null;
+      if (!result?.ok) throw new Error(result?.message ?? result?.error ?? 'Save failed.');
+      onSaved({ workflow: result.workflow ?? false });
+      return true;
+    } catch (err: unknown) {
+      setSaveError(err instanceof Error ? err.message : 'An unexpected error occurred.');
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // Core submit logic — called by form onSubmit AND by saveTriggerRef.
+  // Two branches:
+  //   direct (workflowGated=false):  build payload → call RPC immediately
+  //   gated  (workflowGated=true):   build payload → open WorkflowSubmitModal
+  //                                  (RPC fires when user confirms in the modal)
   async function doSubmit(): Promise<boolean> {
     setShowErrors(true);
     const err = validate();
@@ -485,10 +544,10 @@ function InlineEducationForm({
     setSaving(true);
     setSaveError('');
     try {
-      const stageId = educationId ?? `_new_${randomUUID()}`;
+      const stageId  = educationId ?? `_new_${randomUUID()}`;
       const withPaths = await uploadStagedFiles(form.attachments.filter(a => !a._removed), stageId);
-      const allAtts = [...withPaths, ...form.attachments.filter(a => a._removed && !a._file)];
-      const payload = {
+      const allAtts   = [...withPaths, ...form.attachments.filter(a => a._removed && !a._file)];
+      const payload   = {
         education_level:          form.education_level,
         degree:                   form.degree.trim(),
         institution:              form.institution.trim(),
@@ -505,21 +564,30 @@ function InlineEducationForm({
           ...(a._removed ? { _removed: true } : {}),
         })),
       };
-      const { data, error: rpcErr } = await supabase.rpc('upsert_education', {
-        p_employee_id: employeeId, p_education_data: payload,
-        p_education_id: educationId ?? undefined,
-      });
-      if (rpcErr) throw new Error(rpcErr.message);
-      const result = data as { ok: boolean; workflow?: boolean; error?: string; message?: string } | null;
-      if (!result?.ok) throw new Error(result?.message ?? result?.error ?? 'Save failed.');
-      onSaved({ workflow: result.workflow ?? false });
-      return true;
+
+      if (workflowGated) {
+        // Open confirmation modal — actual RPC fires from handleConfirmSubmit
+        setPendingConfirm({ payload, educationId });
+        setSaving(false);
+        return true;
+      }
+      return callUpsertRpc(payload, educationId, null);
     } catch (err: unknown) {
       setSaveError(err instanceof Error ? err.message : 'An unexpected error occurred.');
-      return false;
-    } finally {
       setSaving(false);
+      return false;
     }
+  }
+
+  // Modal confirm handler
+  async function handleConfirmSubmit(comment: string) {
+    if (!pendingConfirm) return;
+    const ok = await callUpsertRpc(
+      pendingConfirm.payload,
+      pendingConfirm.educationId,
+      comment,
+    );
+    if (ok) setPendingConfirm(null);
   }
 
   const fe = (cond: boolean) => cond ? { border: '1.5px solid #FCA5A5' } : {};
@@ -711,11 +779,24 @@ function InlineEducationForm({
           <button type="button" className="emp-btn-primary" disabled={saving} onClick={() => doSubmit()}>
             {saving
               ? <><i className="fa-solid fa-spinner fa-spin" style={{ marginRight: 6 }} />Saving…</>
-              : <><i className="fa-solid fa-check" style={{ marginRight: 6 }} />{educationId ? 'Save Changes' : 'Add Record'}</>
+              : <><i className="fa-solid fa-check" style={{ marginRight: 6 }} />{educationId ? 'Save Changes' : (workflowGated ? 'Submit for approval' : 'Add Record')}</>
             }
           </button>
         </div>
       )}
+
+      {/* Address-style routing preview modal (only when workflow-gated) */}
+      <WorkflowSubmitModal
+        open={!!pendingConfirm}
+        onClose={() => setPendingConfirm(null)}
+        onConfirm={handleConfirmSubmit}
+        confirming={saving}
+        title="Education"
+        moduleCode="profile_education"
+        employeeName={employeeName}
+        subjectEmployeeId={employeeId}
+        submitError={saveError}
+      />
     </div>
   );
 }
@@ -738,6 +819,8 @@ export default function EducationPortlet({
   editMode     = false,
   sectionTitle,
   hideToolbar  = false,
+  workflowGated = false,
+  employeeName,
 }: EducationPortletProps) {
   const { picklistValues } = usePicklistValues();
 
@@ -958,6 +1041,8 @@ export default function EducationPortlet({
                 educationLevels={educationLevels}
                 completionStatuses={completionStatuses}
                 documentTypes={documentTypes}
+                workflowGated={workflowGated}
+                employeeName={employeeName}
               />
             );
           }
@@ -991,6 +1076,8 @@ export default function EducationPortlet({
             educationLevels={educationLevels}
             completionStatuses={completionStatuses}
             documentTypes={documentTypes}
+            workflowGated={workflowGated}
+            employeeName={employeeName}
           />
         )}
 
