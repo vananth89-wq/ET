@@ -1654,7 +1654,7 @@ export default function MyProfile() {
               {histOpen ? 'Close' : 'History'}
             </button>
           )}
-          {canInsert && !isEditing && !editingSection && onInsert && (
+          {canInsert && !isEditing && !editingSection && onInsert && (pendingCount ?? 0) === 0 && (
             <button
               onClick={onInsert}
               title="Insert new time slice"
@@ -1669,7 +1669,7 @@ export default function MyProfile() {
               Insert
             </button>
           )}
-          {canEdit && !isEditing && !editingSection && editValues && (
+          {canEdit && !isEditing && !editingSection && editValues && (pendingCount ?? 0) === 0 && (
             <EditButton onClick={onEdit ?? (() => startEdit(section, editValues))} />
           )}
         </div>
