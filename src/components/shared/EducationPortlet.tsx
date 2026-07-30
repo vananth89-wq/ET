@@ -917,7 +917,11 @@ export default function EducationPortlet({
     const wasEditing = inlineTarget !== 'new';
     setInlineTarget(null);
     if (workflow) setSuccessMsg('Change submitted for approval.');
-    else { setSuccessMsg(wasEditing ? 'Education record updated.' : 'Education record added.'); onChanged?.(); }
+    else         setSuccessMsg(wasEditing ? 'Education record updated.' : 'Education record added.');
+    // Refresh workflow gates BOTH after direct-write AND after workflow submit — the
+    // parent uses this to update pendingCounts so the "WORKFLOW PENDING APPROVAL"
+    // pill + View progress link appear without a manual page refresh (matches Address).
+    onChanged?.();
     await load();
     setTimeout(() => setSuccessMsg(''), 4000);
   }
