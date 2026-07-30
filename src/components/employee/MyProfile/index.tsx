@@ -3232,6 +3232,8 @@ export default function MyProfile() {
                   canEdit={can('dependents.edit')}
                   canDelete={can('dependents.delete')}
                   pendingCount={pendingCounts['profile_dependents'] ?? 0}
+                  workflowGated={activeGates.has('profile_dependents')}
+                  employeeName={emp?.name}
                   onChanged={refetchGates}
                   sectionTitle={{
                     icon: 'fa-people-group',

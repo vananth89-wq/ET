@@ -28,6 +28,8 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../../lib/supabase';
+import { WorkflowGatedSection } from '../../workflow/components/WorkflowGatedSection';
+import WorkflowSubmitModal      from '../../workflow/components/WorkflowSubmitModal';
 import { usePicklistValues } from '../../hooks/usePicklistValues';
 import { randomUUID } from '../../utils/randomUUID';
 
@@ -158,6 +160,13 @@ export interface DependentsPortletProps {
     pending?: number;
     onViewProgress?: () => void;
   };
+  /**
+   * When true, submit opens WorkflowSubmitModal (routing preview + comment)
+   * before firing submit_dependent_set — matches Address / Education.
+   */
+  workflowGated?: boolean;
+  /** Employee display name for the WorkflowSubmitModal header */
+  employeeName?:  string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -855,6 +864,8 @@ export default function DependentsPortlet({
   canEdit = true,
   pendingCount = 0,
   onChanged,
+  workflowGated = false,
+  employeeName,
   onRecordCountChange,
   saveTriggerRef,
   editMode = false,
@@ -889,6 +900,13 @@ export default function DependentsPortlet({
   const [submitting,          setSubmitting]          = useState(false);
   const [submitError,         setSubmitError]         = useState('');
   const [workflowPending,     setWorkflowPending]     = useState(false);
+
+  // Workflow-preview modal state (Address-style flow). Non-null = we have
+  // validated + uploaded items waiting for the user to confirm the routing
+  // + comment in WorkflowSubmitModal, at which point we fire the RPC.
+  const [pendingConfirm, setPendingConfirm] = useState<{
+    items: Array<Record<string, unknown>>;
+  } | null>(null);
   const [showHistory,         setShowHistory]         = useState(false);
 
   // ── Load active set ───────────────────────────────────────────────────────
@@ -1112,10 +1130,36 @@ export default function DependentsPortlet({
         };
       }));
 
+      if (workflowGated) {
+        // Open confirmation modal — actual RPC fires from handleConfirmSubmit
+        setPendingConfirm({ items: submitItems });
+        setSubmitting(false);
+        return true;
+      }
+      return await callSubmitRpc(submitItems, null);
+
+    } catch (err: any) {
+      setSubmitError(err.message ?? 'An unexpected error occurred.');
+      setSubmitting(false);
+      return false;
+    }
+  }
+
+  // Fires the actual submit_dependent_set RPC (with optional workflow comment).
+  // Called directly from handleSubmit for the non-gated path, and from
+  // handleConfirmSubmit after the user confirms in WorkflowSubmitModal.
+  async function callSubmitRpc(
+    submitItems: Array<Record<string, unknown>>,
+    comment:     string | null,
+  ): Promise<boolean> {
+    setSubmitting(true);
+    setSubmitError('');
+    try {
       const { data, error: rpcErr } = await supabase.rpc('submit_dependent_set', {
         p_employee_id:    employeeId,
         p_effective_from: draftEffectiveFrom,
         p_items:          submitItems,
+        p_comment:        comment ?? undefined,
       });
 
       if (rpcErr) throw new Error(rpcErr.message);
@@ -1128,9 +1172,10 @@ export default function DependentsPortlet({
 
       if (result.workflow) {
         setWorkflowPending(true);
-      } else {
-        onChanged?.();
       }
+      // Refresh gates on BOTH paths so the pending pill / View progress link
+      // appear immediately after workflow submission (matches Address / Education).
+      onChanged?.();
       setMode('view');
       await loadCurrentSet();
       return true;
@@ -1141,6 +1186,13 @@ export default function DependentsPortlet({
     } finally {
       setSubmitting(false);
     }
+  }
+
+  // Modal confirm handler
+  async function handleConfirmSubmit(comment: string) {
+    if (!pendingConfirm) return;
+    const ok = await callSubmitRpc(pendingConfirm.items, comment);
+    if (ok) setPendingConfirm(null);
   }
 
   // Keep ref always pointing to the latest handleSubmit
@@ -1223,40 +1275,26 @@ export default function DependentsPortlet({
 
   return (
     <div>
-      {/* ── Section header — title + action buttons in one row (Personal Info pattern) ── */}
+      {/* Section header + pending banner via shared WorkflowGatedSection */}
       {sectionTitle && (
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
-          <div className="ev-section-title" style={{ display: 'flex', alignItems: 'flex-start', flexDirection: 'column', gap: 6 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <i className={`fa-solid ${sectionTitle.icon}`} /> {sectionTitle.text}
-              {(sectionTitle.pending ?? 0) > 0 && (
-                <span style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 4,
-                  background: '#FEF3C7', color: '#B45309', border: '1px solid #F59E0B',
-                  borderRadius: 10, padding: '2px 8px', fontSize: 11, fontWeight: 600, lineHeight: 1.4,
-                }}>
-                  <i className="fa-solid fa-hourglass-half" style={{ fontSize: 10 }} />
-                  Workflow Pending Approval
-                </span>
-              )}
-            </div>
-            {(sectionTitle.pending ?? 0) > 0 && sectionTitle.onViewProgress && (
-              <button
-                onClick={sectionTitle.onViewProgress}
-                style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-                  color: '#6366F1', fontSize: 12, fontWeight: 500, textDecoration: 'underline' }}
-              >
-                View progress
-              </button>
-            )}
-          </div>
-          {mode === 'view' && (
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              {historyBtn}
-              {editBtn}
-            </div>
-          )}
-        </div>
+        <WorkflowGatedSection
+          icon={sectionTitle.icon}
+          title={sectionTitle.text}
+          pendingCount={sectionTitle.pending ?? 0}
+          onViewProgress={sectionTitle.onViewProgress}
+          changeNoun="dependent change"
+          actionsAlwaysVisible
+          actions={
+            mode === 'view' ? (
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                {historyBtn}
+                {editBtn}
+              </div>
+            ) : null
+          }
+        >
+          <></>
+        </WorkflowGatedSection>
       )}
 
       {/* Post-submit workflow-pending banner */}
@@ -1469,6 +1507,19 @@ export default function DependentsPortlet({
           )}
         </>
       )}
+
+      {/* Address-style routing preview modal (only when workflow-gated) */}
+      <WorkflowSubmitModal
+        open={!!pendingConfirm}
+        onClose={() => setPendingConfirm(null)}
+        onConfirm={handleConfirmSubmit}
+        confirming={submitting}
+        title="Dependents"
+        moduleCode="profile_dependents"
+        employeeName={employeeName}
+        subjectEmployeeId={employeeId}
+        submitError={submitError}
+      />
     </div>
   );
 }
