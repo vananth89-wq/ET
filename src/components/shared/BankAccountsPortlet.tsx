@@ -30,6 +30,8 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../../lib/supabase';
+import { WorkflowGatedSection } from '../../workflow/components/WorkflowGatedSection';
+import WorkflowSubmitModal      from '../../workflow/components/WorkflowSubmitModal';
 import { usePicklistValues } from '../../hooks/usePicklistValues';
 import { randomUUID } from '../../utils/randomUUID';
 
@@ -186,6 +188,13 @@ export interface BankAccountsPortletProps {
     pending?: number;
     onViewProgress?: () => void;
   };
+  /**
+   * When true, submit opens WorkflowSubmitModal (routing preview + comment)
+   * before firing submit_bank_account_set — matches Address / Education / Dependents.
+   */
+  workflowGated?: boolean;
+  /** Employee display name for the WorkflowSubmitModal header */
+  employeeName?:  string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1199,6 +1208,8 @@ export default function BankAccountsPortlet({
   saveAllRef,
   reviewMode = false,
   sectionTitle,
+  workflowGated = false,
+  employeeName,
 }: BankAccountsPortletProps) {
   const { picklistValues } = usePicklistValues();
 
@@ -1225,6 +1236,14 @@ export default function BankAccountsPortlet({
   const [submitting,         setSubmitting]         = useState(false);
   const [submitError,        setSubmitError]        = useState('');
   const [workflowPending,    setWorkflowPending]    = useState(false);
+
+  // Workflow-preview modal state (Address-style flow). Non-null = validated
+  // + uploaded items waiting for the user to confirm the routing + comment
+  // in WorkflowSubmitModal, at which point we fire the RPC.
+  const [pendingConfirm, setPendingConfirm] = useState<{
+    items:       Array<Record<string, unknown>>;
+    attachments: Array<Record<string, unknown>>;
+  } | null>(null);
   const [showHistory,        setShowHistory]        = useState(false);
   const [showAttachWarning,  setShowAttachWarning]  = useState(false);
 
@@ -1572,11 +1591,38 @@ export default function BankAccountsPortlet({
       // Flatten all attachments for the p_attachments param (RPC links them by position)
       const allAttachments = itemsWithUploads.flatMap(({ attachments }) => attachments);
 
+      if (workflowGated) {
+        // Open confirmation modal — actual RPC fires from handleConfirmSubmit
+        setPendingConfirm({ items: submitItems, attachments: allAttachments });
+        setSubmitting(false);
+        return true;
+      }
+      return await callSubmitRpc(submitItems, allAttachments, null);
+
+    } catch (err: any) {
+      setSubmitError(err.message ?? 'An unexpected error occurred.');
+      setSubmitting(false);
+      return false;
+    }
+  }
+
+  // Fires the actual submit_bank_account_set RPC (with optional workflow comment).
+  // Called directly from handleSubmit for the non-gated path, and from
+  // handleConfirmSubmit after the user confirms in WorkflowSubmitModal.
+  async function callSubmitRpc(
+    submitItems:    Array<Record<string, unknown>>,
+    allAttachments: Array<Record<string, unknown>>,
+    comment:        string | null,
+  ): Promise<boolean> {
+    setSubmitting(true);
+    setSubmitError('');
+    try {
       const { data, error: rpcErr } = await supabase.rpc('submit_bank_account_set', {
         p_employee_id:    employeeId,
         p_effective_from: draftEffectiveFrom,
         p_items:          submitItems,
         p_attachments:    allAttachments,
+        p_comment:        comment ?? undefined,
       });
 
       if (rpcErr) throw new Error(rpcErr.message);
@@ -1589,9 +1635,10 @@ export default function BankAccountsPortlet({
 
       if (result.workflow) {
         setWorkflowPending(true);
-      } else {
-        onChanged?.();
       }
+      // Refresh gates on BOTH paths so the pending pill / View progress link
+      // appear immediately after workflow submission (matches Address / Education / Dependents).
+      onChanged?.();
       setMode('view');
       await loadCurrentSet();
       return true;
@@ -1602,6 +1649,13 @@ export default function BankAccountsPortlet({
     } finally {
       setSubmitting(false);
     }
+  }
+
+  // Modal confirm handler
+  async function handleConfirmSubmit(comment: string) {
+    if (!pendingConfirm) return;
+    const ok = await callSubmitRpc(pendingConfirm.items, pendingConfirm.attachments, comment);
+    if (ok) setPendingConfirm(null);
   }
 
   // Keep ref always pointing to the latest handleSubmit
@@ -1680,42 +1734,29 @@ export default function BankAccountsPortlet({
   return (
     <div>
       {/* ── Section header — title + action buttons in one row (Personal Info pattern) ── */}
+      {/* Section header + pending banner via shared WorkflowGatedSection */}
       {sectionTitle && (
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
-          <div className="ev-section-title" style={{ display: 'flex', alignItems: 'flex-start', flexDirection: 'column', gap: 6 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <i className={`fa-solid ${sectionTitle.icon}`} /> {sectionTitle.text}
-              {((sectionTitle.pending ?? 0) > 0 || (workflowPending && pendingCount === 0)) && (
-                <span style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 4,
-                  background: '#FEF3C7', color: '#B45309', border: '1px solid #F59E0B',
-                  borderRadius: 10, padding: '2px 8px', fontSize: 11, fontWeight: 600, lineHeight: 1.4,
-                }}>
-                  <i className="fa-solid fa-hourglass-half" style={{ fontSize: 10 }} />
-                  Workflow Pending Approval
-                </span>
-              )}
-            </div>
-            {((sectionTitle.pending ?? 0) > 0 || (workflowPending && pendingCount === 0)) && (
-              <button
-                onClick={
-                  (sectionTitle.pending ?? 0) > 0 && sectionTitle.onViewProgress
-                    ? sectionTitle.onViewProgress
-                    : () => { setWorkflowPending(false); loadCurrentSet(); }
-                }
-                style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-                  color: '#6366F1', fontSize: 12, fontWeight: 500, textDecoration: 'underline' }}
-              >
-                View approval progress
-              </button>
-            )}
-          </div>
-          {mode === 'view' && historyBtn && (
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              {historyBtn}
-            </div>
-          )}
-        </div>
+        <WorkflowGatedSection
+          icon={sectionTitle.icon}
+          title={sectionTitle.text}
+          pendingCount={Math.max(sectionTitle.pending ?? 0, workflowPending && pendingCount === 0 ? 1 : 0)}
+          onViewProgress={
+            (sectionTitle.pending ?? 0) > 0 && sectionTitle.onViewProgress
+              ? sectionTitle.onViewProgress
+              : (workflowPending ? () => { setWorkflowPending(false); loadCurrentSet(); } : undefined)
+          }
+          changeNoun="bank change"
+          actionsAlwaysVisible
+          actions={
+            mode === 'view' && historyBtn ? (
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                {historyBtn}
+              </div>
+            ) : null
+          }
+        >
+          <></>
+        </WorkflowGatedSection>
       )}
 
       {/* Submission cutoff banner — visible in view mode, after 15th, non-exempt ESS */}
@@ -1733,25 +1774,18 @@ export default function BankAccountsPortlet({
         </div>
       )}
 
-      {/* Post-submit workflow-pending badge — only when no sectionTitle (sectionTitle handles it inline) */}
+      {/* Post-submit fallback pill removed in Phase 2 — now covered by WorkflowGatedSection above.
+          Kept for the no-sectionTitle case (e.g. hire wizard) via the same shared component. */}
       {workflowPending && pendingCount === 0 && !sectionTitle && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 14 }}>
-          <span style={{
-            display: 'inline-flex', alignItems: 'center', gap: 4,
-            background: '#FEF3C7', color: '#B45309', border: '1px solid #F59E0B',
-            borderRadius: 10, padding: '2px 8px', fontSize: 11, fontWeight: 600, lineHeight: 1.4,
-          }}>
-            <i className="fa-solid fa-hourglass-half" style={{ fontSize: 10 }} />
-            Workflow Pending Approval
-          </span>
-          <button
-            onClick={() => { setWorkflowPending(false); loadCurrentSet(); }}
-            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-              color: '#6366F1', fontSize: 12, fontWeight: 500, textDecoration: 'underline', textAlign: 'left' }}
-          >
-            View approval progress
-          </button>
-        </div>
+        <WorkflowGatedSection
+          icon="fa-university"
+          title="Bank Accounts"
+          pendingCount={1}
+          onViewProgress={() => { setWorkflowPending(false); loadCurrentSet(); }}
+          changeNoun="bank change"
+        >
+          <></>
+        </WorkflowGatedSection>
       )}
 
       {/* ── VIEW MODE ─────────────────────────────────────────────────────── */}
@@ -2001,6 +2035,19 @@ export default function BankAccountsPortlet({
           )}
         </>
       )}
+
+      {/* Address-style routing preview modal (only when workflow-gated) */}
+      <WorkflowSubmitModal
+        open={!!pendingConfirm}
+        onClose={() => setPendingConfirm(null)}
+        onConfirm={handleConfirmSubmit}
+        confirming={submitting}
+        title="Bank Accounts"
+        moduleCode="profile_bank"
+        employeeName={employeeName}
+        subjectEmployeeId={employeeId}
+        submitError={submitError}
+      />
     </div>
   );
 }

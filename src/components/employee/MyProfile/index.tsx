@@ -3210,6 +3210,8 @@ export default function MyProfile() {
                   canDelete={can('bank_accounts.delete')}
                   pendingCount={pendingCounts['profile_bank'] ?? 0}
                   isBankException={isBankException}
+                  workflowGated={activeGates.has('profile_bank')}
+                  employeeName={emp?.name}
                   onChanged={refetchGates}
                   sectionTitle={{
                     icon: 'fa-building-columns',
