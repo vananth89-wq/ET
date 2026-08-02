@@ -1129,12 +1129,16 @@ export default function MyProfile() {
     const mobileErr = validateMobile(cc || '+91', mob || '');
     if (mobileErr) { setMobileFieldError(mobileErr); setSaveError(mobileErr); return; }
 
-    // Personal email domain check — MyProfile is always Active employees
-    if (pe && pe.trim().toLowerCase().includes('@prowessinfotech.co.in')) {
+    // Personal email — required (matches hire wizard)
+    if (!pe || !pe.trim()) {
+      setSaveError('Personal email is required.');
+      return;
+    }
+    if (pe.trim().toLowerCase().includes('@prowessinfotech.co.in')) {
       setSaveError('Personal email cannot use the company email domain (@prowessinfotech.co.in). Please provide a personal email address.');
       return;
     }
-    if (pe && pe.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(pe.trim())) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(pe.trim())) {
       setSaveError('Enter a valid email address.');
       return;
     }
@@ -2295,7 +2299,7 @@ export default function MyProfile() {
                 <>
                   <div className="ev-field-grid ev-grid-2">
                     <div className="ev-field">
-                      <div className="ev-field-label">Mobile No.</div>
+                      <div className="ev-field-label">Mobile No. *</div>
                       <div style={{ display: 'flex', gap: 8 }}>
                         <select
                           value={fd('countryCode')}
@@ -2337,7 +2341,7 @@ export default function MyProfile() {
                     </div>
                     <Field label="Business Email" value={emp.businessEmail as string} />
                     <FormInput
-                      label="Personal Email"
+                      label="Personal Email *"
                       value={fd('personalEmail')}
                       onChange={v => setFd('personalEmail', v)}
                       type="email"
@@ -2910,15 +2914,15 @@ export default function MyProfile() {
               {editingSection === 'address' ? (
                 <>
                   <div className="ev-field-grid ev-grid-2">
-                    <FormInput label="Address Line 1" value={fd('addrLine1')}    onChange={v => setFd('addrLine1', v)}    placeholder="Street / building name" />
+                    <FormInput label="Address Line 1 *" value={fd('addrLine1')}    onChange={v => setFd('addrLine1', v)}    placeholder="Street / building name" />
                     <FormInput label="Address Line 2"   value={fd('addrLine2')}    onChange={v => setFd('addrLine2', v)}    placeholder="Apartment / suite / floor" />
                     <FormInput label="Landmark"       value={fd('addrLandmark')} onChange={v => setFd('addrLandmark', v)} placeholder="Nearby landmark" />
-                    <FormInput label="City"           value={fd('addrCity')}     onChange={v => setFd('addrCity', v)}     placeholder="e.g. Chennai" />
+                    <FormInput label="City *"           value={fd('addrCity')}     onChange={v => setFd('addrCity', v)}     placeholder="e.g. Chennai" />
                     <FormInput label="District"       value={fd('addrDistrict')} onChange={v => setFd('addrDistrict', v)} placeholder="e.g. Chennai District" />
                     <FormInput label="State"          value={fd('addrState')}    onChange={v => setFd('addrState', v)}    placeholder="e.g. Tamil Nadu" />
-                    <FormInput label="PIN / ZIP Code" value={fd('addrPin')}      onChange={v => setFd('addrPin', v)}      placeholder="e.g. 600001" />
+                    <FormInput label="PIN / ZIP Code *" value={fd('addrPin')}      onChange={v => setFd('addrPin', v)}      placeholder="e.g. 600001" />
                     <FormSelect
-                      label="Country"
+                      label="Country *"
                       value={fd('addrCountry')}
                       onChange={v => setFd('addrCountry', v)}
                       options={COUNTRIES.map(c => ({ value: c, label: c }))}
@@ -3151,14 +3155,14 @@ export default function MyProfile() {
               {editingSection === 'emergency' ? (
                 <>
                   <div className="ev-field-grid ev-grid-2">
-                    <FormInput label="Contact Name"    value={fd('ecName')}     onChange={v => setFd('ecName', v)}     placeholder="e.g. Jane Doe" />
+                    <FormInput label="Contact Name *"    value={fd('ecName')}     onChange={v => setFd('ecName', v)}     placeholder="e.g. Jane Doe" />
                     <FormSelect
-                      label="Relationship"
+                      label="Relationship *"
                       value={fd('ecRelationship')}
                       onChange={v => setFd('ecRelationship', v)}
                       options={picklistOpts('RELATIONSHIP_TYPE')}
                     />
-                    <FormInput label="Phone Number"    value={fd('ecPhone')}    onChange={v => setFd('ecPhone', v)}    type="tel" placeholder="+91 98765 43210" />
+                    <FormInput label="Phone Number *"    value={fd('ecPhone')}    onChange={v => setFd('ecPhone', v)}    type="tel" placeholder="+91 98765 43210" />
                     <FormInput label="Alternate Phone" value={fd('ecAltPhone')} onChange={v => setFd('ecAltPhone', v)} type="tel" placeholder="Optional" />
                     <FormInput label="Email"           value={fd('ecEmail')}    onChange={v => setFd('ecEmail', v)}    type="email" placeholder="e.g. contact@example.com" />
                   </div>
