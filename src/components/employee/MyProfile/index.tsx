@@ -891,7 +891,13 @@ export default function MyProfile() {
       p_subject_employee_id:  !isSelf ? viewedEmployeeId : null,
     });
     if (error) throw new Error((error as any)?.message ?? String(error));
-    if (data && !data.ok) throw new Error(data.error ?? 'Workflow submission failed.');
+    if (data && !data.ok) {
+      // Mig 697: duplicate pending change → surface the friendlier `message`
+      // (which points the user to the Sent Back inbox) instead of the raw
+      // error code.
+      const msg = (data as any).message ?? data.error ?? 'Workflow submission failed.';
+      throw new Error(msg);
+    }
   }
 
   // Executes the actual gated submit after the user confirms in WorkflowSubmitModal.
