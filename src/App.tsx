@@ -133,6 +133,7 @@ const ADMIN_NAV: NavItem[] = [
       'picklist.bulk_import',         'picklist.bulk_export',
       'project.bulk_import',          'project.bulk_export',
       'exchange_rate.bulk_import',    'exchange_rate.bulk_export',
+      'timesheet.bulk_import',        'timesheet.bulk_export',
     ],
   },
 
@@ -155,6 +156,22 @@ const ADMIN_NAV: NavItem[] = [
     path: '/admin/workflow/analytics',           label: 'Analytics',                  icon: 'fa-chart-bar',         permission: 'wf_analytics.view'            },
   { group: 'Workflow',     groupIcon: 'fa-diagram-next',
     path: '/admin/workflow/notifications',       label: 'Notification Monitor',       icon: 'fa-bell',              permission: 'wf_notifications.view'        },
+  // ── Time Management group ─────────────────────────────────────────────────
+  { group: 'Time Management', groupIcon: 'fa-clock',
+    path: '/admin/time/work-schedules',    label: 'Work Schedules',     icon: 'fa-calendar-days',     permission: 'time_work_schedules.view'    },
+  { group: 'Time Management', groupIcon: 'fa-clock',
+    path: '/admin/time/time-types',        label: 'Time Types',         icon: 'fa-clock',             permission: 'time_types.view'             },
+  { group: 'Time Management', groupIcon: 'fa-clock',
+    path: '/admin/time/colors',            label: 'Color Config',       icon: 'fa-palette',           permission: 'time_color_config.view'      },
+  { group: 'Time Management', groupIcon: 'fa-clock',
+    path: '/admin/time/edit-config',       label: 'Edit Window Config', icon: 'fa-pen-ruler',         permission: 'time_edit_config.view'       },
+  { group: 'Time Management', groupIcon: 'fa-clock',
+    path: '/admin/time/submission-config', label: 'Submission Config',  icon: 'fa-bell',              permission: 'time_submission_config.view' },
+  { group: 'Time Management', groupIcon: 'fa-clock',
+    path: '/admin/time/holiday-calendars', label: 'Holiday Calendars',  icon: 'fa-umbrella-beach',    permission: 'time_holiday_calendars.view' },
+  { group: 'Time Management', groupIcon: 'fa-clock',
+    path: '/admin/time/holidays',          label: 'Holidays',           icon: 'fa-star-and-crescent', permission: 'time_holidays.view'          },
+
   // ── Jobs group ───────────────────────────────────────────────────────────
   { group: 'Jobs',         groupIcon: 'fa-gears',
     path: '/admin/jobs',                    label: 'Background Jobs',      icon: 'fa-clock-rotate-left', permission: 'jobs_manage.view'        },
