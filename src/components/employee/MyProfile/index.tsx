@@ -3283,11 +3283,13 @@ export default function MyProfile() {
                 </div>
                 <JobRelationshipsPortlet
                   employeeId={viewedEmployeeId}
+                  employeeName={emp?.name}
                   readOnly={!can('job_relationships.edit') && !can('job_relationships.create')}
                   canCreate={can('job_relationships.create')}
                   canEdit={can('job_relationships.edit')}
                   canDelete={can('job_relationships.delete')}
                   pendingCount={pendingCounts['profile_job_relationships'] ?? 0}
+                  workflowGated={activeGates.has('profile_job_relationships')}
                   onChanged={refetchGates}
                   historyOpen={jrHistOpen}
                   hideToolbar

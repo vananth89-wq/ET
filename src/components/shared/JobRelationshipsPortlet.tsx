@@ -28,6 +28,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../../lib/supabase';
 import { usePicklistValues } from '../../hooks/usePicklistValues';
+import WorkflowSubmitModal from '../../workflow/components/WorkflowSubmitModal';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -80,6 +81,12 @@ interface JRPortletProps {
   canDelete?:       boolean;
   pendingCount?:    number;
   onChanged?:       () => void;
+  /**
+   * When true, submit opens WorkflowSubmitModal (routing preview + comment)
+   * before firing upsert_job_relationship_set — matches Address / Education /
+   * Dependents / Bank.
+   */
+  workflowGated?:   boolean;
   saveAllRef?:      React.MutableRefObject<(() => Promise<boolean>) | undefined>;
   editMode?:        boolean;
   /** When provided, history display is controlled by the parent (MyProfile header). */
@@ -456,6 +463,7 @@ export default function JobRelationshipsPortlet({
   canDelete = true,
   pendingCount = 0,
   onChanged,
+  workflowGated = false,
   saveAllRef,
   editMode = false,
   historyOpen,
@@ -484,6 +492,11 @@ export default function JobRelationshipsPortlet({
   const [submitting,         setSubmitting]        = useState(false);
   const [submitError,        setSubmitError]       = useState('');
   const [showHistory,        setShowHistory]       = useState(false);
+
+  // Workflow-preview modal state (Address-style flow)
+  const [pendingConfirm, setPendingConfirm] = useState<{
+    items: Array<{ relationship_code: string; manager_employee_id: string }>;
+  } | null>(null);
   const historyLoadedRef = useRef(false);
 
   // ── Load active set ───────────────────────────────────────────────────────
@@ -558,9 +571,6 @@ export default function JobRelationshipsPortlet({
       }
     }
 
-    setSubmitting(true);
-    setSubmitError('');
-
     // Build p_items — only include assigned codes
     const items = JR_CODE_ORDER
       .filter(code => draftSlots[code])
@@ -569,21 +579,35 @@ export default function JobRelationshipsPortlet({
         manager_employee_id: draftSlots[code]!,
       }));
 
+    if (workflowGated) {
+      // Open confirmation modal — actual RPC fires from handleConfirmSubmit
+      setPendingConfirm({ items });
+      return true;
+    }
+    return await callSubmitRpc(items, null);
+  }
+
+  // Fires the actual upsert_job_relationship_set RPC (with optional workflow comment)
+  async function callSubmitRpc(
+    items:   Array<{ relationship_code: string; manager_employee_id: string }>,
+    comment: string | null,
+  ): Promise<boolean> {
+    setSubmitting(true);
+    setSubmitError('');
     try {
       const { data, error: rpcErr } = await supabase.rpc('upsert_job_relationship_set', {
         p_employee_id:    employeeId,
         p_effective_from: draftEffectiveFrom,
         p_items:          items,
+        p_comment:        comment ?? undefined,
       });
       if (rpcErr) throw new Error(rpcErr.message);
       const result = data as { ok: boolean; workflow?: boolean; error?: string; message?: string } | null;
       if (!result?.ok) throw new Error(result?.message ?? result?.error ?? 'Submit failed.');
 
-      if (result.workflow) {
-        // Workflow pending — stay in view, pending pill will appear on next load
-      } else {
-        onChanged?.();
-      }
+      // Refresh gates on BOTH paths so the pending pill / View progress link
+      // appear immediately after workflow submission (matches other portlets).
+      onChanged?.();
       setMode('view');
       await loadCurrentSet();
       return true;
@@ -594,6 +618,13 @@ export default function JobRelationshipsPortlet({
     } finally {
       setSubmitting(false);
     }
+  }
+
+  // Modal confirm handler
+  async function handleConfirmSubmit(comment: string) {
+    if (!pendingConfirm) return;
+    const ok = await callSubmitRpc(pendingConfirm.items, comment);
+    if (ok) setPendingConfirm(null);
   }
 
   // ── Render helpers ────────────────────────────────────────────────────────
@@ -688,7 +719,7 @@ export default function JobRelationshipsPortlet({
           fontSize: 12.5, color: '#92400E',
         }}>
           <i className="fa-solid fa-clock" style={{ color: '#D97706' }} />
-          <span>A change request is currently under workflow review. Editing is paused.</span>
+          <span>A job relationship change is pending approval. Editing is paused.</span>
         </div>
       )}
 
@@ -804,6 +835,19 @@ export default function JobRelationshipsPortlet({
           )}
         </>
       )}
+
+      {/* Address-style routing preview modal (only when workflow-gated) */}
+      <WorkflowSubmitModal
+        open={!!pendingConfirm}
+        onClose={() => setPendingConfirm(null)}
+        onConfirm={handleConfirmSubmit}
+        confirming={submitting}
+        title="Job Relationships"
+        moduleCode="profile_job_relationships"
+        employeeName={employeeName}
+        subjectEmployeeId={employeeId}
+        submitError={submitError}
+      />
     </div>
   );
 }
