@@ -119,6 +119,22 @@ const SECTIONS: AdminSection[] = [
     ],
   },
   {
+    id: 'time',
+    label: 'Time Management',
+    description: 'Schedules, holidays & timesheets',
+    icon: 'fa-clock',
+    color: '#0369A1',
+    items: [
+      { path: '/admin/time/work-schedules',    permission: 'time_work_schedules.view'    },
+      { path: '/admin/time/time-types',        permission: 'time_types.view'             },
+      { path: '/admin/time/colors',            permission: 'time_color_config.view'      },
+      { path: '/admin/time/edit-config',       permission: 'time_edit_config.view'       },
+      { path: '/admin/time/submission-config', permission: 'time_submission_config.view' },
+      { path: '/admin/time/holiday-calendars', permission: 'time_holiday_calendars.view' },
+      { path: '/admin/time/holidays',          permission: 'time_holidays.view'          },
+    ],
+  },
+  {
     id: 'jobs',
     label: 'Background Jobs',
     description: 'Scheduled & async tasks',
@@ -156,6 +172,7 @@ export default function AdminHome() {
       organization: '/admin/organization',
       workflow: '/admin/workflow',
       security: '/admin/security',
+      time: '/admin/time',
       jobs: '/admin/jobs',
     };
     if (sectionRoots[section.id]) return sectionRoots[section.id];
