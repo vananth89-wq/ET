@@ -563,31 +563,43 @@ export default function WorkflowSubmitModal({
             )}
           </div>
 
-          {/* CC row */}
-          {ccParticipants.length > 0 && (
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 10,
-              padding: '10px 14px', background: '#f6f7f8',
-              border: '1px solid #ebebeb', borderRadius: 6,
-              marginBottom: 16, flexWrap: 'wrap',
-            }}>
-              <i className="fa-solid fa-envelope" style={{ fontSize: 14, color: '#7C3AED', flexShrink: 0 }} />
-              <span style={{ fontSize: 12, color: '#6b7280', flexShrink: 0 }}>CC:</span>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                {ccParticipants.map(p => (
-                  <span
-                    key={p.stepOrder}
-                    style={{
-                      fontSize: 12, background: '#dbeafe', color: '#1e40af',
-                      padding: '3px 10px', borderRadius: 999, fontWeight: 500,
-                    }}
-                  >
-                    {p.resolvedName ?? p.stepName}
-                  </span>
-                ))}
+          {/* CC row — de-duplicated by resolvedName (templates can list the
+              same person via multiple CC roles, e.g. Initiator + Manager
+              when the initiator is their own manager) */}
+          {(() => {
+            const seen = new Set<string>();
+            const uniqueCc = ccParticipants.filter(p => {
+              const key = (p.resolvedName ?? p.stepName ?? '').toLowerCase().trim();
+              if (!key || seen.has(key)) return false;
+              seen.add(key);
+              return true;
+            });
+            if (uniqueCc.length === 0) return null;
+            return (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '10px 14px', background: '#f6f7f8',
+                border: '1px solid #ebebeb', borderRadius: 6,
+                marginBottom: 16, flexWrap: 'wrap',
+              }}>
+                <i className="fa-solid fa-envelope" style={{ fontSize: 14, color: '#7C3AED', flexShrink: 0 }} />
+                <span style={{ fontSize: 12, color: '#6b7280', flexShrink: 0 }}>CC:</span>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {uniqueCc.map(p => (
+                    <span
+                      key={p.stepOrder}
+                      style={{
+                        fontSize: 12, background: '#dbeafe', color: '#1e40af',
+                        padding: '3px 10px', borderRadius: 999, fontWeight: 500,
+                      }}
+                    >
+                      {p.resolvedName ?? p.stepName}
+                    </span>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* Comment */}
           <div style={{ marginBottom: 6 }}>
