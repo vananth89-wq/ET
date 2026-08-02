@@ -506,20 +506,6 @@ function UserMenu() {
 // Checking here keeps
 // the Sidebar render logic clean.
 
-// ─── ComingSoon placeholder ───────────────────────────────────────────────────
-
-function ComingSoon({ title }: { title: string }) {
-  return (
-    <div className="ar-panel">
-      <h2 className="page-title">{title}</h2>
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '80px 0', color: '#9CA3AF' }}>
-        <i className="fa-solid fa-hammer" style={{ fontSize: 36, marginBottom: 16, color: '#D1D5DB' }} />
-        <p style={{ fontSize: 15, fontWeight: 500, margin: 0 }}>Coming soon</p>
-        <p style={{ fontSize: 13, margin: '4px 0 0' }}>This section is under construction.</p>
-      </div>
-    </div>
-  );
-}
 
 // ─── AppHeader ────────────────────────────────────────────────────────────────
 
