@@ -71,6 +71,10 @@ import WorkSchedules                                              from './compon
 import TimeTypes                                                  from './components/admin/time/TimeTypes';
 import ColorConfig                                                from './components/admin/time/ColorConfig';
 import EditWindowConfig                                           from './components/admin/time/EditWindowConfig';
+import TimesheetAdmin                                              from './components/admin/time/TimesheetAdmin';
+import SubmissionConfig                                           from './components/admin/time/SubmissionConfig';
+import HolidayCalendars                                          from './components/admin/time/HolidayCalendars';
+import Holidays                                                   from './components/admin/time/Holidays';
 import LandingPage                                                from './components/employee/LandingPage';
 import { usePicklistValues }                                      from './hooks/usePicklistValues';
 import { supabase }                                               from './lib/supabase';
@@ -888,10 +892,10 @@ export default function App() {
             <Route path="time-types"        element={<ProtectedRoute requiredPermission="time_types.view"><TimeTypes /></ProtectedRoute>} />
             <Route path="colors"            element={<ProtectedRoute requiredPermission="time_color_config.view"><ColorConfig /></ProtectedRoute>} />
             <Route path="edit-config"       element={<ProtectedRoute requiredPermission="time_edit_config.view"><EditWindowConfig /></ProtectedRoute>} />
-            <Route path="timesheets"        element={<ProtectedRoute requiredPermission="timesheet_admin.view"><ComingSoon title="Timesheet Admin" /></ProtectedRoute>} />
-            <Route path="submission-config" element={<ProtectedRoute requiredPermission="time_submission_config.view"><ComingSoon title="Submission Config" /></ProtectedRoute>} />
-            <Route path="holiday-calendars" element={<ProtectedRoute requiredPermission="time_holiday_calendars.view"><ComingSoon title="Holiday Calendars" /></ProtectedRoute>} />
-            <Route path="holidays"          element={<ProtectedRoute requiredPermission="time_holidays.view"><ComingSoon title="Holidays" /></ProtectedRoute>} />
+            <Route path="timesheets"        element={<ProtectedRoute requiredPermission="timesheet_admin.view"><TimesheetAdmin /></ProtectedRoute>} />
+            <Route path="submission-config" element={<ProtectedRoute requiredPermission="time_submission_config.view"><SubmissionConfig /></ProtectedRoute>} />
+            <Route path="holiday-calendars" element={<ProtectedRoute requiredPermission="time_holiday_calendars.view"><HolidayCalendars /></ProtectedRoute>} />
+            <Route path="holidays"          element={<ProtectedRoute requiredPermission="time_holidays.view"><Holidays /></ProtectedRoute>} />
           </Route>
 
           {/* backward-compat redirects */}
