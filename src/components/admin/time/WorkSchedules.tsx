@@ -173,11 +173,11 @@ export default function WorkSchedules() {
       lines:             form.lines,
     };
 
-    const { data, error: e } = await supabase.rpc('upsert_work_schedule', { p_data: payload });
+    const { data, error: rpcErr } = await supabase.rpc('upsert_work_schedule', { p_data: payload });
     setSaving(false);
 
-    if (e || !data?.ok) {
-      setInfoModal({ open: true, title: 'Error', message: data?.message ?? e?.message ?? 'Unknown error.' });
+    if (rpcErr || !data?.ok) {
+      setInfoModal({ open: true, title: 'Error', message: data?.message ?? rpcErr?.message ?? 'Unknown error.' });
       return;
     }
     await load();
