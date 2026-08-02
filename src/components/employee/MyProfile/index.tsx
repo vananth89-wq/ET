@@ -2977,7 +2977,7 @@ export default function MyProfile() {
                 <>
                   <div className="ev-field-grid ev-grid-2">
                     <FormSelect
-                      label="Issue Country"
+                      label="Issue Country *"
                       value={fd('passportCountry')}
                       onChange={v => {
                         const hasFilled = fd('passportNumber') || fd('passportIssueDate') || fd('passportExpiryDate');
@@ -2992,7 +2992,7 @@ export default function MyProfile() {
                       placeholder="— Select Country —"
                     />
                     <FormInput
-                      label="Passport No."
+                      label="Passport No. *"
                       value={fd('passportNumber')}
                       onChange={v => {
                         setFd('passportNumber', v);
@@ -3005,7 +3005,7 @@ export default function MyProfile() {
                       error={passportFieldErrors.passportNumber}
                     />
                     <FormInput
-                      label="Issue Date"
+                      label="Issue Date *"
                       value={fd('passportIssueDate')}
                       onChange={v => {
                         setFd('passportIssueDate', v);
@@ -3020,7 +3020,7 @@ export default function MyProfile() {
                       error={passportFieldErrors.passportIssueDate}
                     />
                     <FormInput
-                      label="Expiry Date"
+                      label="Expiry Date *"
                       value={fd('passportExpiryDate')}
                       onChange={v => {
                         setFd('passportExpiryDate', v);
