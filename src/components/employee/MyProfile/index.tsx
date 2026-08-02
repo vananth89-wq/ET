@@ -1258,21 +1258,29 @@ export default function MyProfile() {
   async function savePassport() {
     if (!viewedEmployeeId) return;
     const passCountryId   = fd('passportCountry') || '';
-    const passNumber      = fd('passportNumber')  || '';
+    const passNumber      = (fd('passportNumber')  || '').trim();
     const passIssueDate   = fd('passportIssueDate')  || '';
     const passExpiryDate  = fd('passportExpiryDate') || '';
     const passCountryName = resolvePicklist('ID_COUNTRY', passCountryId);
 
+    // All fields mandatory
+    const missing: string[] = [];
+    if (!passCountryId)   missing.push('Issue Country');
+    if (!passNumber)      missing.push('Passport No.');
+    if (!passIssueDate)   missing.push('Issue Date');
+    if (!passExpiryDate)  missing.push('Expiry Date');
+    if (missing.length) {
+      setSaveError(`Please fill in: ${missing.join(', ')}.`);
+      return;
+    }
+
     // Country-aware passport number validation
-    if (passNumber) {
-      const numErr = validatePassportNumber(passCountryName, passNumber);
-      if (numErr) { setSaveError(numErr); return; }
-    }
+    const numErr = validatePassportNumber(passCountryName, passNumber);
+    if (numErr) { setSaveError(numErr); return; }
+
     // Validity period validation
-    if (passIssueDate && passExpiryDate) {
-      const valErr = validatePassportValidity(passCountryName, passIssueDate, passExpiryDate);
-      if (valErr) { setSaveError(valErr); return; }
-    }
+    const valErr = validatePassportValidity(passCountryName, passIssueDate, passExpiryDate);
+    if (valErr) { setSaveError(valErr); return; }
 
     const proposed = {
       country:         passCountryId  || null,

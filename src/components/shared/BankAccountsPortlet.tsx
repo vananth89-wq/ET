@@ -1242,7 +1242,7 @@ export default function BankAccountsPortlet({
   // in WorkflowSubmitModal, at which point we fire the RPC.
   const [pendingConfirm, setPendingConfirm] = useState<{
     items:       Array<Record<string, unknown>>;
-    attachments: Array<Record<string, unknown>>;
+    attachments: BankAttachment[];
   } | null>(null);
   const [showHistory,        setShowHistory]        = useState(false);
   const [showAttachWarning,  setShowAttachWarning]  = useState(false);
@@ -1611,7 +1611,7 @@ export default function BankAccountsPortlet({
   // handleConfirmSubmit after the user confirms in WorkflowSubmitModal.
   async function callSubmitRpc(
     submitItems:    Array<Record<string, unknown>>,
-    allAttachments: Array<Record<string, unknown>>,
+    allAttachments: BankAttachment[],
     comment:        string | null,
   ): Promise<boolean> {
     setSubmitting(true);

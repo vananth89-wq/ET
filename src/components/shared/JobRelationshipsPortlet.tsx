@@ -457,6 +457,7 @@ function EmployeePicker({
 
 export default function JobRelationshipsPortlet({
   employeeId,
+  employeeName,
   readOnly = false,
   canCreate = true,
   canEdit = true,

@@ -1559,7 +1559,7 @@ export default function WorkflowReview() {
     setActionLoading(true); setActionError(null);
     try {
       const override = await fn();
-      setActionSuccess(override ?? successMsg);
+      setActionSuccess((override as string | undefined) ?? successMsg);
       setComment(''); setMode('idle'); setReassignTarget(null);
       // Go back to inbox after a moment — reopen the same task by passing its id
       setTimeout(() => navigate(myTask ? `/workflow/inbox?task=${myTask.taskId}` : '/workflow/inbox'), 1800);
