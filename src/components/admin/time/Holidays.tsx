@@ -1,10 +1,10 @@
 /**
  * Holidays — Global pool of holiday definitions.
  *
- * Holidays are standalone records (date, name, code, country).
- * They can be assigned to Holiday Calendars on the Holiday Calendars page.
+ * A holiday is a date-independent definition: Code + Name.
+ * Dates are set when assigning holidays to a calendar (Holiday Calendars page).
  *
- * Filter by year + country_code. Create/edit/delete holidays here.
+ * Fields: holiday_code (unique, uppercase), holiday_name, audit (created_by, created_at, updated_at).
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -15,103 +15,81 @@ import ErrorBanner from '../../shared/ErrorBanner';
 
 interface Holiday {
   id:           string;
-  holiday_date: string;
-  holiday_name: string;
   holiday_code: string;
-  country_code: string | null;
-  holiday_year: number;
+  holiday_name: string;
+  created_at:   string;
+  updated_at:   string;
+  profiles:     { full_name: string | null } | null;
 }
 
 interface FormState {
   id:           string | null;
-  holiday_date: string;
-  holiday_name: string;
   holiday_code: string;
-  country_code: string;
+  holiday_name: string;
 }
 
-const BLANK: FormState = {
-  id: null, holiday_date: '', holiday_name: '', holiday_code: '', country_code: '',
-};
+const BLANK: FormState = { id: null, holiday_code: '', holiday_name: '' };
 
-function fmtDate(d: string): string {
-  if (!d) return '';
-  const dt = new Date(d + 'T00:00:00');
-  return dt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+function fmtDateTime(ts: string): string {
+  if (!ts) return '—';
+  return new Date(ts).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 function toCode(name: string): string {
-  return name.trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_').slice(0, 20);
+  return name.trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_').slice(0, 30);
 }
-
-const currentYear = new Date().getFullYear();
-const YEAR_OPTIONS = [currentYear - 1, currentYear, currentYear + 1, currentYear + 2];
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function Holidays() {
-  const [holidays,    setHolidays]   = useState<Holiday[]>([]);
-  const [loading,     setLoading]    = useState(true);
-  const [error,       setError]      = useState<string | null>(null);
-  const [yearFilter,  setYearFilter] = useState<number>(currentYear);
-  const [ccFilter,    setCcFilter]   = useState('');
-  const [form,        setForm]       = useState<FormState>(BLANK);
-  const [formOpen,    setFormOpen]   = useState(false);
-  const [saving,      setSaving]     = useState(false);
-  const [deleteId,    setDeleteId]   = useState<string | null>(null);
-  const [deleting,    setDeleting]   = useState(false);
-  const [infoModal,   setInfoModal]  = useState<{ open: boolean; title: string; message: string }>({ open: false, title: '', message: '' });
+  const [holidays,   setHolidays]  = useState<Holiday[]>([]);
+  const [loading,    setLoading]   = useState(true);
+  const [error,      setError]     = useState<string | null>(null);
+  const [search,     setSearch]    = useState('');
+  const [form,       setForm]      = useState<FormState>(BLANK);
+  const [formOpen,   setFormOpen]  = useState(false);
+  const [saving,     setSaving]    = useState(false);
+  const [deleteId,   setDeleteId]  = useState<string | null>(null);
+  const [deleting,   setDeleting]  = useState(false);
+  const [infoModal,  setInfoModal] = useState<{ open: boolean; title: string; message: string }>({ open: false, title: '', message: '' });
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     const { data, error: err } = await supabase
       .from('time_holidays')
-      .select('id, holiday_date, holiday_name, holiday_code, country_code, holiday_year')
-      .order('holiday_date');
+      .select('id, holiday_code, holiday_name, created_at, updated_at, profiles(full_name)')
+      .order('holiday_code');
     if (err) { setError(err.message); setLoading(false); return; }
-    setHolidays(data ?? []);
+    setHolidays((data ?? []) as Holiday[]);
     setLoading(false);
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
-  // Derived filtered list
-  const filtered = holidays.filter(h => {
-    if (h.holiday_year !== yearFilter) return false;
-    if (ccFilter && (h.country_code ?? '').toUpperCase() !== ccFilter.toUpperCase()) return false;
-    return true;
-  });
+  const filtered = holidays.filter(h =>
+    h.holiday_code.toLowerCase().includes(search.toLowerCase()) ||
+    h.holiday_name.toLowerCase().includes(search.toLowerCase())
+  );
 
-  function openNew() {
-    setForm({ ...BLANK, holiday_date: `${yearFilter}-01-01` });
-    setFormOpen(true);
-  }
+  function openNew() { setForm(BLANK); setFormOpen(true); }
 
   function openEdit(h: Holiday) {
-    setForm({
-      id: h.id,
-      holiday_date: h.holiday_date,
-      holiday_name: h.holiday_name,
-      holiday_code: h.holiday_code,
-      country_code: h.country_code ?? '',
-    });
+    setForm({ id: h.id, holiday_code: h.holiday_code, holiday_name: h.holiday_name });
     setFormOpen(true);
   }
 
   async function handleSave() {
-    if (!form.holiday_date || !form.holiday_name.trim() || !form.holiday_code.trim()) {
-      setInfoModal({ open: true, title: 'Validation', message: 'Date, name and code are required.' });
+    if (!form.holiday_code.trim() || !form.holiday_name.trim()) {
+      setInfoModal({ open: true, title: 'Validation', message: 'Code and name are required.' });
       return;
     }
     setSaving(true);
     const { data, error: err } = await supabase.rpc('upsert_holiday', {
       p_data: {
         id:           form.id,
-        holiday_date: form.holiday_date,
-        holiday_name: form.holiday_name.trim(),
         holiday_code: form.holiday_code.toUpperCase().trim(),
-        country_code: form.country_code.trim() || null,
+        holiday_name: form.holiday_name.trim(),
       },
     });
     setSaving(false);
@@ -126,10 +104,7 @@ export default function Holidays() {
 
   async function handleDelete(id: string) {
     setDeleting(true);
-    const { error: err } = await supabase
-      .from('time_holidays')
-      .delete()
-      .eq('id', id);
+    const { error: err } = await supabase.from('time_holidays').delete().eq('id', id);
     setDeleting(false);
     if (err) {
       setInfoModal({ open: true, title: 'Error', message: err.message });
@@ -139,44 +114,25 @@ export default function Holidays() {
     await load();
   }
 
-  // Unique countries in data for filter hint
-  const countries = Array.from(new Set(holidays.map(h => h.country_code).filter(Boolean) as string[])).sort();
+  // ────────────────────────────────────────────────────────────────────────────
 
   return (
     <div className="ar-panel">
       <h2 className="page-title">Holidays</h2>
       <p className="page-subtitle">
-        Create and manage your global holiday pool. Assign holidays to specific calendars on the
+        Define reusable holiday types (e.g. Christmas Day, Diwali). Assign them with dates on the
         <strong> Holiday Calendars</strong> page.
       </p>
 
       {error && <ErrorBanner message={error} onRetry={load} />}
 
-      {/* ── Filters ─────────────────────────────────────────────────────────── */}
-      <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-        <div className="form-group" style={{ marginBottom: 0 }}>
-          <label>Year</label>
-          <select
-            value={yearFilter}
-            onChange={e => setYearFilter(Number(e.target.value))}
-            style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #D1D5DB', fontSize: 13 }}
-          >
-            {YEAR_OPTIONS.map(y => <option key={y} value={y}>{y}</option>)}
-          </select>
-        </div>
-
-        <div className="form-group" style={{ marginBottom: 0 }}>
-          <label>Country Code</label>
-          <select
-            value={ccFilter}
-            onChange={e => setCcFilter(e.target.value)}
-            style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #D1D5DB', fontSize: 13 }}
-          >
-            <option value="">All countries</option>
-            {countries.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
-        </div>
-
+      {/* ── Toolbar ─────────────────────────────────────────────────────────── */}
+      <div style={{ display: 'flex', gap: 12, marginBottom: 20, alignItems: 'center' }}>
+        <input
+          type="text" placeholder="Search code or name…" value={search}
+          onChange={e => setSearch(e.target.value)}
+          style={{ flex: 1, maxWidth: 320, padding: '7px 10px', borderRadius: 6, border: '1px solid #D1D5DB', fontSize: 13 }}
+        />
         <button className="btn-add" style={{ marginLeft: 'auto' }} onClick={openNew}>
           <i className="fa-solid fa-plus" style={{ marginRight: 6 }} />Add Holiday
         </button>
@@ -189,31 +145,33 @@ export default function Holidays() {
         </div>
       ) : filtered.length === 0 ? (
         <div style={{ color: '#9CA3AF', fontSize: 13, padding: '24px 0' }}>
-          No holidays found for {yearFilter}{ccFilter ? ` / ${ccFilter}` : ''}. Add one above.
+          {search ? 'No holidays match your search.' : 'No holidays yet. Add one above.'}
         </div>
       ) : (
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ borderBottom: '2px solid #E5E7EB', textAlign: 'left' }}>
-                <th style={{ padding: '8px 12px', color: '#6B7280', fontWeight: 600 }}>Date</th>
-                <th style={{ padding: '8px 12px', color: '#6B7280', fontWeight: 600 }}>Name</th>
                 <th style={{ padding: '8px 12px', color: '#6B7280', fontWeight: 600 }}>Code</th>
-                <th style={{ padding: '8px 12px', color: '#6B7280', fontWeight: 600 }}>Country</th>
+                <th style={{ padding: '8px 12px', color: '#6B7280', fontWeight: 600 }}>Name</th>
+                <th style={{ padding: '8px 12px', color: '#6B7280', fontWeight: 600 }}>Created</th>
+                <th style={{ padding: '8px 12px', color: '#6B7280', fontWeight: 600 }}>Last Updated</th>
+                <th style={{ padding: '8px 12px', color: '#6B7280', fontWeight: 600 }}>Created By</th>
                 <th style={{ padding: '8px 12px', width: 80 }} />
               </tr>
             </thead>
             <tbody>
               {filtered.map(h => (
                 <tr key={h.id} style={{ borderBottom: '1px solid #F3F4F6' }}>
-                  <td style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>{fmtDate(h.holiday_date)}</td>
-                  <td style={{ padding: '10px 12px', fontWeight: 500 }}>{h.holiday_name}</td>
                   <td style={{ padding: '10px 12px' }}>
-                    <code style={{ background: '#F3F4F6', padding: '2px 6px', borderRadius: 4, fontSize: 12 }}>
+                    <code style={{ background: '#EFF6FF', color: '#1D4ED8', padding: '3px 8px', borderRadius: 4, fontSize: 12, fontWeight: 600 }}>
                       {h.holiday_code}
                     </code>
                   </td>
-                  <td style={{ padding: '10px 12px', color: '#6B7280' }}>{h.country_code ?? '—'}</td>
+                  <td style={{ padding: '10px 12px', fontWeight: 500, color: '#111827' }}>{h.holiday_name}</td>
+                  <td style={{ padding: '10px 12px', color: '#6B7280' }}>{fmtDateTime(h.created_at)}</td>
+                  <td style={{ padding: '10px 12px', color: '#6B7280' }}>{fmtDateTime(h.updated_at)}</td>
+                  <td style={{ padding: '10px 12px', color: '#6B7280' }}>{h.profiles?.full_name ?? '—'}</td>
                   <td style={{ padding: '10px 12px' }}>
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button
@@ -237,27 +195,27 @@ export default function Holidays() {
       {/* ── Add/Edit Modal ────────────────────────────────────────────────────── */}
       {formOpen && (
         <div className="modal-overlay" onClick={() => setFormOpen(false)}>
-          <div className="modal-box" style={{ maxWidth: 440 }} onClick={e => e.stopPropagation()}>
+          <div className="modal-box" style={{ maxWidth: 420 }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <i className="fa-solid fa-star-and-crescent modal-icon" style={{ color: '#0369A1' }} />
               <h3>{form.id ? 'Edit Holiday' : 'Add Holiday'}</h3>
             </div>
             <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div className="form-group" style={{ marginBottom: 0 }}>
-                <label>Date <span style={{ color: '#DC2626' }}>*</span></label>
+                <label>Code <span style={{ color: '#DC2626' }}>*</span>
+                  <span style={{ color: '#9CA3AF', fontWeight: 400, fontSize: 11, marginLeft: 6 }}>Uppercase, unique identifier</span>
+                </label>
                 <input
-                  type="date"
-                  value={form.holiday_date}
-                  onChange={e => setForm(f => ({ ...f, holiday_date: e.target.value }))}
-                  style={{ padding: '7px 10px', borderRadius: 6, border: '1px solid #D1D5DB', fontSize: 13, width: '100%' }}
+                  type="text" placeholder="e.g. CHRISTMAS_DAY"
+                  value={form.holiday_code}
+                  onChange={e => setForm(f => ({ ...f, holiday_code: e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '') }))}
+                  style={{ padding: '7px 10px', borderRadius: 6, border: '1px solid #D1D5DB', fontSize: 13, width: '100%', fontFamily: 'monospace' }}
                 />
               </div>
-
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label>Name <span style={{ color: '#DC2626' }}>*</span></label>
                 <input
-                  type="text"
-                  placeholder="e.g. Christmas Day"
+                  type="text" placeholder="e.g. Christmas Day"
                   value={form.holiday_name}
                   onChange={e => setForm(f => ({
                     ...f,
@@ -265,29 +223,6 @@ export default function Holidays() {
                     holiday_code: f.id ? f.holiday_code : toCode(e.target.value),
                   }))}
                   style={{ padding: '7px 10px', borderRadius: 6, border: '1px solid #D1D5DB', fontSize: 13, width: '100%' }}
-                />
-              </div>
-
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label>Code <span style={{ color: '#DC2626' }}>*</span></label>
-                <input
-                  type="text"
-                  placeholder="e.g. CHRISTMAS_DAY"
-                  value={form.holiday_code}
-                  onChange={e => setForm(f => ({ ...f, holiday_code: e.target.value.toUpperCase() }))}
-                  style={{ padding: '7px 10px', borderRadius: 6, border: '1px solid #D1D5DB', fontSize: 13, width: '100%', fontFamily: 'monospace' }}
-                />
-              </div>
-
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label>Country Code <span style={{ color: '#9CA3AF', fontWeight: 400 }}>(optional, ISO 2-letter)</span></label>
-                <input
-                  type="text"
-                  placeholder="e.g. IN, GB, US"
-                  maxLength={2}
-                  value={form.country_code}
-                  onChange={e => setForm(f => ({ ...f, country_code: e.target.value.toUpperCase() }))}
-                  style={{ padding: '7px 10px', borderRadius: 6, border: '1px solid #D1D5DB', fontSize: 13, width: 100, textTransform: 'uppercase' }}
                 />
               </div>
             </div>
@@ -311,7 +246,7 @@ export default function Holidays() {
               <h3>Delete Holiday?</h3>
             </div>
             <div className="modal-body">
-              This will also remove this holiday from any calendars it's assigned to.
+              This will also remove this holiday from any calendar entries it's used in.
             </div>
             <div className="modal-actions">
               <button style={{ background: '#F3F4F6', color: '#374151', border: 'none', borderRadius: 7, padding: '9px 20px', cursor: 'pointer', fontWeight: 500 }}

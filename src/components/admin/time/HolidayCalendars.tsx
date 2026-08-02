@@ -1,11 +1,11 @@
 /**
- * HolidayCalendars — Manage named holiday calendars.
+ * HolidayCalendars — Named holiday calendars with inline date entries.
  *
- * Each calendar (e.g. "India 2026", "UK Public Holidays") can have holidays
- * assigned from the global holiday pool (created on the Holidays page).
+ * Header: code + name (assigned to employees).
+ * Entries (child rows): date + holiday (picked from the global pool).
  *
- * Expanding a calendar shows its assigned holidays and lets you
- * add/remove from the pool.
+ * Expand a calendar to manage its entries inline — add rows, pick date +
+ * holiday code, delete rows.
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -16,38 +16,39 @@ import ErrorBanner from '../../shared/ErrorBanner';
 
 interface Calendar {
   id:           string;
-  name:         string;
   code:         string;
+  name:         string;
   country_code: string | null;
   is_active:    boolean;
 }
 
-interface Holiday {
+interface CalendarEntry {
   id:           string;
-  holiday_date: string;
-  holiday_name: string;
+  entry_date:   string;
+  holiday_id:   string;
   holiday_code: string;
-  country_code: string | null;
+  holiday_name: string;
 }
 
-interface AssignedHoliday extends Holiday {
-  assigned_at: string;
+interface HolidayOption {
+  id:           string;
+  holiday_code: string;
+  holiday_name: string;
 }
 
 interface CalForm {
   id:           string | null;
-  name:         string;
   code:         string;
+  name:         string;
   country_code: string;
   is_active:    boolean;
 }
 
-const BLANK_CAL: CalForm = { id: null, name: '', code: '', country_code: '', is_active: true };
+const BLANK_CAL: CalForm = { id: null, code: '', name: '', country_code: '', is_active: true };
 
 function fmtDate(d: string): string {
   if (!d) return '';
-  const dt = new Date(d + 'T00:00:00');
-  return dt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  return new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 function toCode(name: string): string {
@@ -57,89 +58,91 @@ function toCode(name: string): string {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function HolidayCalendars() {
-  const [calendars,    setCalendars]   = useState<Calendar[]>([]);
-  const [loading,      setLoading]     = useState(true);
-  const [error,        setError]       = useState<string | null>(null);
+  const [calendars,     setCalendars]    = useState<Calendar[]>([]);
+  const [loading,       setLoading]      = useState(true);
+  const [error,         setError]        = useState<string | null>(null);
+  const [holidayPool,   setHolidayPool]  = useState<HolidayOption[]>([]);
 
-  // Calendar CRUD
-  const [calForm,      setCalForm]     = useState<CalForm>(BLANK_CAL);
-  const [calFormOpen,  setCalFormOpen] = useState(false);
-  const [calSaving,    setCalSaving]   = useState(false);
-  const [deleteCalId,  setDeleteCalId] = useState<string | null>(null);
-  const [deleting,     setDeleting]    = useState(false);
+  // Calendar CRUD modal
+  const [calForm,       setCalForm]      = useState<CalForm>(BLANK_CAL);
+  const [calFormOpen,   setCalFormOpen]  = useState(false);
+  const [calSaving,     setCalSaving]    = useState(false);
+  const [deleteCalId,   setDeleteCalId]  = useState<string | null>(null);
+  const [deleting,      setDeleting]     = useState(false);
 
-  // Expanded calendar (holidays panel)
-  const [expandedId,   setExpandedId]  = useState<string | null>(null);
-  const [assigned,     setAssigned]    = useState<AssignedHoliday[]>([]);
-  const [allHolidays,  setAllHolidays] = useState<Holiday[]>([]);
-  const [panelLoading, setPanelLoading] = useState(false);
-  const [assigning,    setAssigning]   = useState(false);
+  // Expanded calendar entries
+  const [expandedId,    setExpandedId]   = useState<string | null>(null);
+  const [entries,       setEntries]      = useState<CalendarEntry[]>([]);
+  const [entriesLoading, setEntriesLoading] = useState(false);
+
+  // New entry row state
+  const [newDate,       setNewDate]      = useState('');
+  const [newHolidayId,  setNewHolidayId] = useState('');
+  const [addingSaving,  setAddingSaving] = useState(false);
 
   const [infoModal, setInfoModal] = useState<{ open: boolean; title: string; message: string }>({ open: false, title: '', message: '' });
+
+  // ── Load calendars + holiday pool ────────────────────────────────────────────
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
-    const { data, error: err } = await supabase
-      .from('time_holiday_calendars')
-      .select('id, name, code, country_code, is_active')
-      .order('name');
-    if (err) { setError(err.message); setLoading(false); return; }
-    setCalendars(data ?? []);
+    const [calRes, holidayRes] = await Promise.all([
+      supabase.from('time_holiday_calendars').select('id, code, name, country_code, is_active').order('name'),
+      supabase.from('time_holidays').select('id, holiday_code, holiday_name').order('holiday_code'),
+    ]);
+    if (calRes.error) { setError(calRes.error.message); setLoading(false); return; }
+    setCalendars(calRes.data ?? []);
+    setHolidayPool(holidayRes.data ?? []);
     setLoading(false);
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
-  // Load panel data when a calendar is expanded
-  const loadPanel = useCallback(async (calId: string) => {
-    setPanelLoading(true);
-    const [assignedRes, allRes] = await Promise.all([
-      supabase
-        .from('time_calendar_holidays')
-        .select('holiday_id, assigned_at, time_holidays!inner(id, holiday_date, holiday_name, holiday_code, country_code)')
-        .eq('calendar_id', calId)
-        .order('assigned_at'),
-      supabase
-        .from('time_holidays')
-        .select('id, holiday_date, holiday_name, holiday_code, country_code')
-        .order('holiday_date'),
-    ]);
-    if (assignedRes.error) {
-      setInfoModal({ open: true, title: 'Error', message: assignedRes.error.message });
-    } else {
-      setAssigned(
-        (assignedRes.data ?? []).map((r: any) => ({
-          ...r.time_holidays,
-          assigned_at: r.assigned_at,
-        }))
-      );
+  // ── Load entries for expanded calendar ────────────────────────────────────────
+
+  const loadEntries = useCallback(async (calId: string) => {
+    setEntriesLoading(true);
+    const { data, error: err } = await supabase
+      .from('time_calendar_entries')
+      .select('id, entry_date, holiday_id, time_holidays!inner(holiday_code, holiday_name)')
+      .eq('calendar_id', calId)
+      .order('entry_date');
+    if (err) {
+      setInfoModal({ open: true, title: 'Error', message: err.message });
+      setEntriesLoading(false);
+      return;
     }
-    setAllHolidays(allRes.data ?? []);
-    setPanelLoading(false);
+    setEntries(
+      (data ?? []).map((r: any) => ({
+        id:           r.id,
+        entry_date:   r.entry_date,
+        holiday_id:   r.holiday_id,
+        holiday_code: r.time_holidays.holiday_code,
+        holiday_name: r.time_holidays.holiday_name,
+      }))
+    );
+    setEntriesLoading(false);
   }, []);
 
   function toggleExpand(id: string) {
     if (expandedId === id) {
       setExpandedId(null);
+      setEntries([]);
     } else {
       setExpandedId(id);
-      loadPanel(id);
+      setNewDate('');
+      setNewHolidayId(holidayPool[0]?.id ?? '');
+      loadEntries(id);
     }
   }
 
-  // ── Calendar form ────────────────────────────────────────────────────────
+  // ── Calendar form ─────────────────────────────────────────────────────────────
 
-  function openNewCal() {
-    setCalForm(BLANK_CAL);
-    setCalFormOpen(true);
-  }
+  function openNewCal() { setCalForm(BLANK_CAL); setCalFormOpen(true); }
 
   function openEditCal(c: Calendar) {
-    setCalForm({
-      id: c.id, name: c.name, code: c.code,
-      country_code: c.country_code ?? '', is_active: c.is_active,
-    });
+    setCalForm({ id: c.id, code: c.code, name: c.name, country_code: c.country_code ?? '', is_active: c.is_active });
     setCalFormOpen(true);
   }
 
@@ -164,61 +167,49 @@ export default function HolidayCalendars() {
       return;
     }
     setCalFormOpen(false);
-    setCalForm(BLANK_CAL);
     await load();
   }
 
   async function handleCalDelete(id: string) {
     setDeleting(true);
-    const { data, error: err } = await supabase.rpc('upsert_holiday_calendar', {
-      p_data: { id, _delete: true },
-    });
-    // Fallback: direct delete if RPC doesn't support _delete
-    if (err || (data && !data.ok)) {
-      const { error: delErr } = await supabase.from('time_holiday_calendars').delete().eq('id', id);
-      if (delErr) {
-        setInfoModal({ open: true, title: 'Error', message: delErr.message });
-        setDeleting(false);
-        return;
-      }
-    }
+    const { error: err } = await supabase.from('time_holiday_calendars').delete().eq('id', id);
     setDeleting(false);
+    if (err) { setInfoModal({ open: true, title: 'Error', message: err.message }); return; }
     setDeleteCalId(null);
-    if (expandedId === id) setExpandedId(null);
+    if (expandedId === id) { setExpandedId(null); setEntries([]); }
     await load();
   }
 
-  // ── Holiday assignment ───────────────────────────────────────────────────
+  // ── Entry management ──────────────────────────────────────────────────────────
 
-  const assignedIds = new Set(assigned.map(h => h.id));
-  const unassigned = allHolidays.filter(h => !assignedIds.has(h.id));
-
-  async function handleAssign(holidayId: string) {
-    if (!expandedId) return;
-    setAssigning(true);
-    const { data, error: err } = await supabase.rpc('assign_holiday_to_calendar', {
+  async function handleAddEntry() {
+    if (!expandedId || !newDate || !newHolidayId) {
+      setInfoModal({ open: true, title: 'Validation', message: 'Date and holiday are required.' });
+      return;
+    }
+    setAddingSaving(true);
+    const { data, error: err } = await supabase.rpc('upsert_calendar_entry', {
       p_calendar_id: expandedId,
-      p_holiday_id:  holidayId,
+      p_entry_date:  newDate,
+      p_holiday_id:  newHolidayId,
     });
-    setAssigning(false);
+    setAddingSaving(false);
     if (err || !data?.ok) {
       setInfoModal({ open: true, title: 'Error', message: data?.message ?? err?.message ?? 'Unknown error.' });
       return;
     }
-    await loadPanel(expandedId);
+    setNewDate('');
+    setNewHolidayId(holidayPool[0]?.id ?? '');
+    await loadEntries(expandedId);
   }
 
-  async function handleUnassign(holidayId: string) {
-    if (!expandedId) return;
-    const { data, error: err } = await supabase.rpc('unassign_holiday_from_calendar', {
-      p_calendar_id: expandedId,
-      p_holiday_id:  holidayId,
-    });
+  async function handleDeleteEntry(entryId: string) {
+    const { data, error: err } = await supabase.rpc('delete_calendar_entry', { p_entry_id: entryId });
     if (err || !data?.ok) {
       setInfoModal({ open: true, title: 'Error', message: data?.message ?? err?.message ?? 'Unknown error.' });
       return;
     }
-    await loadPanel(expandedId);
+    if (expandedId) await loadEntries(expandedId);
   }
 
   // ────────────────────────────────────────────────────────────────────────────
@@ -227,11 +218,18 @@ export default function HolidayCalendars() {
     <div className="ar-panel">
       <h2 className="page-title">Holiday Calendars</h2>
       <p className="page-subtitle">
-        Create named holiday calendars (e.g. by country or office), then assign holidays from the global
-        <strong> Holidays</strong> pool.
+        Create named holiday calendars (identified by code) and assign holidays with specific dates.
+        Calendar codes are assigned to employees to determine their public holidays.
       </p>
 
       {error && <ErrorBanner message={error} onRetry={load} />}
+
+      {holidayPool.length === 0 && !loading && (
+        <div style={{ marginBottom: 16, padding: '10px 14px', background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: 8, fontSize: 13, color: '#92400E' }}>
+          <i className="fa-solid fa-triangle-exclamation" style={{ marginRight: 6 }} />
+          No holidays in the pool yet. <a href="/admin/time/holidays" style={{ color: '#0369A1', textDecoration: 'underline' }}>Create holidays</a> first, then assign them here.
+        </div>
+      )}
 
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'flex-end' }}>
         <button className="btn-add" onClick={openNewCal}>
@@ -252,28 +250,31 @@ export default function HolidayCalendars() {
             return (
               <div key={cal.id} style={{
                 background: '#fff', border: '1px solid #E5E7EB', borderRadius: 10,
-                marginBottom: 12, overflow: 'hidden',
-                opacity: cal.is_active ? 1 : 0.6,
+                marginBottom: 12, overflow: 'hidden', opacity: cal.is_active ? 1 : 0.6,
               }}>
-                {/* Calendar header row */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', cursor: 'pointer' }}
-                  onClick={() => toggleExpand(cal.id)}>
+                {/* ── Calendar header row ─────────────────────────────────────── */}
+                <div
+                  style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', cursor: 'pointer' }}
+                  onClick={() => toggleExpand(cal.id)}
+                >
                   <i className={`fa-solid ${isExpanded ? 'fa-chevron-down' : 'fa-chevron-right'}`}
                     style={{ fontSize: 11, color: '#9CA3AF', width: 12 }} />
+
                   <div style={{ flex: 1 }}>
-                    <span style={{ fontWeight: 600, fontSize: 14, color: '#111827' }}>{cal.name}</span>
+                    <span style={{ fontWeight: 700, fontSize: 14, color: '#111827' }}>{cal.name}</span>
+                    <code style={{ marginLeft: 10, background: '#EFF6FF', color: '#1D4ED8', padding: '2px 8px', borderRadius: 4, fontSize: 12, fontWeight: 600 }}>
+                      {cal.code}
+                    </code>
                     {cal.country_code && (
-                      <span style={{ marginLeft: 8, background: '#EFF6FF', color: '#1D4ED8', borderRadius: 20, padding: '2px 8px', fontSize: 11, fontWeight: 600 }}>
+                      <span style={{ marginLeft: 8, background: '#F3F4F6', color: '#6B7280', borderRadius: 20, padding: '2px 8px', fontSize: 11 }}>
                         {cal.country_code}
                       </span>
                     )}
-                    <code style={{ marginLeft: 8, background: '#F3F4F6', padding: '1px 6px', borderRadius: 4, fontSize: 11, color: '#6B7280' }}>
-                      {cal.code}
-                    </code>
                     {!cal.is_active && (
                       <span style={{ marginLeft: 8, background: '#FEF3C7', color: '#92400E', borderRadius: 20, padding: '2px 8px', fontSize: 11 }}>Inactive</span>
                     )}
                   </div>
+
                   <div style={{ display: 'flex', gap: 6 }} onClick={e => e.stopPropagation()}>
                     <button
                       style={{ background: 'none', border: '1px solid #E5E7EB', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', fontSize: 12, color: '#374151' }}
@@ -286,75 +287,94 @@ export default function HolidayCalendars() {
                   </div>
                 </div>
 
-                {/* Expanded holiday assignment panel */}
+                {/* ── Expanded entries panel ──────────────────────────────────── */}
                 {isExpanded && (
-                  <div style={{ borderTop: '1px solid #F3F4F6', padding: '16px' }}>
-                    {panelLoading ? (
+                  <div style={{ borderTop: '1px solid #F3F4F6', padding: 16 }}>
+                    {entriesLoading ? (
                       <div style={{ textAlign: 'center', color: '#9CA3AF', padding: 16 }}>
-                        <i className="fa-solid fa-spinner fa-spin" style={{ marginRight: 6 }} />Loading holidays…
+                        <i className="fa-solid fa-spinner fa-spin" style={{ marginRight: 6 }} />Loading entries…
                       </div>
                     ) : (
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-
-                        {/* Assigned holidays */}
-                        <div>
-                          <div style={{ fontSize: 12, fontWeight: 600, color: '#6B7280', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                            Assigned ({assigned.length})
-                          </div>
-                          {assigned.length === 0 ? (
-                            <div style={{ color: '#9CA3AF', fontSize: 12, padding: '8px 0' }}>No holidays assigned yet.</div>
-                          ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                              {assigned.map(h => (
-                                <div key={h.id} style={{
-                                  display: 'flex', alignItems: 'center', gap: 8,
-                                  background: '#F0FDF4', border: '1px solid #BBF7D0',
-                                  borderRadius: 6, padding: '6px 10px',
-                                }}>
-                                  <span style={{ fontSize: 12, color: '#166534', flex: 1 }}>
-                                    <strong>{fmtDate(h.holiday_date)}</strong> — {h.holiday_name}
-                                  </span>
+                      <>
+                        {/* Entry table */}
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginBottom: 12 }}>
+                          <thead>
+                            <tr style={{ borderBottom: '2px solid #E5E7EB', textAlign: 'left' }}>
+                              <th style={{ padding: '6px 10px', color: '#6B7280', fontWeight: 600 }}>Date</th>
+                              <th style={{ padding: '6px 10px', color: '#6B7280', fontWeight: 600 }}>Holiday Code</th>
+                              <th style={{ padding: '6px 10px', color: '#6B7280', fontWeight: 600 }}>Holiday Name</th>
+                              <th style={{ padding: '6px 10px', width: 50 }} />
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {entries.length === 0 ? (
+                              <tr>
+                                <td colSpan={4} style={{ padding: '12px 10px', color: '#9CA3AF', fontSize: 12 }}>
+                                  No entries yet. Add one below.
+                                </td>
+                              </tr>
+                            ) : entries.map(e => (
+                              <tr key={e.id} style={{ borderBottom: '1px solid #F3F4F6' }}>
+                                <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>{fmtDate(e.entry_date)}</td>
+                                <td style={{ padding: '8px 10px' }}>
+                                  <code style={{ background: '#EFF6FF', color: '#1D4ED8', padding: '2px 6px', borderRadius: 4, fontSize: 12 }}>
+                                    {e.holiday_code}
+                                  </code>
+                                </td>
+                                <td style={{ padding: '8px 10px', color: '#374151' }}>{e.holiday_name}</td>
+                                <td style={{ padding: '8px 10px' }}>
                                   <button
-                                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#DC2626', fontSize: 11, padding: '2px 4px' }}
-                                    onClick={() => handleUnassign(h.id)} title="Remove"
-                                  ><i className="fa-solid fa-xmark" /></button>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
+                                    style={{ background: 'none', border: '1px solid #FEE2E2', borderRadius: 4, padding: '3px 7px', cursor: 'pointer', color: '#DC2626' }}
+                                    onClick={() => handleDeleteEntry(e.id)} title="Remove"
+                                  ><i className="fa-solid fa-trash" style={{ fontSize: 11 }} /></button>
+                                </td>
+                              </tr>
+                            ))}
 
-                        {/* Available to add */}
-                        <div>
-                          <div style={{ fontSize: 12, fontWeight: 600, color: '#6B7280', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                            Available to add ({unassigned.length})
-                          </div>
-                          {unassigned.length === 0 ? (
-                            <div style={{ color: '#9CA3AF', fontSize: 12, padding: '8px 0' }}>
-                              All holidays are assigned, or create more on the <strong>Holidays</strong> page.
-                            </div>
-                          ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 300, overflowY: 'auto' }}>
-                              {unassigned.map(h => (
-                                <div key={h.id} style={{
-                                  display: 'flex', alignItems: 'center', gap: 8,
-                                  background: '#F9FAFB', border: '1px solid #E5E7EB',
-                                  borderRadius: 6, padding: '6px 10px',
-                                }}>
-                                  <span style={{ fontSize: 12, color: '#374151', flex: 1 }}>
-                                    <strong>{fmtDate(h.holiday_date)}</strong> — {h.holiday_name}
-                                    {h.country_code && <span style={{ color: '#9CA3AF', marginLeft: 4 }}>({h.country_code})</span>}
-                                  </span>
-                                  <button
-                                    style={{ background: '#0369A1', border: 'none', borderRadius: 4, padding: '3px 8px', cursor: 'pointer', color: '#fff', fontSize: 11 }}
-                                    onClick={() => handleAssign(h.id)} disabled={assigning} title="Add to calendar"
-                                  ><i className="fa-solid fa-plus" /></button>
-                                </div>
-                              ))}
-                            </div>
-                          )}
+                            {/* Add new entry row */}
+                            <tr style={{ borderTop: '2px dashed #E5E7EB', background: '#F9FAFB' }}>
+                              <td style={{ padding: '8px 10px' }}>
+                                <input
+                                  type="date" value={newDate}
+                                  onChange={e => setNewDate(e.target.value)}
+                                  style={{ padding: '5px 8px', borderRadius: 5, border: '1px solid #D1D5DB', fontSize: 13 }}
+                                />
+                              </td>
+                              <td colSpan={2} style={{ padding: '8px 10px' }}>
+                                <select
+                                  value={newHolidayId}
+                                  onChange={e => setNewHolidayId(e.target.value)}
+                                  style={{ padding: '5px 8px', borderRadius: 5, border: '1px solid #D1D5DB', fontSize: 13, minWidth: 260 }}
+                                >
+                                  <option value="">— Select holiday —</option>
+                                  {holidayPool.map(h => (
+                                    <option key={h.id} value={h.id}>
+                                      {h.holiday_code} — {h.holiday_name}
+                                    </option>
+                                  ))}
+                                </select>
+                              </td>
+                              <td style={{ padding: '8px 10px' }}>
+                                <button
+                                  className="btn-add"
+                                  style={{ padding: '5px 12px', fontSize: 12 }}
+                                  onClick={handleAddEntry}
+                                  disabled={addingSaving || !newDate || !newHolidayId}
+                                >
+                                  {addingSaving
+                                    ? <i className="fa-solid fa-spinner fa-spin" />
+                                    : <><i className="fa-solid fa-plus" style={{ marginRight: 4 }} />Add</>
+                                  }
+                                </button>
+                              </td>
+                            </tr>
+                          </tbody>
+                        </table>
+
+                        <div style={{ fontSize: 12, color: '#9CA3AF' }}>
+                          {entries.length} entr{entries.length !== 1 ? 'ies' : 'y'}
                         </div>
-                      </div>
+                      </>
                     )}
                   </div>
                 )}
@@ -364,7 +384,7 @@ export default function HolidayCalendars() {
         </div>
       )}
 
-      {/* ── Calendar Form Modal ───────────────────────────────────────────────── */}
+      {/* ── Calendar Form Modal ────────────────────────────────────────────────── */}
       {calFormOpen && (
         <div className="modal-overlay" onClick={() => setCalFormOpen(false)}>
           <div className="modal-box" style={{ maxWidth: 420 }} onClick={e => e.stopPropagation()}>
@@ -376,17 +396,16 @@ export default function HolidayCalendars() {
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label>Name <span style={{ color: '#DC2626' }}>*</span></label>
                 <input
-                  type="text" placeholder="e.g. India — National Holidays 2026"
+                  type="text" placeholder="e.g. India National Holidays 2026"
                   value={calForm.name}
-                  onChange={e => setCalForm(f => ({
-                    ...f, name: e.target.value,
-                    code: f.id ? f.code : toCode(e.target.value),
-                  }))}
+                  onChange={e => setCalForm(f => ({ ...f, name: e.target.value, code: f.id ? f.code : toCode(e.target.value) }))}
                   style={{ padding: '7px 10px', borderRadius: 6, border: '1px solid #D1D5DB', fontSize: 13, width: '100%' }}
                 />
               </div>
               <div className="form-group" style={{ marginBottom: 0 }}>
-                <label>Code <span style={{ color: '#DC2626' }}>*</span></label>
+                <label>Code <span style={{ color: '#DC2626' }}>*</span>
+                  <span style={{ color: '#9CA3AF', fontWeight: 400, fontSize: 11, marginLeft: 6 }}>Assigned to employees</span>
+                </label>
                 <input
                   type="text" placeholder="e.g. IN_2026"
                   value={calForm.code}
@@ -420,7 +439,7 @@ export default function HolidayCalendars() {
         </div>
       )}
 
-      {/* ── Delete Calendar Confirm ───────────────────────────────────────────── */}
+      {/* ── Delete Calendar Confirm ────────────────────────────────────────────── */}
       {deleteCalId && (
         <div className="modal-overlay" onClick={() => setDeleteCalId(null)}>
           <div className="modal-box" onClick={e => e.stopPropagation()}>
@@ -429,7 +448,7 @@ export default function HolidayCalendars() {
               <h3>Delete Calendar?</h3>
             </div>
             <div className="modal-body">
-              This will delete the calendar and remove all its holiday assignments. The holidays themselves will remain in the global pool.
+              This will delete the calendar and all its date entries. The holidays themselves will remain in the pool.
             </div>
             <div className="modal-actions">
               <button style={{ background: '#F3F4F6', color: '#374151', border: 'none', borderRadius: 7, padding: '9px 20px', cursor: 'pointer', fontWeight: 500 }}
