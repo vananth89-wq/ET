@@ -40,18 +40,25 @@ function getOrderedDays(startDay: number): string[] {
   return Array.from({ length: 7 }, (_, i) => DAY_NAMES[(startDay + i) % 7]);
 }
 
-/** Convert "hh:mm" → minutes */
-function hhmmToMinutes(hhmm: string): number {
-  const [h, m] = hhmm.split(':').map(Number);
-  return (h || 0) * 60 + (m || 0);
+/** Convert decimal hours string → minutes (e.g. "8" → 480, "7.5" → 450) */
+function hoursToMinutes(val: string): number {
+  const h = parseFloat(val);
+  return isNaN(h) || h <= 0 ? 0 : Math.round(h * 60);
 }
 
-/** Convert minutes → "hh:mm" */
+/** Convert minutes → decimal hours string (e.g. 480 → "8", 450 → "7.5") */
+function minutesToHours(mins: number): string {
+  if (!mins) return '';
+  const h = mins / 60;
+  return Number.isInteger(h) ? String(h) : h.toFixed(1);
+}
+
+/** Convert minutes → display label e.g. "8h" or "7h 30m" */
 function minutesToHhmm(mins: number): string {
-  if (!mins) return '00:00';
+  if (!mins) return 'Off';
   const h = Math.floor(mins / 60);
   const m = mins % 60;
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  return m === 0 ? `${h}h` : `${h}h ${m}m`;
 }
 
 /** Build default 7 lines (Mon–Fri 8h, Sat–Sun off) relative to startDay */
@@ -145,8 +152,8 @@ export default function WorkSchedules() {
     });
   }
 
-  function setLineMinutes(dayNumber: number, hhmm: string) {
-    const mins = hhmmToMinutes(hhmm);
+  function setLineMinutes(dayNumber: number, val: string) {
+    const mins = hoursToMinutes(val);
     setForm(prev => ({
       ...prev,
       lines: prev.lines.map(l =>
@@ -173,11 +180,11 @@ export default function WorkSchedules() {
       lines:             form.lines,
     };
 
-    const { data, error: rpcErr } = await supabase.rpc('upsert_work_schedule', { p_data: payload });
+    const { data, error: e } = await supabase.rpc('upsert_work_schedule', { p_data: payload });
     setSaving(false);
 
-    if (rpcErr || !data?.ok) {
-      setInfoModal({ open: true, title: 'Error', message: data?.message ?? rpcErr?.message ?? 'Unknown error.' });
+    if (e || !data?.ok) {
+      setInfoModal({ open: true, title: 'Error', message: data?.message ?? e?.message ?? 'Unknown error.' });
       return;
     }
     await load();
@@ -345,18 +352,20 @@ export default function WorkSchedules() {
                         <td style={{ padding: '6px 10px', fontWeight: 500 }}>{dayName}</td>
                         <td style={{ padding: '4px 10px' }}>
                           <input
-                            type="time"
-                            value={minutesToHhmm(line.planned_minutes)}
+                            type="number"
+                            min="0" max="24" step="0.5"
+                            placeholder="0"
+                            value={minutesToHours(line.planned_minutes)}
                             disabled={line.planned_minutes === 0}
                             onChange={e => setLineMinutes(line.day_number, e.target.value)}
-                            style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #D1D5DB', fontSize: 13, width: 100 }}
+                            style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #D1D5DB', fontSize: 13, width: 80 }}
                           />
                         </td>
                         <td style={{ padding: '4px 10px', textAlign: 'center' }}>
                           <input
                             type="checkbox"
                             checked={line.planned_minutes === 0}
-                            onChange={e => setLineMinutes(line.day_number, e.target.checked ? '00:00' : '08:00')}
+                            onChange={e => setLineMinutes(line.day_number, e.target.checked ? '0' : '8')}
                           />
                         </td>
                       </tr>
