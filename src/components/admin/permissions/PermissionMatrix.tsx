@@ -387,6 +387,7 @@ const BULK_TEMPLATES: { code: string; label: string; importCode: string; exportC
   { code: 'project',           label: 'Projects',             importCode: 'project.bulk_import',           exportCode: 'project.bulk_export'           },
   { code: 'exchange_rate',     label: 'Exchange Rates',       importCode: 'exchange_rate.bulk_import',     exportCode: 'exchange_rate.bulk_export'     },
   { code: 'education',         label: 'Education',            importCode: 'education.bulk_import',         exportCode: 'education.bulk_export'         },
+  { code: 'timesheet',        label: 'Timesheets',           importCode: 'timesheet.bulk_import',         exportCode: 'timesheet.bulk_export'         },
 ];
 
 interface ImportExportBandProps {
