@@ -64,11 +64,10 @@ const EV_GROUPS: MatrixGroup[] = [
       rowHint: "Employee's own expense reports — create, submit and track reimbursement claims" },
   ]},
   { groupLabel: 'Timesheet', rows: [
-    { code: 'timesheet', label: 'Timesheet', availableActions: ['view','create','edit','delete'],
-      rowHint: 'Timesheet access — scope controlled by Target Groups (Self = own only, All Employees = admin/manager view)',
+    { code: 'timesheet', label: 'Timesheet', availableActions: ['view','edit','delete'],
+      rowHint: 'Timesheet access — scope controlled by Target Groups (Self = own only, All Employees = admin/manager view). Timesheets are auto-created monthly by the system.',
       actionHints: {
         view:   'See timesheet calendar and entries for employees in scope',
-        create: 'Submit a timesheet for approval',
         edit:   'Add and update time entries within the configured edit window',
         delete: 'Remove time entries within the configured edit window',
       },
