@@ -63,6 +63,16 @@ const EV_GROUPS: MatrixGroup[] = [
     { code: 'expense_reports', label: 'Expense reports', availableActions: ['view','create','edit','delete','history'],
       rowHint: "Employee's own expense reports — create, submit and track reimbursement claims" },
   ]},
+  { groupLabel: 'Timesheet', rows: [
+    { code: 'timesheet', label: 'Own timesheet', availableActions: ['view','edit','delete'],
+      rowHint: "Employee's own timesheets — view calendar, log entries and submit for approval",
+      actionHints: {
+        view:   'See own monthly timesheet calendar and entries',
+        edit:   'Add and update time entries within the configured edit window',
+        delete: 'Remove time entries within the configured edit window',
+      },
+    },
+  ]},
   { groupLabel: 'Employee info', rows: [
     { code: 'employee_details',   label: 'Employee master',   availableActions: ['view','edit'],
       rowHint: 'Controls which employees this user can see — sets the scope for all employee info portlets' },
@@ -130,6 +140,38 @@ const EV_GROUPS: MatrixGroup[] = [
 ];
 
 const ADMIN_GROUPS: MatrixGroup[] = [
+  { groupLabel: 'Time Management', rows: [
+    { code: 'time_work_schedules',    label: 'Work schedules',     availableActions: ['view','edit','delete'],
+      rowHint: 'Define weekly work schedule templates — days of week and planned hours per day' },
+    { code: 'time_holiday_calendars', label: 'Holiday calendars',  availableActions: ['view','edit','delete'],
+      rowHint: 'Create and manage holiday calendars by country or region' },
+    { code: 'time_holidays',          label: 'Holidays',           availableActions: ['view','edit','delete'],
+      rowHint: 'Add and remove public holidays within a holiday calendar' },
+    { code: 'time_types',             label: 'Time types',         availableActions: ['view','edit','delete'],
+      rowHint: 'Manage attendance and absence categories employees can log against timesheets' },
+    { code: 'time_color_config',      label: 'Color config',       availableActions: ['view','edit'],
+      rowHint: 'Customise the color palette for calendar day states, status badges and entry pills' },
+    { code: 'time_edit_config',       label: 'Edit window config', availableActions: ['view','edit'],
+      rowHint: 'Set how many days back each role (employee / manager / HR) can edit timesheet entries' },
+    { code: 'time_submission_config', label: 'Submission config',  availableActions: ['view','edit','delete'],
+      rowHint: 'Configure submission reminder notifications — timing, message template and channel' },
+    { code: 'timesheet_admin',        label: 'Timesheet admin',    availableActions: ['view','edit'],
+      rowHint: 'Admin access to read and edit any employee\'s timesheet. Edit also covers approve.',
+      actionHints: {
+        view: 'Read any employee timesheet regardless of ownership',
+        edit: 'Edit or approve any employee timesheet (bypasses the employee edit window)',
+      },
+    },
+    { code: 'timesheet_manager',      label: 'Team timesheets',    availableActions: ['view','edit'],
+      rowHint: 'Manager access to read and approve direct-report timesheets within their target group scope',
+      actionHints: {
+        view: 'Read timesheets for employees in the manager\'s target group',
+        edit: 'Edit or approve timesheets for employees in the manager\'s target group',
+      },
+    },
+    { code: 'timesheet_reports',      label: 'Timesheet reports',  availableActions: ['view'],
+      rowHint: 'Access timesheet reporting and analytics pages — utilisation, missing timesheets, department summaries' },
+  ]},
   { groupLabel: 'Employee', rows: [
     { code: 'hire_employee', label: 'Hire employee', availableActions: ['view','create','edit','delete','history'],
       rowHint: 'New hire pipeline — create Draft employees, complete onboarding and activate them',
