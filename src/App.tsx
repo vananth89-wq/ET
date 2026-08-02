@@ -502,6 +502,21 @@ function UserMenu() {
 // Checking here keeps
 // the Sidebar render logic clean.
 
+// ─── ComingSoon placeholder ───────────────────────────────────────────────────
+
+function ComingSoon({ title }: { title: string }) {
+  return (
+    <div className="ar-panel">
+      <h2 className="page-title">{title}</h2>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '80px 0', color: '#9CA3AF' }}>
+        <i className="fa-solid fa-hammer" style={{ fontSize: 36, marginBottom: 16, color: '#D1D5DB' }} />
+        <p style={{ fontSize: 15, fontWeight: 500, margin: 0 }}>Coming soon</p>
+        <p style={{ fontSize: 13, margin: '4px 0 0' }}>This section is under construction.</p>
+      </div>
+    </div>
+  );
+}
+
 // ─── AppHeader ────────────────────────────────────────────────────────────────
 
 function AppHeader() {
@@ -869,10 +884,14 @@ export default function App() {
             ]} />
           }>
             <Route index element={<Navigate to="work-schedules" replace />} />
-            <Route path="work-schedules" element={<ProtectedRoute requiredPermission="time_work_schedules.view"><WorkSchedules /></ProtectedRoute>} />
-            <Route path="time-types"     element={<ProtectedRoute requiredPermission="time_types.view"><TimeTypes /></ProtectedRoute>} />
-            <Route path="colors"         element={<ProtectedRoute requiredPermission="time_color_config.view"><ColorConfig /></ProtectedRoute>} />
-            <Route path="edit-config"    element={<ProtectedRoute requiredPermission="time_edit_config.view"><EditWindowConfig /></ProtectedRoute>} />
+            <Route path="work-schedules"    element={<ProtectedRoute requiredPermission="time_work_schedules.view"><WorkSchedules /></ProtectedRoute>} />
+            <Route path="time-types"        element={<ProtectedRoute requiredPermission="time_types.view"><TimeTypes /></ProtectedRoute>} />
+            <Route path="colors"            element={<ProtectedRoute requiredPermission="time_color_config.view"><ColorConfig /></ProtectedRoute>} />
+            <Route path="edit-config"       element={<ProtectedRoute requiredPermission="time_edit_config.view"><EditWindowConfig /></ProtectedRoute>} />
+            <Route path="timesheets"        element={<ProtectedRoute requiredPermission="timesheet_admin.view"><ComingSoon title="Timesheet Admin" /></ProtectedRoute>} />
+            <Route path="submission-config" element={<ProtectedRoute requiredPermission="time_submission_config.view"><ComingSoon title="Submission Config" /></ProtectedRoute>} />
+            <Route path="holiday-calendars" element={<ProtectedRoute requiredPermission="time_holiday_calendars.view"><ComingSoon title="Holiday Calendars" /></ProtectedRoute>} />
+            <Route path="holidays"          element={<ProtectedRoute requiredPermission="time_holidays.view"><ComingSoon title="Holidays" /></ProtectedRoute>} />
           </Route>
 
           {/* backward-compat redirects */}
