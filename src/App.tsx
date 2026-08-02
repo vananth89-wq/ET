@@ -67,6 +67,10 @@ import ThemeManager                                               from './compon
 import AdminHome                                                  from './components/admin/AdminHome';
 import AdminSectionLayout                                         from './components/admin/AdminSectionLayout';
 import AdminDirectPage                                            from './components/admin/AdminDirectPage';
+import WorkSchedules                                              from './components/admin/time/WorkSchedules';
+import TimeTypes                                                  from './components/admin/time/TimeTypes';
+import ColorConfig                                                from './components/admin/time/ColorConfig';
+import EditWindowConfig                                           from './components/admin/time/EditWindowConfig';
 import LandingPage                                                from './components/employee/LandingPage';
 import { usePicklistValues }                                      from './hooks/usePicklistValues';
 import { supabase }                                               from './lib/supabase';
@@ -834,6 +838,26 @@ export default function App() {
             <Route path="rbp"            element={<ProtectedRoute requiredPermission="sec_rbp_troubleshoot.view"><RbpTroubleshoot /></ProtectedRoute>} />
             <Route path="password-reset" element={<ProtectedRoute requiredPermission="sec_password_reset.view"><PasswordResetAdmin /></ProtectedRoute>} />
           </Route>
+          {/* ── Time Management section ───────────────────────────────────── */}
+          <Route path="time" element={
+            <AdminSectionLayout title="Time Management" subtitle="Configure work schedules, holidays, time types and timesheet settings." items={[
+              { path: '/admin/time/work-schedules',    label: 'Work Schedules',     icon: 'fa-calendar-days',     permission: 'time_work_schedules.view'    },
+              { path: '/admin/time/time-types',        label: 'Time Types',         icon: 'fa-clock',             permission: 'time_types.view'             },
+              { path: '/admin/time/colors',            label: 'Color Config',       icon: 'fa-palette',           permission: 'time_color_config.view'      },
+              { path: '/admin/time/edit-config',       label: 'Edit Window Config', icon: 'fa-pen-ruler',         permission: 'time_edit_config.view'       },
+              { path: '/admin/time/timesheets',        label: 'Timesheet Admin',    icon: 'fa-table-list',        permission: 'timesheet_admin.view'        },
+              { path: '/admin/time/submission-config', label: 'Submission Config',  icon: 'fa-bell',              permission: 'time_submission_config.view' },
+              { path: '/admin/time/holiday-calendars', label: 'Holiday Calendars',  icon: 'fa-umbrella-beach',    permission: 'time_holiday_calendars.view' },
+              { path: '/admin/time/holidays',          label: 'Holidays',           icon: 'fa-star-and-crescent', permission: 'time_holidays.view'          },
+            ]} />
+          }>
+            <Route index element={<Navigate to="work-schedules" replace />} />
+            <Route path="work-schedules" element={<ProtectedRoute requiredPermission="time_work_schedules.view"><WorkSchedules /></ProtectedRoute>} />
+            <Route path="time-types"     element={<ProtectedRoute requiredPermission="time_types.view"><TimeTypes /></ProtectedRoute>} />
+            <Route path="colors"         element={<ProtectedRoute requiredPermission="time_color_config.view"><ColorConfig /></ProtectedRoute>} />
+            <Route path="edit-config"    element={<ProtectedRoute requiredPermission="time_edit_config.view"><EditWindowConfig /></ProtectedRoute>} />
+          </Route>
+
           {/* backward-compat redirects */}
           <Route path="permissions/matrix"       element={<Navigate to="/admin/security/matrix" replace />} />
           <Route path="permissions/assignments"  element={<Navigate to="/admin/security/assignments" replace />} />
