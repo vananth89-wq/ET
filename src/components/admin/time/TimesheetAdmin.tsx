@@ -235,7 +235,7 @@ export default function TimesheetAdmin() {
         department_name, country_code,
         employees!inner (
           employee_code,
-          profiles!inner ( first_name, last_name )
+          profiles!employee_id ( first_name, last_name )
         )
       `)
       .eq('period', periodDate)
