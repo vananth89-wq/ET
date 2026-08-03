@@ -111,14 +111,23 @@ export default function LandingPage() {
         if (data.most_used_apps) {
           try {
             const parsed: MostUsedApp[] = JSON.parse(data.most_used_apps);
-            setMostUsedApps(parsed.filter(a => a.visible).sort((a, b) => a.order - b.order));
+            // Normalise legacy paths that no longer exist
+            const appPathFixes: Record<string, string> = {
+              '/timesheet': '/my-timesheet',
+            };
+            setMostUsedApps(
+              parsed
+                .filter(a => a.visible)
+                .sort((a, b) => a.order - b.order)
+                .map(a => ({ ...a, path: appPathFixes[a.path] ?? a.path }))
+            );
           } catch { /* use defaults */ }
         }
         if (data.suggested_tasks) {
           try {
             const parsed: SuggestedTask[] = JSON.parse(data.suggested_tasks);
             // Normalise legacy paths that no longer exist
-            const pathFixes: Record<string, string> = { '/expense/new': '/expense?action=new' };
+            const pathFixes: Record<string, string> = { '/expense/new': '/expense?action=new', '/timesheet': '/my-timesheet' };
             setSuggestedTasks(
               parsed
                 .filter(t => t.visible)
