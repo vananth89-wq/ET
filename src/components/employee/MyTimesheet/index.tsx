@@ -252,11 +252,13 @@ export default function MyTimesheet() {
 
     if (!hdr) {
       // 2a. Need work schedule + holiday calendar from employee_employment
+      // effective-dating uses '9999-12-31' as the "open-ended" sentinel, not NULL
       const { data: emp } = await supabase
         .from('employee_employment')
         .select('work_schedule_id, holiday_calendar_id, department_id, departments(name)')
         .eq('employee_id', employee.id)
-        .is('effective_to', null)
+        .eq('is_active', true)
+        .eq('effective_to', '9999-12-31')
         .single();
 
       const wsId  = emp?.work_schedule_id    ?? null;
