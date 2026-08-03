@@ -42,6 +42,20 @@ CREATE TABLE IF NOT EXISTS time_holidays (
 COMMENT ON TABLE  time_holidays IS 'Individual holidays assigned to a calendar date. One per date per calendar.';
 COMMENT ON COLUMN time_holidays.holiday_code IS 'Short code e.g. EID_FTR. Used in timesheet entry references.';
 
+-- Patch DEV: table was created manually without calendar_id / holiday_date columns.
+-- ADD COLUMN IF NOT EXISTS is a no-op on fresh environments where CREATE TABLE above ran.
+ALTER TABLE time_holidays
+  ADD COLUMN IF NOT EXISTS calendar_id  uuid REFERENCES time_holiday_calendars(id) ON DELETE CASCADE,
+  ADD COLUMN IF NOT EXISTS holiday_date date;
+
+-- Add UNIQUE constraint if not already present
+DO $$ BEGIN
+  ALTER TABLE time_holidays
+    ADD CONSTRAINT time_holidays_unique_date UNIQUE (calendar_id, holiday_date);
+EXCEPTION WHEN duplicate_table THEN NULL;
+         WHEN duplicate_object THEN NULL;
+END $$;
+
 -- ── 3. Indexes ───────────────────────────────────────────────────────────────
 
 CREATE INDEX IF NOT EXISTS idx_time_holidays_calendar_date
