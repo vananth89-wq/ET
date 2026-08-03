@@ -5,7 +5,7 @@
 -- offsets relative to month-end. A pg_cron job reads these rows daily.
 -- =============================================================================
 
-CREATE TABLE time_submission_config (
+CREATE TABLE IF NOT EXISTS time_submission_config (
   id                uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
   offset_days       integer     NOT NULL,
   message_template  text        NOT NULL,
@@ -24,21 +24,29 @@ COMMENT ON COLUMN time_submission_config.offset_days IS 'e.g. -1 = day before mo
 
 ALTER TABLE time_submission_config ENABLE ROW LEVEL SECURITY;
 
+DO $$ BEGIN
 CREATE POLICY "tsc_select" ON time_submission_config
   FOR SELECT TO authenticated USING (true);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
+DO $$ BEGIN
 CREATE POLICY "tsc_insert" ON time_submission_config
   FOR INSERT TO authenticated
   WITH CHECK (user_can('time_submission_config', 'edit', NULL));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
+DO $$ BEGIN
 CREATE POLICY "tsc_update" ON time_submission_config
   FOR UPDATE TO authenticated
   USING     (user_can('time_submission_config', 'edit', NULL))
   WITH CHECK (user_can('time_submission_config', 'edit', NULL));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
+DO $$ BEGIN
 CREATE POLICY "tsc_delete" ON time_submission_config
   FOR DELETE TO authenticated
   USING (user_can('time_submission_config', 'edit', NULL));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ── RPC: upsert_submission_config ────────────────────────────────────────────
 -- Full replace: accepts an array of rows, clears existing, inserts new.

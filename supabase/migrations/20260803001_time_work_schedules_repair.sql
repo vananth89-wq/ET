@@ -4,7 +4,6 @@
 -- =============================================================================
 
 -- Remove the broken/partial schema_migrations entry for 697
-DELETE FROM supabase_migrations.schema_migrations WHERE version = '20260802697';
 
 -- ── Tables (idempotent) ───────────────────────────────────────────────────────
 

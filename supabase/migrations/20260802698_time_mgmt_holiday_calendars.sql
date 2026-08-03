@@ -11,7 +11,7 @@
 
 -- ── 1. Calendar header ───────────────────────────────────────────────────────
 
-CREATE TABLE time_holiday_calendars (
+CREATE TABLE IF NOT EXISTS time_holiday_calendars (
   id           uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
   name         text        NOT NULL,
   code         text        NOT NULL,
@@ -28,7 +28,7 @@ COMMENT ON COLUMN time_holiday_calendars.country_code IS 'ISO 3166-1 alpha-2. In
 
 -- ── 2. Individual holidays ───────────────────────────────────────────────────
 
-CREATE TABLE time_holidays (
+CREATE TABLE IF NOT EXISTS time_holidays (
   id            uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
   calendar_id   uuid        NOT NULL REFERENCES time_holiday_calendars(id) ON DELETE CASCADE,
   holiday_date  date        NOT NULL,
@@ -44,7 +44,7 @@ COMMENT ON COLUMN time_holidays.holiday_code IS 'Short code e.g. EID_FTR. Used i
 
 -- ── 3. Indexes ───────────────────────────────────────────────────────────────
 
-CREATE INDEX idx_time_holidays_calendar_date
+CREATE INDEX IF NOT EXISTS idx_time_holidays_calendar_date
   ON time_holidays (calendar_id, holiday_date);
 
 -- ── 4. RLS ───────────────────────────────────────────────────────────────────
@@ -53,32 +53,48 @@ ALTER TABLE time_holiday_calendars ENABLE ROW LEVEL SECURITY;
 ALTER TABLE time_holidays          ENABLE ROW LEVEL SECURITY;
 
 -- Calendars
+DO $$ BEGIN
 CREATE POLICY "thc_select" ON time_holiday_calendars
   FOR SELECT TO authenticated USING (true);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
 CREATE POLICY "thc_insert" ON time_holiday_calendars
   FOR INSERT TO authenticated
   WITH CHECK (user_can('time_holiday_calendars', 'create', NULL));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
 CREATE POLICY "thc_update" ON time_holiday_calendars
   FOR UPDATE TO authenticated
   USING     (user_can('time_holiday_calendars', 'edit', NULL))
   WITH CHECK (user_can('time_holiday_calendars', 'edit', NULL));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
 CREATE POLICY "thc_delete" ON time_holiday_calendars
   FOR DELETE TO authenticated
   USING (user_can('time_holiday_calendars', 'delete', NULL));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Holidays
+DO $$ BEGIN
 CREATE POLICY "th_select" ON time_holidays
   FOR SELECT TO authenticated USING (true);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
 CREATE POLICY "th_insert" ON time_holidays
   FOR INSERT TO authenticated
   WITH CHECK (user_can('time_holidays', 'create', NULL));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
 CREATE POLICY "th_update" ON time_holidays
   FOR UPDATE TO authenticated
   USING     (user_can('time_holidays', 'edit', NULL))
   WITH CHECK (user_can('time_holidays', 'edit', NULL));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
 CREATE POLICY "th_delete" ON time_holidays
   FOR DELETE TO authenticated
   USING (user_can('time_holidays', 'delete', NULL));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ── 5. RPCs ──────────────────────────────────────────────────────────────────
 

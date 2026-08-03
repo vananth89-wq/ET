@@ -6,7 +6,7 @@
 -- NULL for manager/hr = no restriction.
 -- =============================================================================
 
-CREATE TABLE time_edit_config (
+CREATE TABLE IF NOT EXISTS time_edit_config (
   id                         uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
   employee_edit_window_days  integer     NOT NULL DEFAULT 30 CHECK (employee_edit_window_days > 0),
   manager_edit_window_days   integer     CHECK (manager_edit_window_days IS NULL OR manager_edit_window_days > 0),
@@ -33,25 +33,35 @@ BEGIN
 END;
 $$;
 
-CREATE TRIGGER trg_time_edit_config_single_row
-  BEFORE INSERT ON time_edit_config
-  FOR EACH ROW EXECUTE FUNCTION _time_edit_config_single_row();
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_time_edit_config_single_row') THEN
+    CREATE TRIGGER trg_time_edit_config_single_row
+      BEFORE INSERT ON time_edit_config
+      FOR EACH ROW EXECUTE FUNCTION _time_edit_config_single_row();
+  END IF;
+END $$;
 
 -- ── RLS ──────────────────────────────────────────────────────────────────────
 
 ALTER TABLE time_edit_config ENABLE ROW LEVEL SECURITY;
 
+DO $$ BEGIN
 CREATE POLICY "tec_select" ON time_edit_config
   FOR SELECT TO authenticated USING (true);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
+DO $$ BEGIN
 CREATE POLICY "tec_update" ON time_edit_config
   FOR UPDATE TO authenticated
   USING     (user_can('time_edit_config', 'edit', NULL))
   WITH CHECK (user_can('time_edit_config', 'edit', NULL));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- INSERT only from this migration (seed row)
+DO $$ BEGIN
 CREATE POLICY "tec_insert_seed" ON time_edit_config
   FOR INSERT TO authenticated WITH CHECK (false); -- blocked for all; use SECURITY DEFINER fn
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ── RPC: save_time_edit_config ───────────────────────────────────────────────
 
@@ -98,7 +108,8 @@ COMMENT ON FUNCTION save_time_edit_config IS 'Mig 702: Update the single-row edi
 -- Bypass the INSERT trigger via direct INSERT as superuser (migration context).
 
 INSERT INTO time_edit_config (employee_edit_window_days, manager_edit_window_days, hr_edit_window_days)
-VALUES (30, NULL, NULL);
+SELECT 30, NULL, NULL
+WHERE NOT EXISTS (SELECT 1 FROM time_edit_config);
 
 -- ── Verification ─────────────────────────────────────────────────────────────
 DO $$

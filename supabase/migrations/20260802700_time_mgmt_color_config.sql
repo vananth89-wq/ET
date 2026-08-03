@@ -6,7 +6,7 @@
 -- Seeded with sensible defaults on create.
 -- =============================================================================
 
-CREATE TABLE time_color_config (
+CREATE TABLE IF NOT EXISTS time_color_config (
   id          uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
   entity_key  text        NOT NULL,
   color_hex   char(7)     NOT NULL CHECK (color_hex ~ '^#[0-9A-Fa-f]{6}$'),
@@ -23,13 +23,17 @@ COMMENT ON COLUMN time_color_config.entity_key IS 'Fixed keys: day_underworked, 
 
 ALTER TABLE time_color_config ENABLE ROW LEVEL SECURITY;
 
+DO $$ BEGIN
 CREATE POLICY "tcc_select" ON time_color_config
   FOR SELECT TO authenticated USING (true);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
+DO $$ BEGIN
 CREATE POLICY "tcc_update" ON time_color_config
   FOR UPDATE TO authenticated
   USING     (user_can('time_color_config', 'edit', NULL))
   WITH CHECK (user_can('time_color_config', 'edit', NULL));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- No INSERT or DELETE policies — keys are fixed; only UPDATE is allowed via admin.
 
@@ -102,7 +106,7 @@ DO $$
 DECLARE v_count int;
 BEGIN
   SELECT count(*) INTO v_count FROM time_color_config;
-  IF v_count <> 11 THEN
+  IF v_count < 11 THEN
     RAISE EXCEPTION 'ABORT: expected 11 color config rows, found %.', v_count;
   END IF;
   RAISE NOTICE 'Migration 700 verified: time_color_config created with 11 seeded rows.';

@@ -10,7 +10,7 @@
 --   - workflow_instance_id set on first wf_submit() call
 -- =============================================================================
 
-CREATE TABLE timesheet_headers (
+CREATE TABLE IF NOT EXISTS timesheet_headers (
   id                   uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
   employee_id          uuid        NOT NULL REFERENCES employees(id),
   period               date        NOT NULL,  -- always 1st of month e.g. 2026-06-01
@@ -53,10 +53,10 @@ COMMENT ON COLUMN timesheet_headers.department_name IS 'Denormalized snapshot �
 -- ── Indexes ──────────────────────────────────────────────────────────────────
 
 -- Primary access: employee timesheet history
-CREATE INDEX idx_ts_headers_employee_period ON timesheet_headers (employee_id, period);
+CREATE INDEX IF NOT EXISTS idx_ts_headers_employee_period ON timesheet_headers (employee_id, period);
 
 -- Reporting: all timesheets for a period (missing timesheet report, department summary)
-CREATE INDEX idx_ts_headers_period_status ON timesheet_headers (period, status);
+CREATE INDEX IF NOT EXISTS idx_ts_headers_period_status ON timesheet_headers (period, status);
 
 -- ── updated_at trigger ───────────────────────────────────────────────────────
 
@@ -84,26 +84,34 @@ END $$;
 ALTER TABLE timesheet_headers ENABLE ROW LEVEL SECURITY;
 
 -- Employee: own timesheets
+DO $$ BEGIN
 CREATE POLICY "tsh_select_own" ON timesheet_headers
   FOR SELECT TO authenticated
   USING (user_can('timesheet', 'view', employee_id));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Employee/system: create own header
+DO $$ BEGIN
 CREATE POLICY "tsh_insert" ON timesheet_headers
   FOR INSERT TO authenticated
   WITH CHECK (user_can('timesheet', 'create', employee_id));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Status updates via RPCs (SECURITY DEFINER functions bypass RLS, but we define
 -- a broad update policy guarded at the RPC layer for defence-in-depth)
+DO $$ BEGIN
 CREATE POLICY "tsh_update" ON timesheet_headers
   FOR UPDATE TO authenticated
   USING     (user_can('timesheet', 'edit', employee_id))
   WITH CHECK (user_can('timesheet', 'edit', employee_id));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Hard delete: only admin can delete a header (and only via RPC)
+DO $$ BEGIN
 CREATE POLICY "tsh_delete" ON timesheet_headers
   FOR DELETE TO authenticated
   USING (user_can('timesheet', 'delete', employee_id));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ── Verification ─────────────────────────────────────────────────────────────
 DO $$

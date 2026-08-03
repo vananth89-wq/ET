@@ -6,7 +6,7 @@
 -- When the leave module ships it will use reserved time_types with category='absence'.
 -- =============================================================================
 
-CREATE TABLE time_types (
+CREATE TABLE IF NOT EXISTS time_types (
   id                       uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
   name                     text        NOT NULL,
   code                     text        NOT NULL,
@@ -26,21 +26,29 @@ COMMENT ON COLUMN time_types.allows_partial_overlap IS 'When true, employees may
 
 ALTER TABLE time_types ENABLE ROW LEVEL SECURITY;
 
+DO $$ BEGIN
 CREATE POLICY "tt_select" ON time_types
   FOR SELECT TO authenticated USING (true);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
+DO $$ BEGIN
 CREATE POLICY "tt_insert" ON time_types
   FOR INSERT TO authenticated
   WITH CHECK (user_can('time_types', 'create', NULL));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
+DO $$ BEGIN
 CREATE POLICY "tt_update" ON time_types
   FOR UPDATE TO authenticated
   USING     (user_can('time_types', 'edit', NULL))
   WITH CHECK (user_can('time_types', 'edit', NULL));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
+DO $$ BEGIN
 CREATE POLICY "tt_delete" ON time_types
   FOR DELETE TO authenticated
   USING (user_can('time_types', 'delete', NULL));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ── RPC: upsert_time_type ────────────────────────────────────────────────────
 

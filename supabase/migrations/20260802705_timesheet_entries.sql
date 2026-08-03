@@ -9,7 +9,7 @@
 --   'leave'     → time_type_id required (points to the leave time type), is_system_generated=true
 -- =============================================================================
 
-CREATE TABLE timesheet_entries (
+CREATE TABLE IF NOT EXISTS timesheet_entries (
   id                  uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
   header_id           uuid        NOT NULL REFERENCES timesheet_headers(id) ON DELETE CASCADE,
   entry_date          date        NOT NULL,
@@ -37,19 +37,19 @@ COMMENT ON COLUMN timesheet_entries.is_system_generated IS 'true for holiday and
 -- ── Indexes ──────────────────────────────────────────────────────────────────
 
 -- Reporting: project utilization across employees
-CREATE INDEX idx_ts_entries_header_project ON timesheet_entries (header_id, entry_kind, project_id)
+CREATE INDEX IF NOT EXISTS idx_ts_entries_header_project ON timesheet_entries (header_id, entry_kind, project_id)
   WHERE entry_kind = 'project';
 
 -- Reporting: time type utilization
-CREATE INDEX idx_ts_entries_header_timetype ON timesheet_entries (header_id, entry_kind, time_type_id)
+CREATE INDEX IF NOT EXISTS idx_ts_entries_header_timetype ON timesheet_entries (header_id, entry_kind, time_type_id)
   WHERE entry_kind IN ('time_type', 'leave', 'holiday');
 
 -- Reporting: cross-employee project queries by date range
-CREATE INDEX idx_ts_entries_date_project ON timesheet_entries (entry_date, project_id)
+CREATE INDEX IF NOT EXISTS idx_ts_entries_date_project ON timesheet_entries (entry_date, project_id)
   WHERE project_id IS NOT NULL;
 
 -- Standard access: all entries for a header
-CREATE INDEX idx_ts_entries_header_date ON timesheet_entries (header_id, entry_date);
+CREATE INDEX IF NOT EXISTS idx_ts_entries_header_date ON timesheet_entries (header_id, entry_date);
 
 -- ── updated_at trigger ───────────────────────────────────────────────────────
 
@@ -71,6 +71,7 @@ END $$;
 ALTER TABLE timesheet_entries ENABLE ROW LEVEL SECURITY;
 
 -- Read: anyone who can view the parent header can view its entries
+DO $$ BEGIN
 CREATE POLICY "tse_select" ON timesheet_entries
   FOR SELECT TO authenticated
   USING (
@@ -80,9 +81,11 @@ CREATE POLICY "tse_select" ON timesheet_entries
         AND user_can('timesheet', 'view', h.employee_id)
     )
   );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Write policies are enforced at the RPC layer (SECURITY DEFINER).
 -- These broad policies are a defence-in-depth backstop.
+DO $$ BEGIN
 CREATE POLICY "tse_insert" ON timesheet_entries
   FOR INSERT TO authenticated
   WITH CHECK (
@@ -92,7 +95,9 @@ CREATE POLICY "tse_insert" ON timesheet_entries
         AND user_can('timesheet', 'edit', h.employee_id)
     )
   );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
+DO $$ BEGIN
 CREATE POLICY "tse_update" ON timesheet_entries
   FOR UPDATE TO authenticated
   USING (
@@ -109,7 +114,9 @@ CREATE POLICY "tse_update" ON timesheet_entries
         AND user_can('timesheet', 'edit', h.employee_id)
     )
   );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
+DO $$ BEGIN
 CREATE POLICY "tse_delete" ON timesheet_entries
   FOR DELETE TO authenticated
   USING (
@@ -119,6 +126,7 @@ CREATE POLICY "tse_delete" ON timesheet_entries
         AND user_can('timesheet', 'delete', h.employee_id)
     )
   );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ── Verification ─────────────────────────────────────────────────────────────
 DO $$

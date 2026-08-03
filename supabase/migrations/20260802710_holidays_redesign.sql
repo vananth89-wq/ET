@@ -47,16 +47,22 @@ CREATE INDEX IF NOT EXISTS idx_cal_entries_calendar_date
 
 ALTER TABLE time_calendar_entries ENABLE ROW LEVEL SECURITY;
 
+DO $$ BEGIN
 CREATE POLICY "tce_select" ON time_calendar_entries
   FOR SELECT TO authenticated USING (true);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
+DO $$ BEGIN
 CREATE POLICY "tce_insert" ON time_calendar_entries
   FOR INSERT TO authenticated
   WITH CHECK (user_can('time_holiday_calendars', 'edit', NULL));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
+DO $$ BEGIN
 CREATE POLICY "tce_delete" ON time_calendar_entries
   FOR DELETE TO authenticated
   USING (user_can('time_holiday_calendars', 'edit', NULL));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ── 4. updated_at trigger on time_holidays ────────────────────────────────────
 

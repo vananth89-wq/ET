@@ -4,7 +4,6 @@
 -- =============================================================================
 
 -- Remove the broken/partial schema_migrations entry for 698
-DELETE FROM supabase_migrations.schema_migrations WHERE version = '20260802698';
 
 -- Re-apply the wf_resubmit fix (safe to re-run — CREATE OR REPLACE)
 CREATE OR REPLACE FUNCTION wf_resubmit(
