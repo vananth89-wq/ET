@@ -235,7 +235,7 @@ export default function TimesheetAdmin() {
         department_name, country_code,
         employees!inner (
           employee_code,
-          profiles!employee_id ( full_name )
+          profiles!employee_id ( first_name, last_name )
         )
       `)
       .eq('period', periodDate)
@@ -246,7 +246,7 @@ export default function TimesheetAdmin() {
     const rows: TimesheetRow[] = (data ?? []).map((r: any) => ({
       id:               r.id,
       employee_id:      r.employee_id,
-      employee_name:    (r.employees?.profiles?.full_name ?? '').trim(),
+      employee_name:    (((r.employees?.profiles?.first_name ?? '') + ' ' + (r.employees?.profiles?.last_name ?? ''))).trim(),
       employee_code:    r.employees?.employee_code ?? '',
       period:           r.period,
       status:           r.status,
