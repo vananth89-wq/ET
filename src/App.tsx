@@ -71,10 +71,11 @@ import WorkSchedules                                              from './compon
 import TimeTypes                                                  from './components/admin/time/TimeTypes';
 import ColorConfig                                                from './components/admin/time/ColorConfig';
 import EditWindowConfig                                           from './components/admin/time/EditWindowConfig';
-import TimesheetAdmin                                              from './components/admin/time/TimesheetAdmin';
-import SubmissionConfig                                           from './components/admin/time/SubmissionConfig';
-import HolidayCalendars                                          from './components/admin/time/HolidayCalendars';
+import HolidayCalendars                                           from './components/admin/time/HolidayCalendars';
 import Holidays                                                   from './components/admin/time/Holidays';
+import SubmissionConfig                                           from './components/admin/time/SubmissionConfig';
+import TimesheetAdmin                                             from './components/admin/time/TimesheetAdmin';
+import MyTimesheet                                                from './components/employee/MyTimesheet';
 import LandingPage                                                from './components/employee/LandingPage';
 import { usePicklistValues }                                      from './hooks/usePicklistValues';
 import { supabase }                                               from './lib/supabase';
@@ -506,6 +507,20 @@ function UserMenu() {
 // Checking here keeps
 // the Sidebar render logic clean.
 
+// ─── ComingSoon placeholder ───────────────────────────────────────────────────
+
+function ComingSoon({ title }: { title: string }) {
+  return (
+    <div className="ar-panel">
+      <h2 className="page-title">{title}</h2>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '80px 0', color: '#9CA3AF' }}>
+        <i className="fa-solid fa-hammer" style={{ fontSize: 36, marginBottom: 16, color: '#D1D5DB' }} />
+        <p style={{ fontSize: 15, fontWeight: 500, margin: 0 }}>Coming soon</p>
+        <p style={{ fontSize: 13, margin: '4px 0 0' }}>This section is under construction.</p>
+      </div>
+    </div>
+  );
+}
 
 // ─── AppHeader ────────────────────────────────────────────────────────────────
 
@@ -608,6 +623,9 @@ function Sidebar() {
             <NavLink to="/expense"  className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`} end>
               <i className="fa-solid fa-wallet" /> My Expenses
             </NavLink>
+            <NavLink to="/my-timesheet" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
+              <i className="fa-solid fa-clock" /> My Timesheet
+            </NavLink>
             {can('wf_my_requests.view') && (
               <NavLink to="/workflow/my-requests" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
                 <i className="fa-solid fa-list-check" /> My Requests
@@ -691,7 +709,7 @@ function AppShell() {
   const isEmployeeMode = /^\/profile(\/[^/]+)?$/.test(loc.pathname);
   const isHomePage     = loc.pathname === '/home';
   const isAdminArea    = loc.pathname === '/admin' || loc.pathname.startsWith('/admin/');
-  const isFullPage     = ['/org-chart', '/expense', '/workflow/my-requests', '/workflow/inbox', '/workflow/delegations', '/workflow/review'].some(
+  const isFullPage     = ['/org-chart', '/expense', '/my-timesheet', '/workflow/my-requests', '/workflow/inbox', '/workflow/delegations', '/workflow/review'].some(
     p => loc.pathname === p || loc.pathname.startsWith(p + '/')
   );
   const hideSidebar    = isEmployeeMode || isHomePage || isFullPage || isAdminArea;
@@ -738,6 +756,7 @@ export default function App() {
             <MyReports />
           </ProtectedRoute>
         } />
+        <Route path="/my-timesheet"         element={<MyTimesheet />} />
         <Route path="/expense/report/:id"   element={
           <ProtectedRoute requiredPermission="expense_reports.view">
             <ReportDetail />

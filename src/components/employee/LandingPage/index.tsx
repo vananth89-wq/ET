@@ -38,10 +38,11 @@ interface MostUsedApp {
 }
 
 const DEFAULT_MOST_USED_APPS: MostUsedApp[] = [
-  { id: 'org_chart',   label: 'Org Chart',   icon: 'fa-diagram-project', path: '/org-chart',            visible: true, order: 1 },
-  { id: 'my_requests', label: 'My Requests', icon: 'fa-list-check',      path: '/workflow/my-requests', visible: true, order: 2 },
-  { id: 'inbox',       label: 'Inbox',       icon: 'fa-inbox',           path: '/workflow/inbox',       visible: true, order: 3 },
-  { id: 'delegations', label: 'Delegations', icon: 'fa-people-arrows',   path: '/workflow/delegations', visible: true, order: 4 },
+  { id: 'org_chart',    label: 'Org Chart',    icon: 'fa-diagram-project', path: '/org-chart',            visible: true, order: 1 },
+  { id: 'my_timesheet', label: 'My Timesheet', icon: 'fa-clock',           path: '/my-timesheet',         visible: true, order: 2 },
+  { id: 'my_requests',  label: 'My Requests',  icon: 'fa-list-check',      path: '/workflow/my-requests', visible: true, order: 3 },
+  { id: 'inbox',        label: 'Inbox',        icon: 'fa-inbox',           path: '/workflow/inbox',       visible: true, order: 4 },
+  { id: 'delegations',  label: 'Delegations',  icon: 'fa-people-arrows',   path: '/workflow/delegations', visible: true, order: 5 },
 ];
 
 interface ThemeSettings {
