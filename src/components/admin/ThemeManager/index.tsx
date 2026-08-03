@@ -214,6 +214,9 @@ export default function ThemeManager() {
   const [overIdx,  setOverIdx]  = useState<number | null>(null);
 
   const [suggestedTasks,    setSuggestedTasks]    = useState<SuggestedTask[]>(DEFAULT_SUGGESTED_TASKS);
+  const [addingTask,        setAddingTask]        = useState(false);
+  const [newTaskLabel,      setNewTaskLabel]      = useState('');
+  const [newTaskPath,       setNewTaskPath]       = useState('');
   const [suggestedExpanded, setSuggestedExpanded] = useState(false);
   const [suggestedSaving,   setSuggestedSaving]   = useState(false);
   const [suggestedSaved,    setSuggestedSaved]    = useState(false);
@@ -419,6 +422,29 @@ export default function ThemeManager() {
 
   function toggleSuggestedTask(id: string) {
     setSuggestedTasks(prev => prev.map(t => t.id === id ? { ...t, visible: !t.visible } : t));
+  }
+
+  function removeSuggestedTask(id: string) {
+    setSuggestedTasks(prev => prev.filter(t => t.id !== id).map((t, i) => ({ ...t, order: i + 1 })));
+  }
+
+  function addSuggestedTask(label: string, path: string) {
+    const trimmedLabel = label.trim();
+    const trimmedPath  = path.trim();
+    if (!trimmedLabel || !trimmedPath) return;
+    // Generate a stable id from the label (lowercase, non-alphanumeric → _)
+    const baseId = trimmedLabel.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+    if (!baseId) return;
+    // De-dup: if an id collision, append a suffix
+    setSuggestedTasks(prev => {
+      let id = baseId;
+      let i = 2;
+      while (prev.some(t => t.id === id)) { id = `${baseId}_${i++}`; }
+      return [
+        ...prev,
+        { id, label: trimmedLabel, path: trimmedPath.startsWith('/') ? trimmedPath : `/${trimmedPath}`, visible: true, order: prev.length + 1 },
+      ];
+    });
   }
 
   function onSuggestedDragStart(i: number) { setSuggestedDragIdx(i); }
@@ -920,29 +946,110 @@ export default function ThemeManager() {
                       Toggle which pages appear as pills in the greeting card. Drag to reorder.
                     </p>
                     <div className="tm-suggested-list">
-                      {suggestedTasks.map((task, ti) => (
-                        <div
-                          key={task.id}
-                          className={`tm-suggested-item ${suggestedDragIdx === ti ? 'dragging' : ''}`}
-                          draggable
-                          onDragStart={() => onSuggestedDragStart(ti)}
-                          onDragOver={e => onSuggestedDragOver(e, ti)}
-                          onDragEnd={onSuggestedDragEnd}
-                        >
-                          <i className="fa-solid fa-grip-lines tm-suggested-grip" />
-                          <span className="tm-suggested-label">{task.label}</span>
-                          <span className="tm-suggested-path">{task.path}</span>
-                          <label className="tm-toggle">
-                            <input
-                              type="checkbox"
-                              checked={task.visible}
-                              onChange={() => toggleSuggestedTask(task.id)}
-                            />
-                            <span className="tm-toggle-slider" />
-                          </label>
-                        </div>
-                      ))}
+                      {suggestedTasks.map((task, ti) => {
+                        const isBuiltIn = DEFAULT_SUGGESTED_TASKS.some(d => d.id === task.id);
+                        return (
+                          <div
+                            key={task.id}
+                            className={`tm-suggested-item ${suggestedDragIdx === ti ? 'dragging' : ''}`}
+                            draggable
+                            onDragStart={() => onSuggestedDragStart(ti)}
+                            onDragOver={e => onSuggestedDragOver(e, ti)}
+                            onDragEnd={onSuggestedDragEnd}
+                          >
+                            <i className="fa-solid fa-grip-lines tm-suggested-grip" />
+                            <span className="tm-suggested-label">{task.label}</span>
+                            <span className="tm-suggested-path">{task.path}</span>
+                            <label className="tm-toggle">
+                              <input
+                                type="checkbox"
+                                checked={task.visible}
+                                onChange={() => toggleSuggestedTask(task.id)}
+                              />
+                              <span className="tm-toggle-slider" />
+                            </label>
+                            {!isBuiltIn && (
+                              <button
+                                type="button"
+                                onClick={() => removeSuggestedTask(task.id)}
+                                title="Remove this custom task"
+                                style={{
+                                  background: 'none', border: 'none', cursor: 'pointer',
+                                  color: '#DC2626', padding: '4px 6px', marginLeft: 4,
+                                }}
+                              >
+                                <i className="fa-solid fa-trash-can" style={{ fontSize: 12 }} />
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
+
+                    {/* Add-task inline form */}
+                    {addingTask ? (
+                      <div style={{
+                        display: 'flex', gap: 8, marginTop: 12, padding: 10,
+                        background: '#F3F4F6', borderRadius: 6, alignItems: 'center', flexWrap: 'wrap',
+                      }}>
+                        <input
+                          type="text"
+                          placeholder="Label (e.g. Timesheet)"
+                          value={newTaskLabel}
+                          onChange={e => setNewTaskLabel(e.target.value)}
+                          style={{
+                            flex: '1 1 180px', padding: '6px 10px', border: '1px solid #D1D5DB',
+                            borderRadius: 4, fontSize: 13,
+                          }}
+                        />
+                        <input
+                          type="text"
+                          placeholder="Path (e.g. /timesheet)"
+                          value={newTaskPath}
+                          onChange={e => setNewTaskPath(e.target.value)}
+                          style={{
+                            flex: '1 1 180px', padding: '6px 10px', border: '1px solid #D1D5DB',
+                            borderRadius: 4, fontSize: 13, fontFamily: 'monospace',
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className="tm-btn-primary"
+                          disabled={!newTaskLabel.trim() || !newTaskPath.trim()}
+                          onClick={() => {
+                            addSuggestedTask(newTaskLabel, newTaskPath);
+                            setNewTaskLabel(''); setNewTaskPath(''); setAddingTask(false);
+                          }}
+                          style={{ padding: '6px 14px', fontSize: 13 }}
+                        >
+                          Add
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setNewTaskLabel(''); setNewTaskPath(''); setAddingTask(false); }}
+                          style={{
+                            background: 'none', border: '1px solid #D1D5DB', padding: '6px 14px',
+                            fontSize: 13, borderRadius: 4, cursor: 'pointer',
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setAddingTask(true)}
+                        style={{
+                          marginTop: 10, background: 'none', border: '1px dashed #9CA3AF',
+                          borderRadius: 6, padding: '8px 14px', fontSize: 13, color: '#4B5563',
+                          cursor: 'pointer', width: '100%',
+                        }}
+                      >
+                        <i className="fa-solid fa-plus" style={{ marginRight: 6 }} />
+                        Add task
+                      </button>
+                    )}
+
                     <div className="tm-suggested-footer">
                       <span className="tm-suggested-count">
                         {suggestedTasks.filter(t => t.visible).length} of {suggestedTasks.length} visible

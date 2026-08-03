@@ -323,7 +323,7 @@ export default function MyTimesheet() {
 
       if (ws) { setSchedule(ws); }
       setHolidays(
-        hdDates.map((d, i) => ({ holiday_date: d, holiday_name: `Holiday` }))
+        hdDates.map((d) => ({ holiday_date: d, holiday_name: `Holiday` }))
       );
     }
 
@@ -425,7 +425,6 @@ export default function MyTimesheet() {
   const totalDays  = daysInMonth(year, month);
   const startDow   = firstDow(year, month);
   const todayIso   = isoDate(today.getFullYear(), today.getMonth() + 1, today.getDate());
-  const periodDate = `${year}-${pad2(month)}-01`;
   const status     = header?.status ?? 'to_be_submitted';
   const statusM    = STATUS_META[status];
   const editable   = status === 'to_be_submitted';
