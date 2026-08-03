@@ -50,7 +50,7 @@ function CategoryBadge({ category }: { category: string }) {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 const EMPTY: Omit<TimeType, 'id'> & { id: string } = {
-  id: '', name: '', code: '', category: 'attendance', allows_partial_overlap: false, is_active: true,
+  id: '', name: '', code: '', category: 'attendance', allows_partial_overlap: false, is_active: true, created_at: null, updated_at: null, creator: null,
 };
 
 export default function TimeTypes() {
@@ -104,11 +104,11 @@ export default function TimeTypes() {
       is_active: form.is_active,
     };
 
-    const { data, error: e } = await supabase.rpc('upsert_time_type', { p_data: payload });
+    const { data, error: rpcErr } = await supabase.rpc('upsert_time_type', { p_data: payload });
     setSaving(false);
 
-    if (e || !data?.ok) {
-      setInfoModal({ open: true, title: 'Error', message: data?.message ?? e?.message ?? 'Unknown error.' });
+    if (rpcErr || !data?.ok) {
+      setInfoModal({ open: true, title: 'Error', message: data?.message ?? rpcErr?.message ?? 'Unknown error.' });
       return;
     }
     await load();
@@ -118,8 +118,8 @@ export default function TimeTypes() {
   async function confirmDelete() {
     const tt = deleteModal.type!;
     setDeleteModal({ open: false, type: null });
-    const { error: e } = await supabase.from('time_types').delete().eq('id', tt.id);
-    if (e) setInfoModal({ open: true, title: 'Cannot Delete', message: e.message });
+    const { error: delErr } = await supabase.from('time_types').delete().eq('id', tt.id);
+    if (delErr) setInfoModal({ open: true, title: 'Cannot Delete', message: delErr.message });
     else await load();
   }
 

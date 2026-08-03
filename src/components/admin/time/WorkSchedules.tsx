@@ -87,6 +87,9 @@ function emptyForm(startDay = 0): WorkSchedule {
     code: '',
     start_day_of_week: startDay,
     is_active: true,
+    created_at: null,
+    updated_at: null,
+    creator: null,
     lines: buildDefaultLines(startDay),
   };
 }
