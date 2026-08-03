@@ -20,6 +20,9 @@ interface Calendar {
   name:         string;
   country_code: string | null;
   is_active:    boolean;
+  created_at:   string | null;
+  updated_at:   string | null;
+  creator:      { employees: { name: string } | null } | null;
 }
 
 interface CalendarEntry {
@@ -88,7 +91,7 @@ export default function HolidayCalendars() {
     setLoading(true);
     setError(null);
     const [calRes, holidayRes] = await Promise.all([
-      supabase.from('time_holiday_calendars').select('id, code, name, country_code, is_active').order('name'),
+      supabase.from('time_holiday_calendars').select('id, code, name, country_code, is_active, created_at, updated_at, creator:profiles!created_by(employees!employee_id(name))').order('name'),
       supabase.from('time_holidays').select('id, holiday_code, holiday_name').order('holiday_code'),
     ]);
     if (calRes.error) { setError(calRes.error.message); setLoading(false); return; }
@@ -273,6 +276,11 @@ export default function HolidayCalendars() {
                     {!cal.is_active && (
                       <span style={{ marginLeft: 8, background: '#FEF3C7', color: '#92400E', borderRadius: 20, padding: '2px 8px', fontSize: 11 }}>Inactive</span>
                     )}
+                    <span style={{ marginLeft: 16, fontSize: 11, color: '#9CA3AF' }}>
+                      Created {cal.created_at ? new Date(cal.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
+                      {' · '}Updated {cal.updated_at ? new Date(cal.updated_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
+                      {cal.creator?.employees?.name ? ` · ${cal.creator.employees.name}` : ''}
+                    </span>
                   </div>
 
                   <div style={{ display: 'flex', gap: 6 }} onClick={e => e.stopPropagation()}>
