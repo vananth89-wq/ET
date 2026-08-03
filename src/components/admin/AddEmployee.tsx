@@ -62,6 +62,8 @@ export interface FullEmployee {
   workCountry?: string;
   workLocation?: string;
   baseCurrency?: string;
+  workScheduleId?: string;
+  holidayCalendarId?: string;
   addrLine1?: string;
   addrLine2?: string;
   addrLandmark?: string;
@@ -489,17 +491,28 @@ export default function AddEmployee() {
   const [editingIdIndex, setEditingIdIndex] = useState<number | null>(null);
 
   // ── Section 6: Employment ───────────────────────────────────────────────
-  const [designation,    setDesignation]    = useState('');
-  const [deptId,         setDeptId]         = useState('');
-  const [managerId,      setManagerId]      = useState('');
-  const [managerSearch,  setManagerSearch]  = useState('');
-  const [managerOpen,    setManagerOpen]    = useState(false);
-  const [hireDate,       setHireDate]       = useState('');
-  const [endDate,        setEndDate]        = useState('9999-12-31');
-  const [probationEnd,   setProbationEnd]   = useState('');
-  const [workCountry,    setWorkCountry]    = useState('');
-  const [workLocation,   setWorkLocation]   = useState('');
-  const [baseCurrency,   setBaseCurrency]   = useState('');
+  const [designation,        setDesignation]        = useState('');
+  const [deptId,             setDeptId]             = useState('');
+  const [managerId,          setManagerId]          = useState('');
+  const [managerSearch,      setManagerSearch]      = useState('');
+  const [managerOpen,        setManagerOpen]        = useState(false);
+  const [hireDate,           setHireDate]           = useState('');
+  const [endDate,            setEndDate]            = useState('9999-12-31');
+  const [probationEnd,       setProbationEnd]       = useState('');
+  const [workCountry,        setWorkCountry]        = useState('');
+  const [workLocation,       setWorkLocation]       = useState('');
+  const [baseCurrency,       setBaseCurrency]       = useState('');
+  const [workScheduleId,     setWorkScheduleId]     = useState('');
+  const [holidayCalendarId,  setHolidayCalendarId]  = useState('');
+
+  const [workSchedules,      setWorkSchedules]      = useState<{ id: string; name: string; code: string }[]>([]);
+  const [holidayCalendars,   setHolidayCalendars]   = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    supabase.from('time_work_schedules').select('id, name, code').eq('is_active', true).order('name')
+      .then(({ data }) => { if (data) setWorkSchedules(data); });
+    supabase.from('time_holiday_calendars').select('id, name').order('name')
+      .then(({ data }) => { if (data) setHolidayCalendars(data); });
+  }, []);
 
   // ── Section 7: Address ──────────────────────────────────────────────────
   const [addrLine1,    setAddrLine1]    = useState('');
@@ -686,6 +699,8 @@ export default function AddEmployee() {
     setWorkCountry(emp.workCountry || '');
     setWorkLocation(emp.workLocation || '');
     setBaseCurrency((emp as { baseCurrencyId?: string }).baseCurrencyId || emp.baseCurrency || '');
+    setWorkScheduleId((emp as { workScheduleId?: string }).workScheduleId || '');
+    setHolidayCalendarId((emp as { holidayCalendarId?: string }).holidayCalendarId || '');
     setAddrLine1(emp.addrLine1 || '');
     setAddrLine2(emp.addrLine2 || '');
     setAddrLandmark(emp.addrLandmark || '');
@@ -887,8 +902,10 @@ export default function AddEmployee() {
       hireDate      !== (existing.hireDate        || '') ||
       endDate       !== (existing.endDate         || '9999-12-31') ||
       probationEnd  !== (existing.probationEndDate|| '') ||
-      workCountry   !== (existing.workCountry     || '') ||
-      workLocation  !== (existing.workLocation    || '') ||
+      workCountry       !== (existing.workCountry                                              || '') ||
+      workLocation      !== (existing.workLocation                                             || '') ||
+      workScheduleId    !== ((existing as { workScheduleId?: string }).workScheduleId          || '') ||
+      holidayCalendarId !== ((existing as { holidayCalendarId?: string }).holidayCalendarId    || '') ||
       addrLine1     !== (existing.addrLine1       || '') ||
       addrLine2     !== (existing.addrLine2       || '') ||
       addrCity      !== (existing.addrCity        || '') ||
@@ -1184,6 +1201,7 @@ export default function AddEmployee() {
       designation, deptId, managerId,
       hireDate, endDate, probationEndDate: probationEnd,
       workCountry, workLocation, baseCurrency,
+      workScheduleId, holidayCalendarId,
       addrLine1, addrLine2, addrLandmark, addrCity,
       addrDistrict, addrState, addrPin, addrCountry,
       ecName, ecRelationship: ecRel, ecPhone, ecAltPhone, ecEmail,
@@ -1217,7 +1235,7 @@ export default function AddEmployee() {
       : null;
 
     const employmentData = (data.designation || data.deptId || data.managerId || data.hireDate || data.workCountry || data.workLocation || data.probationEndDate)
-      ? { designation: data.designation || null, dept_id: data.deptId || null, manager_id: data.managerId || null, hire_date: data.hireDate || null, end_date: data.endDate || null, work_country: data.workCountry || null, work_location: data.workLocation || null, probation_end_date: data.probationEndDate || null }
+      ? { designation: data.designation || null, dept_id: data.deptId || null, manager_id: data.managerId || null, hire_date: data.hireDate || null, end_date: data.endDate || null, work_country: data.workCountry || null, work_location: data.workLocation || null, probation_end_date: data.probationEndDate || null, work_schedule_id: data.workScheduleId || null, holiday_calendar_id: data.holidayCalendarId || null }
       : null;
 
     const today = new Date().toISOString().split('T')[0];
@@ -1376,6 +1394,8 @@ export default function AddEmployee() {
     const emp = employmentRow?.[0];
     if (emp) {
       setProbationEnd(emp.probation_end_date || '');
+      if (emp.work_schedule_id)    setWorkScheduleId(emp.work_schedule_id);
+      if (emp.holiday_calendar_id) setHolidayCalendarId(emp.holiday_calendar_id);
     }
 
     // Check bank accounts via set-snapshot RPC (Phase 4+)
@@ -2747,6 +2767,20 @@ export default function AddEmployee() {
                   </div>
                 );
               })()}
+            </div>
+            <div className="form-group">
+              <label><i className="fa-solid fa-calendar-days fa-fw" /> Work Schedule</label>
+              <select value={workScheduleId} onChange={e => setWorkScheduleId(e.target.value)}>
+                <option value="">-- Select Work Schedule --</option>
+                {workSchedules.map(s => <option key={s.id} value={s.id}>{s.name} ({s.code})</option>)}
+              </select>
+            </div>
+            <div className="form-group">
+              <label><i className="fa-solid fa-umbrella-beach fa-fw" /> Holiday Calendar</label>
+              <select value={holidayCalendarId} onChange={e => setHolidayCalendarId(e.target.value)}>
+                <option value="">-- Select Holiday Calendar --</option>
+                {holidayCalendars.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
             </div>
           </div>
         </div>

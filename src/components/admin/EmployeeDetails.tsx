@@ -188,6 +188,15 @@ export default function EmployeeDetails() {
   const { currencies }                                    = useCurrencies();
   const { can }                                           = usePermissions();
 
+  const [workSchedules,    setWorkSchedules]    = useState<{ id: string; name: string; code: string }[]>([]);
+  const [holidayCalendars, setHolidayCalendars] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    supabase.from('time_work_schedules').select('id, name, code').eq('is_active', true).order('name')
+      .then(({ data }) => { if (data) setWorkSchedules(data); });
+    supabase.from('time_holiday_calendars').select('id, name').order('name')
+      .then(({ data }) => { if (data) setHolidayCalendars(data); });
+  }, []);
+
   const [editingEmpId,                    setEditingEmpId]                    = useState<string | null>(null);
   const [editingEmpInitMode,              setEditingEmpInitMode]              = useState<'edit' | 'insert' | undefined>(undefined);
   const [editingEmpInitEffectiveFrom,     setEditingEmpInitEffectiveFrom]     = useState<string | undefined>(undefined);
@@ -729,16 +738,18 @@ export default function EmployeeDetails() {
                 const h = histRows[histSelIdx];
                 if (!h) return null;
                 const fields: [string, string][] = [
-                  ['Designation',     resolvePicklistHist('DESIGNATION', h.designation)],
-                  ['Job Title',       String(h.job_title ?? '—')],
-                  ['Department',      resolveDeptHist(h.dept_id)],
-                  ['Reports To',      resolveManagerHist(h.manager_id)],
-                  ['Hire Date',       fmtDateHist(h.hire_date)],
-                  ['End Date',        fmtDateHist(h.end_date)],
-                  ['Work Country',    resolvePicklistHist('ID_COUNTRY', h.work_country)],
-                  ['Work Location',   resolvePicklistHist('LOCATION', h.work_location)],
-                  ['Base Currency',   currencies.find(c => c.id === h.base_currency_id)?.name ?? '—'],
-                  ['Status',          String(h.status ?? '—')],
+                  ['Designation',       resolvePicklistHist('DESIGNATION', h.designation)],
+                  ['Job Title',         String(h.job_title ?? '—')],
+                  ['Department',        resolveDeptHist(h.dept_id)],
+                  ['Reports To',        resolveManagerHist(h.manager_id)],
+                  ['Hire Date',         fmtDateHist(h.hire_date)],
+                  ['End Date',          fmtDateHist(h.end_date)],
+                  ['Work Country',      resolvePicklistHist('ID_COUNTRY', h.work_country)],
+                  ['Work Location',     resolvePicklistHist('LOCATION', h.work_location)],
+                  ['Work Schedule',     workSchedules.find(s => s.id === h.work_schedule_id)?.name ?? '—'],
+                  ['Holiday Calendar',  holidayCalendars.find(c => c.id === h.holiday_calendar_id)?.name ?? '—'],
+                  ['Base Currency',     currencies.find(c => c.id === h.base_currency_id)?.name ?? '—'],
+                  ['Status',            String(h.status ?? '—')],
                 ];
                 return (
                   <div style={{

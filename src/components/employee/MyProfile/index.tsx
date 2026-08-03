@@ -439,6 +439,16 @@ export default function MyProfile() {
   const { currencies }                   = useCurrencies();
   const [activeSection, setActiveSection] = useState('personal');
 
+  // Work schedules and holiday calendars for employment section
+  const [workSchedules,      setWorkSchedules]      = useState<{ id: string; name: string; code: string }[]>([]);
+  const [holidayCalendars,   setHolidayCalendars]   = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    supabase.from('time_work_schedules').select('id, name, code').eq('is_active', true).order('name')
+      .then(({ data }) => { if (data) setWorkSchedules(data); });
+    supabase.from('time_holiday_calendars').select('id, name').order('name')
+      .then(({ data }) => { if (data) setHolidayCalendars(data); });
+  }, []);
+
   // ── Profile theme settings ─────────────────────────────────────────────────
   const [profileHeroImage,   setProfileHeroImage]   = useState<string | null>(null);
   const [profileSectionCfg,  setProfileSectionCfg]  = useState<{ id: string; visible: boolean; order: number }[]>([]);
@@ -622,7 +632,7 @@ export default function MyProfile() {
       supabase.from('identity_records').select('*').eq('employee_id', empId),
       // All employment fields live on employee_employment satellite (mig 351+)
       supabase.from('employee_employment')
-        .select('designation, job_title, dept_id, manager_id, hire_date, notice_period_days, work_country, work_location, base_currency_id, status, effective_from, probation_end_date')
+        .select('designation, job_title, dept_id, manager_id, hire_date, notice_period_days, work_country, work_location, base_currency_id, status, effective_from, probation_end_date, work_schedule_id, holiday_calendar_id')
         .eq('employee_id', empId)
         .eq('effective_to', '9999-12-31')
         .eq('is_active', true)
@@ -642,9 +652,11 @@ export default function MyProfile() {
       patch.workCountry      = sat.work_country       ?? null;
       patch.workLocation     = sat.work_location      ?? null;
       patch.baseCurrencyId   = sat.base_currency_id   ?? null;
-      patch.status           = sat.status             ?? null;
-      patch.jobTitle         = sat.job_title          ?? null;
-      patch.probationEndDate = sat.probation_end_date ?? null;
+      patch.status              = sat.status               ?? null;
+      patch.jobTitle            = sat.job_title            ?? null;
+      patch.probationEndDate    = sat.probation_end_date   ?? null;
+      patch.workScheduleId      = sat.work_schedule_id     ?? null;
+      patch.holidayCalendarId   = sat.holiday_calendar_id  ?? null;
     }
 
     if (personalRow) {
@@ -1033,15 +1045,17 @@ export default function MyProfile() {
     const workLocation     = fd('empWorkLocation')   || null;
 
     const proposedEmployment = {
-      effective_from:     effectiveFrom,
-      designation:        designation,
-      job_title:          jobTitle,
-      dept_id:            deptId,
-      manager_id:         managerId,
-      notice_period_days: noticePeriodDays,
-      work_country:       workCountry,
-      work_location:      workLocation,
-      _propagate:         propagate,   // stored in proposed_data for workflow approval path
+      effective_from:       effectiveFrom,
+      designation:          designation,
+      job_title:            jobTitle,
+      dept_id:              deptId,
+      manager_id:           managerId,
+      notice_period_days:   noticePeriodDays,
+      work_country:         workCountry,
+      work_location:        workLocation,
+      work_schedule_id:     fd('empWorkScheduleId')     || null,
+      holiday_calendar_id:  fd('empHolidayCalendarId')  || null,
+      _propagate:           propagate,   // stored in proposed_data for workflow approval path
     };
 
     if (emp?.hireDate && effectiveFrom < emp.hireDate) {
@@ -2409,15 +2423,17 @@ export default function MyProfile() {
                     ? (dept.endDate != null && dept.endDate !== '9999-12-31' && dept.endDate < today)
                     : false;
                   startEdit('employment', {
-                    empDesignation:      (emp.designation   as string) || '',
-                    empJobTitle:         (emp.jobTitle       as string) || '',
-                    empDeptId:           deptIsClosed ? '' : inheritedDeptId,
-                    empManagerId:        mgrIsInactive ? '' : inheritedMgrId,
-                    empManagerName:      mgrIsInactive ? '' : (managerName(emp.managerId as string | undefined) === '—' ? '' : managerName(emp.managerId as string | undefined)),
-                    empNoticePeriodDays: String((emp.noticePeriodDays as number | null | undefined) ?? 30),
-                    empWorkCountry:      (emp.workCountry        as string) || '',
-                    empWorkLocation:     (emp.workLocation       as string) || '',
-                    empEffectiveFrom:    today,
+                    empDesignation:       (emp.designation   as string) || '',
+                    empJobTitle:          (emp.jobTitle       as string) || '',
+                    empDeptId:            deptIsClosed ? '' : inheritedDeptId,
+                    empManagerId:         mgrIsInactive ? '' : inheritedMgrId,
+                    empManagerName:       mgrIsInactive ? '' : (managerName(emp.managerId as string | undefined) === '—' ? '' : managerName(emp.managerId as string | undefined)),
+                    empNoticePeriodDays:  String((emp.noticePeriodDays as number | null | undefined) ?? 30),
+                    empWorkCountry:       (emp.workCountry        as string) || '',
+                    empWorkLocation:      (emp.workLocation       as string) || '',
+                    empWorkScheduleId:    (emp.workScheduleId    as string) || '',
+                    empHolidayCalendarId: (emp.holidayCalendarId as string) || '',
+                    empEffectiveFrom:     today,
                   });
                 }}
                 historyPermission="employment.history"
@@ -2473,14 +2489,16 @@ export default function MyProfile() {
                               ? (dept.endDate != null && dept.endDate !== '9999-12-31' && dept.endDate < v)
                               : false;
 
-                            setFd('empDesignation',      String(sourceSlice.designation      ?? ''));
-                            setFd('empJobTitle',         String(sourceSlice.job_title        ?? ''));
-                            setFd('empDeptId',           deptClosed ? '' : srcDeptId);
-                            setFd('empManagerId',        mgrInactive ? '' : srcMgrId);
-                            setFd('empManagerName',      mgrInactive ? '' : managerName(srcMgrId || undefined) === '—' ? '' : managerName(srcMgrId || undefined));
-                            setFd('empWorkCountry',      String(sourceSlice.work_country     ?? ''));
-                            setFd('empWorkLocation',     String(sourceSlice.work_location    ?? ''));
-                            setFd('empNoticePeriodDays', String(sourceSlice.notice_period_days ?? 30));
+                            setFd('empDesignation',       String(sourceSlice.designation         ?? ''));
+                            setFd('empJobTitle',          String(sourceSlice.job_title           ?? ''));
+                            setFd('empDeptId',            deptClosed ? '' : srcDeptId);
+                            setFd('empManagerId',         mgrInactive ? '' : srcMgrId);
+                            setFd('empManagerName',       mgrInactive ? '' : managerName(srcMgrId || undefined) === '—' ? '' : managerName(srcMgrId || undefined));
+                            setFd('empWorkCountry',       String(sourceSlice.work_country        ?? ''));
+                            setFd('empWorkLocation',      String(sourceSlice.work_location       ?? ''));
+                            setFd('empNoticePeriodDays',  String(sourceSlice.notice_period_days  ?? 30));
+                            setFd('empWorkScheduleId',    String(sourceSlice.work_schedule_id    ?? ''));
+                            setFd('empHolidayCalendarId', String(sourceSlice.holiday_calendar_id ?? ''));
                           }
                         }}
                         hint={
@@ -2566,6 +2584,20 @@ export default function MyProfile() {
                         { value: '120', label: '120 days' },
                       ]}
                     />
+                    <FormSelect
+                      label="Work Schedule"
+                      value={fd('empWorkScheduleId')}
+                      onChange={v => setFd('empWorkScheduleId', v)}
+                      options={workSchedules.map(s => ({ value: s.id, label: `${s.name} (${s.code})` }))}
+                      placeholder="— Select Work Schedule —"
+                    />
+                    <FormSelect
+                      label="Holiday Calendar"
+                      value={fd('empHolidayCalendarId')}
+                      onChange={v => setFd('empHolidayCalendarId', v)}
+                      options={holidayCalendars.map(c => ({ value: c.id, label: c.name }))}
+                      placeholder="— Select Holiday Calendar —"
+                    />
                     <div className="ev-field">
                       <div className="ev-field-label">Base Currency</div>
                       <div style={{ fontSize: 13, color: '#6B7280', paddingTop: 6 }}>
@@ -2647,10 +2679,12 @@ export default function MyProfile() {
                               <Field label="Manager"         value={managerName(h.manager_id as string | undefined)} />
                               <Field label="Hire Date"       value={fmtDate(h.hire_date as string | undefined)} />
                               <Field label="Notice Period"   value={h.notice_period_days ? `${h.notice_period_days} days` : '—'} />
-                              <Field label="Country of Work" value={resolvePicklist('ID_COUNTRY', h.work_country as string | undefined)} />
-                              <Field label="Location"        value={resolvePicklist('LOCATION', h.work_location as string | undefined)} />
-                              <Field label="Base Currency"   value={currencies.find(c => c.id === h.base_currency_id)?.name} />
-                              <Field label="Status"          value={h.status as string | undefined} />
+                              <Field label="Country of Work"    value={resolvePicklist('ID_COUNTRY', h.work_country as string | undefined)} />
+                              <Field label="Location"           value={resolvePicklist('LOCATION', h.work_location as string | undefined)} />
+                              <Field label="Work Schedule"      value={workSchedules.find(s => s.id === h.work_schedule_id)?.name} />
+                              <Field label="Holiday Calendar"   value={holidayCalendars.find(c => c.id === h.holiday_calendar_id)?.name} />
+                              <Field label="Base Currency"      value={currencies.find(c => c.id === h.base_currency_id)?.name} />
+                              <Field label="Status"             value={h.status as string | undefined} />
                             </div>
                             <div style={{ marginTop: 12, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
                               {can('employment.edit') && (
@@ -2664,15 +2698,17 @@ export default function MyProfile() {
                                     setEmploymentEditMode('edit');
                                     setEmploymentHistOpen(false);
                                     startEdit('employment', {
-                                      empDesignation:      String(h.designation      ?? ''),
-                                      empJobTitle:         String(h.job_title        ?? ''),
-                                      empDeptId:           String(h.dept_id          ?? ''),
-                                      empManagerId:        String(h.manager_id       ?? ''),
-                                      empManagerName:      managerName(h.manager_id as string | undefined) === '—' ? '' : managerName(h.manager_id as string | undefined),
-                                      empNoticePeriodDays: String(h.notice_period_days ?? 30),
-                                      empWorkCountry:      String(h.work_country     ?? ''),
-                                      empWorkLocation:     String(h.work_location    ?? ''),
-                                      empEffectiveFrom:    String(h.effective_from   ?? ''),
+                                      empDesignation:       String(h.designation         ?? ''),
+                                      empJobTitle:          String(h.job_title           ?? ''),
+                                      empDeptId:            String(h.dept_id             ?? ''),
+                                      empManagerId:         String(h.manager_id          ?? ''),
+                                      empManagerName:       managerName(h.manager_id as string | undefined) === '—' ? '' : managerName(h.manager_id as string | undefined),
+                                      empNoticePeriodDays:  String(h.notice_period_days  ?? 30),
+                                      empWorkCountry:       String(h.work_country        ?? ''),
+                                      empWorkLocation:      String(h.work_location       ?? ''),
+                                      empWorkScheduleId:    String(h.work_schedule_id    ?? ''),
+                                      empHolidayCalendarId: String(h.holiday_calendar_id ?? ''),
+                                      empEffectiveFrom:     String(h.effective_from      ?? ''),
                                     });
                                   }}
                                 >
@@ -2730,9 +2766,11 @@ export default function MyProfile() {
                   <Field label="Manager"         value={managerName(emp.managerId as string | undefined)} />
                   <Field label="Hire Date"       value={fmtDate(emp.hireDate as string | undefined)} />
                   <Field label="Notice Period"   value={(emp.noticePeriodDays as number | null | undefined) ? `${emp.noticePeriodDays} days` : '30 days'} />
-                  <Field label="Country of Work" value={resolvePicklist('ID_COUNTRY', emp.workCountry as string | undefined)} />
-                  <Field label="Location"        value={resolvePicklist('LOCATION', emp.workLocation as string | undefined)} />
-                  <Field label="Base Currency"   value={currencies.find(c => c.id === emp.baseCurrencyId)?.name} />
+                  <Field label="Country of Work"  value={resolvePicklist('ID_COUNTRY', emp.workCountry as string | undefined)} />
+                  <Field label="Location"         value={resolvePicklist('LOCATION', emp.workLocation as string | undefined)} />
+                  <Field label="Work Schedule"    value={workSchedules.find(s => s.id === emp.workScheduleId)?.name} />
+                  <Field label="Holiday Calendar" value={holidayCalendars.find(c => c.id === emp.holidayCalendarId)?.name} />
+                  <Field label="Base Currency"    value={currencies.find(c => c.id === emp.baseCurrencyId)?.name} />
                 </div>
               )}
             </section>
