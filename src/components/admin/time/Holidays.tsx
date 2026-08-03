@@ -19,7 +19,7 @@ interface Holiday {
   holiday_name: string;
   created_at:   string;
   updated_at:   string;
-  creator:      { employees: { name: string } | null } | null;
+  creator:      any;
 }
 
 interface FormState {
@@ -29,6 +29,11 @@ interface FormState {
 }
 
 const BLANK: FormState = { id: null, holiday_code: '', holiday_name: '' };
+
+function creatorName(creator: any): string {
+  const emp = Array.isArray(creator) ? creator[0]?.employees : creator?.employees;
+  return (Array.isArray(emp) ? emp[0]?.name : emp?.name) ?? '';
+}
 
 function fmtDateTime(ts: string): string {
   if (!ts) return '—';
@@ -171,7 +176,7 @@ export default function Holidays() {
                   <td style={{ padding: '10px 12px', fontWeight: 500, color: '#111827' }}>{h.holiday_name}</td>
                   <td style={{ padding: '10px 12px', color: '#6B7280' }}>{fmtDateTime(h.created_at)}</td>
                   <td style={{ padding: '10px 12px', color: '#6B7280' }}>{fmtDateTime(h.updated_at)}</td>
-<td style={{ padding: '10px 12px', color: '#6B7280' }}>{h.creator?.employees?.name ?? '—'}</td>
+<td style={{ padding: '10px 12px', color: '#6B7280' }}>{creatorName(h.creator) || '—'}</td>
                   <td style={{ padding: '10px 12px' }}>
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button

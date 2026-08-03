@@ -30,13 +30,18 @@ interface WorkSchedule {
   is_active:         boolean;
   created_at:        string | null;
   updated_at:        string | null;
-  creator:           { employees: { name: string } | null } | null;
+  creator:           any;
   lines:             ScheduleLine[];
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+function creatorName(creator: any): string {
+  const emp = Array.isArray(creator) ? creator[0]?.employees : creator?.employees;
+  return (Array.isArray(emp) ? emp[0]?.name : emp?.name) ?? '';
+}
 
 /** Returns ordered day names starting from start_day. */
 function getOrderedDays(startDay: number): string[] {
@@ -249,7 +254,7 @@ export default function WorkSchedules() {
                       <span style={{ marginLeft: 12, fontSize: 11, color: '#9CA3AF' }}>
                         Created {s.created_at ? new Date(s.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
                         {' · '}Updated {s.updated_at ? new Date(s.updated_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
-                        {s.creator?.employees?.name ? ` · ${s.creator.employees.name}` : ''}
+                        {creatorName(s.creator) ? ` · ${creatorName(s.creator)}` : ''}
                       </span>
                     </div>
                     <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>

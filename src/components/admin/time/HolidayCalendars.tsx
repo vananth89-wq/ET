@@ -22,7 +22,7 @@ interface Calendar {
   is_active:    boolean;
   created_at:   string | null;
   updated_at:   string | null;
-  creator:      { employees: { name: string } | null } | null;
+  creator:      any;
 }
 
 interface CalendarEntry {
@@ -48,6 +48,12 @@ interface CalForm {
 }
 
 const BLANK_CAL: CalForm = { id: null, code: '', name: '', country_code: '', is_active: true };
+
+/** Supabase may return nested to-one relations as object or array depending on the query shape. */
+function creatorName(creator: any): string {
+  const emp = Array.isArray(creator) ? creator[0]?.employees : creator?.employees;
+  return (Array.isArray(emp) ? emp[0]?.name : emp?.name) ?? '';
+}
 
 function fmtDate(d: string): string {
   if (!d) return '';
@@ -279,7 +285,7 @@ export default function HolidayCalendars() {
                     <span style={{ marginLeft: 16, fontSize: 11, color: '#9CA3AF' }}>
                       Created {cal.created_at ? new Date(cal.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
                       {' · '}Updated {cal.updated_at ? new Date(cal.updated_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
-                      {cal.creator?.employees?.name ? ` · ${cal.creator.employees.name}` : ''}
+                      {creatorName(cal.creator) ? ` · ${creatorName(cal.creator)}` : ''}
                     </span>
                   </div>
 

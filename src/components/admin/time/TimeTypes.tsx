@@ -23,10 +23,15 @@ interface TimeType {
   is_active:              boolean;
   created_at:             string | null;
   updated_at:             string | null;
-  creator:                { employees: { name: string } | null } | null;
+  creator:                any;
 }
 
 // ─── Badges ───────────────────────────────────────────────────────────────────
+
+function creatorName(creator: any): string {
+  const emp = Array.isArray(creator) ? creator[0]?.employees : creator?.employees;
+  return (Array.isArray(emp) ? emp[0]?.name : emp?.name) ?? '';
+}
 
 function CategoryBadge({ category }: { category: string }) {
   const isAtt = category === 'attendance';
@@ -263,7 +268,7 @@ export default function TimeTypes() {
                           </td>
                           <td style={{ color: '#6B7280', fontSize: 12 }}>{tt.created_at ? new Date(tt.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}</td>
                           <td style={{ color: '#6B7280', fontSize: 12 }}>{tt.updated_at ? new Date(tt.updated_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}</td>
-                          <td style={{ color: '#6B7280', fontSize: 12 }}>{tt.creator?.employees?.name ?? '—'}</td>
+                          <td style={{ color: '#6B7280', fontSize: 12 }}>{creatorName(tt.creator) || '—'}</td>
                           <td style={{ textAlign: 'right' }} className="rd-actions">
                             <button className="rd-btn-edit-val" title="Edit" onClick={() => startEdit(tt)}>
                               <i className="fa-solid fa-pen-to-square" />
