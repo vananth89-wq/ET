@@ -234,7 +234,7 @@ export default function TimesheetAdmin() {
         submitted_at, approved_at,
         department_name, country_code,
         employees!inner (
-          employee_code,
+          employee_id,
           name
         )
       `)
@@ -247,7 +247,7 @@ export default function TimesheetAdmin() {
       id:               r.id,
       employee_id:      r.employee_id,
       employee_name:    r.employees?.name ?? '',
-      employee_code:    r.employees?.employee_code ?? '',
+      employee_code:    r.employees?.employee_id ?? '',
       period:           r.period,
       status:           r.status,
       planned_minutes:  r.planned_minutes,
