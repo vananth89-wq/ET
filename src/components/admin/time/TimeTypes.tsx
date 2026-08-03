@@ -21,6 +21,9 @@ interface TimeType {
   category:               'attendance' | 'absence';
   allows_partial_overlap: boolean;
   is_active:              boolean;
+  created_at:             string | null;
+  updated_at:             string | null;
+  creator:                { employees: { name: string } | null } | null;
 }
 
 // ─── Badges ───────────────────────────────────────────────────────────────────
@@ -60,7 +63,7 @@ export default function TimeTypes() {
     setError(null);
     const { data, error: e } = await supabase
       .from('time_types')
-      .select('id, name, code, category, allows_partial_overlap, is_active')
+      .select('id, name, code, category, allows_partial_overlap, is_active, created_at, updated_at, creator:profiles!created_by(employees!employee_id(name))')
       .order('category')
       .order('name');
     if (e) { setError(e.message); setLoading(false); return; }
@@ -96,11 +99,11 @@ export default function TimeTypes() {
       is_active: form.is_active,
     };
 
-    const { data, error: rpcErr } = await supabase.rpc('upsert_time_type', { p_data: payload });
+    const { data, error: e } = await supabase.rpc('upsert_time_type', { p_data: payload });
     setSaving(false);
 
-    if (rpcErr || !data?.ok) {
-      setInfoModal({ open: true, title: 'Error', message: data?.message ?? rpcErr?.message ?? 'Unknown error.' });
+    if (e || !data?.ok) {
+      setInfoModal({ open: true, title: 'Error', message: data?.message ?? e?.message ?? 'Unknown error.' });
       return;
     }
     await load();
@@ -230,6 +233,9 @@ export default function TimeTypes() {
                         <th>Category</th>
                         <th>Partial Overlap</th>
                         <th>Status</th>
+                        <th>Created</th>
+                        <th>Last Updated</th>
+                        <th>Created By</th>
                         <th style={{ textAlign: 'right' }}>Action</th>
                       </tr>
                     </thead>
@@ -255,6 +261,9 @@ export default function TimeTypes() {
                               {tt.is_active ? 'Active' : 'Inactive'}
                             </span>
                           </td>
+                          <td style={{ color: '#6B7280', fontSize: 12 }}>{tt.created_at ? new Date(tt.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}</td>
+                          <td style={{ color: '#6B7280', fontSize: 12 }}>{tt.updated_at ? new Date(tt.updated_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}</td>
+                          <td style={{ color: '#6B7280', fontSize: 12 }}>{tt.creator?.employees?.name ?? '—'}</td>
                           <td style={{ textAlign: 'right' }} className="rd-actions">
                             <button className="rd-btn-edit-val" title="Edit" onClick={() => startEdit(tt)}>
                               <i className="fa-solid fa-pen-to-square" />

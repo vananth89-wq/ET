@@ -28,6 +28,9 @@ interface WorkSchedule {
   code:              string;
   start_day_of_week: number; // 0=Sun … 6=Sat
   is_active:         boolean;
+  created_at:        string | null;
+  updated_at:        string | null;
+  creator:           { employees: { name: string } | null } | null;
   lines:             ScheduleLine[];
 }
 
@@ -102,7 +105,7 @@ export default function WorkSchedules() {
     setError(null);
     const { data: hdrs, error: e1 } = await supabase
       .from('time_work_schedules')
-      .select('id, name, code, start_day_of_week, is_active')
+      .select('id, name, code, start_day_of_week, is_active, created_at, updated_at, creator:profiles!created_by(employees!employee_id(name))')
       .order('name');
     if (e1) { setError(e1.message); setLoading(false); return; }
 
@@ -242,6 +245,11 @@ export default function WorkSchedules() {
                       </code>
                       <span style={{ marginLeft: 8, fontSize: 12, color: '#9CA3AF' }}>
                         Starts {DAY_NAMES[s.start_day_of_week]}
+                      </span>
+                      <span style={{ marginLeft: 12, fontSize: 11, color: '#9CA3AF' }}>
+                        Created {s.created_at ? new Date(s.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
+                        {' · '}Updated {s.updated_at ? new Date(s.updated_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
+                        {s.creator?.employees?.name ? ` · ${s.creator.employees.name}` : ''}
                       </span>
                     </div>
                     <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
