@@ -19,7 +19,7 @@ interface Holiday {
   holiday_name: string;
   created_at:   string;
   updated_at:   string;
-
+  creator:      { full_name: string | null } | null;
 }
 
 interface FormState {
@@ -58,7 +58,7 @@ export default function Holidays() {
     setError(null);
     const { data, error: err } = await supabase
       .from('time_holidays')
-      .select('id, holiday_code, holiday_name, created_at, updated_at')
+      .select('id, holiday_code, holiday_name, created_at, updated_at, creator:profiles!created_by(full_name)')
       .order('holiday_code');
     if (err) { setError(err.message); setLoading(false); return; }
     setHolidays((data ?? []) as unknown as Holiday[]);
@@ -171,7 +171,7 @@ export default function Holidays() {
                   <td style={{ padding: '10px 12px', fontWeight: 500, color: '#111827' }}>{h.holiday_name}</td>
                   <td style={{ padding: '10px 12px', color: '#6B7280' }}>{fmtDateTime(h.created_at)}</td>
                   <td style={{ padding: '10px 12px', color: '#6B7280' }}>{fmtDateTime(h.updated_at)}</td>
-<td style={{ padding: '10px 12px', color: '#6B7280' }}>—</td>
+<td style={{ padding: '10px 12px', color: '#6B7280' }}>{h.creator?.full_name ?? '—'}</td>
                   <td style={{ padding: '10px 12px' }}>
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button
