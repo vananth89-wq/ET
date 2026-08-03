@@ -47,7 +47,7 @@ interface TimesheetEntry {
   is_system_generated: boolean;
   // joined
   time_types?:  { name: string; code: string; category: string } | { name: string; code: string; category: string }[];
-  projects?:    { name: string; code: string } | { name: string; code: string }[];
+  projects?:    { name: string } | { name: string }[];
 }
 
 interface ScheduleLine {
@@ -79,7 +79,6 @@ interface TimeType {
 interface Project {
   id:        string;
   name:      string;
-  code:      string;
   is_active: boolean;
 }
 
@@ -154,7 +153,7 @@ function getEntryLabel(ent: TimesheetEntry): string {
 function getEntryCode(ent: TimesheetEntry): string {
   if (ent.entry_kind === 'project') {
     const p = Array.isArray(ent.projects) ? ent.projects[0] : ent.projects;
-    return p?.code ?? '';
+    return p?.name ?? '';
   }
   const t = Array.isArray(ent.time_types) ? ent.time_types[0] : ent.time_types;
   return t?.code ?? '';
@@ -223,7 +222,7 @@ export default function MyTimesheet() {
       const [empRes, ttRes, prRes] = await Promise.all([
         supabase.from('employees').select('employee_id').eq('id', employee.id).single(),
         supabase.from('time_types').select('id, name, code, category, is_active').eq('is_active', true).order('category').order('name'),
-        supabase.from('projects').select('id, name, code, is_active').eq('is_active', true).order('name'),
+        supabase.from('projects').select('id, name, is_active').eq('is_active', true).order('name'),
       ]);
       if (empRes.data) setEmpCode(empRes.data.employee_id ?? '');
       if (ttRes.data)  setTimeTypes(ttRes.data as TimeType[]);
@@ -369,7 +368,7 @@ export default function MyTimesheet() {
         id, header_id, entry_date, entry_kind, project_id, time_type_id,
         hours_minutes, notes, is_system_generated,
         time_types ( name, code, category ),
-        projects ( name, code )
+        projects ( name )
       `)
       .eq('header_id', headerId)
       .order('entry_date')
@@ -528,7 +527,7 @@ export default function MyTimesheet() {
     // Reload entries then sync recorded_minutes
     const { data: ents } = await supabase
       .from('timesheet_entries')
-      .select(`id, header_id, entry_date, entry_kind, project_id, time_type_id, hours_minutes, notes, is_system_generated, time_types(name,code,category), projects(name,code)`)
+      .select(`id, header_id, entry_date, entry_kind, project_id, time_type_id, hours_minutes, notes, is_system_generated, time_types(name,code,category), projects(name)`)
       .eq('header_id', header.id)
       .order('entry_date').order('created_at');
 
@@ -932,7 +931,7 @@ export default function MyTimesheet() {
                       >
                         <option value="">— Select —</option>
                         {projects.map(p => (
-                          <option key={p.id} value={p.id}>{p.name} ({p.code})</option>
+                          <option key={p.id} value={p.id}>{p.name}</option>
                         ))}
                       </select>
                     </div>
