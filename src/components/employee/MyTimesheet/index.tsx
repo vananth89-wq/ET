@@ -664,7 +664,6 @@ export default function MyTimesheet() {
 
                   const dateStr    = isoDate(year, month, day);
                   const dow        = (startDow + day - 1) % 7;
-                  const isWeekend  = dow === 0 || dow === 6;
                   const isToday    = dateStr === todayIso;
                   const isSelected = dateStr === selectedDate;
                   const dayEnts    = entriesByDate[dateStr] ?? [];
@@ -683,7 +682,7 @@ export default function MyTimesheet() {
                           ? '2px solid #2563EB'
                           : isToday ? '2px solid #93C5FD'
                           : '1px solid #E5E7EB',
-                        background: isSelected ? '#EFF6FF' : (isOffDay || isWeekend) ? '#F9FAFB' : '#fff',
+                        background: isSelected ? '#EFF6FF' : isOffDay ? '#F9FAFB' : '#fff',
                         boxShadow: isSelected ? '0 0 0 3px #BFDBFE55' : undefined,
                         transition: 'border-color 0.1s',
                       }}
@@ -692,7 +691,7 @@ export default function MyTimesheet() {
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
                         <span style={{
                           fontSize: 12, fontWeight: isToday ? 700 : 500,
-                          color: isToday ? '#fff' : isWeekend ? '#9CA3AF' : '#374151',
+                          color: isToday ? '#fff' : isOffDay ? '#9CA3AF' : '#374151',
                           background: isToday ? '#2563EB' : 'transparent',
                           borderRadius: '50%', width: 20, height: 20,
                           display: 'flex', alignItems: 'center', justifyContent: 'center',
