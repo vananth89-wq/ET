@@ -537,7 +537,7 @@ export default function MyTimesheet() {
         .from('timesheet_entries')
         .update({
           entry_kind:    entryKind,
-          time_type_id:  form.typeId || null,
+          time_type_id:  entryKind === 'project' ? null : form.typeId || null,
           project_id:    needsProject ? form.projId || null : null,
           hours_minutes: totalMins,
           notes:         form.notes.trim() || null,
@@ -554,7 +554,7 @@ export default function MyTimesheet() {
           header_id:     header.id,
           entry_date:    selectedDate,
           entry_kind:    entryKind,
-          time_type_id:  form.typeId || null,
+          time_type_id:  entryKind === 'project' ? null : form.typeId || null,
           project_id:    needsProject ? form.projId || null : null,
           hours_minutes: totalMins,
           notes:         form.notes.trim() || null,
