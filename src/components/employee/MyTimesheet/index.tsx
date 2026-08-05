@@ -18,6 +18,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth }                                    from '../../../contexts/AuthContext';
 import { supabase }                                   from '../../../lib/supabase';
 import ErrorBanner                                    from '../../shared/ErrorBanner';
+import ActivityAutocomplete, { ActivityHistoryItem } from './ActivityAutocomplete';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -201,6 +202,9 @@ export default function MyTimesheet() {
   const [timeTypes,  setTimeTypes]  = useState<TimeType[]>([]);
   const [projects,   setProjects]   = useState<Project[]>([]);
 
+  // Activity history
+  const [activityHistory, setActivityHistory] = useState<ActivityHistoryItem[]>([]);
+
   // Timesheet data
   const [header,    setHeader]    = useState<TimesheetHeader | null>(null);
   const [entries,   setEntries]   = useState<TimesheetEntry[]>([]);
@@ -238,6 +242,9 @@ export default function MyTimesheet() {
       if (empRes.data) setEmpCode(empRes.data.employee_id ?? '');
       if (ttRes.data)  setTimeTypes(ttRes.data as TimeType[]);
       if (prRes.data)  setProjects(prRes.data as Project[]);
+      // Load activity history for this employee
+      const { data: actData } = await supabase.rpc('get_employee_activities', { p_employee_id: employee.id });
+      if (actData) setActivityHistory(actData as ActivityHistoryItem[]);
     })();
   }, [employee?.id]);
 
@@ -485,6 +492,20 @@ export default function MyTimesheet() {
     setFormErr('');
   }
 
+  async function handleFavoriteToggle(name: string, currentIsFav: boolean): Promise<{ ok: boolean; message?: string }> {
+    if (!employee?.id) return { ok: false };
+    const { data } = await supabase.rpc('toggle_activity_favorite', {
+      p_employee_id:   employee.id,
+      p_activity_name: name,
+    });
+    if (data?.ok) {
+      setActivityHistory(prev =>
+        prev.map(a => a.activity_name === name ? { ...a, is_favorite: !currentIsFav } : a)
+      );
+    }
+    return data ?? { ok: false };
+  }
+
   async function handleSaveEntry() {
     if (!header || !selectedDate) return;
 
@@ -558,6 +579,31 @@ export default function MyTimesheet() {
     setEntries(newEntries);
     await syncRecordedMinutes(header.id, newEntries);
     setHeader(h => h ? { ...h, recorded_minutes: newEntries.reduce((s,e) => s + e.hours_minutes, 0) } : h);
+
+    // Record activity usages in history
+    const savedActivities = _activities ?? [];
+    if (savedActivities.length > 0 && employee?.id) {
+      supabase.rpc('record_activity_usages', {
+        p_employee_id:    employee.id,
+        p_activity_names: savedActivities,
+      }).then(({ data }) => {
+        if (data?.ok) {
+          // Refresh local history optimistically
+          setActivityHistory(prev => {
+            const next = [...prev];
+            for (const name of savedActivities) {
+              const idx = next.findIndex(a => a.activity_name === name);
+              if (idx >= 0) {
+                next[idx] = { ...next[idx], usage_count: next[idx].usage_count + 1, last_used_at: new Date().toISOString() };
+              } else {
+                next.push({ id: crypto.randomUUID(), activity_name: name, usage_count: 1, last_used_at: new Date().toISOString(), is_favorite: false, created_at: new Date().toISOString() } as ActivityHistoryItem & { created_at: string });
+              }
+            }
+            return next;
+          });
+        }
+      });
+    }
 
     setSaving(false);
     cancelForm();
@@ -942,17 +988,18 @@ export default function MyTimesheet() {
                       </Label>
                       {form.activities.map((act, idx) => (
                         <div key={idx} style={{ display: 'flex', gap: 5, marginBottom: 5, alignItems: 'center' }}>
-                          <input
-                            type="text"
-                            placeholder={`Activity ${idx + 1}`}
+                          <ActivityAutocomplete
                             value={act}
-                            onChange={e => {
+                            onChange={val => {
                               const next = [...form.activities];
-                              next[idx] = e.target.value;
+                              next[idx] = val;
                               setForm(f => ({ ...f, activities: next }));
                               setFormErr('');
                             }}
-                            style={{ ...inputSt, flex: 1, marginBottom: 0 }}
+                            onFavoriteToggle={handleFavoriteToggle}
+                            history={activityHistory}
+                            placeholder={`Activity ${idx + 1}`}
+                            inputStyle={{ ...inputSt, marginBottom: 0 }}
                           />
                           {form.activities.length > 1 && (
                             <button
