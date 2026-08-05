@@ -20,6 +20,7 @@ interface TimeType {
   code:                   string;
   category:               'attendance' | 'absence';
   allows_partial_overlap: boolean;
+  requires_project:       boolean;
   is_active:              boolean;
   created_at:             string | null;
   updated_at:             string | null;
@@ -50,7 +51,7 @@ function CategoryBadge({ category }: { category: string }) {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 const EMPTY: Omit<TimeType, 'id'> & { id: string } = {
-  id: '', name: '', code: '', category: 'attendance', allows_partial_overlap: false, is_active: true, created_at: null, updated_at: null, creator: null,
+  id: '', name: '', code: '', category: 'attendance', allows_partial_overlap: false, requires_project: false, is_active: true, created_at: null, updated_at: null, creator: null,
 };
 
 export default function TimeTypes() {
@@ -68,7 +69,7 @@ export default function TimeTypes() {
     setError(null);
     const { data, error: e } = await supabase
       .from('time_types')
-      .select('id, name, code, category, allows_partial_overlap, is_active, created_at, updated_at, creator:profiles!created_by(employees!employee_id(name))')
+      .select('id, name, code, category, allows_partial_overlap, requires_project, is_active, created_at, updated_at, creator:profiles!created_by(employees!employee_id(name))')
       .order('category')
       .order('name');
     if (e) { setError(e.message); setLoading(false); return; }
@@ -101,6 +102,7 @@ export default function TimeTypes() {
       code: form.code.trim(),
       category: form.category,
       allows_partial_overlap: form.allows_partial_overlap,
+      requires_project: form.category === 'attendance' ? form.requires_project : false,
       is_active: form.is_active,
     };
 
@@ -192,6 +194,19 @@ export default function TimeTypes() {
               />
               Active
             </label>
+
+            {form.category === 'attendance' && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+                <input
+                  type="checkbox" checked={form.requires_project}
+                  onChange={e => setForm(p => ({ ...p, requires_project: e.target.checked }))}
+                />
+                Requires Project
+                <span style={{ color: '#9CA3AF', fontSize: 11 }}>
+                  (employee must select an active project when logging this type)
+                </span>
+              </label>
+            )}
           </div>
 
           <div className="rd-form-actions">
@@ -236,6 +251,7 @@ export default function TimeTypes() {
                         <th>Name</th>
                         <th>Code</th>
                         <th>Category</th>
+                        <th>Req. Project</th>
                         <th>Partial Overlap</th>
                         <th>Status</th>
                         <th>Created</th>
@@ -251,6 +267,12 @@ export default function TimeTypes() {
                           <td><strong>{tt.name}</strong></td>
                           <td><code style={{ background: '#F3F4F6', padding: '2px 6px', borderRadius: 4, fontSize: 12 }}>{tt.code}</code></td>
                           <td><CategoryBadge category={tt.category} /></td>
+                          <td style={{ textAlign: 'center' }}>
+                            {tt.category === 'attendance' && tt.requires_project
+                              ? <i className="fa-solid fa-check" style={{ color: '#3B82F6' }} title="Requires Project" />
+                              : <i className="fa-solid fa-minus" style={{ color: '#D1D5DB' }} />
+                            }
+                          </td>
                           <td style={{ textAlign: 'center' }}>
                             {tt.allows_partial_overlap
                               ? <i className="fa-solid fa-check" style={{ color: '#10B981' }} />

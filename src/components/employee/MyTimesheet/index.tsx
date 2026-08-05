@@ -8,7 +8,7 @@
  *   timesheet_headers.planned_minutes → integer (minutes)
  *   timesheet_entries.hours_minutes   → integer (minutes, must be > 0)
  *   timesheet_entries constraint: project entries need project_id only;
- *                                 all others (time_type/holiday/leave) need time_type_id only
+ *                                 non-project entries need time_type_id; project_id optional (requires_project types)
  *   employee_employment.work_schedule_id    → assigned work schedule
  *   employee_employment.holiday_calendar_id → assigned holiday calendar
  *   time_work_schedule_lines.day_number     → 1–7 (day 1 = schedule.start_day_of_week)
@@ -72,8 +72,9 @@ interface TimeType {
   id:        string;
   name:      string;
   code:      string;
-  category:  'attendance' | 'absence';
-  is_active: boolean;
+  category:         'attendance' | 'absence';
+  requires_project: boolean;
+  is_active:        boolean;
 }
 
 interface Project {
@@ -147,7 +148,13 @@ function getEntryLabel(ent: TimesheetEntry): string {
     return p?.name ?? 'Project';
   }
   const t = Array.isArray(ent.time_types) ? ent.time_types[0] : ent.time_types;
-  return t?.name ?? ent.entry_kind;
+  const label = t?.name ?? ent.entry_kind;
+  // For time_type entries that also carry a project (requires_project types)
+  if (ent.project_id && ent.entry_kind === 'time_type') {
+    const p = Array.isArray(ent.projects) ? ent.projects[0] : ent.projects;
+    if (p?.name) return `${label} · ${p.name}`;
+  }
+  return label;
 }
 
 function getEntryCode(ent: TimesheetEntry): string {
@@ -214,7 +221,7 @@ export default function MyTimesheet() {
   const emptyForm = { kind: 'time_type' as 'time_type' | 'project', typeId: '', projId: '', hours: '', mins: '', notes: '' };
   const [form,    setForm]    = useState(emptyForm);
   const [formErr, setFormErr] = useState('');
-  const [formCategory, setFormCategory] = useState<'attendance' | 'absence' | 'project'>('attendance');
+  const [formCategory, setFormCategory] = useState<'attendance' | 'absence'>('attendance');
 
   // ── Fetch employee code + reference data once ───────────────────────────
   useEffect(() => {
@@ -440,9 +447,9 @@ export default function MyTimesheet() {
   while (cells.length % 7 !== 0) cells.push(null);
 
   // ── Entry form helpers ───────────────────────────────────────────────
-  function openAdd(category: 'attendance' | 'absence' | 'project') {
+  function openAdd(category: 'attendance' | 'absence') {
     setEditingEntry(null);
-    setForm({ ...emptyForm, kind: category === 'project' ? 'project' : 'time_type' });
+    setForm({ ...emptyForm, kind: 'time_type' });
     setFormCategory(category);
     setFormErr('');
     setAddingEntry(true);
@@ -452,7 +459,7 @@ export default function MyTimesheet() {
     setEditingEntry(ent);
     const totalM = ent.hours_minutes;
     setForm({
-      kind:   ent.entry_kind === 'project' ? 'project' : 'time_type',
+      kind:   'time_type',
       typeId: ent.time_type_id ?? '',
       projId: ent.project_id  ?? '',
       hours:  String(Math.floor(totalM / 60)),
@@ -461,8 +468,7 @@ export default function MyTimesheet() {
     });
     setFormErr('');
     const _tt = Array.isArray(ent.time_types) ? ent.time_types[0] : ent.time_types;
-    const _cat: 'attendance' | 'absence' | 'project' =
-      ent.entry_kind === 'project' ? 'project' :
+    const _cat: 'attendance' | 'absence' =
       _tt?.category === 'absence' ? 'absence' : 'attendance';
     setFormCategory(_cat);
     setAddingEntry(true);
@@ -479,8 +485,9 @@ export default function MyTimesheet() {
     if (!header || !selectedDate) return;
 
     // Validate
-    if (form.kind === 'time_type' && !form.typeId) { setFormErr('Please select a time type.'); return; }
-    if (form.kind === 'project'   && !form.projId) { setFormErr('Please select a project.');   return; }
+    if (!form.typeId) { setFormErr('Please select a time type.'); return; }
+    const _selType = timeTypes.find(t => t.id === form.typeId);
+    if (_selType?.requires_project && !form.projId) { setFormErr('Please select a project — required for this attendance type.'); return; }
     const hrs  = parseInt(form.hours || '0', 10);
     const mins = parseInt(form.mins  || '0', 10);
     if (isNaN(hrs) || isNaN(mins) || (hrs === 0 && mins === 0)) {
@@ -490,10 +497,9 @@ export default function MyTimesheet() {
     if (hrs < 0 || hrs > 23)   { setFormErr('Hours must be 0–23.'); return; }
 
     const totalMins = hrs * 60 + mins;
-    const selectedTimeType = timeTypes.find(t => t.id === form.typeId);
+    const selectedTimeType = _selType;
     // Map absence → 'leave', attendance → 'time_type', project → 'project'
     const entryKind: TimesheetEntry['entry_kind'] =
-      form.kind === 'project' ? 'project' :
       selectedTimeType?.category === 'absence' ? 'leave' : 'time_type';
 
     setSaving(true);
@@ -507,8 +513,8 @@ export default function MyTimesheet() {
         .from('timesheet_entries')
         .update({
           entry_kind:    entryKind,
-          time_type_id:  form.kind === 'time_type' ? form.typeId : null,
-          project_id:    form.kind === 'project'   ? form.projId : null,
+          time_type_id:  form.typeId || null,
+          project_id:    (selectedTimeType?.requires_project && form.projId) ? form.projId : null,
           hours_minutes: totalMins,
           notes:         form.notes.trim() || null,
         })
@@ -523,8 +529,8 @@ export default function MyTimesheet() {
           header_id:     header.id,
           entry_date:    selectedDate,
           entry_kind:    entryKind,
-          time_type_id:  form.kind === 'time_type' ? form.typeId : null,
-          project_id:    form.kind === 'project'   ? form.projId : null,
+          time_type_id:  form.typeId || null,
+          project_id:    (selectedTimeType?.requires_project && form.projId) ? form.projId : null,
           hours_minutes: totalMins,
           notes:         form.notes.trim() || null,
           created_by:    (await supabase.auth.getUser()).data.user?.id ?? null,
@@ -874,42 +880,38 @@ export default function MyTimesheet() {
                   <div style={{ fontSize: 12, fontWeight: 700, color: '#1D4ED8', marginBottom: 10 }}>
                     {editingEntry
                     ? 'Edit Entry'
-                    : formCategory === 'attendance' ? 'Add Attendance'
-                    : formCategory === 'absence'    ? 'Add Absence'
-                    : 'Add Project'}
+                    : formCategory === 'absence' ? 'Add Absence' : 'Add Attendance'}
                   </div>
 
                   {/* Attendance or Absence time-type picker */}
-                  {(formCategory === 'attendance' || formCategory === 'absence') && (
-                    <div style={{ marginBottom: 8 }}>
-                      <Label>
-                        {formCategory === 'attendance' ? 'Attendance Type' : 'Absence / Leave Type'}
-                      </Label>
-                      <select
-                        value={form.typeId}
-                        onChange={e => { setForm(f => ({ ...f, typeId: e.target.value })); setFormErr(''); }}
-                        style={selectSt}
-                      >
-                        <option value="">— Select —</option>
-                        {timeTypes
-                          .filter(t => t.category === formCategory)
-                          .map(t => (
-                            <option key={t.id} value={t.id}>{t.name} ({t.code})</option>
-                          ))}
-                      </select>
-                    </div>
-                  )}
+                  <div style={{ marginBottom: 8 }}>
+                    <Label>
+                      {formCategory === 'attendance' ? 'Attendance Type' : 'Absence / Leave Type'}
+                    </Label>
+                    <select
+                      value={form.typeId}
+                      onChange={e => { setForm(f => ({ ...f, typeId: e.target.value, projId: '' })); setFormErr(''); }}
+                      style={selectSt}
+                    >
+                      <option value="">— Select —</option>
+                      {timeTypes
+                        .filter(t => t.category === formCategory)
+                        .map(t => (
+                          <option key={t.id} value={t.id}>{t.name} ({t.code})</option>
+                        ))}
+                    </select>
+                  </div>
 
-                  {/* Project picker */}
-                  {formCategory === 'project' && (
+                  {/* Project picker — visible only when selected attendance type requires_project */}
+                  {formCategory === 'attendance' && timeTypes.find(t => t.id === form.typeId)?.requires_project && (
                     <div style={{ marginBottom: 8 }}>
-                      <Label>Project</Label>
+                      <Label>Project <span style={{ color: '#DC2626' }}>*</span></Label>
                       <select
                         value={form.projId}
                         onChange={e => { setForm(f => ({ ...f, projId: e.target.value })); setFormErr(''); }}
                         style={selectSt}
                       >
-                        <option value="">— Select —</option>
+                        <option value="">— Select project —</option>
                         {projects.map(p => (
                           <option key={p.id} value={p.id}>{p.name}</option>
                         ))}
@@ -1000,19 +1002,7 @@ export default function MyTimesheet() {
                   >
                     <i className="fa-solid fa-umbrella-beach" /> Add Absence
                   </button>
-                  {projects.length > 0 && (
-                    <button
-                      onClick={() => openAdd('project')}
-                      style={{
-                        width: '100%', padding: '7px 0', borderRadius: 7,
-                        border: '1px dashed #BFDBFE', background: 'transparent',
-                        color: '#1E40AF', fontSize: 11, fontWeight: 600, cursor: 'pointer',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                      }}
-                    >
-                      <i className="fa-solid fa-diagram-project" /> Add Project Time
-                    </button>
-                  )}
+
                 </div>
               )}
 
