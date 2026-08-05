@@ -229,7 +229,7 @@ export default function MyTimesheet() {
     (async () => {
       const [empRes, ttRes, prRes] = await Promise.all([
         supabase.from('employees').select('employee_id').eq('id', employee.id).single(),
-        supabase.from('time_types').select('id, name, code, category, is_active').eq('is_active', true).order('category').order('name'),
+        supabase.from('time_types').select('id, name, code, category, requires_project, is_active').eq('is_active', true).order('category').order('name'),
         supabase.from('projects').select('id, name, is_active').eq('is_active', true).order('name'),
       ]);
       if (empRes.data) setEmpCode(empRes.data.employee_id ?? '');
