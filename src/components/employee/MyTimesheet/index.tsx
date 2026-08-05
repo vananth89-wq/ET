@@ -18,7 +18,8 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth }                                    from '../../../contexts/AuthContext';
 import { supabase }                                   from '../../../lib/supabase';
 import ErrorBanner                                    from '../../shared/ErrorBanner';
-import ActivityAutocomplete, { ActivityHistoryItem } from './ActivityAutocomplete';
+import ActivityAutocomplete from './ActivityAutocomplete';
+import type { ActivityHistoryItem } from './ActivityAutocomplete';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
