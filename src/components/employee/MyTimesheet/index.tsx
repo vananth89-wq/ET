@@ -180,12 +180,6 @@ function getEntryBadge(ent: TimesheetEntry): { code: string; bg: string; color: 
 
 // ─── Style constants ──────────────────────────────────────────────────────────
 
-const KIND_CHIP: Record<string, { bg: string; color: string }> = {
-  project:   { bg: '#DBEAFE', color: '#1E40AF' },
-  time_type: { bg: '#D1FAE5', color: '#065F46' },
-  holiday:   { bg: '#EDE9FE', color: '#5B21B6' },
-  leave:     { bg: '#FEF3C7', color: '#92400E' },
-};
 
 const STATUS_META: Record<string, { label: string; bg: string; color: string }> = {
   to_be_submitted: { label: 'To Be Submitted', bg: '#FFF7ED', color: '#C2410C' },
@@ -931,7 +925,7 @@ export default function MyTimesheet() {
                   onClick={() => toggleAllEntries(dayEntries)}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 5,
-                    background: 'none', border: '1px solid #E5E7EB', borderRadius: 6,
+                    border: '1px solid #E5E7EB', borderRadius: 6,
                     padding: '3px 10px', cursor: 'pointer', fontSize: 11, fontWeight: 700,
                     color: dayEntries.some(e => expandedEntries.has(e.id)) ? '#3B82F6' : '#6B7280',
                     borderColor: dayEntries.some(e => expandedEntries.has(e.id)) ? '#BFDBFE' : '#E5E7EB',
