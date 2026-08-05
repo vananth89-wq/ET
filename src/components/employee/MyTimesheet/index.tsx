@@ -78,9 +78,11 @@ interface TimeType {
 }
 
 interface Project {
-  id:        string;
-  name:      string;
-  is_active: boolean;
+  id:         string;
+  name:       string;
+  start_date: string;   // 'YYYY-MM-DD'
+  end_date:   string;   // 'YYYY-MM-DD'
+  active:     boolean;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -230,7 +232,7 @@ export default function MyTimesheet() {
       const [empRes, ttRes, prRes] = await Promise.all([
         supabase.from('employees').select('employee_id').eq('id', employee.id).single(),
         supabase.from('time_types').select('id, name, code, category, requires_project, is_active').eq('is_active', true).order('category').order('name'),
-        supabase.from('projects').select('id, name, is_active').eq('is_active', true).order('name'),
+        supabase.from('projects').select('id, name, start_date, end_date, active').eq('active', true).order('name'),
       ]);
       if (empRes.data) setEmpCode(empRes.data.employee_id ?? '');
       if (ttRes.data)  setTimeTypes(ttRes.data as TimeType[]);
@@ -912,9 +914,15 @@ export default function MyTimesheet() {
                         style={selectSt}
                       >
                         <option value="">— Select project —</option>
-                        {projects.map(p => (
-                          <option key={p.id} value={p.id}>{p.name}</option>
-                        ))}
+                        {projects
+                          .filter(p =>
+                            !!selectedDate &&
+                            (!p.start_date || p.start_date <= selectedDate) &&
+                            (!p.end_date   || p.end_date   >= selectedDate)
+                          )
+                          .map(p => (
+                            <option key={p.id} value={p.id}>{p.name}</option>
+                          ))}
                       </select>
                     </div>
                   )}
