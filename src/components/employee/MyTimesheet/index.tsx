@@ -234,7 +234,7 @@ export default function MyTimesheet() {
   const [activityHistory, setActivityHistory] = useState<ActivityHistoryItem[]>([]);
 
   // Entry form
-  const emptyForm = { kind: 'time_type' as 'time_type' | 'project', typeId: '', projId: '', hours: '', mins: '', notes: '', activities: [''] };
+  const emptyForm = { kind: 'time_type' as 'time_type' | 'project', typeId: '', projId: '', hours: '', mins: '', notes: '', activities: [''], ttCategory: '' as '' | 'attendance' | 'absence' };
   const [form,    setForm]    = useState(emptyForm);
   const [formErr, setFormErr] = useState('');
 
@@ -469,21 +469,23 @@ export default function MyTimesheet() {
     setFormErr('');
     setAddingEntry(true);
   }
-  function openAddAttendance() { openAdd({ kind: 'time_type' }); }
-  function openAddAbsence()    { openAdd({ kind: 'time_type' }); }
+  function openAddAttendance() { openAdd({ kind: 'time_type', ttCategory: 'attendance' }); }
+  function openAddAbsence()    { openAdd({ kind: 'time_type', ttCategory: 'absence' }); }
 
   function openEdit(ent: TimesheetEntry) {
     setEditingEntry(ent);
     const totalM = ent.hours_minutes;
     const acts = ent.activities && ent.activities.length > 0 ? ent.activities : [''];
+    const tt = timeTypes.find(t => t.id === ent.time_type_id);
     setForm({
-      kind:       ent.entry_kind === 'project' ? 'project' : 'time_type',
+      kind:       'time_type',
       typeId:     ent.time_type_id ?? '',
       projId:     ent.project_id  ?? '',
       hours:      String(Math.floor(totalM / 60)),
       mins:       String(totalM % 60),
       notes:      ent.notes ?? '',
       activities: acts,
+      ttCategory: (tt?.category === 'absence' ? 'absence' : 'attendance') as '' | 'attendance' | 'absence',
     });
     setFormErr('');
     setAddingEntry(true);
@@ -1105,29 +1107,21 @@ export default function MyTimesheet() {
                     {editingEntry ? 'Edit Entry' : 'Add Entry'}
                   </div>
 
-                  {/* Time type picker — always visible */}
+                  {/* Time type picker — filtered by attendance or absence based on button clicked */}
                   <div style={{ marginBottom: 8 }}>
-                    <Label>Time Type</Label>
+                    <Label>{form.ttCategory === 'absence' ? 'Leave / Absence Type' : 'Attendance Type'}</Label>
                     <select
                       value={form.typeId}
                       onChange={e => { setForm(f => ({ ...f, typeId: e.target.value, projId: '' })); setFormErr(''); }}
                       style={selectSt}
                     >
                       <option value="">— Select —</option>
-                      {timeTypes.filter(t => t.category === 'attendance').length > 0 && (
-                        <optgroup label="Attendance">
-                          {timeTypes.filter(t => t.category === 'attendance').map(t => (
-                            <option key={t.id} value={t.id}>{t.name} ({t.code})</option>
-                          ))}
-                        </optgroup>
-                      )}
-                      {timeTypes.filter(t => t.category === 'absence').length > 0 && (
-                        <optgroup label="Leave / Absence">
-                          {timeTypes.filter(t => t.category === 'absence').map(t => (
-                            <option key={t.id} value={t.id}>{t.name} ({t.code})</option>
-                          ))}
-                        </optgroup>
-                      )}
+                      {timeTypes
+                        .filter(t => !form.ttCategory || t.category === form.ttCategory)
+                        .map(t => (
+                          <option key={t.id} value={t.id}>{t.name} ({t.code})</option>
+                        ))
+                      }
                     </select>
                   </div>
 
