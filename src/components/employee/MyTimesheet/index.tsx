@@ -500,8 +500,7 @@ export default function MyTimesheet() {
     if (!header || !selectedDate) return;
 
     // Validate
-    if (form.kind === 'time_type' && !form.typeId) { setFormErr('Please select a time type.'); return; }
-    if (form.kind === 'project'   && !form.projId) { setFormErr('Please select a project.');   return; }
+    if (!form.typeId) { setFormErr('Please select a time type.'); return; }
     const hrs  = parseInt(form.hours || '0', 10);
     const mins = parseInt(form.mins  || '0', 10);
     if (isNaN(hrs) || isNaN(mins) || (hrs === 0 && mins === 0)) {
@@ -512,13 +511,15 @@ export default function MyTimesheet() {
 
     const totalMins = hrs * 60 + mins;
     const selectedTimeType = timeTypes.find(t => t.id === form.typeId);
-    // Map absence → 'leave', attendance → 'time_type', project → 'project'
+    const needsProject = !!selectedTimeType?.requires_project;
+    if (needsProject && !form.projId) { setFormErr('Please select a project for this time type.'); return; }
+    // Map absence → 'leave', requires_project → 'project', else 'time_type'
     const entryKind: TimesheetEntry['entry_kind'] =
-      form.kind === 'project' ? 'project' :
+      needsProject && form.projId ? 'project' :
       selectedTimeType?.category === 'absence' ? 'leave' : 'time_type';
 
     // Collect non-empty activities
-    const showActivities = form.kind === 'project' || selectedTimeType?.requires_project;
+    const showActivities = needsProject;
     const cleanActivities = showActivities
       ? form.activities.map(a => a.trim()).filter(a => a.length > 0)
       : null;
@@ -534,8 +535,8 @@ export default function MyTimesheet() {
         .from('timesheet_entries')
         .update({
           entry_kind:    entryKind,
-          time_type_id:  form.kind === 'time_type' ? form.typeId : null,
-          project_id:    form.kind === 'project'   ? form.projId : null,
+          time_type_id:  form.typeId || null,
+          project_id:    needsProject ? form.projId || null : null,
           hours_minutes: totalMins,
           notes:         form.notes.trim() || null,
           activities:    cleanActivities && cleanActivities.length > 0 ? cleanActivities : null,
@@ -551,8 +552,8 @@ export default function MyTimesheet() {
           header_id:     header.id,
           entry_date:    selectedDate,
           entry_kind:    entryKind,
-          time_type_id:  form.kind === 'time_type' ? form.typeId : null,
-          project_id:    form.kind === 'project'   ? form.projId : null,
+          time_type_id:  form.typeId || null,
+          project_id:    needsProject ? form.projId || null : null,
           hours_minutes: totalMins,
           notes:         form.notes.trim() || null,
           activities:    cleanActivities && cleanActivities.length > 0 ? cleanActivities : null,
@@ -1104,61 +1105,34 @@ export default function MyTimesheet() {
                     {editingEntry ? 'Edit Entry' : 'Add Entry'}
                   </div>
 
-                  {/* Entry type selector */}
+                  {/* Time type picker — always visible */}
                   <div style={{ marginBottom: 8 }}>
-                    <Label>Entry Type</Label>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 5 }}>
-                      {[
-                        { v: 'time_type', label: 'Time Type / Leave' },
-                        { v: 'project',   label: 'Project' },
-                      ].map(opt => (
-                        <button
-                          key={opt.v}
-                          type="button"
-                          onClick={() => setForm(f => ({ ...f, kind: opt.v as any, typeId: '', projId: '' }))}
-                          style={{
-                            padding: '6px 0', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                            border: form.kind === opt.v ? '2px solid #2563EB' : '1px solid #D1D5DB',
-                            background: form.kind === opt.v ? '#EFF6FF' : '#fff',
-                            color: form.kind === opt.v ? '#1D4ED8' : '#374151',
-                          }}
-                        >
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
+                    <Label>Time Type</Label>
+                    <select
+                      value={form.typeId}
+                      onChange={e => { setForm(f => ({ ...f, typeId: e.target.value, projId: '' })); setFormErr(''); }}
+                      style={selectSt}
+                    >
+                      <option value="">— Select —</option>
+                      {timeTypes.filter(t => t.category === 'attendance').length > 0 && (
+                        <optgroup label="Attendance">
+                          {timeTypes.filter(t => t.category === 'attendance').map(t => (
+                            <option key={t.id} value={t.id}>{t.name} ({t.code})</option>
+                          ))}
+                        </optgroup>
+                      )}
+                      {timeTypes.filter(t => t.category === 'absence').length > 0 && (
+                        <optgroup label="Leave / Absence">
+                          {timeTypes.filter(t => t.category === 'absence').map(t => (
+                            <option key={t.id} value={t.id}>{t.name} ({t.code})</option>
+                          ))}
+                        </optgroup>
+                      )}
+                    </select>
                   </div>
 
-                  {/* Time type picker */}
-                  {form.kind === 'time_type' && (
-                    <div style={{ marginBottom: 8 }}>
-                      <Label>Time Type</Label>
-                      <select
-                        value={form.typeId}
-                        onChange={e => { setForm(f => ({ ...f, typeId: e.target.value })); setFormErr(''); }}
-                        style={selectSt}
-                      >
-                        <option value="">— Select —</option>
-                        {timeTypes.filter(t => t.category === 'attendance').length > 0 && (
-                          <optgroup label="Attendance">
-                            {timeTypes.filter(t => t.category === 'attendance').map(t => (
-                              <option key={t.id} value={t.id}>{t.name} ({t.code})</option>
-                            ))}
-                          </optgroup>
-                        )}
-                        {timeTypes.filter(t => t.category === 'absence').length > 0 && (
-                          <optgroup label="Leave / Absence">
-                            {timeTypes.filter(t => t.category === 'absence').map(t => (
-                              <option key={t.id} value={t.id}>{t.name} ({t.code})</option>
-                            ))}
-                          </optgroup>
-                        )}
-                      </select>
-                    </div>
-                  )}
-
-                  {/* Project picker */}
-                  {form.kind === 'project' && (
+                  {/* Project picker — only when selected time type requires_project */}
+                  {form.typeId && timeTypes.find(t => t.id === form.typeId)?.requires_project && (
                     <div style={{ marginBottom: 8 }}>
                       <Label>Project</Label>
                       <select
@@ -1174,10 +1148,10 @@ export default function MyTimesheet() {
                     </div>
                   )}
 
-                  {/* Activities — shown for project entries or requires_project time types */}
+                  {/* Activities — shown when selected time type requires a project */}
                   {(() => {
                     const selTT = timeTypes.find(t => t.id === form.typeId);
-                    const show  = form.kind === 'project' || selTT?.requires_project;
+                    const show  = !!selTT?.requires_project;
                     if (!show) return null;
                     return (
                       <div style={{ marginBottom: 8 }}>
