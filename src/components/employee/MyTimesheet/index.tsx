@@ -214,6 +214,7 @@ export default function MyTimesheet() {
   const emptyForm = { kind: 'time_type' as 'time_type' | 'project', typeId: '', projId: '', hours: '', mins: '', notes: '' };
   const [form,    setForm]    = useState(emptyForm);
   const [formErr, setFormErr] = useState('');
+  const [formCategory, setFormCategory] = useState<'attendance' | 'absence' | 'project'>('attendance');
 
   // ── Fetch employee code + reference data once ───────────────────────────
   useEffect(() => {
@@ -439,9 +440,10 @@ export default function MyTimesheet() {
   while (cells.length % 7 !== 0) cells.push(null);
 
   // ── Entry form helpers ───────────────────────────────────────────────
-  function openAdd() {
+  function openAdd(category: 'attendance' | 'absence' | 'project') {
     setEditingEntry(null);
-    setForm(emptyForm);
+    setForm({ ...emptyForm, kind: category === 'project' ? 'project' : 'time_type' });
+    setFormCategory(category);
     setFormErr('');
     setAddingEntry(true);
   }
@@ -458,6 +460,11 @@ export default function MyTimesheet() {
       notes:  ent.notes ?? '',
     });
     setFormErr('');
+    const _tt = Array.isArray(ent.time_types) ? ent.time_types[0] : ent.time_types;
+    const _cat: 'attendance' | 'absence' | 'project' =
+      ent.entry_kind === 'project' ? 'project' :
+      _tt?.category === 'absence' ? 'absence' : 'attendance';
+    setFormCategory(_cat);
     setAddingEntry(true);
   }
 
@@ -865,64 +872,36 @@ export default function MyTimesheet() {
                   background: '#EFF6FF', marginTop: 8,
                 }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: '#1D4ED8', marginBottom: 10 }}>
-                    {editingEntry ? 'Edit Entry' : 'Add Entry'}
+                    {editingEntry
+                    ? 'Edit Entry'
+                    : formCategory === 'attendance' ? 'Add Attendance'
+                    : formCategory === 'absence'    ? 'Add Absence'
+                    : 'Add Project'}
                   </div>
 
-                  {/* Entry type selector */}
-                  <div style={{ marginBottom: 8 }}>
-                    <Label>Entry Type</Label>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 5 }}>
-                      {[
-                        { v: 'time_type', label: 'Time Type / Leave' },
-                        { v: 'project',   label: 'Project' },
-                      ].map(opt => (
-                        <button
-                          key={opt.v}
-                          type="button"
-                          onClick={() => setForm(f => ({ ...f, kind: opt.v as any, typeId: '', projId: '' }))}
-                          style={{
-                            padding: '6px 0', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                            border: form.kind === opt.v ? '2px solid #2563EB' : '1px solid #D1D5DB',
-                            background: form.kind === opt.v ? '#EFF6FF' : '#fff',
-                            color: form.kind === opt.v ? '#1D4ED8' : '#374151',
-                          }}
-                        >
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Time type picker */}
-                  {form.kind === 'time_type' && (
+                  {/* Attendance or Absence time-type picker */}
+                  {(formCategory === 'attendance' || formCategory === 'absence') && (
                     <div style={{ marginBottom: 8 }}>
-                      <Label>Time Type</Label>
+                      <Label>
+                        {formCategory === 'attendance' ? 'Attendance Type' : 'Absence / Leave Type'}
+                      </Label>
                       <select
                         value={form.typeId}
                         onChange={e => { setForm(f => ({ ...f, typeId: e.target.value })); setFormErr(''); }}
                         style={selectSt}
                       >
                         <option value="">— Select —</option>
-                        {timeTypes.filter(t => t.category === 'attendance').length > 0 && (
-                          <optgroup label="Attendance">
-                            {timeTypes.filter(t => t.category === 'attendance').map(t => (
-                              <option key={t.id} value={t.id}>{t.name} ({t.code})</option>
-                            ))}
-                          </optgroup>
-                        )}
-                        {timeTypes.filter(t => t.category === 'absence').length > 0 && (
-                          <optgroup label="Leave / Absence">
-                            {timeTypes.filter(t => t.category === 'absence').map(t => (
-                              <option key={t.id} value={t.id}>{t.name} ({t.code})</option>
-                            ))}
-                          </optgroup>
-                        )}
+                        {timeTypes
+                          .filter(t => t.category === formCategory)
+                          .map(t => (
+                            <option key={t.id} value={t.id}>{t.name} ({t.code})</option>
+                          ))}
                       </select>
                     </div>
                   )}
 
                   {/* Project picker */}
-                  {form.kind === 'project' && (
+                  {formCategory === 'project' && (
                     <div style={{ marginBottom: 8 }}>
                       <Label>Project</Label>
                       <select
@@ -996,19 +975,45 @@ export default function MyTimesheet() {
                 </div>
               )}
 
-              {/* Add entry button */}
+              {/* Add entry buttons — Attendance / Absence / Project */}
               {editable && !addingEntry && (
-                <button
-                  onClick={openAdd}
-                  style={{
-                    width: '100%', marginTop: 8, padding: '8px 0', borderRadius: 7,
-                    border: '1px dashed #93C5FD', background: 'transparent',
-                    color: '#1D4ED8', fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                  }}
-                >
-                  <i className="fa-solid fa-plus" /> Add Entry
-                </button>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
+                  <button
+                    onClick={() => openAdd('attendance')}
+                    style={{
+                      width: '100%', padding: '8px 0', borderRadius: 7,
+                      border: '1px solid #D1FAE5', background: '#ECFDF5',
+                      color: '#065F46', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                    }}
+                  >
+                    <i className="fa-solid fa-clock" /> Add Attendance
+                  </button>
+                  <button
+                    onClick={() => openAdd('absence')}
+                    style={{
+                      width: '100%', padding: '8px 0', borderRadius: 7,
+                      border: '1px solid #FEF3C7', background: '#FFFBEB',
+                      color: '#92400E', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                    }}
+                  >
+                    <i className="fa-solid fa-umbrella-beach" /> Add Absence
+                  </button>
+                  {projects.length > 0 && (
+                    <button
+                      onClick={() => openAdd('project')}
+                      style={{
+                        width: '100%', padding: '7px 0', borderRadius: 7,
+                        border: '1px dashed #BFDBFE', background: 'transparent',
+                        color: '#1E40AF', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                      }}
+                    >
+                      <i className="fa-solid fa-diagram-project" /> Add Project Time
+                    </button>
+                  )}
+                </div>
               )}
 
               {/* Locked notice */}
