@@ -257,7 +257,7 @@ export default function TimeTypes() {
                         <th>Created</th>
                         <th>Last Updated</th>
                         <th>Created By</th>
-                        <th style={{ textAlign: 'right' }}>Action</th>
+                        <th style={{ textAlign: 'right', position: 'sticky', right: 0, background: 'var(--navy)', zIndex: 2 }}>Action</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -291,7 +291,7 @@ export default function TimeTypes() {
                           <td style={{ color: '#6B7280', fontSize: 12 }}>{tt.created_at ? new Date(tt.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}</td>
                           <td style={{ color: '#6B7280', fontSize: 12 }}>{tt.updated_at ? new Date(tt.updated_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}</td>
                           <td style={{ color: '#6B7280', fontSize: 12 }}>{creatorName(tt.creator) || '—'}</td>
-                          <td style={{ textAlign: 'right' }} className="rd-actions">
+                          <td style={{ textAlign: 'right', position: 'sticky', right: 0, background: '#fff', zIndex: 1, boxShadow: '-2px 0 6px rgba(0,0,0,0.06)' }} className="rd-actions">
                             <button className="rd-btn-edit-val" title="Edit" onClick={() => startEdit(tt)}>
                               <i className="fa-solid fa-pen-to-square" />
                             </button>
