@@ -463,12 +463,14 @@ export default function MyTimesheet() {
   while (cells.length % 7 !== 0) cells.push(null);
 
   // ── Entry form helpers ───────────────────────────────────────────────
-  function openAdd() {
+  function openAdd(overrides?: Partial<typeof emptyForm>) {
     setEditingEntry(null);
-    setForm(emptyForm);
+    setForm({ ...emptyForm, ...overrides });
     setFormErr('');
     setAddingEntry(true);
   }
+  function openAddAttendance() { openAdd({ kind: 'time_type' }); }
+  function openAddAbsence()    { openAdd({ kind: 'time_type' }); }
 
   function openEdit(ent: TimesheetEntry) {
     setEditingEntry(ent);
@@ -1277,19 +1279,32 @@ export default function MyTimesheet() {
                 </div>
               )}
 
-              {/* Add entry button */}
+              {/* Add Attendance / Add Absence buttons */}
               {editable && !addingEntry && (
-                <button
-                  onClick={openAdd}
-                  style={{
-                    width: '100%', marginTop: 8, padding: '8px 0', borderRadius: 7,
-                    border: '1px dashed #93C5FD', background: 'transparent',
-                    color: '#1D4ED8', fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                  }}
-                >
-                  <i className="fa-solid fa-plus" /> Add Entry
-                </button>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
+                  <button
+                    onClick={openAddAttendance}
+                    style={{
+                      width: '100%', padding: '11px 0', borderRadius: 8, border: 'none',
+                      background: '#DCFCE7', color: '#166534',
+                      fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                    }}
+                  >
+                    🕐 Add Attendance
+                  </button>
+                  <button
+                    onClick={openAddAbsence}
+                    style={{
+                      width: '100%', padding: '11px 0', borderRadius: 8, border: 'none',
+                      background: '#FEF9C3', color: '#854D0E',
+                      fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                    }}
+                  >
+                    🏖 Add Absence
+                  </button>
+                </div>
               )}
 
               {/* Locked notice */}
