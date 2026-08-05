@@ -234,7 +234,7 @@ export default function TimeTypes() {
         </div>
       ) : (
         <>
-          {[{ label: 'Attendance', items: attendance }, { label: 'Absence', items: absence }].map(({ label, items }) => (
+          {[{ label: 'Attendance', items: attendance, isAttendance: true }, { label: 'Absence', items: absence, isAttendance: false }].map(({ label, items, isAttendance }) => (
             <div key={label} style={{ marginBottom: 28 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
                 {label} ({items.length})
@@ -251,7 +251,7 @@ export default function TimeTypes() {
                         <th>Name</th>
                         <th>Code</th>
                         <th>Category</th>
-                        <th>Req. Project</th>
+                        {isAttendance && <th>Req. Project</th>}
                         <th>Partial Overlap</th>
                         <th>Status</th>
                         <th>Created</th>
@@ -267,12 +267,14 @@ export default function TimeTypes() {
                           <td><strong>{tt.name}</strong></td>
                           <td><code style={{ background: '#F3F4F6', padding: '2px 6px', borderRadius: 4, fontSize: 12 }}>{tt.code}</code></td>
                           <td><CategoryBadge category={tt.category} /></td>
-                          <td style={{ textAlign: 'center' }}>
-                            {tt.category === 'attendance' && tt.requires_project
-                              ? <i className="fa-solid fa-check" style={{ color: '#3B82F6' }} title="Requires Project" />
-                              : <i className="fa-solid fa-minus" style={{ color: '#D1D5DB' }} />
-                            }
-                          </td>
+                          {isAttendance && (
+                            <td style={{ textAlign: 'center' }}>
+                              {tt.requires_project
+                                ? <i className="fa-solid fa-check" style={{ color: '#3B82F6' }} title="Requires Project" />
+                                : <i className="fa-solid fa-minus" style={{ color: '#D1D5DB' }} />
+                              }
+                            </td>
+                          )}
                           <td style={{ textAlign: 'center' }}>
                             {tt.allows_partial_overlap
                               ? <i className="fa-solid fa-check" style={{ color: '#10B981' }} />
