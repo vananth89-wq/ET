@@ -141,12 +141,10 @@ function plannedForDay(dow: number, schedule: WorkSchedule): number {
 }
 
 function getEntryLabel(ent: TimesheetEntry): string {
-  if (ent.entry_kind === 'project') {
-    const p = Array.isArray(ent.projects) ? ent.projects[0] : ent.projects;
-    return p?.name ?? 'Project';
-  }
   const t = Array.isArray(ent.time_types) ? ent.time_types[0] : ent.time_types;
-  return t?.name ?? ent.entry_kind;
+  const p = Array.isArray(ent.projects)   ? ent.projects[0]   : ent.projects;
+  const tName = t?.name ?? (ent.entry_kind === 'project' ? 'Project' : ent.entry_kind);
+  return p?.name ? `${tName} · ${p.name}` : tName;
 }
 
 function getEntryCode(ent: TimesheetEntry): string {
@@ -245,7 +243,7 @@ export default function MyTimesheet() {
       const [empRes, ttRes, prRes, actRes] = await Promise.all([
         supabase.from('employees').select('employee_id').eq('id', employee.id).single(),
         supabase.from('time_types').select('id, name, code, category, requires_project, is_active').eq('is_active', true).order('category').order('name'),
-        supabase.from('projects').select('id, name, is_active').eq('is_active', true).order('name'),
+        supabase.from('projects').select('id, name, is_active').order('name'),
         supabase.rpc('get_employee_activities', { p_employee_id: employee.id }),
       ]);
       if (empRes.data) setEmpCode(empRes.data.employee_id ?? '');
@@ -1135,8 +1133,11 @@ export default function MyTimesheet() {
                         style={selectSt}
                       >
                         <option value="">— Select —</option>
-                        {projects.map(p => (
+                        {projects.filter(p => p.is_active).map(p => (
                           <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
+                        {projects.filter(p => !p.is_active && p.id === form.projId).map(p => (
+                          <option key={p.id} value={p.id}>{p.name} (inactive)</option>
                         ))}
                       </select>
                     </div>
