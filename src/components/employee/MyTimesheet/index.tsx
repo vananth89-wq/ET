@@ -1039,6 +1039,78 @@ export default function MyTimesheet() {
                       </div>
                     </div>
 
+                    {/* Inline edit form — replaces card body when editing this entry */}
+                    {isEditing ? (
+                      <div style={{ borderTop: '1px solid #BFDBFE', background: '#EFF6FF', padding: '10px 12px 12px' }}>
+                        {/* Time type picker */}
+                        <div style={{ marginBottom: 8 }}>
+                          <Label>{form.ttCategory === 'absence' ? 'Leave / Absence Type' : 'Attendance Type'}</Label>
+                          <select value={form.typeId} onChange={e => { setForm(f => ({ ...f, typeId: e.target.value, projId: '' })); setFormErr(''); }} style={selectSt}>
+                            <option value="">— Select —</option>
+                            {timeTypes.filter(t => !form.ttCategory || t.category === form.ttCategory).map(t => (
+                              <option key={t.id} value={t.id}>{t.name} ({t.code})</option>
+                            ))}
+                          </select>
+                        </div>
+                        {/* Project picker */}
+                        {form.typeId && timeTypes.find(t => t.id === form.typeId)?.requires_project && (
+                          <div style={{ marginBottom: 8 }}>
+                            <Label>Project</Label>
+                            <select value={form.projId} onChange={e => { setForm(f => ({ ...f, projId: e.target.value })); setFormErr(''); }} style={selectSt}>
+                              <option value="">— Select —</option>
+                              {projects.filter(p => !selectedDate || (p.start_date <= selectedDate && p.end_date >= selectedDate)).map(p => (
+                                <option key={p.id} value={p.id}>{p.name}</option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                        {/* Activities */}
+                        {(() => {
+                          const selTT = timeTypes.find(t => t.id === form.typeId);
+                          if (!selTT?.requires_project) return null;
+                          return (
+                            <div style={{ marginBottom: 8 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                                <Label>Activities</Label>
+                                <button type="button" onClick={() => setForm(f => ({ ...f, activities: [...f.activities, ''] }))} style={{ background: 'none', border: 'none', color: '#2563EB', fontSize: 11, fontWeight: 700, cursor: 'pointer', padding: '0 2px' }}>+ Add</button>
+                              </div>
+                              {form.activities.map((act, idx) => (
+                                <div key={idx} style={{ display: 'flex', gap: 5, marginBottom: 5 }}>
+                                  <div style={{ flex: 1 }}>
+                                    <ActivityAutocomplete value={act} onChange={val => setForm(f => { const acts = [...f.activities]; acts[idx] = val; return { ...f, activities: acts }; })} onFavoriteToggle={handleFavoriteToggle} history={activityHistory} inputStyle={inputSt} />
+                                  </div>
+                                  {form.activities.length > 1 && (
+                                    <button type="button" onClick={() => setForm(f => ({ ...f, activities: f.activities.filter((_, i) => i !== idx) }))} style={{ background: 'none', border: '1px solid #FEE2E2', borderRadius: 5, color: '#DC2626', cursor: 'pointer', padding: '0 7px', fontSize: 13 }}>×</button>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        })()}
+                        {/* Duration */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+                          <div><Label>Hours</Label><input type="number" min="0" max="23" placeholder="0" value={form.hours} onChange={e => { setForm(f => ({ ...f, hours: e.target.value })); setFormErr(''); }} style={inputSt} /></div>
+                          <div><Label>Minutes</Label><input type="number" min="0" max="59" placeholder="0" value={form.mins} onChange={e => { setForm(f => ({ ...f, mins: e.target.value })); setFormErr(''); }} style={inputSt} /></div>
+                        </div>
+                        {/* Notes */}
+                        <div style={{ marginBottom: 10 }}>
+                          <Label>Notes (optional)</Label>
+                          <textarea rows={2} placeholder="Optional…" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} style={{ ...inputSt, resize: 'vertical', fontFamily: 'inherit' }} />
+                        </div>
+                        {formErr && (
+                          <div style={{ fontSize: 12, color: '#DC2626', marginBottom: 8, display: 'flex', gap: 5, alignItems: 'center' }}>
+                            <i className="fa-solid fa-circle-exclamation" /> {formErr}
+                          </div>
+                        )}
+                        <div style={{ display: 'flex', gap: 7 }}>
+                          <button onClick={handleSaveEntry} disabled={saving} style={{ flex: 1, padding: '7px 0', borderRadius: 6, border: 'none', background: '#1D4ED8', color: '#fff', fontSize: 12, fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
+                            {saving ? <><i className="fa-solid fa-spinner fa-spin" /> Saving…</> : 'Update'}
+                          </button>
+                          <button onClick={cancelForm} disabled={saving} style={{ padding: '7px 14px', borderRadius: 6, border: '1px solid #E5E7EB', background: '#fff', color: '#374151', fontSize: 12, cursor: 'pointer' }}>Cancel</button>
+                        </div>
+                      </div>
+                    ) : (
+                    <>
                     {/* Name row + chevron */}
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '2px 12px 9px', gap: 8 }}>
                       <span style={{ fontSize: 13, fontWeight: 700, color: '#1F2937', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
@@ -1092,12 +1164,14 @@ export default function MyTimesheet() {
                         )}
                       </div>
                     )}
+                    </>
+                    )}
                   </div>
                 );
               })}
 
-              {/* Add / Edit entry form */}
-              {addingEntry && (
+              {/* Add new entry form — only shown when adding, not when editing (edit is inline in the card) */}
+              {addingEntry && !editingEntry && (
                 <div style={{
                   border: '1px dashed #93C5FD', borderRadius: 8, padding: 12,
                   background: '#EFF6FF', marginTop: 8,
