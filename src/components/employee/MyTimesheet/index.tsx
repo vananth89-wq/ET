@@ -81,9 +81,9 @@ interface TimeType {
 }
 
 interface Project {
-  id:        string;
-  name:      string;
-  is_active: boolean;
+  id:     string;
+  name:   string;
+  active: boolean;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -243,7 +243,7 @@ export default function MyTimesheet() {
       const [empRes, ttRes, prRes, actRes] = await Promise.all([
         supabase.from('employees').select('employee_id').eq('id', employee.id).single(),
         supabase.from('time_types').select('id, name, code, category, requires_project, is_active').eq('is_active', true).order('category').order('name'),
-        supabase.from('projects').select('id, name, is_active').eq('is_active', true).order('name'),
+        supabase.from('projects').select('id, name, active').eq('active', true).order('name'),
         supabase.rpc('get_employee_activities', { p_employee_id: employee.id }),
       ]);
       if (empRes.data) setEmpCode(empRes.data.employee_id ?? '');
