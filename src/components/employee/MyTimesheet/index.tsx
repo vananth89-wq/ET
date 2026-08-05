@@ -109,11 +109,6 @@ function fmtMins(mins: number): string {
   return m === 0 ? `${h} hr` : `${h} hr ${m} min`;
 }
 
-function fmtMinsFull(mins: number): string {
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  return `${pad2(h)}:${pad2(m)}`;
-}
 
 /** Convert day-of-week (0=Sun) → day_number for a given schedule start_day_of_week */
 function dowToDayNumber(dow: number, startDow: number): number {
@@ -170,6 +165,25 @@ function getEntryCode(ent: TimesheetEntry): string {
   const t = Array.isArray(ent.time_types) ? ent.time_types[0] : ent.time_types;
   return t?.code ?? '';
 }
+function getEntryBadge(ent: TimesheetEntry): { code: string; bg: string; color: string; projectName?: string } {
+  if (ent.entry_kind === 'holiday') {
+    return { code: 'HOL', bg: '#EDE9FE', color: '#5B21B6' };
+  }
+  if (ent.entry_kind === 'leave') {
+    const t = Array.isArray(ent.time_types) ? ent.time_types[0] : ent.time_types;
+    return { code: t?.code ?? 'LV', bg: '#FEF3C7', color: '#92400E' };
+  }
+  if (ent.entry_kind === 'time_type') {
+    const t = Array.isArray(ent.time_types) ? ent.time_types[0] : ent.time_types;
+    const p = ent.project_id ? (Array.isArray(ent.projects) ? ent.projects[0] : ent.projects) : undefined;
+    return { code: t?.code ?? 'WK', bg: '#D1FAE5', color: '#065F46', projectName: p?.name };
+  }
+  // project
+  const p = Array.isArray(ent.projects) ? ent.projects[0] : ent.projects;
+  return { code: (p?.name ?? 'PRJ').substring(0, 5).toUpperCase(), bg: '#DBEAFE', color: '#1E40AF', projectName: p?.name };
+}
+
+
 
 // ─── Style constants ──────────────────────────────────────────────────────────
 
@@ -743,83 +757,126 @@ export default function MyTimesheet() {
                   return (
                     <div
                       key={dateStr}
-                      onClick={() => { setSelectedDate(dateStr); setPanelOpen(true); cancelForm(); }}
+                      onClick={() => { if (!isOffDay) { setSelectedDate(dateStr); setPanelOpen(true); cancelForm(); } }}
                       style={{
-                        minHeight: 80, borderRadius: 7, padding: '6px 7px', cursor: 'pointer',
-                        border: isSelected
-                          ? '2px solid #2563EB'
-                          : isToday ? '2px solid #93C5FD'
-                          : '1px solid #E5E7EB',
-                        background: isSelected ? '#EFF6FF' : isOffDay ? '#F9FAFB' : '#fff',
-                        boxShadow: isSelected ? '0 0 0 3px #BFDBFE55' : undefined,
-                        transition: 'border-color 0.1s',
+                        minHeight: 108, borderRadius: 10, overflow: 'hidden',
+                        border: isSelected || isToday ? '1.5px solid #3B82F6' : '1.5px solid #E5E7EB',
+                        background: isSelected ? '#EFF6FF' : isOffDay ? '#F8FAFC' : '#fff',
+                        boxShadow: isSelected ? '0 0 0 3px rgba(59,130,246,0.15)' : undefined,
+                        cursor: isOffDay ? 'default' : 'pointer',
+                        display: 'flex', flexDirection: 'column',
+                        transition: 'box-shadow 0.15s, border-color 0.15s',
                       }}
                     >
-                      {/* Day number + recorded time */}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
+                      {/* Day number */}
+                      <div style={{ padding: '5px 6px 2px', flexShrink: 0 }}>
                         <span style={{
-                          fontSize: 12, fontWeight: isToday ? 700 : 500,
-                          color: isToday ? '#fff' : isOffDay ? '#9CA3AF' : '#374151',
-                          background: isToday ? '#2563EB' : 'transparent',
-                          borderRadius: '50%', width: 20, height: 20,
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontSize: 11, fontWeight: 700,
+                          color: isToday ? '#fff' : isOffDay ? '#CBD5E1' : '#374151',
+                          background: isToday ? '#3B82F6' : 'transparent',
+                          borderRadius: '50%', width: 22, height: 22,
+                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                         }}>
                           {day}
                         </span>
-                        {recorded > 0 && (
-                          <span style={{ fontSize: 10, color: '#6B7280', fontVariantNumeric: 'tabular-nums' }}>
-                            {fmtMinsFull(recorded)}
-                          </span>
-                        )}
                       </div>
 
-                      {/* Holiday label */}
-                      {holiday && (
-                        <div style={{ fontSize: 9, fontWeight: 600, color: '#5B21B6', background: '#EDE9FE', borderRadius: 3, padding: '1px 4px', marginBottom: 2, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
-                          {holiday}
+                      {/* Entries / empty / off-day */}
+                      {isOffDay ? (
+                        <div style={{ flex: 1, padding: '2px 6px' }}>
+                          <span style={{ fontSize: 8.5, color: '#CBD5E1', fontStyle: 'italic' }}>Non-working</span>
                         </div>
-                      )}
-
-                      {/* Non-working / off-day label */}
-                      {!holiday && isOffDay && (
-                        <div style={{ fontSize: 9, color: '#D1D5DB', fontStyle: 'italic' }}>
-                          Non-working
-                        </div>
-                      )}
-
-                      {/* Entry chips */}
-                      {dayEnts.slice(0, 2).map(ent => (
-                        <div key={ent.id} style={{
-                          fontSize: 9, fontWeight: 600, marginBottom: 2,
-                          background: KIND_CHIP[ent.entry_kind]?.bg ?? '#F3F4F6',
-                          color:      KIND_CHIP[ent.entry_kind]?.color ?? '#374151',
-                          borderRadius: 3, padding: '1px 4px',
-                          overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
+                      ) : dayEnts.length === 0 ? (
+                        <div style={{
+                          flex: 1, display: 'flex', flexDirection: 'column',
+                          alignItems: 'center', justifyContent: 'center', gap: 2, opacity: 0.5,
                         }}>
-                          {getEntryLabel(ent)}
+                          <span style={{ fontSize: 10, color: '#6B7280', fontWeight: 600 }}>＋ Add Time</span>
+                          <span style={{ fontSize: 9, color: '#9CA3AF' }}>0 / {Math.round(dayPlanned / 60)}h</span>
                         </div>
-                      ))}
-                      {dayEnts.length > 2 && (
-                        <div style={{ fontSize: 9, color: '#6B7280' }}>+{dayEnts.length - 2} more</div>
+                      ) : (
+                        <div style={{ flex: 1, padding: '0 5px 3px', overflow: 'hidden' }}>
+                          {dayEnts.slice(0, 3).map(ent => {
+                            const badge  = getEntryBadge(ent);
+                            const hrs    = Math.round(ent.hours_minutes / 60 * 10) / 10;
+                            const lbl    = badge.projectName ?? getEntryLabel(ent).split(' · ').pop() ?? '';
+                            return (
+                              <div
+                                key={ent.id}
+                                onClick={e => { e.stopPropagation(); setSelectedDate(dateStr); setPanelOpen(true); openEdit(ent); }}
+                                style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '2px 3px', borderRadius: 5, transition: 'background 0.1s' }}
+                                onMouseEnter={e => (e.currentTarget.style.background = '#F0F9FF')}
+                                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                              >
+                                <span style={{
+                                  flexShrink: 0, fontSize: 7.5, fontWeight: 800,
+                                  padding: '1.5px 4px', borderRadius: 3,
+                                  background: badge.bg, color: badge.color,
+                                  letterSpacing: '0.04em', whiteSpace: 'nowrap',
+                                }}>{badge.code}</span>
+                                <span style={{
+                                  fontSize: 10, color: '#374151', fontWeight: 600,
+                                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, minWidth: 0,
+                                }}>{lbl}</span>
+                                <span style={{ fontSize: 9.5, color: '#6B7280', fontWeight: 700, flexShrink: 0 }}>{hrs}h</span>
+                              </div>
+                            );
+                          })}
+                          {dayEnts.length > 3 && (
+                            <div
+                              onClick={e => { e.stopPropagation(); setSelectedDate(dateStr); setPanelOpen(true); cancelForm(); }}
+                              style={{ fontSize: 9, color: '#6366F1', fontWeight: 700, padding: '1px 3px', cursor: 'pointer' }}
+                            >+{dayEnts.length - 3} more</div>
+                          )}
+                        </div>
                       )}
+
+                      {/* Progress bar — working days only */}
+                      {!isOffDay && (() => {
+                        const pct        = dayPlanned > 0 ? Math.min(recorded / dayPlanned, 1) : 0;
+                        const isOver     = dayPlanned > 0 && recorded > dayPlanned;
+                        const isDone     = dayPlanned > 0 && recorded >= dayPlanned;
+                        const planHr     = Math.round(dayPlanned / 60);
+                        const recHr      = Math.round(recorded / 60 * 10) / 10;
+                        const fillColor  = dayEnts.length === 0 ? 'transparent' : isOver ? '#6366F1' : isDone ? '#10B981' : '#D1D5DB';
+                        const lblColor   = dayEnts.length === 0 ? '#D1D5DB' : isOver ? '#6366F1' : isDone ? '#10B981' : '#9CA3AF';
+                        const lblRight   = dayEnts.length === 0 ? `0 / ${planHr}h`
+                          : isDone && !isOver ? `${recHr} / ${planHr}h ✓`
+                          : `${recHr} / ${planHr}h`;
+                        return (
+                          <div style={{ padding: '3px 6px 6px', flexShrink: 0 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 8, color: '#9CA3AF', fontWeight: 600, marginBottom: 3 }}>
+                              <span>Progress</span>
+                              <span style={{ color: lblColor, fontWeight: 800 }}>{lblRight}</span>
+                            </div>
+                            <div style={{ height: 4, background: '#F1F5F9', borderRadius: 99, overflow: 'hidden' }}>
+                              <div style={{ height: '100%', borderRadius: 99, width: `${pct * 100}%`, background: fillColor, transition: 'width 0.4s ease-out' }} />
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
                   );
                 })}
               </div>
 
               {/* Legend */}
-              <div style={{ display: 'flex', gap: 16, marginTop: 16, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: 14, marginTop: 14, flexWrap: 'wrap', alignItems: 'center' }}>
                 {[
-                  { kind: 'time_type', label: 'Attendance' },
-                  { kind: 'leave',     label: 'Leave / Absence' },
-                  { kind: 'project',   label: 'Project' },
-                  { kind: 'holiday',   label: 'Holiday' },
-                ].map(({ kind, label }) => (
-                  <div key={kind} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#6B7280' }}>
-                    <div style={{ width: 10, height: 10, borderRadius: 2, background: KIND_CHIP[kind]?.bg }} />
+                  { bg: '#D1FAE5', color: '#065F46', code: 'WK',  label: 'Work (project)' },
+                  { bg: '#FEF3C7', color: '#92400E', code: 'SL',  label: 'Sick / Annual Leave' },
+                  { bg: '#EDE9FE', color: '#5B21B6', code: 'HOL', label: 'Public Holiday' },
+                ].map(({ bg, color, code, label }) => (
+                  <div key={code} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#6B7280' }}>
+                    <span style={{ fontSize: 8, fontWeight: 800, padding: '1.5px 4px', borderRadius: 3, background: bg, color, letterSpacing: '0.04em' }}>{code}</span>
                     {label}
                   </div>
                 ))}
+                <div style={{ marginLeft: 8, display: 'flex', gap: 10, fontSize: 11, color: '#6B7280' }}>
+                  <span><span style={{ color: '#D1D5DB', fontWeight: 800 }}>▬</span> Partial</span>
+                  <span><span style={{ color: '#10B981', fontWeight: 800 }}>▬</span> Complete</span>
+                  <span><span style={{ color: '#6366F1', fontWeight: 800 }}>▬</span> Overtime</span>
+                </div>
               </div>
             </>
           )}
