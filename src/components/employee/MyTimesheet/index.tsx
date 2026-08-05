@@ -603,7 +603,7 @@ export default function MyTimesheet() {
   }
 
   // ── Activity favourite toggle ────────────────────────────────────────
-  async function handleFavoriteToggle(name: string, currentIsFav: boolean): Promise<{ ok: boolean; message?: string }> {
+  async function handleFavoriteToggle(name: string, _currentIsFav: boolean): Promise<{ ok: boolean; message?: string }> {
     if (!employee?.id) return { ok: false, message: 'Not logged in.' };
     const { data } = await supabase.rpc('toggle_activity_favorite', {
       p_employee_id:   employee.id,
