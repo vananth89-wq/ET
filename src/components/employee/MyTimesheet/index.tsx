@@ -145,8 +145,8 @@ function plannedForDay(dow: number, schedule: WorkSchedule): number {
 function getEntryLabel(ent: TimesheetEntry): string {
   const t = Array.isArray(ent.time_types) ? ent.time_types[0] : ent.time_types;
   const p = Array.isArray(ent.projects)   ? ent.projects[0]   : ent.projects;
-  const tName = t?.name ?? (ent.entry_kind === 'project' ? 'Project' : ent.entry_kind);
-  return p?.name ? `${tName} · ${p.name}` : tName;
+  const tName = t?.name ?? (ent.entry_kind === 'project' ? '' : ent.entry_kind);
+  return p?.name ? (tName ? `${tName} · ${p.name}` : p.name) : tName;
 }
 
 function getEntryCode(ent: TimesheetEntry): string {
@@ -515,9 +515,8 @@ export default function MyTimesheet() {
     const selectedTimeType = timeTypes.find(t => t.id === form.typeId);
     const needsProject = !!selectedTimeType?.requires_project;
     if (needsProject && !form.projId) { setFormErr('Please select a project for this time type.'); return; }
-    // Map absence → 'leave', requires_project → 'project', else 'time_type'
+    // Map absence → 'leave', else 'time_type' (project entries always stay time_type with project_id set)
     const entryKind: TimesheetEntry['entry_kind'] =
-      needsProject && form.projId ? 'project' :
       selectedTimeType?.category === 'absence' ? 'leave' : 'time_type';
 
     // Collect non-empty activities
@@ -537,7 +536,7 @@ export default function MyTimesheet() {
         .from('timesheet_entries')
         .update({
           entry_kind:    entryKind,
-          time_type_id:  entryKind === 'project' ? null : form.typeId || null,
+          time_type_id:  form.typeId || null,
           project_id:    needsProject ? form.projId || null : null,
           hours_minutes: totalMins,
           notes:         form.notes.trim() || null,
@@ -554,7 +553,7 @@ export default function MyTimesheet() {
           header_id:     header.id,
           entry_date:    selectedDate,
           entry_kind:    entryKind,
-          time_type_id:  entryKind === 'project' ? null : form.typeId || null,
+          time_type_id:  form.typeId || null,
           project_id:    needsProject ? form.projId || null : null,
           hours_minutes: totalMins,
           notes:         form.notes.trim() || null,
