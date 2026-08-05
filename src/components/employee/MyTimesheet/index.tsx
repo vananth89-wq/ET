@@ -838,7 +838,7 @@ export default function MyTimesheet() {
                         const planHr     = Math.round(dayPlanned / 60);
                         const recHr      = Math.round(recorded / 60 * 10) / 10;
                         const fillColor  = dayEnts.length === 0 ? 'transparent' : isOver ? '#6366F1' : isDone ? '#10B981' : '#34D399';
-                        const lblColor   = dayEnts.length === 0 ? '#D1D5DB' : isOver ? '#6366F1' : isDone ? '#10B981' : '#10B981';
+                        const lblColor   = dayEnts.length === 0 ? '#D1D5DB' : isOver ? '#6366F1' : isDone ? '#10B981' : '#1F2937';
                         const lblRight   = dayEnts.length === 0 ? `0 / ${planHr}h`
                           : isDone && !isOver ? `${recHr} / ${planHr}h ✓`
                           : `${recHr} / ${planHr}h`;
