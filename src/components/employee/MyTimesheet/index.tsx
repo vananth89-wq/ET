@@ -809,25 +809,24 @@ export default function MyTimesheet() {
                             const fillColor = dayEnts.length === 0 ? 'transparent'
                               : isOver  ? '#6366F1'
                               : isDone  ? '#10B981'
-                              : '#D1D5DB';
-                            const labelColor = dayEnts.length === 0 ? '#D1D5DB'
+                              : '#34D399';
+                            const lblColor = dayEnts.length === 0 ? '#D1D5DB'
                               : isOver  ? '#6366F1'
                               : isDone  ? '#10B981'
-                              : '#9CA3AF';
-                            const labelRight = dayEnts.length === 0 ? `0 / ${planHr}h`
-                              : isDone && !isOver ? `${recHr} / ${planHr}h ✓`
-                              : isOver            ? `${recHr} / ${planHr}h`
-                              : `${recHr} / ${planHr}h`;
+                              : '#1F2937';
+                            const lblText = dayEnts.length === 0
+                              ? `0 / ${planHr}h`
+                              : isDone && !isOver
+                                ? `${recHr} / ${planHr}h ✓`
+                                : `${recHr} / ${planHr}h`;
                             return (
                               <>
-                                <div style={{
-                                  display: 'flex', justifyContent: 'space-between',
-                                  fontSize: 8, color: '#9CA3AF', fontWeight: 600, marginBottom: 3,
-                                }}>
-                                  <span>Progress</span>
-                                  <span style={{ color: labelColor, fontWeight: 800 }}>{labelRight}</span>
+                                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 3 }}>
+                                  <span style={{ fontSize: 13, fontWeight: 800, color: lblColor, lineHeight: 1 }}>
+                                    {lblText}
+                                  </span>
                                 </div>
-                                <div style={{ height: 4, background: '#F1F5F9', borderRadius: 99, overflow: 'hidden' }}>
+                                <div style={{ height: 5, background: '#F1F5F9', borderRadius: 99, overflow: 'hidden' }}>
                                   <div style={{
                                     height: '100%', borderRadius: 99,
                                     width: `${pct * 100}%`,
