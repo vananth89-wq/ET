@@ -837,8 +837,8 @@ export default function MyTimesheet() {
                         const isDone     = dayPlanned > 0 && recorded >= dayPlanned;
                         const planHr     = Math.round(dayPlanned / 60);
                         const recHr      = Math.round(recorded / 60 * 10) / 10;
-                        const fillColor  = dayEnts.length === 0 ? 'transparent' : isOver ? '#6366F1' : isDone ? '#10B981' : '#D1D5DB';
-                        const lblColor   = dayEnts.length === 0 ? '#D1D5DB' : isOver ? '#6366F1' : isDone ? '#10B981' : '#9CA3AF';
+                        const fillColor  = dayEnts.length === 0 ? 'transparent' : isOver ? '#6366F1' : isDone ? '#10B981' : '#34D399';
+                        const lblColor   = dayEnts.length === 0 ? '#D1D5DB' : isOver ? '#6366F1' : isDone ? '#10B981' : '#10B981';
                         const lblRight   = dayEnts.length === 0 ? `0 / ${planHr}h`
                           : isDone && !isOver ? `${recHr} / ${planHr}h ✓`
                           : `${recHr} / ${planHr}h`;
@@ -848,7 +848,7 @@ export default function MyTimesheet() {
                               <span>Progress</span>
                               <span style={{ color: lblColor, fontWeight: 800 }}>{lblRight}</span>
                             </div>
-                            <div style={{ height: 4, background: '#F1F5F9', borderRadius: 99, overflow: 'hidden' }}>
+                            <div style={{ height: 5, background: '#F1F5F9', borderRadius: 99, overflow: 'hidden' }}>
                               <div style={{ height: '100%', borderRadius: 99, width: `${pct * 100}%`, background: fillColor, transition: 'width 0.4s ease-out' }} />
                             </div>
                           </div>
