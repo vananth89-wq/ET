@@ -8,7 +8,7 @@
  *   timesheet_headers.planned_minutes → integer (minutes)
  *   timesheet_entries.hours_minutes   → integer (minutes, must be > 0)
  *   timesheet_entries constraint: project entries need project_id only;
- *                                 non-project entries need time_type_id; project_id optional (requires_project types)
+ *                                 all others (time_type/holiday/leave) need time_type_id only
  *   employee_employment.work_schedule_id    → assigned work schedule
  *   employee_employment.holiday_calendar_id → assigned holiday calendar
  *   time_work_schedule_lines.day_number     → 1–7 (day 1 = schedule.start_day_of_week)
@@ -18,8 +18,6 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth }                                    from '../../../contexts/AuthContext';
 import { supabase }                                   from '../../../lib/supabase';
 import ErrorBanner                                    from '../../shared/ErrorBanner';
-import ActivityAutocomplete from './ActivityAutocomplete';
-import type { ActivityHistoryItem } from './ActivityAutocomplete';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -47,7 +45,6 @@ interface TimesheetEntry {
   hours_minutes: number;
   notes:         string | null;
   is_system_generated: boolean;
-  activities:  string[] | null;
   // joined
   time_types?:  { name: string; code: string; category: string } | { name: string; code: string; category: string }[];
   projects?:    { name: string } | { name: string }[];
@@ -75,17 +72,14 @@ interface TimeType {
   id:        string;
   name:      string;
   code:      string;
-  category:         'attendance' | 'absence';
-  requires_project: boolean;
-  is_active:        boolean;
+  category:  'attendance' | 'absence';
+  is_active: boolean;
 }
 
 interface Project {
-  id:         string;
-  name:       string;
-  start_date: string;   // 'YYYY-MM-DD'
-  end_date:   string;   // 'YYYY-MM-DD'
-  active:     boolean;
+  id:        string;
+  name:      string;
+  is_active: boolean;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -148,13 +142,7 @@ function getEntryLabel(ent: TimesheetEntry): string {
     return p?.name ?? 'Project';
   }
   const t = Array.isArray(ent.time_types) ? ent.time_types[0] : ent.time_types;
-  const label = t?.name ?? ent.entry_kind;
-  // For time_type entries that also carry a project (requires_project types)
-  if (ent.project_id && ent.entry_kind === 'time_type') {
-    const p = Array.isArray(ent.projects) ? ent.projects[0] : ent.projects;
-    if (p?.name) return `${label} · ${p.name}`;
-  }
-  return label;
+  return t?.name ?? ent.entry_kind;
 }
 
 function getEntryCode(ent: TimesheetEntry): string {
@@ -165,6 +153,7 @@ function getEntryCode(ent: TimesheetEntry): string {
   const t = Array.isArray(ent.time_types) ? ent.time_types[0] : ent.time_types;
   return t?.code ?? '';
 }
+
 function getEntryBadge(ent: TimesheetEntry): { code: string; bg: string; color: string; projectName?: string } {
   if (ent.entry_kind === 'holiday') {
     return { code: 'HOL', bg: '#EDE9FE', color: '#5B21B6' };
@@ -175,15 +164,19 @@ function getEntryBadge(ent: TimesheetEntry): { code: string; bg: string; color: 
   }
   if (ent.entry_kind === 'time_type') {
     const t = Array.isArray(ent.time_types) ? ent.time_types[0] : ent.time_types;
-    const p = ent.project_id ? (Array.isArray(ent.projects) ? ent.projects[0] : ent.projects) : undefined;
-    return { code: t?.code ?? 'WK', bg: '#D1FAE5', color: '#065F46', projectName: p?.name };
+    const code = t?.code ?? 'WK';
+    if (ent.project_id) {
+      const p = Array.isArray(ent.projects) ? ent.projects[0] : ent.projects;
+      return { code, bg: '#D1FAE5', color: '#065F46', projectName: p?.name };
+    }
+    return { code, bg: '#D1FAE5', color: '#065F46' };
   }
-  // project
+  // entry_kind === 'project'
   const p = Array.isArray(ent.projects) ? ent.projects[0] : ent.projects;
-  return { code: (p?.name ?? 'PRJ').substring(0, 5).toUpperCase(), bg: '#DBEAFE', color: '#1E40AF', projectName: p?.name };
+  const name = p?.name ?? 'Project';
+  const abbreviated = name.length > 4 ? name.slice(0, 4).toUpperCase() : name.toUpperCase();
+  return { code: abbreviated, bg: '#DBEAFE', color: '#1E40AF', projectName: name };
 }
-
-
 
 // ─── Style constants ──────────────────────────────────────────────────────────
 
@@ -217,9 +210,6 @@ export default function MyTimesheet() {
   const [timeTypes,  setTimeTypes]  = useState<TimeType[]>([]);
   const [projects,   setProjects]   = useState<Project[]>([]);
 
-  // Activity history
-  const [activityHistory, setActivityHistory] = useState<ActivityHistoryItem[]>([]);
-
   // Timesheet data
   const [header,    setHeader]    = useState<TimesheetHeader | null>(null);
   const [entries,   setEntries]   = useState<TimesheetEntry[]>([]);
@@ -239,11 +229,13 @@ export default function MyTimesheet() {
   const [editingEntry,   setEditingEntry]   = useState<TimesheetEntry | null>(null);
   const [confirmSubmit,  setConfirmSubmit]  = useState(false);
 
+  // Expand/collapse per entry card in the panel
+  const [expandedEntries, setExpandedEntries] = useState<Set<string>>(new Set());
+
   // Entry form
-  const emptyForm = { kind: 'time_type' as 'time_type' | 'project', typeId: '', projId: '', activities: [''] as string[], hours: '', mins: '', notes: '' };
+  const emptyForm = { kind: 'time_type' as 'time_type' | 'project', typeId: '', projId: '', hours: '', mins: '', notes: '' };
   const [form,    setForm]    = useState(emptyForm);
   const [formErr, setFormErr] = useState('');
-  const [formCategory, setFormCategory] = useState<'attendance' | 'absence'>('attendance');
 
   // ── Fetch employee code + reference data once ───────────────────────────
   useEffect(() => {
@@ -251,15 +243,12 @@ export default function MyTimesheet() {
     (async () => {
       const [empRes, ttRes, prRes] = await Promise.all([
         supabase.from('employees').select('employee_id').eq('id', employee.id).single(),
-        supabase.from('time_types').select('id, name, code, category, requires_project, is_active').eq('is_active', true).order('category').order('name'),
-        supabase.from('projects').select('id, name, start_date, end_date, active').eq('active', true).order('name'),
+        supabase.from('time_types').select('id, name, code, category, is_active').eq('is_active', true).order('category').order('name'),
+        supabase.from('projects').select('id, name, is_active').eq('is_active', true).order('name'),
       ]);
       if (empRes.data) setEmpCode(empRes.data.employee_id ?? '');
       if (ttRes.data)  setTimeTypes(ttRes.data as TimeType[]);
       if (prRes.data)  setProjects(prRes.data as Project[]);
-      // Load activity history for this employee
-      const { data: actData } = await supabase.rpc('get_employee_activities', { p_employee_id: employee.id });
-      if (actData) setActivityHistory(actData as ActivityHistoryItem[]);
     })();
   }, [employee?.id]);
 
@@ -285,13 +274,11 @@ export default function MyTimesheet() {
 
     if (!hdr) {
       // 2a. Need work schedule + holiday calendar from employee_employment
-      // effective-dating uses '9999-12-31' as the "open-ended" sentinel, not NULL
       const { data: emp } = await supabase
         .from('employee_employment')
         .select('work_schedule_id, holiday_calendar_id, department_id, departments(name)')
         .eq('employee_id', employee.id)
-        .eq('is_active', true)
-        .eq('effective_to', '9999-12-31')
+        .is('effective_to', null)
         .single();
 
       const wsId  = emp?.work_schedule_id    ?? null;
@@ -401,7 +388,7 @@ export default function MyTimesheet() {
       .from('timesheet_entries')
       .select(`
         id, header_id, entry_date, entry_kind, project_id, time_type_id,
-        hours_minutes, notes, activities, is_system_generated,
+        hours_minutes, notes, is_system_generated,
         time_types ( name, code, category ),
         projects ( name )
       `)
@@ -434,6 +421,7 @@ export default function MyTimesheet() {
     setSchedule(null); setHolidays([]);
     setAddingEntry(false); setEditingEntry(null);
     setForm(emptyForm); setFormErr('');
+    setExpandedEntries(new Set());
   }
   function prevMonth() {
     month === 1 ? goToPeriod(year - 1, 12) : goToPeriod(year, month - 1);
@@ -472,10 +460,9 @@ export default function MyTimesheet() {
   while (cells.length % 7 !== 0) cells.push(null);
 
   // ── Entry form helpers ───────────────────────────────────────────────
-  function openAdd(category: 'attendance' | 'absence') {
+  function openAdd() {
     setEditingEntry(null);
-    setForm({ ...emptyForm, kind: 'time_type' });
-    setFormCategory(category);
+    setForm(emptyForm);
     setFormErr('');
     setAddingEntry(true);
   }
@@ -484,19 +471,14 @@ export default function MyTimesheet() {
     setEditingEntry(ent);
     const totalM = ent.hours_minutes;
     setForm({
-      kind:   'time_type',
+      kind:   ent.entry_kind === 'project' ? 'project' : 'time_type',
       typeId: ent.time_type_id ?? '',
       projId: ent.project_id  ?? '',
       hours:  String(Math.floor(totalM / 60)),
       mins:   String(totalM % 60),
-      notes:      ent.notes ?? '',
-      activities: (ent.activities && ent.activities.length > 0) ? [...ent.activities] : [''],
+      notes:  ent.notes ?? '',
     });
     setFormErr('');
-    const _tt = Array.isArray(ent.time_types) ? ent.time_types[0] : ent.time_types;
-    const _cat: 'attendance' | 'absence' =
-      _tt?.category === 'absence' ? 'absence' : 'attendance';
-    setFormCategory(_cat);
     setAddingEntry(true);
   }
 
@@ -507,29 +489,12 @@ export default function MyTimesheet() {
     setFormErr('');
   }
 
-  async function handleFavoriteToggle(name: string, currentIsFav: boolean): Promise<{ ok: boolean; message?: string }> {
-    if (!employee?.id) return { ok: false };
-    const { data } = await supabase.rpc('toggle_activity_favorite', {
-      p_employee_id:   employee.id,
-      p_activity_name: name,
-    });
-    if (data?.ok) {
-      setActivityHistory(prev =>
-        prev.map(a => a.activity_name === name ? { ...a, is_favorite: !currentIsFav } : a)
-      );
-    }
-    return data ?? { ok: false };
-  }
-
   async function handleSaveEntry() {
     if (!header || !selectedDate) return;
 
     // Validate
-    if (!form.typeId) { setFormErr('Please select a time type.'); return; }
-    const _selType = timeTypes.find(t => t.id === form.typeId);
-    if (_selType?.requires_project && !form.projId) { setFormErr('Please select a project — required for this attendance type.'); return; }
-    const _activities = form.activities.map(a => a.trim()).filter(Boolean);
-    if (_selType?.requires_project && form.projId && _activities.length === 0) { setFormErr('Please add at least one activity.'); return; }
+    if (form.kind === 'time_type' && !form.typeId) { setFormErr('Please select a time type.'); return; }
+    if (form.kind === 'project'   && !form.projId) { setFormErr('Please select a project.');   return; }
     const hrs  = parseInt(form.hours || '0', 10);
     const mins = parseInt(form.mins  || '0', 10);
     if (isNaN(hrs) || isNaN(mins) || (hrs === 0 && mins === 0)) {
@@ -539,9 +504,10 @@ export default function MyTimesheet() {
     if (hrs < 0 || hrs > 23)   { setFormErr('Hours must be 0–23.'); return; }
 
     const totalMins = hrs * 60 + mins;
-    const selectedTimeType = _selType;
+    const selectedTimeType = timeTypes.find(t => t.id === form.typeId);
     // Map absence → 'leave', attendance → 'time_type', project → 'project'
     const entryKind: TimesheetEntry['entry_kind'] =
+      form.kind === 'project' ? 'project' :
       selectedTimeType?.category === 'absence' ? 'leave' : 'time_type';
 
     setSaving(true);
@@ -555,9 +521,8 @@ export default function MyTimesheet() {
         .from('timesheet_entries')
         .update({
           entry_kind:    entryKind,
-          time_type_id:  form.typeId || null,
-          project_id:    (selectedTimeType?.requires_project && form.projId) ? form.projId : null,
-          activities:    (selectedTimeType?.requires_project && form.projId) ? _activities : null,
+          time_type_id:  form.kind === 'time_type' ? form.typeId : null,
+          project_id:    form.kind === 'project'   ? form.projId : null,
           hours_minutes: totalMins,
           notes:         form.notes.trim() || null,
         })
@@ -572,9 +537,8 @@ export default function MyTimesheet() {
           header_id:     header.id,
           entry_date:    selectedDate,
           entry_kind:    entryKind,
-          time_type_id:  form.typeId || null,
-          project_id:    (selectedTimeType?.requires_project && form.projId) ? form.projId : null,
-          activities:    (selectedTimeType?.requires_project && form.projId) ? _activities : null,
+          time_type_id:  form.kind === 'time_type' ? form.typeId : null,
+          project_id:    form.kind === 'project'   ? form.projId : null,
           hours_minutes: totalMins,
           notes:         form.notes.trim() || null,
           created_by:    (await supabase.auth.getUser()).data.user?.id ?? null,
@@ -586,7 +550,7 @@ export default function MyTimesheet() {
     // Reload entries then sync recorded_minutes
     const { data: ents } = await supabase
       .from('timesheet_entries')
-      .select(`id, header_id, entry_date, entry_kind, project_id, time_type_id, hours_minutes, notes, activities, is_system_generated, time_types(name,code,category), projects(name)`)
+      .select(`id, header_id, entry_date, entry_kind, project_id, time_type_id, hours_minutes, notes, is_system_generated, time_types(name,code,category), projects(name)`)
       .eq('header_id', header.id)
       .order('entry_date').order('created_at');
 
@@ -594,31 +558,6 @@ export default function MyTimesheet() {
     setEntries(newEntries);
     await syncRecordedMinutes(header.id, newEntries);
     setHeader(h => h ? { ...h, recorded_minutes: newEntries.reduce((s,e) => s + e.hours_minutes, 0) } : h);
-
-    // Record activity usages in history
-    const savedActivities = _activities ?? [];
-    if (savedActivities.length > 0 && employee?.id) {
-      supabase.rpc('record_activity_usages', {
-        p_employee_id:    employee.id,
-        p_activity_names: savedActivities,
-      }).then(({ data }) => {
-        if (data?.ok) {
-          // Refresh local history optimistically
-          setActivityHistory(prev => {
-            const next = [...prev];
-            for (const name of savedActivities) {
-              const idx = next.findIndex(a => a.activity_name === name);
-              if (idx >= 0) {
-                next[idx] = { ...next[idx], usage_count: next[idx].usage_count + 1, last_used_at: new Date().toISOString() };
-              } else {
-                next.push({ id: crypto.randomUUID(), activity_name: name, usage_count: 1, last_used_at: new Date().toISOString(), is_favorite: false, created_at: new Date().toISOString() } as ActivityHistoryItem & { created_at: string });
-              }
-            }
-            return next;
-          });
-        }
-      });
-    }
 
     setSaving(false);
     cancelForm();
@@ -634,6 +573,20 @@ export default function MyTimesheet() {
     await syncRecordedMinutes(header.id, newEntries);
     setHeader(h => h ? { ...h, recorded_minutes: newEntries.reduce((s,e) => s + e.hours_minutes, 0) } : h);
     if (editingEntry?.id === entryId) cancelForm();
+  }
+
+  // ── Entry expand/collapse ────────────────────────────────────────────
+  function toggleEntryExpand(id: string) {
+    setExpandedEntries(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAllEntries(ents: TimesheetEntry[]) {
+    const anyOpen = ents.some(e => expandedEntries.has(e.id));
+    setExpandedEntries(anyOpen ? new Set() : new Set(ents.map(e => e.id)));
   }
 
   // ── Submit for approval ──────────────────────────────────────────────
@@ -742,7 +695,7 @@ export default function MyTimesheet() {
               {/* Day cells */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 3 }}>
                 {cells.map((day, idx) => {
-                  if (!day) return <div key={`b-${idx}`} style={{ minHeight: 80 }} />;
+                  if (!day) return <div key={`b-${idx}`} style={{ minHeight: 108 }} />;
 
                   const dateStr    = isoDate(year, month, day);
                   const dow        = (startDow + day - 1) % 7;
@@ -756,14 +709,20 @@ export default function MyTimesheet() {
                   return (
                     <div
                       key={dateStr}
-                      onClick={() => { if (!isOffDay) { setSelectedDate(dateStr); setPanelOpen(true); cancelForm(); } }}
+                      onClick={() => { setSelectedDate(dateStr); setPanelOpen(true); cancelForm(); setExpandedEntries(new Set()); }}
                       style={{
-                        minHeight: 108, borderRadius: 10, overflow: 'hidden',
-                        border: isSelected || isToday ? '1.5px solid #3B82F6' : '1.5px solid #E5E7EB',
+                        minHeight: 108,
+                        borderRadius: 10,
+                        border: isSelected
+                          ? '1.5px solid #3B82F6'
+                          : isToday ? '1.5px solid #3B82F6'
+                          : '1.5px solid #E5E7EB',
                         background: isSelected ? '#EFF6FF' : isOffDay ? '#F8FAFC' : '#fff',
                         boxShadow: isSelected ? '0 0 0 3px rgba(59,130,246,0.15)' : undefined,
                         cursor: isOffDay ? 'default' : 'pointer',
-                        display: 'flex', flexDirection: 'column',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        overflow: 'hidden',
                         transition: 'box-shadow 0.15s, border-color 0.15s',
                       }}
                     >
@@ -780,7 +739,7 @@ export default function MyTimesheet() {
                         </span>
                       </div>
 
-                      {/* Entries / empty / off-day */}
+                      {/* Entries area */}
                       {isOffDay ? (
                         <div style={{ flex: 1, padding: '2px 6px' }}>
                           <span style={{ fontSize: 8.5, color: '#CBD5E1', fontStyle: 'italic' }}>Non-working</span>
@@ -788,22 +747,27 @@ export default function MyTimesheet() {
                       ) : dayEnts.length === 0 ? (
                         <div style={{
                           flex: 1, display: 'flex', flexDirection: 'column',
-                          alignItems: 'center', justifyContent: 'center', gap: 2, opacity: 0.5,
+                          alignItems: 'center', justifyContent: 'center', gap: 2,
+                          opacity: 0.5,
                         }}>
                           <span style={{ fontSize: 10, color: '#6B7280', fontWeight: 600 }}>＋ Add Time</span>
-                          <span style={{ fontSize: 9, color: '#9CA3AF' }}>0 / {Math.round(dayPlanned / 60)}h</span>
+                          <span style={{ fontSize: 9, color: '#9CA3AF' }}>0 / {Math.round(dayPlanned/60)}h</span>
                         </div>
                       ) : (
                         <div style={{ flex: 1, padding: '0 5px 3px', overflow: 'hidden' }}>
                           {dayEnts.slice(0, 3).map(ent => {
-                            const badge  = getEntryBadge(ent);
-                            const hrs    = Math.round(ent.hours_minutes / 60 * 10) / 10;
-                            const lbl    = badge.projectName ?? getEntryLabel(ent).split(' · ').pop() ?? '';
+                            const badge = getEntryBadge(ent);
+                            const hrs   = Math.round(ent.hours_minutes / 60 * 10) / 10;
+                            const label = badge.projectName ?? getEntryLabel(ent).split(' · ').pop() ?? '';
                             return (
                               <div
                                 key={ent.id}
                                 onClick={e => { e.stopPropagation(); setSelectedDate(dateStr); setPanelOpen(true); openEdit(ent); }}
-                                style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '2px 3px', borderRadius: 5, transition: 'background 0.1s' }}
+                                style={{
+                                  display: 'flex', alignItems: 'center', gap: 4,
+                                  padding: '2px 3px', borderRadius: 5,
+                                  transition: 'background 0.1s',
+                                }}
                                 onMouseEnter={e => (e.currentTarget.style.background = '#F0F9FF')}
                                 onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                               >
@@ -812,12 +776,19 @@ export default function MyTimesheet() {
                                   padding: '1.5px 4px', borderRadius: 3,
                                   background: badge.bg, color: badge.color,
                                   letterSpacing: '0.04em', whiteSpace: 'nowrap',
-                                }}>{badge.code}</span>
+                                }}>
+                                  {badge.code}
+                                </span>
                                 <span style={{
                                   fontSize: 10, color: '#374151', fontWeight: 600,
-                                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, minWidth: 0,
-                                }}>{lbl}</span>
-                                <span style={{ fontSize: 9.5, color: '#6B7280', fontWeight: 700, flexShrink: 0 }}>{hrs}h</span>
+                                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1,
+                                  minWidth: 0,
+                                }}>
+                                  {label}
+                                </span>
+                                <span style={{ fontSize: 9.5, color: '#6B7280', fontWeight: 700, flexShrink: 0 }}>
+                                  {hrs}h
+                                </span>
                               </div>
                             );
                           })}
@@ -825,34 +796,56 @@ export default function MyTimesheet() {
                             <div
                               onClick={e => { e.stopPropagation(); setSelectedDate(dateStr); setPanelOpen(true); cancelForm(); }}
                               style={{ fontSize: 9, color: '#6366F1', fontWeight: 700, padding: '1px 3px', cursor: 'pointer' }}
-                            >+{dayEnts.length - 3} more</div>
+                            >
+                              +{dayEnts.length - 3} more
+                            </div>
                           )}
                         </div>
                       )}
 
-                      {/* Progress bar — working days only */}
-                      {!isOffDay && (() => {
-                        const pct        = dayPlanned > 0 ? Math.min(recorded / dayPlanned, 1) : 0;
-                        const isOver     = dayPlanned > 0 && recorded > dayPlanned;
-                        const isDone     = dayPlanned > 0 && recorded >= dayPlanned;
-                        const planHr     = Math.round(dayPlanned / 60);
-                        const recHr      = Math.round(recorded / 60 * 10) / 10;
-                        const fillColor  = dayEnts.length === 0 ? 'transparent' : isOver ? '#6366F1' : isDone ? '#10B981' : '#34D399';
-                        const lblColor   = dayEnts.length === 0 ? '#D1D5DB' : isOver ? '#6366F1' : isDone ? '#10B981' : '#1F2937';
-                        const lblRight   = dayEnts.length === 0 ? `0 / ${planHr}h`
-                          : isDone && !isOver ? `${recHr} / ${planHr}h ✓`
-                          : `${recHr} / ${planHr}h`;
-                        return (
-                          <div style={{ padding: '3px 6px 6px', flexShrink: 0 }}>
-                            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 3 }}>
-                              <span style={{ fontSize: 13, color: lblColor, fontWeight: 800 }}>{lblRight}</span>
-                            </div>
-                            <div style={{ height: 5, background: '#F1F5F9', borderRadius: 99, overflow: 'hidden' }}>
-                              <div style={{ height: '100%', borderRadius: 99, width: `${pct * 100}%`, background: fillColor, transition: 'width 0.4s ease-out' }} />
-                            </div>
-                          </div>
-                        );
-                      })()}
+                      {/* Progress bar — only for working days */}
+                      {!isOffDay && (
+                        <div style={{ padding: '3px 6px 6px', flexShrink: 0 }}>
+                          {(() => {
+                            const pct     = dayPlanned > 0 ? Math.min(recorded / dayPlanned, 1) : 0;
+                            const isOver  = dayPlanned > 0 && recorded > dayPlanned;
+                            const isDone  = dayPlanned > 0 && recorded >= dayPlanned;
+                            const planHr  = Math.round(dayPlanned / 60);
+                            const recHr   = Math.round(recorded / 60 * 10) / 10;
+                            const fillColor = dayEnts.length === 0 ? 'transparent'
+                              : isOver  ? '#6366F1'
+                              : isDone  ? '#10B981'
+                              : '#D1D5DB';
+                            const labelColor = dayEnts.length === 0 ? '#D1D5DB'
+                              : isOver  ? '#6366F1'
+                              : isDone  ? '#10B981'
+                              : '#9CA3AF';
+                            const labelRight = dayEnts.length === 0 ? `0 / ${planHr}h`
+                              : isDone && !isOver ? `${recHr} / ${planHr}h ✓`
+                              : isOver            ? `${recHr} / ${planHr}h`
+                              : `${recHr} / ${planHr}h`;
+                            return (
+                              <>
+                                <div style={{
+                                  display: 'flex', justifyContent: 'space-between',
+                                  fontSize: 8, color: '#9CA3AF', fontWeight: 600, marginBottom: 3,
+                                }}>
+                                  <span>Progress</span>
+                                  <span style={{ color: labelColor, fontWeight: 800 }}>{labelRight}</span>
+                                </div>
+                                <div style={{ height: 4, background: '#F1F5F9', borderRadius: 99, overflow: 'hidden' }}>
+                                  <div style={{
+                                    height: '100%', borderRadius: 99,
+                                    width: `${pct * 100}%`,
+                                    background: fillColor,
+                                    transition: 'width 0.4s ease-out',
+                                  }} />
+                                </div>
+                              </>
+                            );
+                          })()}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -862,7 +855,8 @@ export default function MyTimesheet() {
               <div style={{ display: 'flex', gap: 14, marginTop: 14, flexWrap: 'wrap', alignItems: 'center' }}>
                 {[
                   { bg: '#D1FAE5', color: '#065F46', code: 'WK',  label: 'Work (project)' },
-                  { bg: '#FEF3C7', color: '#92400E', code: 'SL',  label: 'Sick / Annual Leave' },
+                  { bg: '#FEF3C7', color: '#92400E', code: 'SL',  label: 'Sick Leave' },
+                  { bg: '#DBEAFE', color: '#1E40AF', code: 'AL',  label: 'Annual Leave' },
                   { bg: '#EDE9FE', color: '#5B21B6', code: 'HOL', label: 'Public Holiday' },
                 ].map(({ bg, color, code, label }) => (
                   <div key={code} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#6B7280' }}>
@@ -930,6 +924,27 @@ export default function MyTimesheet() {
               </div>
             </div>
 
+            {/* Expand All / Collapse All row — only when there are entries */}
+            {dayEntries.length > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '6px 16px 4px', borderBottom: '1px solid #F3F4F6' }}>
+                <button
+                  onClick={() => toggleAllEntries(dayEntries)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 5,
+                    background: 'none', border: '1px solid #E5E7EB', borderRadius: 6,
+                    padding: '3px 10px', cursor: 'pointer', fontSize: 11, fontWeight: 700,
+                    color: dayEntries.some(e => expandedEntries.has(e.id)) ? '#3B82F6' : '#6B7280',
+                    borderColor: dayEntries.some(e => expandedEntries.has(e.id)) ? '#BFDBFE' : '#E5E7EB',
+                    background: dayEntries.some(e => expandedEntries.has(e.id)) ? '#EFF6FF' : 'none',
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  <i className={`fa-solid fa-chevron-${dayEntries.some(e => expandedEntries.has(e.id)) ? 'up' : 'down'}`} style={{ fontSize: 9 }} />
+                  {dayEntries.some(e => expandedEntries.has(e.id)) ? 'Collapse All' : 'Expand All'}
+                </button>
+              </div>
+            )}
+
             {/* Entries */}
             <div style={{ flex: 1, padding: '10px 14px' }}>
               {dayEntries.length === 0 && !addingEntry && (
@@ -939,47 +954,93 @@ export default function MyTimesheet() {
                 </div>
               )}
 
-              {dayEntries.map(ent => (
-                <div key={ent.id} style={{
-                  border: editingEntry?.id === ent.id ? '2px solid #2563EB' : '1px solid #F3F4F6',
-                  borderRadius: 8, padding: '9px 10px', marginBottom: 7, background: '#FAFAFA',
-                }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 3, flexWrap: 'wrap' }}>
+              {dayEntries.map(ent => {
+                const badge    = getEntryBadge(ent);
+                const isOpen   = expandedEntries.has(ent.id);
+                const isEditing = editingEntry?.id === ent.id;
+                return (
+                  <div key={ent.id} style={{
+                    border: isEditing ? '2px solid #2563EB' : '1px solid #E5E7EB',
+                    borderRadius: 10, marginBottom: 7, overflow: 'hidden',
+                    transition: 'box-shadow 0.15s',
+                  }}>
+                    {/* Top row: badge + code + hours + actions */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 12px 4px', gap: 8 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <span style={{
-                          fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 99,
-                          background: KIND_CHIP[ent.entry_kind]?.bg, color: KIND_CHIP[ent.entry_kind]?.color,
-                          textTransform: 'uppercase', letterSpacing: '0.04em',
+                          fontSize: 8, fontWeight: 800, textTransform: 'uppercase',
+                          letterSpacing: '0.05em', padding: '2px 6px', borderRadius: 4,
+                          background: badge.bg, color: badge.color, whiteSpace: 'nowrap',
                         }}>
-                          {ent.entry_kind.replace('_', ' ')}
+                          {badge.code}
                         </span>
-                        <code style={{ fontSize: 10, color: '#9CA3AF' }}>{getEntryCode(ent)}</code>
+                        <code style={{ fontSize: 9, color: '#9CA3AF', fontWeight: 700 }}>{getEntryCode(ent)}</code>
                         {ent.is_system_generated && (
                           <span style={{ fontSize: 9, color: '#9CA3AF', background: '#F3F4F6', padding: '1px 4px', borderRadius: 3 }}>auto</span>
                         )}
                       </div>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {getEntryLabel(ent)}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <span style={{ fontSize: 13, fontWeight: 800, color: '#3B82F6', marginRight: 2 }}>{fmtMins(ent.hours_minutes)}</span>
+                        {editable && !ent.is_system_generated && (
+                          <>
+                            <button onClick={() => openEdit(ent)} style={iconBtnSt} title="Edit">
+                              <i className="fa-solid fa-pen" style={{ fontSize: 10 }} />
+                            </button>
+                            <button onClick={() => handleDeleteEntry(ent.id)} style={{ ...iconBtnSt, color: '#DC2626', borderColor: '#FEE2E2' }} title="Delete">
+                              <i className="fa-solid fa-trash" style={{ fontSize: 10 }} />
+                            </button>
+                          </>
+                        )}
                       </div>
-                      {ent.notes && <div style={{ fontSize: 11, color: '#6B7280', marginTop: 2 }}>{ent.notes}</div>}
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 8, flexShrink: 0 }}>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: '#1D4ED8' }}>{fmtMins(ent.hours_minutes)}</span>
-                      {editable && !ent.is_system_generated && (
-                        <>
-                          <button onClick={() => openEdit(ent)} style={iconBtnSt} title="Edit">
-                            <i className="fa-solid fa-pen" style={{ fontSize: 10 }} />
-                          </button>
-                          <button onClick={() => handleDeleteEntry(ent.id)} style={{ ...iconBtnSt, color: '#DC2626', borderColor: '#FEE2E2' }} title="Delete">
-                            <i className="fa-solid fa-trash" style={{ fontSize: 10 }} />
-                          </button>
-                        </>
-                      )}
+
+                    {/* Name row + chevron */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '2px 12px 9px', gap: 8 }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: '#1F2937', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
+                        {getEntryLabel(ent)}
+                      </span>
+                      <button
+                        onClick={() => toggleEntryExpand(ent.id)}
+                        title={isOpen ? 'Collapse' : 'Expand'}
+                        style={{
+                          width: 22, height: 22, flexShrink: 0,
+                          border: `1px solid ${isOpen ? '#BFDBFE' : '#E5E7EB'}`,
+                          borderRadius: 6,
+                          background: isOpen ? '#EFF6FF' : '#F9FAFB',
+                          color: isOpen ? '#3B82F6' : '#9CA3AF',
+                          cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontSize: 9, userSelect: 'none', transition: 'all 0.15s',
+                        }}
+                      >
+                        <i className={`fa-solid fa-chevron-${isOpen ? 'up' : 'down'}`} />
+                      </button>
                     </div>
+
+                    {/* Collapsible detail */}
+                    {isOpen && (
+                      <div style={{ borderTop: '1px solid #F3F4F6', background: '#FAFAFA', padding: '10px 12px 12px' }}>
+                        {ent.notes ? (
+                          <>
+                            <div style={{ fontSize: 9, fontWeight: 800, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
+                              Notes
+                            </div>
+                            <div style={{
+                              background: '#fff', border: '1px solid #E5E7EB', borderRadius: 6,
+                              padding: '7px 10px', fontSize: 11, color: '#6B7280', lineHeight: 1.5,
+                            }}>
+                              📝 {ent.notes}
+                            </div>
+                          </>
+                        ) : (
+                          <div style={{ fontSize: 11, color: '#CBD5E1', fontStyle: 'italic', textAlign: 'center', padding: '4px 0' }}>
+                            No notes for this entry
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
 
               {/* Add / Edit entry form */}
               {addingEntry && (
@@ -988,94 +1049,76 @@ export default function MyTimesheet() {
                   background: '#EFF6FF', marginTop: 8,
                 }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: '#1D4ED8', marginBottom: 10 }}>
-                    {editingEntry
-                    ? 'Edit Entry'
-                    : formCategory === 'absence' ? 'Add Absence' : 'Add Attendance'}
+                    {editingEntry ? 'Edit Entry' : 'Add Entry'}
                   </div>
 
-                  {/* Attendance or Absence time-type picker */}
+                  {/* Entry type selector */}
                   <div style={{ marginBottom: 8 }}>
-                    <Label>
-                      {formCategory === 'attendance' ? 'Attendance Type' : 'Absence / Leave Type'}
-                    </Label>
-                    <select
-                      value={form.typeId}
-                      onChange={e => { setForm(f => ({ ...f, typeId: e.target.value, projId: '', activities: [''] })); setFormErr(''); }}
-                      style={selectSt}
-                    >
-                      <option value="">— Select —</option>
-                      {timeTypes
-                        .filter(t => t.category === formCategory)
-                        .map(t => (
-                          <option key={t.id} value={t.id}>{t.name} ({t.code})</option>
-                        ))}
-                    </select>
+                    <Label>Entry Type</Label>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 5 }}>
+                      {[
+                        { v: 'time_type', label: 'Time Type / Leave' },
+                        { v: 'project',   label: 'Project' },
+                      ].map(opt => (
+                        <button
+                          key={opt.v}
+                          type="button"
+                          onClick={() => setForm(f => ({ ...f, kind: opt.v as any, typeId: '', projId: '' }))}
+                          style={{
+                            padding: '6px 0', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                            border: form.kind === opt.v ? '2px solid #2563EB' : '1px solid #D1D5DB',
+                            background: form.kind === opt.v ? '#EFF6FF' : '#fff',
+                            color: form.kind === opt.v ? '#1D4ED8' : '#374151',
+                          }}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
-                  {/* Project picker — visible only when selected attendance type requires_project */}
-                  {formCategory === 'attendance' && timeTypes.find(t => t.id === form.typeId)?.requires_project && (
+                  {/* Time type picker */}
+                  {form.kind === 'time_type' && (
                     <div style={{ marginBottom: 8 }}>
-                      <Label>Project <span style={{ color: '#DC2626' }}>*</span></Label>
+                      <Label>Time Type</Label>
                       <select
-                        value={form.projId}
-                        onChange={e => { setForm(f => ({ ...f, projId: e.target.value, activities: [''] })); setFormErr(''); }}
+                        value={form.typeId}
+                        onChange={e => { setForm(f => ({ ...f, typeId: e.target.value })); setFormErr(''); }}
                         style={selectSt}
                       >
-                        <option value="">— Select project —</option>
-                        {projects
-                          .filter(p =>
-                            !!selectedDate &&
-                            (!p.start_date || p.start_date <= selectedDate) &&
-                            (!p.end_date   || p.end_date   >= selectedDate)
-                          )
-                          .map(p => (
-                            <option key={p.id} value={p.id}>{p.name}</option>
-                          ))}
+                        <option value="">— Select —</option>
+                        {timeTypes.filter(t => t.category === 'attendance').length > 0 && (
+                          <optgroup label="Attendance">
+                            {timeTypes.filter(t => t.category === 'attendance').map(t => (
+                              <option key={t.id} value={t.id}>{t.name} ({t.code})</option>
+                            ))}
+                          </optgroup>
+                        )}
+                        {timeTypes.filter(t => t.category === 'absence').length > 0 && (
+                          <optgroup label="Leave / Absence">
+                            {timeTypes.filter(t => t.category === 'absence').map(t => (
+                              <option key={t.id} value={t.id}>{t.name} ({t.code})</option>
+                            ))}
+                          </optgroup>
+                        )}
                       </select>
                     </div>
                   )}
 
-                  {/* Activity list — visible when project is selected on a requires_project type */}
-                  {formCategory === 'attendance' && timeTypes.find(t => t.id === form.typeId)?.requires_project && form.projId && (
+                  {/* Project picker */}
+                  {form.kind === 'project' && (
                     <div style={{ marginBottom: 8 }}>
-                      <Label>
-                        Activities <span style={{ color: '#DC2626' }}>*</span>
-                        <span style={{ color: '#9CA3AF', fontWeight: 400, marginLeft: 4 }}>(what did you work on?)</span>
-                      </Label>
-                      {form.activities.map((act, idx) => (
-                        <div key={idx} style={{ display: 'flex', gap: 5, marginBottom: 5, alignItems: 'center' }}>
-                          <ActivityAutocomplete
-                            value={act}
-                            onChange={val => {
-                              const next = [...form.activities];
-                              next[idx] = val;
-                              setForm(f => ({ ...f, activities: next }));
-                              setFormErr('');
-                            }}
-                            onFavoriteToggle={handleFavoriteToggle}
-                            history={activityHistory}
-                            placeholder={`Activity ${idx + 1}`}
-                            inputStyle={{ ...inputSt, marginBottom: 0 }}
-                          />
-                          {form.activities.length > 1 && (
-                            <button
-                              type="button"
-                              onClick={() => setForm(f => ({ ...f, activities: f.activities.filter((_, i) => i !== idx) }))}
-                              style={{ flexShrink: 0, width: 26, height: 26, borderRadius: 6, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                              title="Remove activity"
-                            >
-                              <i className="fa-solid fa-xmark" />
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                      <button
-                        type="button"
-                        onClick={() => setForm(f => ({ ...f, activities: [...f.activities, ''] }))}
-                        style={{ marginTop: 2, padding: '4px 10px', borderRadius: 6, border: '1px dashed #93C5FD', background: 'transparent', color: '#1D4ED8', fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                      <Label>Project</Label>
+                      <select
+                        value={form.projId}
+                        onChange={e => { setForm(f => ({ ...f, projId: e.target.value })); setFormErr(''); }}
+                        style={selectSt}
                       >
-                        <i className="fa-solid fa-plus" /> Add Activity
-                      </button>
+                        <option value="">— Select —</option>
+                        {projects.map(p => (
+                          <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
+                      </select>
                     </div>
                   )}
 
@@ -1137,33 +1180,19 @@ export default function MyTimesheet() {
                 </div>
               )}
 
-              {/* Add entry buttons — Attendance / Absence / Project */}
+              {/* Add entry button */}
               {editable && !addingEntry && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
-                  <button
-                    onClick={() => openAdd('attendance')}
-                    style={{
-                      width: '100%', padding: '8px 0', borderRadius: 7,
-                      border: '1px solid #D1FAE5', background: '#ECFDF5',
-                      color: '#065F46', fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                    }}
-                  >
-                    <i className="fa-solid fa-clock" /> Add Attendance
-                  </button>
-                  <button
-                    onClick={() => openAdd('absence')}
-                    style={{
-                      width: '100%', padding: '8px 0', borderRadius: 7,
-                      border: '1px solid #FEF3C7', background: '#FFFBEB',
-                      color: '#92400E', fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                    }}
-                  >
-                    <i className="fa-solid fa-umbrella-beach" /> Add Absence
-                  </button>
-
-                </div>
+                <button
+                  onClick={openAdd}
+                  style={{
+                    width: '100%', marginTop: 8, padding: '8px 0', borderRadius: 7,
+                    border: '1px dashed #93C5FD', background: 'transparent',
+                    color: '#1D4ED8', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                  }}
+                >
+                  <i className="fa-solid fa-plus" /> Add Entry
+                </button>
               )}
 
               {/* Locked notice */}
