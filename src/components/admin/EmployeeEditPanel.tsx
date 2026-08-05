@@ -255,6 +255,17 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved, initialEmploy
   const [dWorkCountry,setDWorkCountry]= useState('');
   const [dWorkLoc,    setDWorkLoc]    = useState('');
   const [dCurrency,   setDCurrency]   = useState('');
+  // Scheduling — live on employee_employment satellite (cols added mig 703)
+  const [dWorkScheduleId,    setDWorkScheduleId]    = useState('');
+  const [dHolidayCalendarId, setDHolidayCalendarId] = useState('');
+  // Display-side cache of the current slice's scheduling fields (for the
+  // collapsed read view — liveEmp doesn't carry these since useEmployees
+  // reads only from the employees head table).
+  const [currentWorkScheduleId,    setCurrentWorkScheduleId]    = useState('');
+  const [currentHolidayCalendarId, setCurrentHolidayCalendarId] = useState('');
+  // Lookups for the two scheduling dropdowns
+  const [workSchedules,    setWorkSchedules]    = useState<{ id: string; name: string; code: string }[]>([]);
+  const [holidayCalendars, setHolidayCalendars] = useState<{ id: string; name: string }[]>([]);
   const [probWarning, setProbWarning] = useState<{ open: boolean; pendingDate: string }>({ open: false, pendingDate: '' });
 
   // ── Employment insert/edit mode ───────────────────────────────────────────
@@ -400,6 +411,34 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved, initialEmploy
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ── Fetch scheduling lookups once on mount ─────────────────────────────────
+  useEffect(() => {
+    supabase.from('time_work_schedules').select('id, name, code').eq('is_active', true).order('name')
+      .then(({ data }) => { if (data) setWorkSchedules(data); });
+    supabase.from('time_holiday_calendars').select('id, name').order('name')
+      .then(({ data }) => { if (data) setHolidayCalendars(data); });
+  }, []);
+
+  // ── Fetch current employment slice's scheduling fields ─────────────────────
+  // These fields live on employee_employment (mig 703) and are NOT mirrored
+  // to the employees head table, so useEmployees doesn't provide them.
+  useEffect(() => {
+    const empUUID = liveEmp.id as string;
+    if (!empUUID) return;
+    supabase
+      .from('employee_employment')
+      .select('work_schedule_id, holiday_calendar_id')
+      .eq('employee_id',  empUUID)
+      .eq('is_active',    true)
+      .eq('effective_to', '9999-12-31')
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        setCurrentWorkScheduleId(String(data?.work_schedule_id    ?? ''));
+        setCurrentHolidayCalendarId(String(data?.holiday_calendar_id ?? ''));
+      });
+  }, [liveEmp.id]);
+
   // Auto-derive currency from work country.
   // Skipped during initial load (isLoadingEmploymentRef) so saved DB values are preserved.
   // meta.currencyId on a country picklist value is the picklist_values.id of the
@@ -473,6 +512,10 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved, initialEmploy
         setDNoticePeriodDays((e.noticePeriodDays as number | undefined) ?? 30); setDProbation((e.probationEndDate as string) || '');
         setDWorkCountry((e.workCountry as string) || ''); setDWorkLoc((e.workLocation as string) || '');
         setDCurrency((e.baseCurrencyId as string) || '');
+        // Scheduling fields come from the current-slice cache populated by
+        // the useEffect above (liveEmp doesn't carry them).
+        setDWorkScheduleId(currentWorkScheduleId);
+        setDHolidayCalendarId(currentHolidayCalendarId);
         // Clear the flag after effects have had a chance to run (next tick)
         setTimeout(() => { isLoadingEmploymentRef.current = false; }, 0);
         break;
@@ -528,6 +571,9 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved, initialEmploy
     setDWorkCountry(String(h.work_country  || ''));
     setDWorkLoc(String(h.work_location || ''));
     setDCurrency(String(h.base_currency_id || ''));
+    // Mig 713/714: get_employment_info_history returns these two fields.
+    setDWorkScheduleId(String(h.work_schedule_id    || ''));
+    setDHolidayCalendarId(String(h.holiday_calendar_id || ''));
     setEmploymentEffectiveFrom(String(h.effective_from));
     setIsDirty(false);
     setTimeout(() => { isLoadingEmploymentRef.current = false; }, 0);
@@ -708,6 +754,9 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved, initialEmploy
           designation: dDesig, deptId: dDeptId, managerId: dManagerId,
           hireDate: dHireDate, noticePeriodDays: dNoticePeriodDays, probationEndDate: dProbation,
           workCountry: dWorkCountry, workLocation: dWorkLoc, baseCurrencyId: dCurrency,
+          // Scheduling fields (mig 703 columns; mig 713/714 RPC support)
+          workScheduleId:    dWorkScheduleId    || undefined,
+          holidayCalendarId: dHolidayCalendarId || undefined,
         };
         // Employment fields are now owned by the employee_employment satellite
         // (mig 351-352). upsert_employment_info handles the mirror sync on
@@ -917,14 +966,17 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved, initialEmploy
       const { data: eeResult, error: eeErr } = await supabase.rpc('upsert_employment_info', {
         p_employee_id:    empUUID,
         p_proposed_data:  {
-          designation:        dDesig             || null,
-          dept_id:            dDeptId            || null,
-          manager_id:         dManagerId         || null,
-          hire_date:          dHireDate          || null,
-          notice_period_days: dNoticePeriodDays,
-          work_country:       dWorkCountry       || null,
-          work_location:      dWorkLoc           || null,
-          probation_end_date: dProbation         || null,
+          designation:         dDesig             || null,
+          dept_id:             dDeptId            || null,
+          manager_id:          dManagerId         || null,
+          hire_date:           dHireDate          || null,
+          notice_period_days:  dNoticePeriodDays,
+          work_country:        dWorkCountry       || null,
+          work_location:       dWorkLoc           || null,
+          probation_end_date:  dProbation         || null,
+          // Mig 703/713/714: scheduling fields
+          work_schedule_id:    dWorkScheduleId    || null,
+          holiday_calendar_id: dHolidayCalendarId || null,
         },
         p_effective_from: effectiveFrom,
       });
@@ -947,6 +999,13 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved, initialEmploy
 
     // Update local state so the panel reflects the new values immediately
     setLiveEmp(prev => ({ ...prev, ...frontendPatch, _savedAt: new Date().toISOString() }));
+    // Scheduling fields live only on the satellite (not mirrored to
+    // employees, so useEmployees / parent refetch won't refresh them).
+    // Update the display cache directly.
+    if (sectionId === 'employment') {
+      setCurrentWorkScheduleId(dWorkScheduleId);
+      setCurrentHolidayCalendarId(dHolidayCalendarId);
+    }
     onSaved?.();   // trigger parent refetch in the background
 
     cancelEdit();
@@ -1031,10 +1090,12 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved, initialEmploy
             <GridField label="Job Title"      value={(e as { jobTitle?: string }).jobTitle} />
             <GridField label="Department"     value={departments.find(d => d.id === e.deptId || d.deptId === e.deptId)?.name} />
             <GridField label="Manager"        value={resolveEmpName(e.managerId)} />
-            <GridField label="Hire Date"      value={fmtDate(e.hireDate as string)} />
-            <GridField label="Work Country"   value={resolve('ID_COUNTRY', e.workCountry)} />
-            <GridField label="Work Location"  value={resolve('LOCATION', e.workLocation)} />
-            <GridField label="Currency"       value={currencyList.find(c => c.id === (e.baseCurrencyId as string))?.name} />
+            <GridField label="Hire Date"        value={fmtDate(e.hireDate as string)} />
+            <GridField label="Work Country"     value={resolve('ID_COUNTRY', e.workCountry)} />
+            <GridField label="Work Location"    value={resolve('LOCATION', e.workLocation)} />
+            <GridField label="Currency"         value={currencyList.find(c => c.id === (e.baseCurrencyId as string))?.name} />
+            <GridField label="Work Schedule"    value={workSchedules.find(s => s.id === currentWorkScheduleId)?.name} />
+            <GridField label="Holiday Calendar" value={holidayCalendars.find(c => c.id === currentHolidayCalendarId)?.name} />
             <GridField label="Status">
               <span style={{ padding: '3px 12px', borderRadius: 12, fontSize: 12, fontWeight: 600, background: sc.bg, color: sc.color }}>
                 {e.status as string || '—'}
@@ -1070,13 +1131,15 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved, initialEmploy
       );
       case 'employment': return (
         <GridRow>
-          <GridField label="Designation"  value={resolve('DESIGNATION', e.designation)} />
-          <GridField label="Department"   value={departments.find(d => d.id === e.deptId || d.deptId === e.deptId)?.name} />
-          <GridField label="Manager"      value={(employees as FullEmployee[]).find(m => m.id === e.managerId || m.employeeId === e.managerId)?.name} />
-          <GridField label="Hire Date"    value={fmtDate(e.hireDate as string)} />
-          <GridField label="Work Country" value={resolve('ID_COUNTRY', e.workCountry)} />
-          <GridField label="Location"     value={resolve('LOCATION', e.workLocation)} />
-          <GridField label="Currency"     value={currencyList.find(c => c.id === (e.baseCurrencyId as string))?.name ?? resolve('CURRENCY', e.baseCurrency)} />
+          <GridField label="Designation"      value={resolve('DESIGNATION', e.designation)} />
+          <GridField label="Department"       value={departments.find(d => d.id === e.deptId || d.deptId === e.deptId)?.name} />
+          <GridField label="Manager"          value={(employees as FullEmployee[]).find(m => m.id === e.managerId || m.employeeId === e.managerId)?.name} />
+          <GridField label="Hire Date"        value={fmtDate(e.hireDate as string)} />
+          <GridField label="Work Country"     value={resolve('ID_COUNTRY', e.workCountry)} />
+          <GridField label="Location"         value={resolve('LOCATION', e.workLocation)} />
+          <GridField label="Currency"         value={currencyList.find(c => c.id === (e.baseCurrencyId as string))?.name ?? resolve('CURRENCY', e.baseCurrency)} />
+          <GridField label="Work Schedule"    value={workSchedules.find(s => s.id === currentWorkScheduleId)?.name} />
+          <GridField label="Holiday Calendar" value={holidayCalendars.find(c => c.id === currentHolidayCalendarId)?.name} />
         </GridRow>
       );
       case 'identity': {
@@ -1192,10 +1255,12 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved, initialEmploy
             <GridField label="Job Title"      value={(liveEmp as { jobTitle?: string }).jobTitle} />
             <GridField label="Department"     value={departments.find(d => d.id === liveEmp.deptId || d.deptId === liveEmp.deptId)?.name} />
             <GridField label="Manager"        value={(employees as FullEmployee[]).find(m => m.id === liveEmp.managerId || m.employeeId === liveEmp.managerId)?.name} />
-            <GridField label="Hire Date"      value={fmtDate(liveEmp.hireDate as string)} />
-            <GridField label="Work Country"   value={resolve('ID_COUNTRY', liveEmp.workCountry)} />
-            <GridField label="Work Location"  value={resolve('LOCATION', liveEmp.workLocation)} />
-            <GridField label="Currency"       value={currencyList.find(c => c.id === (liveEmp.baseCurrencyId as string))?.name} />
+            <GridField label="Hire Date"        value={fmtDate(liveEmp.hireDate as string)} />
+            <GridField label="Work Country"     value={resolve('ID_COUNTRY', liveEmp.workCountry)} />
+            <GridField label="Work Location"    value={resolve('LOCATION', liveEmp.workLocation)} />
+            <GridField label="Currency"         value={currencyList.find(c => c.id === (liveEmp.baseCurrencyId as string))?.name} />
+            <GridField label="Work Schedule"    value={workSchedules.find(s => s.id === currentWorkScheduleId)?.name} />
+            <GridField label="Holiday Calendar" value={holidayCalendars.find(c => c.id === currentHolidayCalendarId)?.name} />
           </GridRow>
 
           <div style={{ borderTop: '1px solid #F3F4F6', paddingTop: 16, marginTop: 4, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px 24px' }}>
@@ -1661,6 +1726,20 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved, initialEmploy
                   ? (currencyList.find(c => c.id === dCurrency)?.name ?? resolve('CURRENCY', dCurrency))
                   : 'Auto-derived from Country of Work'}</span>
               </div>
+            </div>
+            <div className="form-group">
+              <label><i className="fa-solid fa-calendar-days fa-fw" /> Work Schedule</label>
+              <select value={dWorkScheduleId} onChange={e => { setDWorkScheduleId(e.target.value); setIsDirty(true); }}>
+                <option value="">-- Select Work Schedule --</option>
+                {workSchedules.map(s => <option key={s.id} value={s.id}>{s.name} ({s.code})</option>)}
+              </select>
+            </div>
+            <div className="form-group">
+              <label><i className="fa-solid fa-umbrella-beach fa-fw" /> Holiday Calendar</label>
+              <select value={dHolidayCalendarId} onChange={e => { setDHolidayCalendarId(e.target.value); setIsDirty(true); }}>
+                <option value="">-- Select Holiday Calendar --</option>
+                {holidayCalendars.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
             </div>
           </div>
         </div>
