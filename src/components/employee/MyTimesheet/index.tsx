@@ -844,9 +844,8 @@ export default function MyTimesheet() {
                           : `${recHr} / ${planHr}h`;
                         return (
                           <div style={{ padding: '3px 6px 6px', flexShrink: 0 }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 8, color: '#9CA3AF', fontWeight: 600, marginBottom: 3 }}>
-                              <span>Progress</span>
-                              <span style={{ color: lblColor, fontWeight: 800 }}>{lblRight}</span>
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 3 }}>
+                              <span style={{ fontSize: 13, color: lblColor, fontWeight: 800 }}>{lblRight}</span>
                             </div>
                             <div style={{ height: 5, background: '#F1F5F9', borderRadius: 99, overflow: 'hidden' }}>
                               <div style={{ height: '100%', borderRadius: 99, width: `${pct * 100}%`, background: fillColor, transition: 'width 0.4s ease-out' }} />
