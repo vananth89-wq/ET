@@ -45,6 +45,7 @@ interface TimesheetEntry {
   hours_minutes: number;
   notes:         string | null;
   is_system_generated: boolean;
+  activities:  string[] | null;
   // joined
   time_types?:  { name: string; code: string; category: string } | { name: string; code: string; category: string }[];
   projects?:    { name: string } | { name: string }[];
@@ -220,7 +221,7 @@ export default function MyTimesheet() {
   const [confirmSubmit,  setConfirmSubmit]  = useState(false);
 
   // Entry form
-  const emptyForm = { kind: 'time_type' as 'time_type' | 'project', typeId: '', projId: '', hours: '', mins: '', notes: '' };
+  const emptyForm = { kind: 'time_type' as 'time_type' | 'project', typeId: '', projId: '', activities: [''] as string[], hours: '', mins: '', notes: '' };
   const [form,    setForm]    = useState(emptyForm);
   const [formErr, setFormErr] = useState('');
   const [formCategory, setFormCategory] = useState<'attendance' | 'absence'>('attendance');
@@ -378,7 +379,7 @@ export default function MyTimesheet() {
       .from('timesheet_entries')
       .select(`
         id, header_id, entry_date, entry_kind, project_id, time_type_id,
-        hours_minutes, notes, is_system_generated,
+        hours_minutes, notes, activities, is_system_generated,
         time_types ( name, code, category ),
         projects ( name )
       `)
@@ -466,7 +467,8 @@ export default function MyTimesheet() {
       projId: ent.project_id  ?? '',
       hours:  String(Math.floor(totalM / 60)),
       mins:   String(totalM % 60),
-      notes:  ent.notes ?? '',
+      notes:      ent.notes ?? '',
+      activities: (ent.activities && ent.activities.length > 0) ? [...ent.activities] : [''],
     });
     setFormErr('');
     const _tt = Array.isArray(ent.time_types) ? ent.time_types[0] : ent.time_types;
@@ -490,6 +492,8 @@ export default function MyTimesheet() {
     if (!form.typeId) { setFormErr('Please select a time type.'); return; }
     const _selType = timeTypes.find(t => t.id === form.typeId);
     if (_selType?.requires_project && !form.projId) { setFormErr('Please select a project — required for this attendance type.'); return; }
+    const _activities = form.activities.map(a => a.trim()).filter(Boolean);
+    if (_selType?.requires_project && form.projId && _activities.length === 0) { setFormErr('Please add at least one activity.'); return; }
     const hrs  = parseInt(form.hours || '0', 10);
     const mins = parseInt(form.mins  || '0', 10);
     if (isNaN(hrs) || isNaN(mins) || (hrs === 0 && mins === 0)) {
@@ -517,6 +521,7 @@ export default function MyTimesheet() {
           entry_kind:    entryKind,
           time_type_id:  form.typeId || null,
           project_id:    (selectedTimeType?.requires_project && form.projId) ? form.projId : null,
+          activities:    (selectedTimeType?.requires_project && form.projId) ? _activities : null,
           hours_minutes: totalMins,
           notes:         form.notes.trim() || null,
         })
@@ -533,6 +538,7 @@ export default function MyTimesheet() {
           entry_kind:    entryKind,
           time_type_id:  form.typeId || null,
           project_id:    (selectedTimeType?.requires_project && form.projId) ? form.projId : null,
+          activities:    (selectedTimeType?.requires_project && form.projId) ? _activities : null,
           hours_minutes: totalMins,
           notes:         form.notes.trim() || null,
           created_by:    (await supabase.auth.getUser()).data.user?.id ?? null,
@@ -544,7 +550,7 @@ export default function MyTimesheet() {
     // Reload entries then sync recorded_minutes
     const { data: ents } = await supabase
       .from('timesheet_entries')
-      .select(`id, header_id, entry_date, entry_kind, project_id, time_type_id, hours_minutes, notes, is_system_generated, time_types(name,code,category), projects(name)`)
+      .select(`id, header_id, entry_date, entry_kind, project_id, time_type_id, hours_minutes, notes, activities, is_system_generated, time_types(name,code,category), projects(name)`)
       .eq('header_id', header.id)
       .order('entry_date').order('created_at');
 
@@ -892,7 +898,7 @@ export default function MyTimesheet() {
                     </Label>
                     <select
                       value={form.typeId}
-                      onChange={e => { setForm(f => ({ ...f, typeId: e.target.value, projId: '' })); setFormErr(''); }}
+                      onChange={e => { setForm(f => ({ ...f, typeId: e.target.value, projId: '', activities: [''] })); setFormErr(''); }}
                       style={selectSt}
                     >
                       <option value="">— Select —</option>
@@ -910,7 +916,7 @@ export default function MyTimesheet() {
                       <Label>Project <span style={{ color: '#DC2626' }}>*</span></Label>
                       <select
                         value={form.projId}
-                        onChange={e => { setForm(f => ({ ...f, projId: e.target.value })); setFormErr(''); }}
+                        onChange={e => { setForm(f => ({ ...f, projId: e.target.value, activities: [''] })); setFormErr(''); }}
                         style={selectSt}
                       >
                         <option value="">— Select project —</option>
@@ -924,6 +930,49 @@ export default function MyTimesheet() {
                             <option key={p.id} value={p.id}>{p.name}</option>
                           ))}
                       </select>
+                    </div>
+                  )}
+
+                  {/* Activity list — visible when project is selected on a requires_project type */}
+                  {formCategory === 'attendance' && timeTypes.find(t => t.id === form.typeId)?.requires_project && form.projId && (
+                    <div style={{ marginBottom: 8 }}>
+                      <Label>
+                        Activities <span style={{ color: '#DC2626' }}>*</span>
+                        <span style={{ color: '#9CA3AF', fontWeight: 400, marginLeft: 4 }}>(what did you work on?)</span>
+                      </Label>
+                      {form.activities.map((act, idx) => (
+                        <div key={idx} style={{ display: 'flex', gap: 5, marginBottom: 5, alignItems: 'center' }}>
+                          <input
+                            type="text"
+                            placeholder={`Activity ${idx + 1}`}
+                            value={act}
+                            onChange={e => {
+                              const next = [...form.activities];
+                              next[idx] = e.target.value;
+                              setForm(f => ({ ...f, activities: next }));
+                              setFormErr('');
+                            }}
+                            style={{ ...inputSt, flex: 1, marginBottom: 0 }}
+                          />
+                          {form.activities.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => setForm(f => ({ ...f, activities: f.activities.filter((_, i) => i !== idx) }))}
+                              style={{ flexShrink: 0, width: 26, height: 26, borderRadius: 6, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                              title="Remove activity"
+                            >
+                              <i className="fa-solid fa-xmark" />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => setForm(f => ({ ...f, activities: [...f.activities, ''] }))}
+                        style={{ marginTop: 2, padding: '4px 10px', borderRadius: 6, border: '1px dashed #93C5FD', background: 'transparent', color: '#1D4ED8', fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                      >
+                        <i className="fa-solid fa-plus" /> Add Activity
+                      </button>
                     </div>
                   )}
 
