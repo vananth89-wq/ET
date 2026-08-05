@@ -243,7 +243,7 @@ export default function MyTimesheet() {
       const [empRes, ttRes, prRes, actRes] = await Promise.all([
         supabase.from('employees').select('employee_id').eq('id', employee.id).single(),
         supabase.from('time_types').select('id, name, code, category, requires_project, is_active').eq('is_active', true).order('category').order('name'),
-        supabase.from('projects').select('id, name, is_active').order('name'),
+        supabase.from('projects').select('id, name, is_active').eq('is_active', true).order('name'),
         supabase.rpc('get_employee_activities', { p_employee_id: employee.id }),
       ]);
       if (empRes.data) setEmpCode(empRes.data.employee_id ?? '');
@@ -1133,11 +1133,8 @@ export default function MyTimesheet() {
                         style={selectSt}
                       >
                         <option value="">— Select —</option>
-                        {projects.filter(p => p.is_active).map(p => (
+                        {projects.map(p => (
                           <option key={p.id} value={p.id}>{p.name}</option>
-                        ))}
-                        {projects.filter(p => !p.is_active && p.id === form.projId).map(p => (
-                          <option key={p.id} value={p.id}>{p.name} (inactive)</option>
                         ))}
                       </select>
                     </div>
