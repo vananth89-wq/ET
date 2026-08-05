@@ -749,7 +749,6 @@ export default function MyTimesheet() {
                   const isToday    = dateStr === todayIso;
                   const isSelected = dateStr === selectedDate;
                   const dayEnts    = entriesByDate[dateStr] ?? [];
-                  const holiday    = holidayByDate[dateStr];
                   const dayPlanned = schedule ? plannedForDay(dow, schedule) : 0;
                   const isOffDay   = dayPlanned === 0;
                   const recorded   = dayEnts.reduce((s, e) => s + e.hours_minutes, 0);
