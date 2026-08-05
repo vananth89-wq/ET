@@ -18,6 +18,8 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth }                                    from '../../../contexts/AuthContext';
 import { supabase }                                   from '../../../lib/supabase';
 import ErrorBanner                                    from '../../shared/ErrorBanner';
+import ActivityAutocomplete                           from './ActivityAutocomplete';
+import type { ActivityHistoryItem }                   from './ActivityAutocomplete';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -44,9 +46,10 @@ interface TimesheetEntry {
   time_type_id:  string | null;
   hours_minutes: number;
   notes:         string | null;
+  activities:    string[] | null;
   is_system_generated: boolean;
   // joined
-  time_types?:  { name: string; code: string; category: string } | { name: string; code: string; category: string }[];
+  time_types?:  { name: string; code: string; category: string; requires_project: boolean } | { name: string; code: string; category: string; requires_project: boolean }[];
   projects?:    { name: string } | { name: string }[];
 }
 
@@ -69,11 +72,12 @@ interface HolidayEntry {
 }
 
 interface TimeType {
-  id:        string;
-  name:      string;
-  code:      string;
-  category:  'attendance' | 'absence';
-  is_active: boolean;
+  id:               string;
+  name:             string;
+  code:             string;
+  category:         'attendance' | 'absence';
+  requires_project: boolean;
+  is_active:        boolean;
 }
 
 interface Project {
@@ -226,8 +230,11 @@ export default function MyTimesheet() {
   // Expand/collapse per entry card in the panel
   const [expandedEntries, setExpandedEntries] = useState<Set<string>>(new Set());
 
+  // Activity history for smart autocomplete
+  const [activityHistory, setActivityHistory] = useState<ActivityHistoryItem[]>([]);
+
   // Entry form
-  const emptyForm = { kind: 'time_type' as 'time_type' | 'project', typeId: '', projId: '', hours: '', mins: '', notes: '' };
+  const emptyForm = { kind: 'time_type' as 'time_type' | 'project', typeId: '', projId: '', hours: '', mins: '', notes: '', activities: [''] };
   const [form,    setForm]    = useState(emptyForm);
   const [formErr, setFormErr] = useState('');
 
@@ -235,14 +242,16 @@ export default function MyTimesheet() {
   useEffect(() => {
     if (!employee?.id) return;
     (async () => {
-      const [empRes, ttRes, prRes] = await Promise.all([
+      const [empRes, ttRes, prRes, actRes] = await Promise.all([
         supabase.from('employees').select('employee_id').eq('id', employee.id).single(),
-        supabase.from('time_types').select('id, name, code, category, is_active').eq('is_active', true).order('category').order('name'),
+        supabase.from('time_types').select('id, name, code, category, requires_project, is_active').eq('is_active', true).order('category').order('name'),
         supabase.from('projects').select('id, name, is_active').eq('is_active', true).order('name'),
+        supabase.rpc('get_employee_activities', { p_employee_id: employee.id }),
       ]);
       if (empRes.data) setEmpCode(empRes.data.employee_id ?? '');
       if (ttRes.data)  setTimeTypes(ttRes.data as TimeType[]);
       if (prRes.data)  setProjects(prRes.data as Project[]);
+      if (actRes.data) setActivityHistory(actRes.data as ActivityHistoryItem[]);
     })();
   }, [employee?.id]);
 
@@ -382,8 +391,8 @@ export default function MyTimesheet() {
       .from('timesheet_entries')
       .select(`
         id, header_id, entry_date, entry_kind, project_id, time_type_id,
-        hours_minutes, notes, is_system_generated,
-        time_types ( name, code, category ),
+        hours_minutes, notes, activities, is_system_generated,
+        time_types ( name, code, category, requires_project ),
         projects ( name )
       `)
       .eq('header_id', headerId)
@@ -464,13 +473,15 @@ export default function MyTimesheet() {
   function openEdit(ent: TimesheetEntry) {
     setEditingEntry(ent);
     const totalM = ent.hours_minutes;
+    const acts = ent.activities && ent.activities.length > 0 ? ent.activities : [''];
     setForm({
-      kind:   ent.entry_kind === 'project' ? 'project' : 'time_type',
-      typeId: ent.time_type_id ?? '',
-      projId: ent.project_id  ?? '',
-      hours:  String(Math.floor(totalM / 60)),
-      mins:   String(totalM % 60),
-      notes:  ent.notes ?? '',
+      kind:       ent.entry_kind === 'project' ? 'project' : 'time_type',
+      typeId:     ent.time_type_id ?? '',
+      projId:     ent.project_id  ?? '',
+      hours:      String(Math.floor(totalM / 60)),
+      mins:       String(totalM % 60),
+      notes:      ent.notes ?? '',
+      activities: acts,
     });
     setFormErr('');
     setAddingEntry(true);
@@ -504,6 +515,12 @@ export default function MyTimesheet() {
       form.kind === 'project' ? 'project' :
       selectedTimeType?.category === 'absence' ? 'leave' : 'time_type';
 
+    // Collect non-empty activities
+    const showActivities = form.kind === 'project' || selectedTimeType?.requires_project;
+    const cleanActivities = showActivities
+      ? form.activities.map(a => a.trim()).filter(a => a.length > 0)
+      : null;
+
     setSaving(true);
     setFormErr('');
 
@@ -519,6 +536,7 @@ export default function MyTimesheet() {
           project_id:    form.kind === 'project'   ? form.projId : null,
           hours_minutes: totalMins,
           notes:         form.notes.trim() || null,
+          activities:    cleanActivities && cleanActivities.length > 0 ? cleanActivities : null,
         })
         .eq('id', editingEntry.id);
 
@@ -535,16 +553,31 @@ export default function MyTimesheet() {
           project_id:    form.kind === 'project'   ? form.projId : null,
           hours_minutes: totalMins,
           notes:         form.notes.trim() || null,
+          activities:    cleanActivities && cleanActivities.length > 0 ? cleanActivities : null,
           created_by:    (await supabase.auth.getUser()).data.user?.id ?? null,
         });
 
       if (insErr) { setFormErr(insErr.message); setSaving(false); return; }
     }
 
+    // Record activity usages in history (fire-and-forget)
+    if (cleanActivities && cleanActivities.length > 0 && employee?.id) {
+      supabase.rpc('record_activity_usages', {
+        p_employee_id:    employee.id,
+        p_activity_names: cleanActivities,
+      }).then(({ data }) => {
+        // Refresh local history so autocomplete is up-to-date immediately
+        if (data?.ok) {
+          supabase.rpc('get_employee_activities', { p_employee_id: employee!.id })
+            .then(({ data: hist }) => { if (hist) setActivityHistory(hist as ActivityHistoryItem[]); });
+        }
+      });
+    }
+
     // Reload entries then sync recorded_minutes
     const { data: ents } = await supabase
       .from('timesheet_entries')
-      .select(`id, header_id, entry_date, entry_kind, project_id, time_type_id, hours_minutes, notes, is_system_generated, time_types(name,code,category), projects(name)`)
+      .select(`id, header_id, entry_date, entry_kind, project_id, time_type_id, hours_minutes, notes, activities, is_system_generated, time_types(name,code,category,requires_project), projects(name)`)
       .eq('header_id', header.id)
       .order('entry_date').order('created_at');
 
@@ -567,6 +600,21 @@ export default function MyTimesheet() {
     await syncRecordedMinutes(header.id, newEntries);
     setHeader(h => h ? { ...h, recorded_minutes: newEntries.reduce((s,e) => s + e.hours_minutes, 0) } : h);
     if (editingEntry?.id === entryId) cancelForm();
+  }
+
+  // ── Activity favourite toggle ────────────────────────────────────────
+  async function handleFavoriteToggle(name: string, currentIsFav: boolean): Promise<{ ok: boolean; message?: string }> {
+    if (!employee?.id) return { ok: false, message: 'Not logged in.' };
+    const { data } = await supabase.rpc('toggle_activity_favorite', {
+      p_employee_id:   employee.id,
+      p_activity_name: name,
+    });
+    if (data?.ok) {
+      setActivityHistory(prev => prev.map(h =>
+        h.activity_name === name ? { ...h, is_favorite: data.is_favorite } : h
+      ));
+    }
+    return { ok: data?.ok ?? false, message: data?.message };
   }
 
   // ── Entry expand/collapse ────────────────────────────────────────────
@@ -1012,21 +1060,30 @@ export default function MyTimesheet() {
                     {/* Collapsible detail */}
                     {isOpen && (
                       <div style={{ borderTop: '1px solid #F3F4F6', background: '#FAFAFA', padding: '10px 12px 12px' }}>
-                        {ent.notes ? (
-                          <>
+                        {ent.activities && ent.activities.length > 0 && (
+                          <div style={{ marginBottom: ent.notes ? 8 : 0 }}>
                             <div style={{ fontSize: 9, fontWeight: 800, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
-                              Notes
+                              Activities
                             </div>
-                            <div style={{
-                              background: '#fff', border: '1px solid #E5E7EB', borderRadius: 6,
-                              padding: '7px 10px', fontSize: 11, color: '#6B7280', lineHeight: 1.5,
-                            }}>
-                              📝 {ent.notes}
-                            </div>
-                          </>
-                        ) : (
+                            {ent.activities.map((a, i) => (
+                              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '2px 0' }}>
+                                <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#34D399', flexShrink: 0, display: 'inline-block' }} />
+                                <span style={{ fontSize: 12, color: '#374151', fontWeight: 500 }}>{a}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {ent.notes && (
+                          <div style={{
+                            background: '#fff', border: '1px solid #E5E7EB', borderRadius: 6,
+                            padding: '7px 10px', fontSize: 11, color: '#6B7280', lineHeight: 1.5,
+                          }}>
+                            📝 {ent.notes}
+                          </div>
+                        )}
+                        {(!ent.activities || ent.activities.length === 0) && !ent.notes && (
                           <div style={{ fontSize: 11, color: '#CBD5E1', fontStyle: 'italic', textAlign: 'center', padding: '4px 0' }}>
-                            No notes for this entry
+                            No activities or notes
                           </div>
                         )}
                       </div>
@@ -1114,6 +1171,53 @@ export default function MyTimesheet() {
                       </select>
                     </div>
                   )}
+
+                  {/* Activities — shown for project entries or requires_project time types */}
+                  {(() => {
+                    const selTT = timeTypes.find(t => t.id === form.typeId);
+                    const show  = form.kind === 'project' || selTT?.requires_project;
+                    if (!show) return null;
+                    return (
+                      <div style={{ marginBottom: 8 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                          <Label>Activities</Label>
+                          <button
+                            type="button"
+                            onClick={() => setForm(f => ({ ...f, activities: [...f.activities, ''] }))}
+                            style={{ background: 'none', border: 'none', color: '#2563EB', fontSize: 11, fontWeight: 700, cursor: 'pointer', padding: '0 2px' }}
+                          >
+                            + Add
+                          </button>
+                        </div>
+                        {form.activities.map((act, idx) => (
+                          <div key={idx} style={{ display: 'flex', gap: 5, marginBottom: 5 }}>
+                            <div style={{ flex: 1 }}>
+                              <ActivityAutocomplete
+                                value={act}
+                                onChange={val => setForm(f => {
+                                  const acts = [...f.activities];
+                                  acts[idx] = val;
+                                  return { ...f, activities: acts };
+                                })}
+                                onFavoriteToggle={handleFavoriteToggle}
+                                history={activityHistory}
+                                inputStyle={inputSt}
+                              />
+                            </div>
+                            {form.activities.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => setForm(f => ({ ...f, activities: f.activities.filter((_, i) => i !== idx) }))}
+                                style={{ background: 'none', border: '1px solid #FEE2E2', borderRadius: 5, color: '#DC2626', cursor: 'pointer', padding: '0 7px', fontSize: 13 }}
+                              >
+                                ×
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
 
                   {/* Duration */}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
