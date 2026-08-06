@@ -794,10 +794,9 @@ export default function MyTimesheet() {
                         <div style={{
                           flex: 1, display: 'flex', flexDirection: 'column',
                           alignItems: 'center', justifyContent: 'center', gap: 2,
-                          opacity: 0.5,
+                          opacity: 0.45,
                         }}>
                           <span style={{ fontSize: 10, color: '#6B7280', fontWeight: 600 }}>＋ Add Time</span>
-                          <span style={{ fontSize: 9, color: '#9CA3AF' }}>0 / {Math.round(dayPlanned/60)}h</span>
                         </div>
                       ) : (
                         <div style={{ flex: 1, padding: '0 5px 3px', overflow: 'hidden' }}>
@@ -858,19 +857,19 @@ export default function MyTimesheet() {
                             const isDone  = dayPlanned > 0 && recorded >= dayPlanned;
                             const planHr  = Math.round(dayPlanned / 60);
                             const recHr   = Math.round(recorded / 60 * 10) / 10;
-                            const fillColor = dayEnts.length === 0 ? 'transparent'
-                              : isOver  ? '#6366F1'
-                              : isDone  ? '#10B981'
-                              : '#34D399';
-                            const lblColor = dayEnts.length === 0 ? '#D1D5DB'
-                              : isOver  ? '#6366F1'
-                              : isDone  ? '#10B981'
-                              : '#1F2937';
-                            const lblText = dayEnts.length === 0
-                              ? `0 / ${planHr}h`
-                              : isDone && !isOver
-                                ? `${recHr} / ${planHr}h ✓`
-                                : `${recHr} / ${planHr}h`;
+                            // Empty day — show only planned capacity, no bar
+                            if (dayEnts.length === 0) {
+                              return (
+                                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                                  <span style={{ fontSize: 11, fontWeight: 600, color: '#D1D5DB', lineHeight: 1 }}>
+                                    {planHr}h
+                                  </span>
+                                </div>
+                              );
+                            }
+                            const fillColor = isOver ? '#6366F1' : isDone ? '#10B981' : '#34D399';
+                            const lblColor  = isOver ? '#6366F1' : isDone ? '#10B981' : '#1F2937';
+                            const lblText   = isDone && !isOver ? `${recHr} / ${planHr}h ✓` : `${recHr} / ${planHr}h`;
                             return (
                               <>
                                 <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 3 }}>
