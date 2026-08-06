@@ -142,14 +142,6 @@ function plannedForDay(dow: number, schedule: WorkSchedule): number {
   return schedule.lines.find(l => l.day_number === dayNum)?.planned_minutes ?? 0;
 }
 
-function getEntryLabel(ent: TimesheetEntry): string {
-  const t = Array.isArray(ent.time_types) ? ent.time_types[0] : ent.time_types;
-  const p = Array.isArray(ent.projects)   ? ent.projects[0]   : ent.projects;
-  const tName = t?.name ?? (ent.entry_kind === 'project' ? '' : ent.entry_kind);
-  return p?.name ? (tName ? `${tName} · ${p.name}` : p.name) : tName;
-}
-
-
 function getEntryBadge(ent: TimesheetEntry): { code: string; bg: string; color: string; accentColor: string; projectName?: string } {
   if (ent.entry_kind === 'holiday') {
     return { code: 'HOL', bg: '#EDE9FE', color: '#5B21B6', accentColor: '#7C3AED' };
@@ -172,6 +164,38 @@ function getEntryBadge(ent: TimesheetEntry): { code: string; bg: string; color: 
   const name = p?.name ?? 'Project';
   const abbreviated = name.length > 4 ? name.slice(0, 4).toUpperCase() : name.toUpperCase();
   return { code: abbreviated, bg: '#DBEAFE', color: '#1E40AF', accentColor: '#3B82F6', projectName: name };
+}
+
+// ─── Day-cell status ──────────────────────────────────────────────────────────
+// Single source of truth for BOTH the day-cell metric and the progress bar, so
+// the two can never contradict each other (e.g. "8 / 8h" beside an amber bar).
+type DayStatus = 'empty' | 'part' | 'done' | 'over';
+
+function dayStatus(recorded: number, planned: number): DayStatus {
+  if (recorded === 0)      return 'empty';
+  if (planned <= 0)        return 'done';
+  if (recorded >  planned) return 'over';
+  if (recorded >= planned) return 'done';   // exact minutes, never a rounded display value
+  return 'part';
+}
+
+// Display rounding must never cross a status threshold: 479 min must not render
+// "8" beside a blue bar, and 481 min must not render "8" beside a red one.
+function fmtDayHours(minutes: number, status: DayStatus): string {
+  const raw = minutes / 60;
+  const v = status === 'part' ? Math.floor(raw * 10) / 10
+          : status === 'over' ? Math.ceil (raw * 10) / 10
+          :                     Math.round(raw * 10) / 10;
+  return Number.isInteger(v) ? String(v) : v.toFixed(1);
+}
+
+// Calendar cell label: the project name when there is one, else the time type.
+// The panel shows project and time type separately; the cell only has room for one.
+function getCellLabel(ent: TimesheetEntry): string {
+  const p = Array.isArray(ent.projects) ? ent.projects[0] : ent.projects;
+  if (p?.name) return p.name;
+  const t = Array.isArray(ent.time_types) ? ent.time_types[0] : ent.time_types;
+  return t?.name ?? '';
 }
 
 // ─── Style constants ──────────────────────────────────────────────────────────
@@ -218,6 +242,9 @@ export default function MyTimesheet() {
   const [addingEntry,    setAddingEntry]    = useState(false);
   const [editingEntry,   setEditingEntry]   = useState<TimesheetEntry | null>(null);
   const [confirmSubmit,  setConfirmSubmit]  = useState(false);
+
+  // Hovered calendar day - drives the cell hover state and the empty-day CTA
+  const [hoverDate, setHoverDate] = useState<string | null>(null);
 
   // Expand/collapse per entry card in the panel
   const [expandedEntries, setExpandedEntries] = useState<Set<string>>(new Set());
@@ -733,149 +760,238 @@ export default function MyTimesheet() {
               {/* Day cells */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 3 }}>
                 {cells.map((day, idx) => {
-                  if (!day) return <div key={`b-${idx}`} style={{ minHeight: 108 }} />;
+                  if (!day) return <div key={`b-${idx}`} style={{ minHeight: 118 }} />;
 
                   const dateStr    = isoDate(year, month, day);
                   const dow        = (startDow + day - 1) % 7;
                   const isToday    = dateStr === todayIso;
                   const isSelected = dateStr === selectedDate;
+                  const isPast     = dateStr < todayIso;
                   const dayEnts    = entriesByDate[dateStr] ?? [];
                   const dayPlanned = schedule ? plannedForDay(dow, schedule) : 0;
                   const isOffDay   = dayPlanned === 0;
                   const recorded   = dayEnts.reduce((s, e) => s + e.hours_minutes, 0);
+                  const status     = dayStatus(recorded, dayPlanned);
+                  const isHovered  = hoverDate === dateStr && !isOffDay;
+
+                  const holidayName = holidayByDate[dateStr];
+                  const isHoliday   = !!holidayName || dayEnts.some(e => e.entry_kind === 'holiday');
+                  // A holiday can still be worked. Only take over the cell body when
+                  // nothing was logged, otherwise real entries would be hidden.
+                  const workEnts    = dayEnts.filter(e => e.entry_kind !== 'holiday');
+                  const holidayOnly = isHoliday && workEnts.length === 0;
+
+                  // Full-day absence: every entry is leave AND it covers the plan.
+                  // A half day of leave stays a normal working day with a leave row.
+                  const leaveName = (!isHoliday && dayEnts.length > 0 && dayPlanned > 0
+                                     && dayEnts.every(e => e.entry_kind === 'leave')
+                                     && recorded >= dayPlanned)
+                    ? getCellLabel(dayEnts[0])
+                    : null;
+
+                  // Metric shows for any logged day, and for a PAST working day with
+                  // nothing logged (-> "0/8h"). Never future, weekend, holiday or leave.
+                  const showMetric = !isOffDay && !holidayOnly && !leaveName
+                                     && (dayEnts.length > 0 || isPast);
+                  // On a worked holiday the schedule's planned hours are not a target,
+                  // so show the bare total rather than an "x / 8h" shortfall.
+                  const metricColor = isHoliday          ? '#7C3AED'
+                                    : status === 'over'  ? '#DC2626'
+                                    : status === 'done'  ? '#059669'
+                                    : status === 'empty' ? '#D97706'
+                                    :                      '#2563EB';
+
+                  // Bar segments — derived from the same `status` as the metric above
+                  const segments: { w: number; c: string }[] =
+                      isHoliday          ? [{ w: 100, c: '#8B5CF6' }]
+                    : leaveName          ? [{ w: 100, c: '#3B82F6' }]
+                    : status === 'over'  ? [{ w: (dayPlanned / recorded) * 100, c: '#10B981' },
+                                            { w: 100 - (dayPlanned / recorded) * 100, c: '#EF4444' }]
+                    : status === 'done'  ? [{ w: 100, c: '#10B981' }]
+                    : status === 'part'  ? [{ w: (recorded / dayPlanned) * 100, c: '#3B82F6' }]
+                    :                      [];
+                  // Track turns amber only once the day is actually overdue
+                  const trackBg = (isHoliday || leaveName)                       ? '#F1F5F9'
+                                : (status === 'empty' || status === 'part') && isPast ? '#FDE9AF'
+                                : isPast                                        ? '#F1F5F9'
+                                :                                                 '#F8FAFC';
 
                   return (
                     <div
                       key={dateStr}
+                      role="button"
+                      tabIndex={isOffDay ? -1 : 0}
+                      aria-label={`${day} ${MONTH_NAMES[month - 1]}, ${
+                        isOffDay   ? 'non-working day'
+                        : isHoliday ? `public holiday${holidayName ? ' — ' + holidayName : ''}`
+                        : leaveName ? leaveName
+                        : `${fmtDayHours(recorded, status)} of ${Math.round(dayPlanned / 60)} hours logged`}`}
+                      onMouseEnter={() => setHoverDate(dateStr)}
+                      onMouseLeave={() => setHoverDate(null)}
+                      onFocus={() => setHoverDate(dateStr)}
+                      onBlur={() => setHoverDate(null)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          setSelectedDate(dateStr); setPanelOpen(true); cancelForm(); setExpandedEntries(new Set());
+                        }
+                      }}
                       onClick={() => { setSelectedDate(dateStr); setPanelOpen(true); cancelForm(); setExpandedEntries(new Set()); }}
                       style={{
-                        minHeight: 108,
-                        borderRadius: 10,
-                        border: isSelected
-                          ? '1.5px solid #3B82F6'
-                          : isToday ? '1.5px solid #3B82F6'
-                          : '1.5px solid #E5E7EB',
-                        background: isSelected ? '#EFF6FF' : isOffDay ? '#F8FAFC' : '#fff',
-                        boxShadow: isSelected ? '0 0 0 3px rgba(59,130,246,0.15)' : undefined,
+                        minHeight: 118,
+                        borderRadius: 8,
+                        border: `1px solid ${
+                          isOffDay    ? 'transparent'
+                          : isSelected ? '#2563EB'
+                          : isHovered  ? '#D0D5DD'
+                          : isHoliday  ? '#EDE4FE'
+                          : leaveName  ? '#DBEAFE'
+                          :              '#E5E7EB'}`,
+                        background: isOffDay   ? '#F4F5F7'
+                                  : isHoliday  ? '#FAF5FF'
+                                  : leaveName  ? '#EFF6FF'
+                                  : isHovered  ? '#FCFCFD'
+                                  :              '#fff',
+                        boxShadow: isSelected
+                          ? '0 0 0 3px rgba(37,99,235,0.08), 0 2px 8px -2px rgba(16,24,40,0.12)'
+                          : isHovered ? '0 1px 2px rgba(16,24,40,0.06)' : undefined,
+                        transform: isSelected ? 'translateY(-1px)' : undefined,
                         cursor: isOffDay ? 'default' : 'pointer',
                         display: 'flex',
                         flexDirection: 'column',
                         overflow: 'hidden',
-                        transition: 'box-shadow 0.15s, border-color 0.15s',
+                        transition: 'background 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease, transform 0.12s ease',
                       }}
                     >
-                      {/* Day number */}
-                      <div style={{ padding: '5px 6px 2px', flexShrink: 0 }}>
+                      {/* Header — day number + hours metric */}
+                      <div style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        padding: '12px 12px 0', gap: 6, height: 26, flexShrink: 0,
+                      }}>
                         <span style={{
-                          fontSize: 11, fontWeight: 700,
-                          color: isToday ? '#fff' : isOffDay ? '#CBD5E1' : '#374151',
-                          background: isToday ? '#3B82F6' : 'transparent',
-                          borderRadius: '50%', width: 22, height: 22,
-                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                          fontSize: 12, fontWeight: isOffDay ? 500 : 600, lineHeight: 1,
+                          fontVariantNumeric: 'tabular-nums',
+                          color: isToday ? '#fff'
+                               : isOffDay ? '#C3C8D0'
+                               : isHoliday ? '#7C3AED'
+                               : leaveName ? '#1E40AF'
+                               : '#475569',
+                          background: isToday ? '#2563EB' : 'transparent',
+                          borderRadius: '50%',
+                          width: isToday ? 20 : undefined, height: isToday ? 20 : undefined,
+                          margin: isToday ? '-3px 0' : undefined,
+                          display: isToday ? 'inline-flex' : undefined,
+                          alignItems: 'center', justifyContent: 'center',
                         }}>
                           {day}
                         </span>
+                        {showMetric && (
+                          <span style={{ display: 'flex', alignItems: 'baseline', gap: 1, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
+                            <b style={{ fontSize: 14, fontWeight: 800, letterSpacing: '-0.03em', color: metricColor }}>
+                              {fmtDayHours(recorded, status)}
+                            </b>
+                            <span style={{ fontSize: 10, fontWeight: 500, color: '#98A2B3' }}>
+                              {isHoliday ? 'h' : `/${Math.round(dayPlanned / 60)}h`}
+                            </span>
+                          </span>
+                        )}
                       </div>
 
-                      {/* Entries area */}
-                      {isOffDay ? (
-                        <div style={{ flex: 1, padding: '2px 6px' }}>
-                          <span style={{ fontSize: 8.5, color: '#CBD5E1', fontStyle: 'italic' }}>Non-working</span>
-                        </div>
-                      ) : dayEnts.length === 0 ? (
-                        <div style={{
-                          flex: 1, display: 'flex', flexDirection: 'column',
-                          alignItems: 'center', justifyContent: 'center', gap: 2,
-                          opacity: 0.45,
-                        }}>
-                          <span style={{ fontSize: 10, color: '#6B7280', fontWeight: 600 }}>＋ Add Time</span>
-                        </div>
-                      ) : (
-                        <div style={{ flex: 1, padding: '0 5px 3px', overflow: 'hidden' }}>
-                          {dayEnts.slice(0, 3).map(ent => {
-                            const badge = getEntryBadge(ent);
-                            const hrs   = Math.round(ent.hours_minutes / 60 * 10) / 10;
-                            const label = getEntryLabel(ent);
-                            return (
+                      {/* Body */}
+                      <div style={{ flex: 1, padding: '6px 12px 7px', minHeight: 0, overflow: 'hidden' }}>
+                        {holidayOnly ? (
+                          <>
+                            <span style={{
+                              display: 'inline-block', fontSize: 8, fontWeight: 800, letterSpacing: '0.07em',
+                              background: '#EDE9FE', color: '#5B21B6', padding: '2px 5px', borderRadius: 3, marginBottom: 3,
+                            }}>HOLIDAY</span>
+                            {holidayName && (
+                              <div style={{ fontSize: 11, fontWeight: 700, color: '#7C3AED', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {holidayName}
+                              </div>
+                            )}
+                          </>
+                        ) : leaveName ? (
+                          <>
+                            <span style={{
+                              display: 'inline-block', fontSize: 8, fontWeight: 800, letterSpacing: '0.07em',
+                              background: '#DBEAFE', color: '#1E40AF', padding: '2px 5px', borderRadius: 3, marginBottom: 3,
+                            }}>LEAVE</span>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: '#1E40AF', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {leaveName}
+                            </div>
+                          </>
+                        ) : isOffDay ? null : dayEnts.length === 0 ? (
+                          <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <span style={{
+                              fontSize: 11, fontWeight: 600, color: '#98A2B3',
+                              opacity: (isHovered || isSelected) ? 1 : 0,
+                              transition: 'opacity 0.12s ease',
+                            }}>
+                              ＋ Add time
+                            </span>
+                          </div>
+                        ) : (
+                          <>
+                            {dayEnts.slice(0, 3).map(ent => (
                               <div
                                 key={ent.id}
                                 onClick={e => { e.stopPropagation(); setSelectedDate(dateStr); setPanelOpen(true); openEdit(ent); }}
                                 style={{
-                                  display: 'flex', alignItems: 'center', gap: 5,
-                                  padding: '2px 3px', borderRadius: 5,
-                                  transition: 'background 0.1s',
+                                  display: 'flex', alignItems: 'center', flexWrap: 'nowrap', gap: 8,
+                                  height: 15, padding: '0 3px', margin: '0 -3px',
+                                  borderRadius: 3, whiteSpace: 'nowrap', transition: 'background 0.1s',
                                 }}
-                                onMouseEnter={e => (e.currentTarget.style.background = '#F0F9FF')}
+                                onMouseEnter={e => (e.currentTarget.style.background = '#F1F5F9')}
                                 onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                               >
                                 <span style={{
-                                  flexShrink: 0, width: 6, height: 6, borderRadius: '50%',
-                                  background: badge.accentColor, display: 'inline-block',
-                                }} />
-                                <span style={{
-                                  fontSize: 10, color: '#374151', fontWeight: 600,
-                                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1,
-                                  minWidth: 0,
+                                  flex: '1 1 auto', minWidth: 0, fontSize: 11, fontWeight: 600,
+                                  color: ent.entry_kind === 'leave' ? '#1E40AF' : '#1F2937',
+                                  letterSpacing: '-0.01em',
+                                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                                 }}>
-                                  {label}
+                                  {getCellLabel(ent)}
                                 </span>
-                                <span style={{ fontSize: 9.5, color: '#6B7280', fontWeight: 700, flexShrink: 0 }}>
-                                  {hrs}h
+                                <span style={{
+                                  flex: '0 0 34px', width: 34, textAlign: 'right',
+                                  fontSize: 11, fontWeight: 600, color: '#667085',
+                                  fontVariantNumeric: 'tabular-nums',
+                                }}>
+                                  {Math.round(ent.hours_minutes / 60 * 10) / 10}h
                                 </span>
                               </div>
-                            );
-                          })}
-                          {dayEnts.length > 3 && (
-                            <div
-                              onClick={e => { e.stopPropagation(); setSelectedDate(dateStr); setPanelOpen(true); cancelForm(); }}
-                              style={{ fontSize: 9, color: '#6366F1', fontWeight: 700, padding: '1px 3px', cursor: 'pointer' }}
-                            >
-                              +{dayEnts.length - 3} more
-                            </div>
-                          )}
-                        </div>
-                      )}
+                            ))}
+                            {dayEnts.length > 3 && (
+                              <div
+                                onClick={e => { e.stopPropagation(); setSelectedDate(dateStr); setPanelOpen(true); cancelForm(); }}
+                                style={{ fontSize: 10, fontWeight: 700, color: '#6366F1', padding: '1px 3px 0', margin: '0 -3px', cursor: 'pointer' }}
+                              >
+                                +{dayEnts.length - 3} more
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
 
-                      {/* Progress bar — only for working days */}
+                      {/* Status bar — one rounded pill, same source of truth as the metric */}
                       {!isOffDay && (
-                        <div style={{ padding: '3px 6px 6px', flexShrink: 0 }}>
-                          {(() => {
-                            const pct     = dayPlanned > 0 ? Math.min(recorded / dayPlanned, 1) : 0;
-                            const isOver  = dayPlanned > 0 && recorded > dayPlanned;
-                            const isDone  = dayPlanned > 0 && recorded >= dayPlanned;
-                            const planHr  = Math.round(dayPlanned / 60);
-                            const recHr   = Math.round(recorded / 60 * 10) / 10;
-                            // Empty day — show only planned capacity, no bar
-                            if (dayEnts.length === 0) {
-                              return (
-                                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                                  <span style={{ fontSize: 11, fontWeight: 600, color: '#D1D5DB', lineHeight: 1 }}>
-                                    {planHr}h
-                                  </span>
-                                </div>
-                              );
-                            }
-                            const fillColor = isOver ? '#6366F1' : isDone ? '#10B981' : '#34D399';
-                            const lblColor  = isOver ? '#6366F1' : isDone ? '#10B981' : '#1F2937';
-                            const lblText   = isDone && !isOver ? `${recHr} / ${planHr}h ✓` : `${recHr} / ${planHr}h`;
-                            return (
-                              <>
-                                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 3 }}>
-                                  <span style={{ fontSize: 13, fontWeight: 800, color: lblColor, lineHeight: 1 }}>
-                                    {lblText}
-                                  </span>
-                                </div>
-                                <div style={{ height: 5, background: '#F1F5F9', borderRadius: 99, overflow: 'hidden' }}>
-                                  <div style={{
-                                    height: '100%', borderRadius: 99,
-                                    width: `${pct * 100}%`,
-                                    background: fillColor,
-                                    transition: 'width 0.4s ease-out',
-                                  }} />
-                                </div>
-                              </>
-                            );
-                          })()}
+                        <div style={{ padding: '0 12px 9px', flexShrink: 0 }}>
+                          <div style={{
+                            display: 'flex', height: 6, borderRadius: 99,
+                            background: trackBg, overflow: 'hidden',
+                          }}>
+                            {segments.map((seg, i) => (
+                              <div key={i} style={{
+                                width: `${seg.w}%`, height: '100%', background: seg.c,
+                                borderTopLeftRadius:     i === 0 ? 99 : 0,
+                                borderBottomLeftRadius:  i === 0 ? 99 : 0,
+                                borderTopRightRadius:    i === segments.length - 1 ? 99 : 0,
+                                borderBottomRightRadius: i === segments.length - 1 ? 99 : 0,
+                                transition: 'width 0.4s ease-out',
+                              }} />
+                            ))}
+                          </div>
                         </div>
                       )}
                     </div>
