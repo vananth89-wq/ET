@@ -149,14 +149,6 @@ function getEntryLabel(ent: TimesheetEntry): string {
   return p?.name ? (tName ? `${tName} · ${p.name}` : p.name) : tName;
 }
 
-function getEntryCode(ent: TimesheetEntry): string {
-  if (ent.entry_kind === 'project') {
-    const p = Array.isArray(ent.projects) ? ent.projects[0] : ent.projects;
-    return p?.name ?? '';
-  }
-  const t = Array.isArray(ent.time_types) ? ent.time_types[0] : ent.time_types;
-  return t?.code ?? '';
-}
 
 function getEntryBadge(ent: TimesheetEntry): { code: string; bg: string; color: string; accentColor: string; projectName?: string } {
   if (ent.entry_kind === 'holiday') {
