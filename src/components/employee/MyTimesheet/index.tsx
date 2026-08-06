@@ -930,30 +930,74 @@ export default function MyTimesheet() {
                 </button>
               </div>
 
-              {/* Day stats */}
-              <div style={{ display: 'flex', gap: 16, marginTop: 8 }}>
-                {schedule && (() => {
-                  const dow = new Date(selectedDate + 'T00:00:00').getDay();
-                  const planned = plannedForDay(dow, schedule);
-                  return planned > 0 ? (
-                    <div style={{ fontSize: 11, color: '#6B7280' }}>
-                      Planned: <strong style={{ color: '#374151' }}>{fmtMins(planned)}</strong>
+              {/* Day progress summary */}
+              {(() => {
+                const recorded = dayEntries.reduce((s, e) => s + e.hours_minutes, 0);
+                const dow      = new Date(selectedDate + 'T00:00:00').getDay();
+                const planned  = schedule ? plannedForDay(dow, schedule) : 0;
+
+                if (planned === 0) {
+                  return (
+                    <div style={{ marginTop: 10, fontSize: 12, color: '#9CA3AF', fontStyle: 'italic' }}>
+                      {holidayByDate[selectedDate]
+                        ? <span>🎉 {holidayByDate[selectedDate]}</span>
+                        : 'Non-working day'}
                     </div>
-                  ) : (
-                    <div style={{ fontSize: 11, color: '#9CA3AF' }}>Non-working day</div>
                   );
-                })()}
-                {holidayByDate[selectedDate] && (
-                  <div style={{ fontSize: 11, color: '#5B21B6', fontWeight: 600 }}>
-                    🎉 {holidayByDate[selectedDate]}
+                }
+
+                const recHrs    = +(recorded / 60).toFixed(1);
+                const planHrs   = Math.round(planned / 60);
+                const isOver    = recorded > planned;
+                const isDone    = recorded >= planned;
+                const overHrs   = +((recorded - planned) / 60).toFixed(1);
+                const remHrs    = +((planned - recorded) / 60).toFixed(1);
+
+                // Segmented bar colours
+                const loggedColor    = isDone ? '#10B981' : '#3B82F6';
+                const remainingColor = '#FCD34D';
+                const extraColor     = '#F87171';
+
+                // Status text colour
+                const statusColor = isOver ? '#DC2626' : isDone ? '#059669' : '#B45309';
+                const statusText  = isOver
+                  ? `+${overHrs} hr over plan`
+                  : isDone
+                  ? '✓ Day complete'
+                  : `${remHrs} hr remaining`;
+
+                return (
+                  <div style={{ marginTop: 12 }}>
+                    {/* Segmented progress bar */}
+                    <div style={{ height: 10, borderRadius: 99, overflow: 'hidden', display: 'flex', gap: 2, marginBottom: 8 }}>
+                      {isOver ? (
+                        <>
+                          <div style={{ flex: planHrs, height: '100%', borderRadius: 99, background: '#10B981', transition: 'flex 0.4s ease-out' }} />
+                          <div style={{ flex: overHrs, height: '100%', borderRadius: 99, background: extraColor, transition: 'flex 0.4s ease-out' }} />
+                        </>
+                      ) : (
+                        <>
+                          <div style={{ flex: recHrs, height: '100%', borderRadius: 99, background: loggedColor, transition: 'flex 0.4s ease-out' }} />
+                          {!isDone && <div style={{ flex: remHrs, height: '100%', borderRadius: 99, background: remainingColor }} />}
+                        </>
+                      )}
+                    </div>
+                    {/* Numbers */}
+                    <div style={{ fontSize: 18, fontWeight: 700, color: '#111827', lineHeight: 1.3 }}>
+                      {recHrs} / {planHrs} hr
+                    </div>
+                    {/* Status line */}
+                    <div style={{ fontSize: 11, fontWeight: 500, color: statusColor, lineHeight: 1.4 }}>
+                      {statusText}
+                    </div>
+                    {holidayByDate[selectedDate] && (
+                      <div style={{ fontSize: 11, color: '#5B21B6', fontWeight: 600, marginTop: 6 }}>
+                        🎉 {holidayByDate[selectedDate]}
+                      </div>
+                    )}
                   </div>
-                )}
-                <div style={{ fontSize: 11, color: '#6B7280', marginLeft: 'auto' }}>
-                  Recorded: <strong style={{ color: '#111827' }}>
-                    {fmtMins(dayEntries.reduce((s,e) => s + e.hours_minutes, 0))}
-                  </strong>
-                </div>
-              </div>
+                );
+              })()}
             </div>
 
             {/* Expand All / Collapse All row — only when there are entries */}
@@ -1323,9 +1367,9 @@ export default function MyTimesheet() {
                   <button
                     onClick={openAddAttendance}
                     style={{
-                      width: '100%', padding: '11px 0', borderRadius: 8, border: 'none',
+                      width: '100%', padding: '8px 0', borderRadius: 8, border: 'none',
                       background: '#DCFCE7', color: '#166534',
-                      fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                      fontSize: 13, fontWeight: 600, cursor: 'pointer',
                       display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                     }}
                   >
@@ -1334,9 +1378,9 @@ export default function MyTimesheet() {
                   <button
                     onClick={openAddAbsence}
                     style={{
-                      width: '100%', padding: '11px 0', borderRadius: 8, border: 'none',
+                      width: '100%', padding: '8px 0', borderRadius: 8, border: 'none',
                       background: '#FEF9C3', color: '#854D0E',
-                      fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                      fontSize: 13, fontWeight: 600, cursor: 'pointer',
                       display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                     }}
                   >
