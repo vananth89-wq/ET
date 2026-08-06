@@ -1466,10 +1466,6 @@ const navBtnSt: React.CSSProperties = {
   display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
 };
 
-const iconBtnSt: React.CSSProperties = {
-  background: 'none', border: '1px solid #E5E7EB', borderRadius: 4,
-  padding: '3px 7px', cursor: 'pointer', color: '#374151',
-};
 
 const selectSt: React.CSSProperties = {
   width: '100%', padding: '6px 8px', borderRadius: 6,
