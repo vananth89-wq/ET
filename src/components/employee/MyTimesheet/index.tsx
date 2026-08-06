@@ -997,43 +997,61 @@ export default function MyTimesheet() {
                     borderRadius: 10, marginBottom: 7, overflow: 'hidden',
                     transition: 'box-shadow 0.15s',
                   }}>
-                    {/* Single row: label + hours + actions + chevron */}
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 10px 10px 12px', gap: 8 }}>
-                      {/* Label */}
-                      <span style={{ fontSize: 13, fontWeight: 700, color: '#1F2937', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
-                        {getEntryLabel(ent)}
-                        {ent.is_system_generated && <span style={{ fontSize: 9, color: '#9CA3AF', background: '#F3F4F6', padding: '1px 4px', borderRadius: 3, marginLeft: 5, fontWeight: 400 }}>auto</span>}
-                      </span>
-                      {/* Hours + actions + chevron */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-                        <span style={{ fontSize: 13, fontWeight: 800, color: '#3B82F6', marginRight: 2 }}>{fmtMins(ent.hours_minutes)}</span>
-                        {editable && !ent.is_system_generated && (
-                          <>
-                            <button onClick={() => openEdit(ent)} style={iconBtnSt} title="Edit">
-                              <i className="fa-solid fa-pen" style={{ fontSize: 10 }} />
+                    {/* Card header: two-level hierarchy */}
+                    {(() => {
+                      const t = Array.isArray(ent.time_types) ? ent.time_types[0] : ent.time_types;
+                      const p = Array.isArray(ent.projects)   ? ent.projects[0]   : ent.projects;
+                      const primaryText   = p?.name ?? t?.name ?? (ent.entry_kind === 'holiday' ? 'Holiday' : ent.entry_kind);
+                      const secondaryText = p?.name ? (t?.name ?? null) : null;
+                      return (
+                        <div style={{ display: 'flex', alignItems: 'center', padding: '10px 10px 10px 14px', gap: 10 }}>
+                          {/* Left: primary + secondary text */}
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 15, fontWeight: 700, color: '#111827', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.2 }}>
+                              {primaryText}
+                              {ent.is_system_generated && <span style={{ fontSize: 9, color: '#9CA3AF', background: '#F3F4F6', padding: '1px 4px', borderRadius: 3, marginLeft: 6, fontWeight: 400 }}>auto</span>}
+                            </div>
+                            {secondaryText && (
+                              <div style={{ fontSize: 12, color: '#9CA3AF', fontWeight: 500, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {secondaryText}
+                              </div>
+                            )}
+                          </div>
+                          {/* Right: hours + divider + actions + chevron */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                            <span style={{ fontSize: 20, fontWeight: 600, color: '#3B82F6', lineHeight: 1 }}>{fmtMins(ent.hours_minutes)}</span>
+                            {(editable && !ent.is_system_generated) && (
+                              <div style={{ width: 1, height: 28, background: '#E5E7EB', flexShrink: 0 }} />
+                            )}
+                            {editable && !ent.is_system_generated && (
+                              <>
+                                <button onClick={() => openEdit(ent)} style={iconBtnSt} title="Edit">
+                                  <i className="fa-solid fa-pen" style={{ fontSize: 10 }} />
+                                </button>
+                                <button onClick={() => handleDeleteEntry(ent.id)} style={{ ...iconBtnSt, color: '#DC2626', borderColor: '#FEE2E2' }} title="Delete">
+                                  <i className="fa-solid fa-trash" style={{ fontSize: 10 }} />
+                                </button>
+                              </>
+                            )}
+                            <button
+                              onClick={() => toggleEntryExpand(ent.id)}
+                              title={isOpen ? 'Collapse' : 'Expand'}
+                              style={{
+                                width: 22, height: 22, flexShrink: 0,
+                                border: `1px solid ${isOpen ? '#BFDBFE' : '#E5E7EB'}`,
+                                borderRadius: 6,
+                                background: isOpen ? '#EFF6FF' : '#F9FAFB',
+                                color: isOpen ? '#3B82F6' : '#9CA3AF',
+                                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                fontSize: 9, userSelect: 'none', transition: 'all 0.15s',
+                              }}
+                            >
+                              <i className={`fa-solid fa-chevron-${isOpen ? 'up' : 'down'}`} />
                             </button>
-                            <button onClick={() => handleDeleteEntry(ent.id)} style={{ ...iconBtnSt, color: '#DC2626', borderColor: '#FEE2E2' }} title="Delete">
-                              <i className="fa-solid fa-trash" style={{ fontSize: 10 }} />
-                            </button>
-                          </>
-                        )}
-                        <button
-                          onClick={() => toggleEntryExpand(ent.id)}
-                          title={isOpen ? 'Collapse' : 'Expand'}
-                          style={{
-                            width: 22, height: 22, flexShrink: 0,
-                            border: `1px solid ${isOpen ? '#BFDBFE' : '#E5E7EB'}`,
-                            borderRadius: 6,
-                            background: isOpen ? '#EFF6FF' : '#F9FAFB',
-                            color: isOpen ? '#3B82F6' : '#9CA3AF',
-                            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            fontSize: 9, userSelect: 'none', transition: 'all 0.15s',
-                          }}
-                        >
-                          <i className={`fa-solid fa-chevron-${isOpen ? 'up' : 'down'}`} />
-                        </button>
-                      </div>
-                    </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {/* Inline edit form — replaces card body when editing this entry */}
                     {isEditing ? (
