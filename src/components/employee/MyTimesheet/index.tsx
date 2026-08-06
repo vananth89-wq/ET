@@ -158,28 +158,28 @@ function getEntryCode(ent: TimesheetEntry): string {
   return t?.code ?? '';
 }
 
-function getEntryBadge(ent: TimesheetEntry): { code: string; bg: string; color: string; projectName?: string } {
+function getEntryBadge(ent: TimesheetEntry): { code: string; bg: string; color: string; accentColor: string; projectName?: string } {
   if (ent.entry_kind === 'holiday') {
-    return { code: 'HOL', bg: '#EDE9FE', color: '#5B21B6' };
+    return { code: 'HOL', bg: '#EDE9FE', color: '#5B21B6', accentColor: '#7C3AED' };
   }
   if (ent.entry_kind === 'leave') {
     const t = Array.isArray(ent.time_types) ? ent.time_types[0] : ent.time_types;
-    return { code: t?.code ?? 'LV', bg: '#FEF3C7', color: '#92400E' };
+    return { code: t?.code ?? 'LV', bg: '#FEF3C7', color: '#92400E', accentColor: '#F59E0B' };
   }
   if (ent.entry_kind === 'time_type') {
     const t = Array.isArray(ent.time_types) ? ent.time_types[0] : ent.time_types;
     const code = t?.code ?? 'WK';
     if (ent.project_id) {
       const p = Array.isArray(ent.projects) ? ent.projects[0] : ent.projects;
-      return { code, bg: '#D1FAE5', color: '#065F46', projectName: p?.name };
+      return { code, bg: '#D1FAE5', color: '#065F46', accentColor: '#10B981', projectName: p?.name };
     }
-    return { code, bg: '#D1FAE5', color: '#065F46' };
+    return { code, bg: '#D1FAE5', color: '#065F46', accentColor: '#10B981' };
   }
   // entry_kind === 'project'
   const p = Array.isArray(ent.projects) ? ent.projects[0] : ent.projects;
   const name = p?.name ?? 'Project';
   const abbreviated = name.length > 4 ? name.slice(0, 4).toUpperCase() : name.toUpperCase();
-  return { code: abbreviated, bg: '#DBEAFE', color: '#1E40AF', projectName: name };
+  return { code: abbreviated, bg: '#DBEAFE', color: '#1E40AF', accentColor: '#3B82F6', projectName: name };
 }
 
 // ─── Style constants ──────────────────────────────────────────────────────────
@@ -803,13 +803,13 @@ export default function MyTimesheet() {
                           {dayEnts.slice(0, 3).map(ent => {
                             const badge = getEntryBadge(ent);
                             const hrs   = Math.round(ent.hours_minutes / 60 * 10) / 10;
-                            const label = badge.projectName ?? getEntryLabel(ent).split(' · ').pop() ?? '';
+                            const label = getEntryLabel(ent);
                             return (
                               <div
                                 key={ent.id}
                                 onClick={e => { e.stopPropagation(); setSelectedDate(dateStr); setPanelOpen(true); openEdit(ent); }}
                                 style={{
-                                  display: 'flex', alignItems: 'center', gap: 4,
+                                  display: 'flex', alignItems: 'center', gap: 5,
                                   padding: '2px 3px', borderRadius: 5,
                                   transition: 'background 0.1s',
                                 }}
@@ -817,13 +817,9 @@ export default function MyTimesheet() {
                                 onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                               >
                                 <span style={{
-                                  flexShrink: 0, fontSize: 7.5, fontWeight: 800,
-                                  padding: '1.5px 4px', borderRadius: 3,
-                                  background: badge.bg, color: badge.color,
-                                  letterSpacing: '0.04em', whiteSpace: 'nowrap',
-                                }}>
-                                  {badge.code}
-                                </span>
+                                  flexShrink: 0, width: 6, height: 6, borderRadius: '50%',
+                                  background: badge.accentColor, display: 'inline-block',
+                                }} />
                                 <span style={{
                                   fontSize: 10, color: '#374151', fontWeight: 600,
                                   whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1,
@@ -1005,25 +1001,19 @@ export default function MyTimesheet() {
                 return (
                   <div key={ent.id} style={{
                     border: isEditing ? '2px solid #2563EB' : '1px solid #E5E7EB',
+                    borderLeft: isEditing ? '3px solid #2563EB' : `3px solid ${badge.accentColor}`,
                     borderRadius: 10, marginBottom: 7, overflow: 'hidden',
                     transition: 'box-shadow 0.15s',
                   }}>
-                    {/* Top row: badge + code + hours + actions */}
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 12px 4px', gap: 8 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{
-                          fontSize: 8, fontWeight: 800, textTransform: 'uppercase',
-                          letterSpacing: '0.05em', padding: '2px 6px', borderRadius: 4,
-                          background: badge.bg, color: badge.color, whiteSpace: 'nowrap',
-                        }}>
-                          {badge.code}
-                        </span>
-                        <code style={{ fontSize: 9, color: '#9CA3AF', fontWeight: 700 }}>{getEntryCode(ent)}</code>
-                        {ent.is_system_generated && (
-                          <span style={{ fontSize: 9, color: '#9CA3AF', background: '#F3F4F6', padding: '1px 4px', borderRadius: 3 }}>auto</span>
-                        )}
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    {/* Single row: label + hours + actions + chevron */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 10px 10px 12px', gap: 8 }}>
+                      {/* Label */}
+                      <span style={{ fontSize: 13, fontWeight: 700, color: '#1F2937', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
+                        {getEntryLabel(ent)}
+                        {ent.is_system_generated && <span style={{ fontSize: 9, color: '#9CA3AF', background: '#F3F4F6', padding: '1px 4px', borderRadius: 3, marginLeft: 5, fontWeight: 400 }}>auto</span>}
+                      </span>
+                      {/* Hours + actions + chevron */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
                         <span style={{ fontSize: 13, fontWeight: 800, color: '#3B82F6', marginRight: 2 }}>{fmtMins(ent.hours_minutes)}</span>
                         {editable && !ent.is_system_generated && (
                           <>
@@ -1035,6 +1025,21 @@ export default function MyTimesheet() {
                             </button>
                           </>
                         )}
+                        <button
+                          onClick={() => toggleEntryExpand(ent.id)}
+                          title={isOpen ? 'Collapse' : 'Expand'}
+                          style={{
+                            width: 22, height: 22, flexShrink: 0,
+                            border: `1px solid ${isOpen ? '#BFDBFE' : '#E5E7EB'}`,
+                            borderRadius: 6,
+                            background: isOpen ? '#EFF6FF' : '#F9FAFB',
+                            color: isOpen ? '#3B82F6' : '#9CA3AF',
+                            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: 9, userSelect: 'none', transition: 'all 0.15s',
+                          }}
+                        >
+                          <i className={`fa-solid fa-chevron-${isOpen ? 'up' : 'down'}`} />
+                        </button>
                       </div>
                     </div>
 
@@ -1110,28 +1115,6 @@ export default function MyTimesheet() {
                       </div>
                     ) : (
                     <>
-                    {/* Name row + chevron */}
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '2px 12px 9px', gap: 8 }}>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: '#1F2937', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
-                        {getEntryLabel(ent)}
-                      </span>
-                      <button
-                        onClick={() => toggleEntryExpand(ent.id)}
-                        title={isOpen ? 'Collapse' : 'Expand'}
-                        style={{
-                          width: 22, height: 22, flexShrink: 0,
-                          border: `1px solid ${isOpen ? '#BFDBFE' : '#E5E7EB'}`,
-                          borderRadius: 6,
-                          background: isOpen ? '#EFF6FF' : '#F9FAFB',
-                          color: isOpen ? '#3B82F6' : '#9CA3AF',
-                          cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          fontSize: 9, userSelect: 'none', transition: 'all 0.15s',
-                        }}
-                      >
-                        <i className={`fa-solid fa-chevron-${isOpen ? 'up' : 'down'}`} />
-                      </button>
-                    </div>
-
                     {/* Collapsible detail */}
                     {isOpen && (
                       <div style={{ borderTop: '1px solid #F3F4F6', background: '#FAFAFA', padding: '10px 12px 12px' }}>
