@@ -2,7 +2,7 @@
  * TimeTypes — Admin page for managing time entry types.
  *
  * Each time type has: name, code, category (attendance/absence),
- * allows_partial_overlap, is_active.
+ * allows_half_day, is_active.
  *
  * Layout: form card at top, sortable list below.
  */
@@ -19,7 +19,8 @@ interface TimeType {
   name:                   string;
   code:                   string;
   category:               'attendance' | 'absence';
-  allows_partial_overlap: boolean;
+  allows_half_day:        boolean;
+  is_system_managed:      boolean;
   requires_project:       boolean;
   is_active:              boolean;
   created_at:             string | null;
@@ -51,7 +52,7 @@ function CategoryBadge({ category }: { category: string }) {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 const EMPTY: Omit<TimeType, 'id'> & { id: string } = {
-  id: '', name: '', code: '', category: 'attendance', allows_partial_overlap: false, requires_project: false, is_active: true, created_at: null, updated_at: null, creator: null,
+  id: '', name: '', code: '', category: 'attendance', allows_half_day: false, is_system_managed: false, requires_project: false, is_active: true, created_at: null, updated_at: null, creator: null,
 };
 
 export default function TimeTypes() {
@@ -69,7 +70,7 @@ export default function TimeTypes() {
     setError(null);
     const { data, error: e } = await supabase
       .from('time_types')
-      .select('id, name, code, category, allows_partial_overlap, requires_project, is_active, created_at, updated_at, creator:profiles!created_by(employees!employee_id(name))')
+      .select('id, name, code, category, allows_half_day, is_system_managed, requires_project, is_active, created_at, updated_at, creator:profiles!created_by(employees!employee_id(name))')
       .order('category')
       .order('name');
     if (e) { setError(e.message); setLoading(false); return; }
@@ -101,7 +102,8 @@ export default function TimeTypes() {
       name: form.name.trim(),
       code: form.code.trim(),
       category: form.category,
-      allows_partial_overlap: form.allows_partial_overlap,
+      // each flag belongs to exactly one category — mirrored in upsert_time_type (mig 718)
+      allows_half_day:  form.category === 'absence'    ? form.allows_half_day  : false,
       requires_project: form.category === 'attendance' ? form.requires_project : false,
       is_active: form.is_active,
     };
@@ -176,16 +178,18 @@ export default function TimeTypes() {
           </div>
 
           <div style={{ display: 'flex', gap: 24, marginBottom: 16 }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
-              <input
-                type="checkbox" checked={form.allows_partial_overlap}
-                onChange={e => setForm(p => ({ ...p, allows_partial_overlap: e.target.checked }))}
-              />
-              Allows Partial Overlap
-              <span style={{ color: '#9CA3AF', fontSize: 11 }}>
-                (employees can log other hours on a partial {form.category === 'absence' ? 'absence' : 'attendance'} day)
-              </span>
-            </label>
+            {form.category === 'absence' && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+                <input
+                  type="checkbox" checked={form.allows_half_day}
+                  onChange={e => setForm(p => ({ ...p, allows_half_day: e.target.checked }))}
+                />
+                Allows Half Day
+                <span style={{ color: '#9CA3AF', fontSize: 11 }}>
+                  (may be taken for part of a day; employees can log attendance alongside it)
+                </span>
+              </label>
+            )}
 
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
               <input
@@ -252,7 +256,7 @@ export default function TimeTypes() {
                         <th>Code</th>
                         <th>Category</th>
                         {isAttendance && <th>Req. Project</th>}
-                        <th>Partial Overlap</th>
+                        {!isAttendance && <th>Half Day</th>}
                         <th>Status</th>
                         <th>Created</th>
                         <th>Last Updated</th>
@@ -275,12 +279,14 @@ export default function TimeTypes() {
                               }
                             </td>
                           )}
-                          <td style={{ textAlign: 'center' }}>
-                            {tt.allows_partial_overlap
-                              ? <i className="fa-solid fa-check" style={{ color: '#10B981' }} />
-                              : <i className="fa-solid fa-minus" style={{ color: '#D1D5DB' }} />
-                            }
-                          </td>
+                          {!isAttendance && (
+                            <td style={{ textAlign: 'center' }}>
+                              {tt.allows_half_day
+                                ? <i className="fa-solid fa-check" style={{ color: '#10B981' }} title="May be taken as a half day" />
+                                : <i className="fa-solid fa-minus" style={{ color: '#D1D5DB' }} title="Full day only" />
+                              }
+                            </td>
+                          )}
                           <td>
                             <span style={{
                               fontSize: 11, padding: '2px 8px', borderRadius: 10,
