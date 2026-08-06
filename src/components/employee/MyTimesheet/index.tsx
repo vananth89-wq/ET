@@ -14,7 +14,7 @@
  *   time_work_schedule_lines.day_number     → 1–7 (day 1 = schedule.start_day_of_week)
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useAuth }                                    from '../../../contexts/AuthContext';
 import { supabase }                                   from '../../../lib/supabase';
 import ErrorBanner                                    from '../../shared/ErrorBanner';
@@ -77,6 +77,7 @@ interface TimeType {
   code:             string;
   category:         'attendance' | 'absence';
   requires_project: boolean;
+  allows_half_day:  boolean;   // absence only — mig 718
   is_active:        boolean;
 }
 
@@ -97,6 +98,12 @@ const MONTH_NAMES = [
 const DAY_ABBR = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
 function pad2(n: number) { return String(n).padStart(2, '0'); }
+
+// "2026-08-04" -> "4 Aug", for chips and toasts
+function fmtChip(iso: string) {
+  const [, m, d] = iso.split('-');
+  return `${parseInt(d, 10)} ${MONTH_NAMES[parseInt(m, 10) - 1].slice(0, 3)}`;
+}
 function isoDate(y: number, m: number, d: number) { return `${y}-${pad2(m)}-${pad2(d)}`; }
 function daysInMonth(y: number, m: number) { return new Date(y, m, 0).getDate(); }
 function firstDow(y: number, m: number) { return new Date(y, m - 1, 1).getDay(); }
@@ -166,6 +173,13 @@ function getEntryBadge(ent: TimesheetEntry): { code: string; bg: string; color: 
   return { code: abbreviated, bg: '#DBEAFE', color: '#1E40AF', accentColor: '#3B82F6', projectName: name };
 }
 
+interface Toast {
+  id:      number;
+  msg:     string;
+  kind:    'ok' | 'bad';
+  undoIds?: string[];        // entry ids to delete if the user hits Undo
+}
+
 // ─── Day-cell status ──────────────────────────────────────────────────────────
 // Single source of truth for BOTH the day-cell metric and the progress bar, so
 // the two can never contradict each other (e.g. "8 / 8h" beside an amber bar).
@@ -230,6 +244,19 @@ export default function MyTimesheet() {
   const [schedule,  setSchedule]  = useState<WorkSchedule | null>(null);
   const [holidays,  setHolidays]  = useState<HolidayEntry[]>([]);
 
+  // Create modal (multi-date attendance)
+  const [createOpen,  setCreateOpen]  = useState(false);
+  const [createDates, setCreateDates] = useState<Set<string>>(new Set());
+  const [createErr,   setCreateErr]   = useState<{ msg: string; dates: string[] } | null>(null);
+  const [creating,    setCreating]    = useState(false);
+
+  // Copy Day — 'idle' | 'pick' (choose a source) | 'paste' (choose targets)
+  const [copyMode,  setCopyMode]  = useState<'idle' | 'pick' | 'paste'>('idle');
+  const [clipboard, setClipboard] = useState<{ from: string; entries: TimesheetEntry[] } | null>(null);
+
+  // Toasts
+  const [toasts, setToasts] = useState<Toast[]>([]);
+
   // Loading states
   const [loading,      setLoading]      = useState(true);
   const [error,        setError]        = useState<string | null>(null);
@@ -263,7 +290,7 @@ export default function MyTimesheet() {
     (async () => {
       const [empRes, ttRes, prRes, actRes] = await Promise.all([
         supabase.from('employees').select('employee_id').eq('id', employee.id).single(),
-        supabase.from('time_types').select('id, name, code, category, requires_project, is_active').eq('is_active', true).order('category').order('name'),
+        supabase.from('time_types').select('id, name, code, category, requires_project, allows_half_day, is_active').eq('is_active', true).eq('is_system_managed', false).order('category').order('name'),
         supabase.from('projects').select('id, name, active, start_date, end_date').eq('active', true).order('name'),
         supabase.rpc('get_employee_activities', { p_employee_id: employee.id }),
       ]);
@@ -435,6 +462,174 @@ export default function MyTimesheet() {
       .update({ recorded_minutes: total })
       .eq('id', headerId);
   }
+
+  // ── Toasts ────────────────────────────────────────────────────────────
+  const toastSeq = useRef(0);
+  function pushToast(msg: string, kind: 'ok' | 'bad' = 'ok', undoIds?: string[]) {
+    const id = ++toastSeq.current;
+    setToasts(t => [...t, { id, msg, kind, undoIds }]);
+    setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), undoIds ? 7000 : 3800);
+  }
+  async function undoEntries(ids: string[], toastId: number) {
+    setToasts(t => t.filter(x => x.id !== toastId));
+    const { data } = await supabase.rpc('delete_timesheet_entries', { p_ids: ids });
+    if (data?.ok) { await reloadEntries(); pushToast('Change reverted.'); }
+    else pushToast(data?.message ?? 'Could not undo.', 'bad');
+  }
+
+  async function reloadEntries() {
+    if (!header) return;
+    const { data: ents } = await supabase
+      .from('timesheet_entries')
+      .select(`id, header_id, entry_date, entry_kind, project_id, time_type_id, hours_minutes, notes, activities, is_system_generated, time_types(name,code,category,requires_project), projects(name)`)
+      .eq('header_id', header.id)
+      .order('entry_date').order('created_at');
+    const list = (ents ?? []) as unknown as TimesheetEntry[];
+    setEntries(list);
+    setHeader(h => h ? { ...h, recorded_minutes: list.reduce((s, e) => s + e.hours_minutes, 0) } : h);
+  }
+
+  // ── Date-scope rules — shared by Create and Copy ──────────────────────
+  // A date may receive attendance when it is inside this month, not in the
+  // future, and empty. Non-working days ARE allowed: weekend work is real work.
+  function dateBlockedReason(dateStr: string): string | null {
+    if (dateStr.slice(0, 7) !== `${year}-${pad2(month)}`) return 'Outside this timesheet month';
+    if (dateStr > todayIso)                               return 'Future date — attendance cannot be recorded in advance';
+    if ((entriesByDate[dateStr] ?? []).length > 0)        return 'Already has attendance';
+    return null;
+  }
+
+  // ── Create ────────────────────────────────────────────────────────────
+  function openCreate() {
+    const seed = selectedDate && !dateBlockedReason(selectedDate) ? [selectedDate] : [];
+    setCreateDates(new Set(seed));
+    setCreateErr(null);
+    setForm(emptyForm);
+    setFormErr('');
+    setCreateOpen(true);
+  }
+  function toggleCreateDate(dateStr: string) {
+    setCreateDates(prev => {
+      const next = new Set(prev);
+      if (next.has(dateStr)) next.delete(dateStr); else next.add(dateStr);
+      return next;
+    });
+    setCreateErr(null);
+  }
+
+  async function submitCreate() {
+    if (!header) return;
+    const dates = [...createDates].sort();
+    if (!dates.length) { setFormErr('Select at least one date.'); return; }
+    if (!form.typeId)  { setFormErr('Please select a time type.'); return; }
+
+    const tt = timeTypes.find(t => t.id === form.typeId);
+    if (tt?.requires_project && !form.projId) { setFormErr('Please select a project for this time type.'); return; }
+
+    const hrs = parseInt(form.hours || '0', 10);
+    const mins = parseInt(form.mins || '0', 10);
+    if (isNaN(hrs) || isNaN(mins) || (hrs === 0 && mins === 0)) { setFormErr('Duration must be greater than 0.'); return; }
+
+    setCreating(true); setFormErr(''); setCreateErr(null);
+    const acts = form.activities.map(a => a.trim()).filter(Boolean);
+    const { data, error: rpcErr } = await supabase.rpc('bulk_create_timesheet_entries', {
+      p_header_id: header.id,
+      p_dates: dates,
+      p_entry: {
+        time_type_id:  form.typeId,
+        project_id:    tt?.requires_project ? form.projId : null,
+        hours_minutes: hrs * 60 + mins,
+        notes:         form.notes.trim() || null,
+        activities:    acts.length ? acts : null,
+      },
+    });
+    setCreating(false);
+
+    if (rpcErr) { setFormErr(rpcErr.message); return; }
+    if (!data?.ok) {
+      // Dates come back on the scope errors so the user can drop them in one click
+      if (Array.isArray(data?.dates) && data.dates.length) setCreateErr({ msg: data.message, dates: data.dates });
+      else setFormErr(data?.message ?? 'Could not create entries.');
+      return;
+    }
+
+    setCreateOpen(false);
+    await reloadEntries();
+    if (acts.length && employee?.id) supabase.rpc('record_activity_usages', { p_employee_id: employee.id, p_activity_names: acts });
+    pushToast(
+      `Created on ${data.created} ${data.created === 1 ? 'day' : 'days'} — ${dates.map(fmtChip).join(', ')}`,
+      'ok',
+      data.entry_ids,
+    );
+  }
+
+  // ── Copy Day ──────────────────────────────────────────────────────────
+  function exitCopyMode() { setCopyMode('idle'); setClipboard(null); }
+
+  // Only attendance travels. Leave is excluded entirely: an 8h leave pasted
+  // onto a 4h-planned day would be longer than the day exists.
+  const attendanceOf = (dateStr: string) =>
+    (entriesByDate[dateStr] ?? []).filter(e => e.entry_kind !== 'leave' && e.entry_kind !== 'holiday');
+
+  function copyDay(dateStr: string) {
+    const work = attendanceOf(dateStr);
+    if (!work.length) {
+      pushToast((entriesByDate[dateStr] ?? []).length
+        ? 'Only attendance can be copied. That day has no attendance on it.'
+        : 'Nothing to copy — that day is empty.', 'bad');
+      return;
+    }
+    const skipped = (entriesByDate[dateStr] ?? []).length - work.length;
+    setClipboard({ from: dateStr, entries: work });
+    setCopyMode('paste');
+    pushToast(`Copied ${fmtChip(dateStr)} — ${work.length} ${work.length === 1 ? 'entry' : 'entries'}${skipped ? ' (leave not copied)' : ''}`);
+  }
+
+  async function pasteInto(dateStr: string) {
+    if (!header || !clipboard) return;
+    const blocked = dateBlockedReason(dateStr);
+    if (blocked) {
+      pushToast(blocked === 'Already has attendance'
+        ? 'Attendance already exists for this day. Paste is only allowed into empty days.'
+        : `${blocked}.`, 'bad');
+      return;
+    }
+    const rows = clipboard.entries.map(e => ({
+      header_id:     header.id,
+      entry_date:    dateStr,
+      entry_kind:    e.entry_kind,
+      time_type_id:  e.time_type_id,
+      project_id:    e.project_id,
+      hours_minutes: e.hours_minutes,
+      notes:         e.notes,
+      activities:    e.activities,
+    }));
+    const { data, error: insErr } = await supabase.from('timesheet_entries').insert(rows).select('id');
+    if (insErr) { pushToast(insErr.message, 'bad'); return; }
+    await supabase.rpc('recalc_timesheet_recorded_minutes', { p_header_id: header.id });
+    await reloadEntries();
+    pushToast(`Pasted into ${fmtChip(dateStr)} — ${rows.length} ${rows.length === 1 ? 'entry' : 'entries'}`,
+      'ok', (data ?? []).map(r => r.id));
+  }
+
+  // ── Keyboard: C = create, D = copy mode, Esc = exit ───────────────────
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        if (createOpen) setCreateOpen(false);
+        else if (copyMode !== 'idle') exitCopyMode();
+        return;
+      }
+      if (createOpen) return;
+      const el = e.target as HTMLElement | null;
+      if (el && ['INPUT', 'SELECT', 'TEXTAREA'].includes(el.tagName)) return;
+      if (!editable) return;
+      if (e.key === 'c' || e.key === 'C') { exitCopyMode(); openCreate(); }
+      if (e.key === 'd' || e.key === 'D') { setCopyMode(m => m === 'idle' ? 'pick' : 'idle'); setClipboard(null); }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
 
   // ── Period navigation ─────────────────────────────────────────────────
   function goToPeriod(y: number, m: number) {
@@ -700,11 +895,42 @@ export default function MyTimesheet() {
           </span>
 
           {editable && (
+            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <button
+                onClick={() => { exitCopyMode(); openCreate(); }}
+                style={{
+                  padding: '7px 14px', borderRadius: 7, border: '1px solid #D0D5DD',
+                  background: '#fff', color: '#1F2937', fontWeight: 600, fontSize: 13,
+                  cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+                }}
+                title="Create attendance on one or more days (C)"
+              >
+                <i className="fa-solid fa-plus" style={{ fontSize: 11 }} /> Create
+              </button>
+              <button
+                onClick={() => { setCopyMode(m => m === 'idle' ? 'pick' : 'idle'); setClipboard(null); }}
+                style={{
+                  padding: '7px 14px', borderRadius: 7,
+                  border: `1px solid ${copyMode === 'idle' ? '#D0D5DD' : copyMode === 'pick' ? '#2563EB' : '#6EE7B7'}`,
+                  background: copyMode === 'idle' ? '#fff' : copyMode === 'pick' ? '#EFF6FF' : '#ECFDF5',
+                  color:      copyMode === 'idle' ? '#1F2937' : copyMode === 'pick' ? '#1D4ED8' : '#047857',
+                  fontWeight: 600, fontSize: 13, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 6,
+                }}
+                title="Copy a day's attendance and paste it into empty days (D)"
+              >
+                <i className="fa-regular fa-clipboard" style={{ fontSize: 11 }} />
+                {copyMode === 'idle' ? 'Copy Day' : copyMode === 'pick' ? 'Select a day…' : 'Pasting…'}
+              </button>
+            </div>
+          )}
+
+          {editable && (
             <button
               onClick={() => setConfirmSubmit(true)}
               disabled={entries.length === 0}
               style={{
-                marginLeft: 'auto', padding: '7px 18px', borderRadius: 7, border: 'none',
+                padding: '7px 18px', borderRadius: 7, border: 'none',
                 background: entries.length === 0 ? '#E5E7EB' : '#1D4ED8',
                 color: entries.length === 0 ? '#9CA3AF' : '#fff',
                 fontWeight: 600, fontSize: 13, cursor: entries.length === 0 ? 'not-allowed' : 'pointer',
@@ -793,6 +1019,13 @@ export default function MyTimesheet() {
                   // nothing logged (-> "0/8h"). Never future, weekend, holiday or leave.
                   const showMetric = !isOffDay && !holidayOnly && !leaveName
                                      && (dayEnts.length > 0 || isPast);
+
+                  // Copy Day roles. Non-working days participate — weekend work is real work.
+                  const copySrcOk  = copyMode === 'pick'  && attendanceOf(dateStr).length > 0;
+                  const copySrcNo  = copyMode === 'pick'  && !copySrcOk;
+                  const pasteOk    = copyMode === 'paste' && !dateBlockedReason(dateStr);
+                  const pasteNo    = copyMode === 'paste' && !pasteOk && clipboard?.from !== dateStr;
+                  const isClipSrc  = clipboard?.from === dateStr;
                   // On a worked holiday the schedule's planned hours are not a target,
                   // so show the bare total rather than an "x / 8h" shortfall.
                   const metricColor = isHoliday          ? '#7C3AED'
@@ -833,30 +1066,44 @@ export default function MyTimesheet() {
                       onKeyDown={e => {
                         if (e.key === 'Enter' || e.key === ' ') {
                           e.preventDefault();
+                          if (copyMode === 'pick')  { copyDay(dateStr); return; }
+                          if (copyMode === 'paste') { pasteInto(dateStr); return; }
                           setSelectedDate(dateStr); setPanelOpen(true); cancelForm(); setExpandedEntries(new Set());
                         }
                       }}
-                      onClick={() => { setSelectedDate(dateStr); setPanelOpen(true); cancelForm(); setExpandedEntries(new Set()); }}
+                      onClick={() => {
+                        if (copyMode === 'pick')  { copyDay(dateStr); return; }
+                        if (copyMode === 'paste') { pasteInto(dateStr); return; }
+                        setSelectedDate(dateStr); setPanelOpen(true); cancelForm(); setExpandedEntries(new Set());
+                      }}
                       style={{
                         minHeight: 118,
                         borderRadius: 8,
-                        border: `1px solid ${
-                          isOffDay    ? 'transparent'
+                        opacity: (copySrcNo || pasteNo) ? 0.4 : 1,
+                        border: `1px ${pasteOk ? 'dashed' : 'solid'} ${
+                          isClipSrc   ? '#10B981'
+                          : pasteOk    ? '#6EE7B7'
+                          : copySrcOk  ? '#93C5FD'
+                          : isOffDay    ? 'transparent'
                           : isSelected ? '#2563EB'
                           : isHovered  ? '#D0D5DD'
                           : isHoliday  ? '#EDE4FE'
                           : leaveName  ? '#DBEAFE'
                           :              '#E5E7EB'}`,
-                        background: isOffDay   ? '#F4F5F7'
+                        background: pasteOk    ? '#F6FEFB'
+                                  : copySrcOk  ? '#F8FBFF'
+                                  : isOffDay   ? '#F4F5F7'
                                   : isHoliday  ? '#FAF5FF'
                                   : leaveName  ? '#EFF6FF'
                                   : isHovered  ? '#FCFCFD'
                                   :              '#fff',
-                        boxShadow: isSelected
+                        boxShadow: isClipSrc
+                          ? '0 0 0 3px rgba(16,185,129,0.12)'
+                          : isSelected
                           ? '0 0 0 3px rgba(37,99,235,0.08), 0 2px 8px -2px rgba(16,24,40,0.12)'
                           : isHovered ? '0 1px 2px rgba(16,24,40,0.06)' : undefined,
                         transform: isSelected ? 'translateY(-1px)' : undefined,
-                        cursor: isOffDay ? 'default' : 'pointer',
+                        cursor: (copySrcNo || pasteNo) ? 'not-allowed' : 'pointer',
                         display: 'flex',
                         flexDirection: 'column',
                         overflow: 'hidden',
@@ -1512,6 +1759,260 @@ export default function MyTimesheet() {
           </div>
         )}
       </div>
+
+      {/* ── Copy-mode banner ──────────────────────────────────────────────── */}
+      {copyMode !== 'idle' && (
+        <div style={{
+          position: 'fixed', top: 14, left: '50%', transform: 'translateX(-50%)', zIndex: 800,
+          display: 'flex', alignItems: 'center', gap: 12, padding: '9px 14px', borderRadius: 9,
+          fontSize: 13, fontWeight: 600, boxShadow: '0 4px 14px -4px rgba(16,24,40,0.18)',
+          background: copyMode === 'pick' ? '#EFF6FF' : '#ECFDF5',
+          border: `1px solid ${copyMode === 'pick' ? '#BFDBFE' : '#A7F3D0'}`,
+          color: copyMode === 'pick' ? '#1D4ED8' : '#047857',
+        }}>
+          {copyMode === 'pick'
+            ? '📋 Copy mode — click a day that has attendance'
+            : `✓ Copied ${clipboard ? fmtChip(clipboard.from) : ''} (${clipboard?.entries.length ?? 0} ${clipboard?.entries.length === 1 ? 'entry' : 'entries'}) — click any empty day to paste`}
+          <button onClick={exitCopyMode} style={{ border: 'none', background: 'none', font: 'inherit', fontWeight: 700, cursor: 'pointer', color: 'inherit', opacity: 0.75 }}>
+            {copyMode === 'pick' ? 'Cancel' : 'Done'} (Esc)
+          </button>
+        </div>
+      )}
+
+      {/* ── Toasts ────────────────────────────────────────────────────────── */}
+      <div style={{ position: 'fixed', left: '50%', bottom: 26, transform: 'translateX(-50%)', zIndex: 10000, display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center' }}>
+        {toasts.map(t => (
+          <div key={t.id} style={{
+            display: 'flex', alignItems: 'center', gap: 12, borderRadius: 10, padding: '11px 14px',
+            fontSize: 13, color: '#fff', background: t.kind === 'bad' ? '#B42318' : '#111827',
+            boxShadow: '0 10px 24px -6px rgba(16,24,40,0.35)', maxWidth: 520,
+          }}>
+            <span>{t.msg}</span>
+            {t.undoIds && t.undoIds.length > 0 && (
+              <button onClick={() => undoEntries(t.undoIds!, t.id)}
+                style={{ border: 'none', background: 'none', color: '#93C5FD', font: 'inherit', fontWeight: 700, cursor: 'pointer' }}>
+                Undo
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* ── Create attendance modal ───────────────────────────────────────── */}
+      {createOpen && (
+        <div
+          style={{ position: 'fixed', inset: 0, zIndex: 9000, background: 'rgba(16,24,40,0.45)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '48px 20px', overflowY: 'auto' }}
+          onClick={e => { if (e.target === e.currentTarget) setCreateOpen(false); }}
+        >
+          <div style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 560, boxShadow: '0 20px 48px -12px rgba(16,24,40,0.28)', overflow: 'hidden' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 22px 14px', borderBottom: '1px solid #E5E7EB' }}>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>Create attendance</h3>
+              <button onClick={() => setCreateOpen(false)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#98A2B3', fontSize: 18 }}>✕</button>
+            </div>
+
+            <div style={{ padding: '18px 22px 4px', maxHeight: '62vh', overflowY: 'auto' }}>
+              {createErr && (
+                <div style={{ background: '#FEF3F2', border: '1px solid #FECDCA', color: '#912018', borderRadius: 9, padding: '11px 13px', fontSize: 12.5, marginBottom: 14 }}>
+                  <strong style={{ display: 'block', marginBottom: 3 }}>{createErr.msg}</strong>
+                  <ul style={{ margin: '4px 0 0', paddingLeft: 17 }}>
+                    {createErr.dates.map(d => <li key={d}>{fmtChip(d)}</li>)}
+                  </ul>
+                  <button
+                    onClick={() => {
+                      setCreateDates(prev => { const n = new Set(prev); createErr.dates.forEach(d => n.delete(d)); return n; });
+                      setCreateErr(null);
+                    }}
+                    style={{ marginTop: 7, border: 'none', background: 'none', font: 'inherit', fontSize: 12, fontWeight: 700, color: '#B42318', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}
+                  >
+                    Deselect {createErr.dates.length === 1 ? 'this date' : `these ${createErr.dates.length} dates`}
+                  </button>
+                </div>
+              )}
+
+              {/* Dates */}
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <Label>Dates *</Label>
+                  <div style={{ display: 'flex', gap: 10 }}>
+                    <button
+                      onClick={() => {
+                        const next = new Set(createDates);
+                        for (let d = 1; d <= totalDays; d++) {
+                          const ds = isoDate(year, month, d);
+                          const dow = (startDow + d - 1) % 7;
+                          const planned = schedule ? plannedForDay(dow, schedule) : 0;
+                          if (planned > 0 && !dateBlockedReason(ds)) next.add(ds);
+                        }
+                        setCreateDates(next); setCreateErr(null);
+                      }}
+                      style={{ border: 'none', background: 'none', color: '#2563EB', font: 'inherit', fontSize: 11, fontWeight: 600, cursor: 'pointer', padding: 0 }}
+                    >All open days to date</button>
+                    <button onClick={() => { setCreateDates(new Set()); setCreateErr(null); }}
+                      style={{ border: 'none', background: 'none', color: '#2563EB', font: 'inherit', fontSize: 11, fontWeight: 600, cursor: 'pointer', padding: 0 }}
+                    >Clear</button>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, alignItems: 'center', minHeight: 38, border: '1px solid #D0D5DD', borderRadius: 8, padding: '6px 8px' }}>
+                  {createDates.size === 0
+                    ? <span style={{ fontSize: 12.5, color: '#98A2B3' }}>Pick one or more dates below</span>
+                    : [...createDates].sort().map(ds => (
+                        <span key={ds} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#EFF6FF', color: '#1E40AF', border: '1px solid #DBEAFE', borderRadius: 6, padding: '3px 5px 3px 8px', fontSize: 12, fontWeight: 600 }}>
+                          {fmtChip(ds)}
+                          <button onClick={() => toggleCreateDate(ds)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#60A5FA', fontSize: 13, padding: '0 2px' }}>✕</button>
+                        </span>
+                      ))}
+                </div>
+
+                {/* Always-open month picker — never closes on selection */}
+                <div style={{ border: '1px solid #E5E7EB', borderRadius: 8, marginTop: 8, overflow: 'hidden' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: '#FCFCFD', borderBottom: '1px solid #E5E7EB' }}>
+                    <b style={{ fontSize: 12.5, flex: 1 }}>{MONTH_NAMES[month - 1]} {year}</b>
+                    <span style={{ fontSize: 10.5, fontWeight: 600, color: '#98A2B3', background: '#F1F5F9', borderRadius: 5, padding: '2px 7px' }}>Timesheet month</span>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 2, padding: 8 }}>
+                    {DAY_ABBR.map(d => <div key={d} style={{ textAlign: 'center', fontSize: 9, fontWeight: 700, color: '#98A2B3', padding: '2px 0' }}>{d[0]}</div>)}
+                    {Array.from({ length: startDow }).map((_, i) => <div key={`b${i}`} />)}
+                    {Array.from({ length: totalDays }).map((_, i) => {
+                      const d = i + 1;
+                      const ds = isoDate(year, month, d);
+                      const reason = dateBlockedReason(ds);
+                      const on = createDates.has(ds);
+                      const dow = (startDow + d - 1) % 7;
+                      const nonWorking = (schedule ? plannedForDay(dow, schedule) : 0) === 0;
+                      return (
+                        <button
+                          key={ds} disabled={!!reason} title={reason ?? (nonWorking ? 'Non-working day — attendance may still be recorded' : '')}
+                          onClick={() => toggleCreateDate(ds)}
+                          style={{
+                            position: 'relative', height: 32, borderRadius: 6, font: 'inherit', fontSize: 12, fontWeight: 600,
+                            fontVariantNumeric: 'tabular-nums', cursor: reason ? 'not-allowed' : 'pointer',
+                            border: ds === todayIso ? '1px solid #2563EB' : '1px solid transparent',
+                            background: on ? '#2563EB' : 'transparent',
+                            color: on ? '#fff' : reason === 'Already has attendance' ? '#98A2B3' : reason ? '#D8DEE7' : nonWorking ? '#CBD5E1' : '#1F2937',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          }}
+                        >
+                          {d}
+                          {reason === 'Already has attendance' && (
+                            <span style={{ position: 'absolute', bottom: 3, left: '50%', transform: 'translateX(-50%)', width: 4, height: 4, borderRadius: '50%', background: '#F59E0B' }} />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px', padding: '0 10px 9px', fontSize: 10.5, color: '#667085' }}>
+                    <span><span style={{ display: 'inline-block', width: 4, height: 4, borderRadius: '50%', background: '#F59E0B', marginRight: 5, verticalAlign: 2 }} />Already has attendance</span>
+                    <span>Greyed after today — cannot be recorded in advance</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Attendance form — same fields and state as the day panel.
+                  NOTE: the panel renders this markup twice already (inline edit + add);
+                  this is a third copy. Worth extracting to one component. */}
+              <div style={{ border: '1px solid #BFDBFE', borderRadius: 10, background: '#F8FBFF', padding: 14, marginBottom: 4 }}>
+                <div style={{ marginBottom: 10 }}>
+                  <Label>{form.ttCategory === 'absence' ? 'Leave / Absence Type' : 'Attendance Type'}</Label>
+                  <select
+                    value={form.typeId}
+                    onChange={e => { setForm(f => ({ ...f, typeId: e.target.value, projId: '' })); setFormErr(''); }}
+                    style={selectSt}
+                  >
+                    <option value="">— Select —</option>
+                    {timeTypes.map(t => <option key={t.id} value={t.id}>{t.name} ({t.code})</option>)}
+                  </select>
+                </div>
+
+                {form.typeId && timeTypes.find(t => t.id === form.typeId)?.requires_project && (
+                  <div style={{ marginBottom: 10 }}>
+                    <Label>Project</Label>
+                    <select value={form.projId} onChange={e => { setForm(f => ({ ...f, projId: e.target.value })); setFormErr(''); }} style={selectSt}>
+                      <option value="">— Select —</option>
+                      {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                  </div>
+                )}
+
+                {form.typeId && timeTypes.find(t => t.id === form.typeId)?.requires_project && (
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                      <Label>Activities</Label>
+                      <button type="button" onClick={() => setForm(f => ({ ...f, activities: [...f.activities, ''] }))}
+                        style={{ background: 'none', border: 'none', color: '#2563EB', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>+ Add</button>
+                    </div>
+                    {form.activities.map((act, idx) => (
+                      <div key={idx} style={{ display: 'flex', gap: 5, marginBottom: 5 }}>
+                        <div style={{ flex: 1 }}>
+                          <ActivityAutocomplete
+                            value={act}
+                            onChange={val => setForm(f => { const acts = [...f.activities]; acts[idx] = val; return { ...f, activities: acts }; })}
+                            onFavoriteToggle={handleFavoriteToggle}
+                            history={activityHistory}
+                            inputStyle={inputSt}
+                          />
+                        </div>
+                        {form.activities.length > 1 && (
+                          <button type="button" onClick={() => setForm(f => ({ ...f, activities: f.activities.filter((_, i) => i !== idx) }))}
+                            style={{ background: 'none', border: '1px solid #FEE2E2', borderRadius: 5, color: '#DC2626', cursor: 'pointer', padding: '0 7px' }}>×</button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                  <div>
+                    <Label>Hours</Label>
+                    <input type="number" min="0" max="23" value={form.hours}
+                      onChange={e => { setForm(f => ({ ...f, hours: e.target.value })); setFormErr(''); }} style={inputSt} />
+                  </div>
+                  <div>
+                    <Label>Minutes</Label>
+                    <input type="number" min="0" max="59" value={form.mins}
+                      onChange={e => { setForm(f => ({ ...f, mins: e.target.value })); setFormErr(''); }} style={inputSt} />
+                  </div>
+                </div>
+
+                <div>
+                  <Label>Notes (optional)</Label>
+                  <textarea rows={2} value={form.notes} placeholder="Optional…"
+                    onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+                    style={{ ...inputSt, resize: 'vertical', fontFamily: 'inherit' }} />
+                </div>
+
+                {formErr && (
+                  <div style={{ fontSize: 12, color: '#DC2626', marginTop: 8, display: 'flex', gap: 5, alignItems: 'center' }}>
+                    <i className="fa-solid fa-circle-exclamation" /> {formErr}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 22px 18px', borderTop: '1px solid #E5E7EB', background: '#FCFCFD' }}>
+              <span style={{ fontSize: 12, color: '#667085' }}>
+                {createDates.size === 0 ? 'No dates selected' : (
+                  <>Creates <b style={{ color: '#1F2937' }}>1 entry</b> on <b style={{ color: '#1F2937' }}>{createDates.size}</b> {createDates.size === 1 ? 'day' : 'days'}</>
+                )}
+              </span>
+              <span style={{ flex: 1 }} />
+              <button onClick={() => setCreateOpen(false)} style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid transparent', background: 'none', color: '#667085', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+              <button
+                onClick={submitCreate}
+                disabled={creating || createDates.size === 0}
+                style={{
+                  padding: '8px 16px', borderRadius: 8, border: 'none',
+                  background: (creating || createDates.size === 0) ? '#E5E7EB' : '#2563EB',
+                  color: (creating || createDates.size === 0) ? '#9CA3AF' : '#fff',
+                  fontSize: 13, fontWeight: 600, cursor: (creating || createDates.size === 0) ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {creating ? 'Creating…' : 'Create'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Submit confirmation modal ─────────────────────────────────────── */}
       {confirmSubmit && (
