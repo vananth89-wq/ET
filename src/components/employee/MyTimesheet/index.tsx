@@ -1022,7 +1022,7 @@ export default function MyTimesheet() {
             )}
 
             {/* Entries */}
-            <div style={{ flex: 1, padding: '10px 14px' }}>
+            <div style={{ flex: 1, padding: '5px 10px' }}>
               {dayEntries.length === 0 && !addingEntry && (
                 <div style={{ color: '#9CA3AF', fontSize: 12, textAlign: 'center', padding: '20px 0' }}>
                   <i className="fa-regular fa-clock" style={{ fontSize: 20, display: 'block', marginBottom: 6 }} />
@@ -1030,6 +1030,7 @@ export default function MyTimesheet() {
                 </div>
               )}
 
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
               {dayEntries.map(ent => {
                 const badge    = getEntryBadge(ent);
                 const isOpen   = expandedEntries.has(ent.id);
@@ -1037,42 +1038,36 @@ export default function MyTimesheet() {
                 return (
                   <div key={ent.id} style={{
                     border: isEditing ? '2px solid #2563EB' : '1px solid #E5E7EB',
-                    borderLeft: isEditing ? '3px solid #2563EB' : `3px solid ${badge.accentColor}`,
-                    borderRadius: 10, marginBottom: 7, overflow: 'hidden',
+                    borderRadius: 10, overflow: 'hidden',
+                    background: '#fff',
                     transition: 'box-shadow 0.15s',
                   }}>
-                    {/* Card header: two-level hierarchy */}
+                    {/* Card header: single-line compact */}
                     {(() => {
                       const t = Array.isArray(ent.time_types) ? ent.time_types[0] : ent.time_types;
                       const p = Array.isArray(ent.projects)   ? ent.projects[0]   : ent.projects;
-                      const primaryText   = p?.name ?? t?.name ?? (ent.entry_kind === 'holiday' ? 'Holiday' : ent.entry_kind);
-                      const secondaryText = p?.name ? (t?.name ?? null) : null;
+                      const primaryText = p?.name ?? t?.name ?? (ent.entry_kind === 'holiday' ? 'Holiday' : ent.entry_kind);
                       return (
-                        <div style={{ display: 'flex', alignItems: 'center', padding: '10px 10px 10px 14px', gap: 10 }}>
-                          {/* Left: primary + secondary text */}
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 15, fontWeight: 700, color: '#111827', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.2 }}>
-                              {primaryText}
-                              {ent.is_system_generated && <span style={{ fontSize: 9, color: '#9CA3AF', background: '#F3F4F6', padding: '1px 4px', borderRadius: 3, marginLeft: 6, fontWeight: 400 }}>auto</span>}
-                            </div>
-                            {secondaryText && (
-                              <div style={{ fontSize: 12, color: '#9CA3AF', fontWeight: 500, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                {secondaryText}
-                              </div>
-                            )}
+                        <div style={{ display: 'flex', alignItems: 'center', padding: '0 10px 0 12px', height: 44, gap: 8 }}>
+                          {/* Colored dot */}
+                          <div style={{ width: 8, height: 8, borderRadius: '50%', background: badge.accentColor, flexShrink: 0 }} />
+                          {/* Name */}
+                          <div style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 700, color: '#111827', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {primaryText}
+                            {ent.is_system_generated && <span style={{ fontSize: 9, color: '#9CA3AF', background: '#F3F4F6', padding: '1px 4px', borderRadius: 3, marginLeft: 6, fontWeight: 400 }}>auto</span>}
                           </div>
                           {/* Right: hours + divider + actions + chevron */}
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                            <span style={{ fontSize: 20, fontWeight: 600, color: '#3B82F6', lineHeight: 1 }}>{fmtMins(ent.hours_minutes)}</span>
+                            <span style={{ fontSize: 15, fontWeight: 700, color: '#3B82F6', lineHeight: 1, minWidth: 34, textAlign: 'right' }}>{fmtMins(ent.hours_minutes)}</span>
                             {(editable && !ent.is_system_generated) && (
-                              <div style={{ width: 1, height: 28, background: '#E5E7EB', flexShrink: 0 }} />
+                              <div style={{ width: 1, height: 24, background: '#E5E7EB', flexShrink: 0 }} />
                             )}
                             {editable && !ent.is_system_generated && (
                               <>
-                                <button onClick={() => openEdit(ent)} style={iconBtnSt} title="Edit">
+                                <button onClick={() => openEdit(ent)} title="Edit" style={{ width: 22, height: 22, border: '1px solid #E5E7EB', borderRadius: 6, background: '#F9FAFB', color: '#6B7280', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
                                   <i className="fa-solid fa-pen" style={{ fontSize: 10 }} />
                                 </button>
-                                <button onClick={() => handleDeleteEntry(ent.id)} style={{ ...iconBtnSt, color: '#DC2626', borderColor: '#FEE2E2' }} title="Delete">
+                                <button onClick={() => handleDeleteEntry(ent.id)} title="Delete" style={{ width: 22, height: 22, border: '1px solid #FEE2E2', borderRadius: 6, background: '#FFF5F5', color: '#DC2626', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
                                   <i className="fa-solid fa-trash" style={{ fontSize: 10 }} />
                                 </button>
                               </>
@@ -1205,6 +1200,7 @@ export default function MyTimesheet() {
                   </div>
                 );
               })}
+              </div>
 
               {/* Add new entry form — only shown when adding, not when editing (edit is inline in the card) */}
               {addingEntry && !editingEntry && (
@@ -1363,7 +1359,7 @@ export default function MyTimesheet() {
 
               {/* Add Attendance / Add Absence buttons */}
               {editable && !addingEntry && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: dayEntries.length > 0 ? 6 : 8 }}>
                   <button
                     onClick={openAddAttendance}
                     style={{
