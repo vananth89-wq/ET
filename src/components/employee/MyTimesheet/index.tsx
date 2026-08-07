@@ -504,7 +504,10 @@ export default function MyTimesheet() {
     const seed = selectedDate && !dateBlockedReason(selectedDate) ? [selectedDate] : [];
     setCreateDates(new Set(seed));
     setCreateErr(null);
-    setForm(emptyForm);
+    // Bulk create is overwhelmingly "a normal working day", so pre-fill one.
+    // ttCategory='attendance' also scopes the type picker — leave is a day-panel
+    // action, matching Copy Day's refusal to carry absence.
+    setForm({ ...emptyForm, hours: '8', mins: '0', ttCategory: 'attendance' });
     setFormErr('');
     setCreateOpen(true);
   }
@@ -866,6 +869,136 @@ export default function MyTimesheet() {
   // ─────────────────────────────────────────────────────────────────────
   // Render
   // ─────────────────────────────────────────────────────────────────────
+
+  // ── Entry form fields ─────────────────────────────────────────────────
+  // ONE definition, rendered in three places: the inline edit form inside an
+  // entry card, the Add Entry form at the panel bottom, and the Create modal.
+  // Callers own their own wrapper and action buttons — only the fields live here.
+  //   projectDate — filter projects to those active on this date; null = no filter
+  //                 (the Create modal spans several dates, so it cannot filter)
+  function renderEntryFields(opts?: { projectDate?: string | null; gap?: number }) {
+    const gap         = opts?.gap ?? 8;
+    const projectDate = opts?.projectDate ?? null;
+    const selTT       = timeTypes.find(t => t.id === form.typeId);
+
+    return (
+      <>
+        {/* Time type picker — filtered by attendance/absence when a category is set */}
+        <div style={{ marginBottom: gap }}>
+          <Label>{form.ttCategory === 'absence' ? 'Leave / Absence Type' : 'Attendance Type'}</Label>
+          <select
+            value={form.typeId}
+            onChange={e => { setForm(f => ({ ...f, typeId: e.target.value, projId: '' })); setFormErr(''); }}
+            style={selectSt}
+          >
+            <option value="">— Select —</option>
+            {timeTypes
+              .filter(t => !form.ttCategory || t.category === form.ttCategory)
+              .map(t => <option key={t.id} value={t.id}>{t.name} ({t.code})</option>)}
+          </select>
+        </div>
+
+        {/* Project picker — only when the selected time type requires one */}
+        {form.typeId && selTT?.requires_project && (
+          <div style={{ marginBottom: gap }}>
+            <Label>Project</Label>
+            <select
+              value={form.projId}
+              onChange={e => { setForm(f => ({ ...f, projId: e.target.value })); setFormErr(''); }}
+              style={selectSt}
+            >
+              <option value="">— Select —</option>
+              {projects
+                .filter(p => !projectDate || (p.start_date <= projectDate && p.end_date >= projectDate))
+                .map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </div>
+        )}
+
+        {/* Activities — shown when the selected time type requires a project */}
+        {selTT?.requires_project && (
+          <div style={{ marginBottom: gap }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+              <Label>Activities</Label>
+              <button
+                type="button"
+                onClick={() => setForm(f => ({ ...f, activities: [...f.activities, ''] }))}
+                style={{ background: 'none', border: 'none', color: '#2563EB', fontSize: 11, fontWeight: 700, cursor: 'pointer', padding: '0 2px' }}
+              >
+                + Add
+              </button>
+            </div>
+            {form.activities.map((act, idx) => (
+              <div key={idx} style={{ display: 'flex', gap: 5, marginBottom: 5 }}>
+                <div style={{ flex: 1 }}>
+                  <ActivityAutocomplete
+                    value={act}
+                    onChange={val => setForm(f => {
+                      const acts = [...f.activities];
+                      acts[idx] = val;
+                      return { ...f, activities: acts };
+                    })}
+                    onFavoriteToggle={handleFavoriteToggle}
+                    history={activityHistory}
+                    inputStyle={inputSt}
+                  />
+                </div>
+                {form.activities.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => setForm(f => ({ ...f, activities: f.activities.filter((_, i) => i !== idx) }))}
+                    style={{ background: 'none', border: '1px solid #FEE2E2', borderRadius: 5, color: '#DC2626', cursor: 'pointer', padding: '0 7px', fontSize: 13 }}
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Duration */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: gap }}>
+          <div>
+            <Label>Hours</Label>
+            <input
+              type="number" min="0" max="23" placeholder="0"
+              value={form.hours}
+              onChange={e => { setForm(f => ({ ...f, hours: e.target.value })); setFormErr(''); }}
+              style={inputSt}
+            />
+          </div>
+          <div>
+            <Label>Minutes</Label>
+            <input
+              type="number" min="0" max="59" placeholder="0"
+              value={form.mins}
+              onChange={e => { setForm(f => ({ ...f, mins: e.target.value })); setFormErr(''); }}
+              style={inputSt}
+            />
+          </div>
+        </div>
+
+        {/* Notes */}
+        <div style={{ marginBottom: 10 }}>
+          <Label>Notes (optional)</Label>
+          <textarea
+            rows={2} placeholder="Optional…"
+            value={form.notes}
+            onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+            style={{ ...inputSt, resize: 'vertical', fontFamily: 'inherit' }}
+          />
+        </div>
+
+        {formErr && (
+          <div style={{ fontSize: 12, color: '#DC2626', marginBottom: 8, display: 'flex', gap: 5, alignItems: 'center' }}>
+            <i className="fa-solid fa-circle-exclamation" /> {formErr}
+          </div>
+        )}
+      </>
+    );
+  }
+
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', background: '#F9FAFB' }}>
@@ -1458,66 +1591,7 @@ export default function MyTimesheet() {
                     {/* Inline edit form — replaces card body when editing this entry */}
                     {isEditing ? (
                       <div style={{ borderTop: '1px solid #BFDBFE', background: '#EFF6FF', padding: '10px 12px 12px' }}>
-                        {/* Time type picker */}
-                        <div style={{ marginBottom: 8 }}>
-                          <Label>{form.ttCategory === 'absence' ? 'Leave / Absence Type' : 'Attendance Type'}</Label>
-                          <select value={form.typeId} onChange={e => { setForm(f => ({ ...f, typeId: e.target.value, projId: '' })); setFormErr(''); }} style={selectSt}>
-                            <option value="">— Select —</option>
-                            {timeTypes.filter(t => !form.ttCategory || t.category === form.ttCategory).map(t => (
-                              <option key={t.id} value={t.id}>{t.name} ({t.code})</option>
-                            ))}
-                          </select>
-                        </div>
-                        {/* Project picker */}
-                        {form.typeId && timeTypes.find(t => t.id === form.typeId)?.requires_project && (
-                          <div style={{ marginBottom: 8 }}>
-                            <Label>Project</Label>
-                            <select value={form.projId} onChange={e => { setForm(f => ({ ...f, projId: e.target.value })); setFormErr(''); }} style={selectSt}>
-                              <option value="">— Select —</option>
-                              {projects.filter(p => !selectedDate || (p.start_date <= selectedDate && p.end_date >= selectedDate)).map(p => (
-                                <option key={p.id} value={p.id}>{p.name}</option>
-                              ))}
-                            </select>
-                          </div>
-                        )}
-                        {/* Activities */}
-                        {(() => {
-                          const selTT = timeTypes.find(t => t.id === form.typeId);
-                          if (!selTT?.requires_project) return null;
-                          return (
-                            <div style={{ marginBottom: 8 }}>
-                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-                                <Label>Activities</Label>
-                                <button type="button" onClick={() => setForm(f => ({ ...f, activities: [...f.activities, ''] }))} style={{ background: 'none', border: 'none', color: '#2563EB', fontSize: 11, fontWeight: 700, cursor: 'pointer', padding: '0 2px' }}>+ Add</button>
-                              </div>
-                              {form.activities.map((act, idx) => (
-                                <div key={idx} style={{ display: 'flex', gap: 5, marginBottom: 5 }}>
-                                  <div style={{ flex: 1 }}>
-                                    <ActivityAutocomplete value={act} onChange={val => setForm(f => { const acts = [...f.activities]; acts[idx] = val; return { ...f, activities: acts }; })} onFavoriteToggle={handleFavoriteToggle} history={activityHistory} inputStyle={inputSt} />
-                                  </div>
-                                  {form.activities.length > 1 && (
-                                    <button type="button" onClick={() => setForm(f => ({ ...f, activities: f.activities.filter((_, i) => i !== idx) }))} style={{ background: 'none', border: '1px solid #FEE2E2', borderRadius: 5, color: '#DC2626', cursor: 'pointer', padding: '0 7px', fontSize: 13 }}>×</button>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          );
-                        })()}
-                        {/* Duration */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
-                          <div><Label>Hours</Label><input type="number" min="0" max="23" placeholder="0" value={form.hours} onChange={e => { setForm(f => ({ ...f, hours: e.target.value })); setFormErr(''); }} style={inputSt} /></div>
-                          <div><Label>Minutes</Label><input type="number" min="0" max="59" placeholder="0" value={form.mins} onChange={e => { setForm(f => ({ ...f, mins: e.target.value })); setFormErr(''); }} style={inputSt} /></div>
-                        </div>
-                        {/* Notes */}
-                        <div style={{ marginBottom: 10 }}>
-                          <Label>Notes (optional)</Label>
-                          <textarea rows={2} placeholder="Optional…" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} style={{ ...inputSt, resize: 'vertical', fontFamily: 'inherit' }} />
-                        </div>
-                        {formErr && (
-                          <div style={{ fontSize: 12, color: '#DC2626', marginBottom: 8, display: 'flex', gap: 5, alignItems: 'center' }}>
-                            <i className="fa-solid fa-circle-exclamation" /> {formErr}
-                          </div>
-                        )}
+                        {renderEntryFields({ projectDate: selectedDate })}
                         <div style={{ display: 'flex', gap: 7 }}>
                           <button onClick={handleSaveEntry} disabled={saving} style={{ flex: 1, padding: '7px 0', borderRadius: 6, border: 'none', background: '#1D4ED8', color: '#fff', fontSize: 12, fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
                             {saving ? <><i className="fa-solid fa-spinner fa-spin" /> Saving…</> : 'Update'}
@@ -1575,131 +1649,7 @@ export default function MyTimesheet() {
                     {editingEntry ? 'Edit Entry' : 'Add Entry'}
                   </div>
 
-                  {/* Time type picker — filtered by attendance or absence based on button clicked */}
-                  <div style={{ marginBottom: 8 }}>
-                    <Label>{form.ttCategory === 'absence' ? 'Leave / Absence Type' : 'Attendance Type'}</Label>
-                    <select
-                      value={form.typeId}
-                      onChange={e => { setForm(f => ({ ...f, typeId: e.target.value, projId: '' })); setFormErr(''); }}
-                      style={selectSt}
-                    >
-                      <option value="">— Select —</option>
-                      {timeTypes
-                        .filter(t => !form.ttCategory || t.category === form.ttCategory)
-                        .map(t => (
-                          <option key={t.id} value={t.id}>{t.name} ({t.code})</option>
-                        ))
-                      }
-                    </select>
-                  </div>
-
-                  {/* Project picker — only when selected time type requires_project */}
-                  {form.typeId && timeTypes.find(t => t.id === form.typeId)?.requires_project && (
-                    <div style={{ marginBottom: 8 }}>
-                      <Label>Project</Label>
-                      <select
-                        value={form.projId}
-                        onChange={e => { setForm(f => ({ ...f, projId: e.target.value })); setFormErr(''); }}
-                        style={selectSt}
-                      >
-                        <option value="">— Select —</option>
-                        {projects
-                          .filter(p => {
-                            if (!selectedDate) return true;
-                            return p.start_date <= selectedDate && p.end_date >= selectedDate;
-                          })
-                          .map(p => (
-                            <option key={p.id} value={p.id}>{p.name}</option>
-                          ))}
-                      </select>
-                    </div>
-                  )}
-
-                  {/* Activities — shown when selected time type requires a project */}
-                  {(() => {
-                    const selTT = timeTypes.find(t => t.id === form.typeId);
-                    const show  = !!selTT?.requires_project;
-                    if (!show) return null;
-                    return (
-                      <div style={{ marginBottom: 8 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-                          <Label>Activities</Label>
-                          <button
-                            type="button"
-                            onClick={() => setForm(f => ({ ...f, activities: [...f.activities, ''] }))}
-                            style={{ background: 'none', border: 'none', color: '#2563EB', fontSize: 11, fontWeight: 700, cursor: 'pointer', padding: '0 2px' }}
-                          >
-                            + Add
-                          </button>
-                        </div>
-                        {form.activities.map((act, idx) => (
-                          <div key={idx} style={{ display: 'flex', gap: 5, marginBottom: 5 }}>
-                            <div style={{ flex: 1 }}>
-                              <ActivityAutocomplete
-                                value={act}
-                                onChange={val => setForm(f => {
-                                  const acts = [...f.activities];
-                                  acts[idx] = val;
-                                  return { ...f, activities: acts };
-                                })}
-                                onFavoriteToggle={handleFavoriteToggle}
-                                history={activityHistory}
-                                inputStyle={inputSt}
-                              />
-                            </div>
-                            {form.activities.length > 1 && (
-                              <button
-                                type="button"
-                                onClick={() => setForm(f => ({ ...f, activities: f.activities.filter((_, i) => i !== idx) }))}
-                                style={{ background: 'none', border: '1px solid #FEE2E2', borderRadius: 5, color: '#DC2626', cursor: 'pointer', padding: '0 7px', fontSize: 13 }}
-                              >
-                                ×
-                              </button>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    );
-                  })()}
-
-                  {/* Duration */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
-                    <div>
-                      <Label>Hours</Label>
-                      <input
-                        type="number" min="0" max="23" placeholder="0"
-                        value={form.hours}
-                        onChange={e => { setForm(f => ({ ...f, hours: e.target.value })); setFormErr(''); }}
-                        style={inputSt}
-                      />
-                    </div>
-                    <div>
-                      <Label>Minutes</Label>
-                      <input
-                        type="number" min="0" max="59" placeholder="0"
-                        value={form.mins}
-                        onChange={e => { setForm(f => ({ ...f, mins: e.target.value })); setFormErr(''); }}
-                        style={inputSt}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Notes */}
-                  <div style={{ marginBottom: 10 }}>
-                    <Label>Notes (optional)</Label>
-                    <textarea
-                      rows={2} placeholder="Optional…"
-                      value={form.notes}
-                      onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
-                      style={{ ...inputSt, resize: 'vertical', fontFamily: 'inherit' }}
-                    />
-                  </div>
-
-                  {formErr && (
-                    <div style={{ fontSize: 12, color: '#DC2626', marginBottom: 8, display: 'flex', gap: 5, alignItems: 'center' }}>
-                      <i className="fa-solid fa-circle-exclamation" /> {formErr}
-                    </div>
-                  )}
+                  {renderEntryFields({ projectDate: selectedDate })}
 
                   <div style={{ display: 'flex', gap: 7 }}>
                     <button
@@ -1904,88 +1854,16 @@ export default function MyTimesheet() {
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px', padding: '0 10px 9px', fontSize: 10.5, color: '#667085' }}>
                     <span><span style={{ display: 'inline-block', width: 4, height: 4, borderRadius: '50%', background: '#F59E0B', marginRight: 5, verticalAlign: 2 }} />Already has attendance</span>
                     <span>Greyed after today — cannot be recorded in advance</span>
+                    <span>Weekends and holidays can be selected</span>
                   </div>
                 </div>
               </div>
 
-              {/* Attendance form — same fields and state as the day panel.
-                  NOTE: the panel renders this markup twice already (inline edit + add);
-                  this is a third copy. Worth extracting to one component. */}
+              {/* Attendance form — the same fields the day panel renders.
+                  projectDate is null: the modal spans several dates, so projects
+                  cannot be filtered to one day. */}
               <div style={{ border: '1px solid #BFDBFE', borderRadius: 10, background: '#F8FBFF', padding: 14, marginBottom: 4 }}>
-                <div style={{ marginBottom: 10 }}>
-                  <Label>{form.ttCategory === 'absence' ? 'Leave / Absence Type' : 'Attendance Type'}</Label>
-                  <select
-                    value={form.typeId}
-                    onChange={e => { setForm(f => ({ ...f, typeId: e.target.value, projId: '' })); setFormErr(''); }}
-                    style={selectSt}
-                  >
-                    <option value="">— Select —</option>
-                    {timeTypes.map(t => <option key={t.id} value={t.id}>{t.name} ({t.code})</option>)}
-                  </select>
-                </div>
-
-                {form.typeId && timeTypes.find(t => t.id === form.typeId)?.requires_project && (
-                  <div style={{ marginBottom: 10 }}>
-                    <Label>Project</Label>
-                    <select value={form.projId} onChange={e => { setForm(f => ({ ...f, projId: e.target.value })); setFormErr(''); }} style={selectSt}>
-                      <option value="">— Select —</option>
-                      {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                    </select>
-                  </div>
-                )}
-
-                {form.typeId && timeTypes.find(t => t.id === form.typeId)?.requires_project && (
-                  <div style={{ marginBottom: 10 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-                      <Label>Activities</Label>
-                      <button type="button" onClick={() => setForm(f => ({ ...f, activities: [...f.activities, ''] }))}
-                        style={{ background: 'none', border: 'none', color: '#2563EB', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>+ Add</button>
-                    </div>
-                    {form.activities.map((act, idx) => (
-                      <div key={idx} style={{ display: 'flex', gap: 5, marginBottom: 5 }}>
-                        <div style={{ flex: 1 }}>
-                          <ActivityAutocomplete
-                            value={act}
-                            onChange={val => setForm(f => { const acts = [...f.activities]; acts[idx] = val; return { ...f, activities: acts }; })}
-                            onFavoriteToggle={handleFavoriteToggle}
-                            history={activityHistory}
-                            inputStyle={inputSt}
-                          />
-                        </div>
-                        {form.activities.length > 1 && (
-                          <button type="button" onClick={() => setForm(f => ({ ...f, activities: f.activities.filter((_, i) => i !== idx) }))}
-                            style={{ background: 'none', border: '1px solid #FEE2E2', borderRadius: 5, color: '#DC2626', cursor: 'pointer', padding: '0 7px' }}>×</button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
-                  <div>
-                    <Label>Hours</Label>
-                    <input type="number" min="0" max="23" value={form.hours}
-                      onChange={e => { setForm(f => ({ ...f, hours: e.target.value })); setFormErr(''); }} style={inputSt} />
-                  </div>
-                  <div>
-                    <Label>Minutes</Label>
-                    <input type="number" min="0" max="59" value={form.mins}
-                      onChange={e => { setForm(f => ({ ...f, mins: e.target.value })); setFormErr(''); }} style={inputSt} />
-                  </div>
-                </div>
-
-                <div>
-                  <Label>Notes (optional)</Label>
-                  <textarea rows={2} value={form.notes} placeholder="Optional…"
-                    onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
-                    style={{ ...inputSt, resize: 'vertical', fontFamily: 'inherit' }} />
-                </div>
-
-                {formErr && (
-                  <div style={{ fontSize: 12, color: '#DC2626', marginTop: 8, display: 'flex', gap: 5, alignItems: 'center' }}>
-                    <i className="fa-solid fa-circle-exclamation" /> {formErr}
-                  </div>
-                )}
+                {renderEntryFields({ projectDate: null, gap: 10 })}
               </div>
             </div>
 
