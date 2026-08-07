@@ -543,18 +543,23 @@ export default function MyTimesheet() {
   async function submitCreate() {
     if (!header) return;
     const dates = [...createDates].sort();
-    if (!dates.length) { setFormErr('Select at least one date.'); return; }
-    if (!form.typeId)  { setFormErr('Please select a time type.'); return; }
+    // The modal body scrolls and the footer is pinned, so a message at the end of
+    // the form can be below the fold when Create is pressed. Everything goes to the
+    // top banner, which is always in view.
+    const fail = (msg: string) => { setCreateErr({ msg, dates: [] }); setFormErr(''); };
+
+    if (!dates.length) { fail('Select at least one date.'); return; }
+    if (!form.typeId)  { fail('Please select a time type.'); return; }
 
     const tt = timeTypes.find(t => t.id === form.typeId);
-    if (tt?.requires_project && !form.projId) { setFormErr('Please select a project for this time type.'); return; }
+    if (tt?.requires_project && !form.projId) { fail('Please select a project for this time type.'); return; }
     if (tt?.requires_project && form.activities.every(a => !a.trim())) {
-      setFormErr('Add at least one activity.'); return;
+      fail('Add at least one activity.'); return;
     }
 
     const hrs = parseInt(form.hours || '0', 10);
     const mins = parseInt(form.mins || '0', 10);
-    if (isNaN(hrs) || isNaN(mins) || (hrs === 0 && mins === 0)) { setFormErr('Duration must be greater than 0.'); return; }
+    if (isNaN(hrs) || isNaN(mins) || (hrs === 0 && mins === 0)) { fail('Duration must be greater than 0.'); return; }
 
     setCreating(true); setFormErr(''); setCreateErr(null);
     const acts = form.activities.map(a => a.trim()).filter(Boolean);
@@ -571,11 +576,11 @@ export default function MyTimesheet() {
     });
     setCreating(false);
 
-    if (rpcErr) { setFormErr(rpcErr.message); return; }
+    if (rpcErr) { fail(rpcErr.message); return; }
     if (!data?.ok) {
       // Dates come back on the scope errors so the user can drop them in one click
       if (Array.isArray(data?.dates) && data.dates.length) setCreateErr({ msg: data.message, dates: data.dates });
-      else setFormErr(data?.message ?? 'Could not create entries.');
+      else fail(data?.message ?? 'Could not create entries.');
       return;
     }
 
@@ -910,8 +915,13 @@ export default function MyTimesheet() {
   //   projectDates — only offer projects active on EVERY one of these dates.
   //                  The day panel passes one; the Create modal passes all the
   //                  dates picked, so the list is the intersection. Empty = no filter.
-  function renderEntryFields(opts?: { projectDates?: string[]; gap?: number }) {
+  //   showErr      — the day panel shows formErr under the fields, right where
+  //                  the fix is. The Create modal must not: its body scrolls and
+  //                  a message at the end can sit below the fold, so every
+  //                  failure there goes to the pinned banner above the body.
+  function renderEntryFields(opts?: { projectDates?: string[]; gap?: number; showErr?: boolean }) {
     const gap          = opts?.gap ?? 8;
+    const showErr      = opts?.showErr ?? true;
     const projectDates = opts?.projectDates ?? [];
     const selTT        = timeTypes.find(t => t.id === form.typeId);
 
@@ -1024,7 +1034,7 @@ export default function MyTimesheet() {
           />
         </div>
 
-        {formErr && (
+        {showErr && formErr && (
           <div style={{ fontSize: 12, color: '#DC2626', marginBottom: 8, display: 'flex', gap: 5, alignItems: 'center' }}>
             <i className="fa-solid fa-circle-exclamation" /> {formErr}
           </div>
@@ -1794,40 +1804,43 @@ export default function MyTimesheet() {
               <button onClick={() => setCreateOpen(false)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#98A2B3', fontSize: 18 }}>✕</button>
             </div>
 
-            <div style={{ padding: '18px 22px 4px', maxHeight: '62vh', overflowY: 'auto' }}>
-              {createErr && (() => {
-                const notice = createErr.kind === 'notice';
-                return (
-                  <div style={{
-                    background: notice ? '#FFFBEB' : '#FEF3F2',
-                    border: `1px solid ${notice ? '#FDE68A' : '#FECDCA'}`,
-                    color: notice ? '#92400E' : '#912018',
-                    borderRadius: 9, padding: '11px 13px', fontSize: 12.5, marginBottom: 14,
-                    display: 'flex', gap: 9, alignItems: 'flex-start',
-                  }}>
-                    <i className={`fa-solid ${notice ? 'fa-circle-info' : 'fa-circle-exclamation'}`} style={{ marginTop: 2 }} />
-                    <div style={{ flex: 1 }}>
-                      <strong style={{ display: 'block' }}>{createErr.msg}</strong>
-                      {createErr.dates.length > 0 && (
-                        <>
-                          <ul style={{ margin: '4px 0 0', paddingLeft: 17 }}>
-                            {createErr.dates.map(d => <li key={d}>{fmtChip(d)}</li>)}
-                          </ul>
-                          <button
-                            onClick={() => {
-                              setCreateDates(prev => { const n = new Set(prev); createErr.dates.forEach(d => n.delete(d)); return n; });
-                              setCreateErr(null);
-                            }}
-                            style={{ marginTop: 7, border: 'none', background: 'none', font: 'inherit', fontSize: 12, fontWeight: 700, color: '#B42318', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}
-                          >
-                            Deselect {createErr.dates.length === 1 ? 'this date' : `these ${createErr.dates.length} dates`}
-                          </button>
-                        </>
-                      )}
-                    </div>
+            <div style={{ padding: createErr ? '14px 22px 0' : 0 }}>
+            {createErr && (() => {
+              const notice = createErr.kind === 'notice';
+              return (
+                <div style={{
+                  background: notice ? '#FFFBEB' : '#FEF3F2',
+                  border: `1px solid ${notice ? '#FDE68A' : '#FECDCA'}`,
+                  color: notice ? '#92400E' : '#912018',
+                  borderRadius: 9, padding: '11px 13px', fontSize: 12.5,
+                  display: 'flex', gap: 9, alignItems: 'flex-start',
+                }}>
+                  <i className={`fa-solid ${notice ? 'fa-circle-info' : 'fa-circle-exclamation'}`} style={{ marginTop: 2 }} />
+                  <div style={{ flex: 1 }}>
+                    <strong style={{ display: 'block' }}>{createErr.msg}</strong>
+                    {createErr.dates.length > 0 && (
+                      <>
+                        <ul style={{ margin: '4px 0 0', paddingLeft: 17 }}>
+                          {createErr.dates.map(d => <li key={d}>{fmtChip(d)}</li>)}
+                        </ul>
+                        <button
+                          onClick={() => {
+                            setCreateDates(prev => { const n = new Set(prev); createErr.dates.forEach(d => n.delete(d)); return n; });
+                            setCreateErr(null);
+                          }}
+                          style={{ marginTop: 7, border: 'none', background: 'none', font: 'inherit', fontSize: 12, fontWeight: 700, color: '#B42318', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}
+                        >
+                          Deselect {createErr.dates.length === 1 ? 'this date' : `these ${createErr.dates.length} dates`}
+                        </button>
+                      </>
+                    )}
                   </div>
-                );
-              })()}
+                </div>
+              );
+            })()}
+            </div>
+
+            <div style={{ padding: '18px 22px 4px', maxHeight: '62vh', overflowY: 'auto' }}>
 
               {/* Dates */}
               <div style={{ marginBottom: 16 }}>
@@ -1912,7 +1925,7 @@ export default function MyTimesheet() {
               {/* Attendance form — the same fields the day panel renders.
                   Projects are intersected across every selected date. */}
               <div style={{ border: '1px solid #BFDBFE', borderRadius: 10, background: '#F8FBFF', padding: 14, marginBottom: 4 }}>
-                {renderEntryFields({ projectDates: [...createDates].sort(), gap: 10 })}
+                {renderEntryFields({ projectDates: [...createDates].sort(), gap: 10, showErr: false })}
               </div>
             </div>
 
