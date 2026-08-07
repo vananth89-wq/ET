@@ -247,7 +247,9 @@ export default function MyTimesheet() {
   // Create modal (multi-date attendance)
   const [createOpen,  setCreateOpen]  = useState(false);
   const [createDates, setCreateDates] = useState<Set<string>>(new Set());
-  const [createErr,   setCreateErr]   = useState<{ msg: string; dates: string[] } | null>(null);
+  // dates[] renders as a list with a 'Deselect these N' button (hard errors).
+  // kind 'notice' = amber, no list — the app corrected something on the user's behalf.
+  const [createErr,   setCreateErr]   = useState<{ msg: string; dates: string[]; kind?: 'error' | 'notice' } | null>(null);
   const [creating,    setCreating]    = useState(false);
 
   // Copy Day — 'idle' | 'pick' (choose a source) | 'paste' (choose targets)
@@ -526,7 +528,14 @@ export default function MyTimesheet() {
       if (proj && !projectActiveOn(proj, dates)) {
         const culprit = dates.find(d => !projectActiveOn(proj, [d]));
         setForm(f => ({ ...f, projId: '' }));
-        setFormErr(`${proj.name} is not active on ${culprit ? fmtChip(culprit) : 'one of the selected dates'} — pick a project again.`);
+        // Top of the modal, not the form footer: the user just clicked a date up
+        // here, and the Project field below may be scrolled out of view. Amber —
+        // nothing failed, the app corrected something and is saying so.
+        setCreateErr({
+          kind: 'notice',
+          dates: [],
+          msg: `Project cleared — ${proj.name} is not active on ${culprit ? fmtChip(culprit) : 'one of the selected dates'}.`,
+        });
       }
     }
   }
@@ -539,6 +548,9 @@ export default function MyTimesheet() {
 
     const tt = timeTypes.find(t => t.id === form.typeId);
     if (tt?.requires_project && !form.projId) { setFormErr('Please select a project for this time type.'); return; }
+    if (tt?.requires_project && form.activities.every(a => !a.trim())) {
+      setFormErr('Add at least one activity.'); return;
+    }
 
     const hrs = parseInt(form.hours || '0', 10);
     const mins = parseInt(form.mins || '0', 10);
@@ -743,6 +755,10 @@ export default function MyTimesheet() {
     const selectedTimeType = timeTypes.find(t => t.id === form.typeId);
     const needsProject = !!selectedTimeType?.requires_project;
     if (needsProject && !form.projId) { setFormErr('Please select a project for this time type.'); return; }
+    // Project work must say what the work was — one activity minimum.
+    if (needsProject && form.activities.every(a => !a.trim())) {
+      setFormErr('Add at least one activity.'); return;
+    }
     // Map absence → 'leave', else 'time_type' (project entries always stay time_type with project_id set)
     const entryKind: TimesheetEntry['entry_kind'] =
       selectedTimeType?.category === 'absence' ? 'leave' : 'time_type';
@@ -937,7 +953,7 @@ export default function MyTimesheet() {
         {selTT?.requires_project && (
           <div style={{ marginBottom: gap }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-              <Label>Activities</Label>
+              <Label>Activities *</Label>
               <button
                 type="button"
                 onClick={() => setForm(f => ({ ...f, activities: [...f.activities, ''] }))}
@@ -1779,23 +1795,39 @@ export default function MyTimesheet() {
             </div>
 
             <div style={{ padding: '18px 22px 4px', maxHeight: '62vh', overflowY: 'auto' }}>
-              {createErr && (
-                <div style={{ background: '#FEF3F2', border: '1px solid #FECDCA', color: '#912018', borderRadius: 9, padding: '11px 13px', fontSize: 12.5, marginBottom: 14 }}>
-                  <strong style={{ display: 'block', marginBottom: 3 }}>{createErr.msg}</strong>
-                  <ul style={{ margin: '4px 0 0', paddingLeft: 17 }}>
-                    {createErr.dates.map(d => <li key={d}>{fmtChip(d)}</li>)}
-                  </ul>
-                  <button
-                    onClick={() => {
-                      setCreateDates(prev => { const n = new Set(prev); createErr.dates.forEach(d => n.delete(d)); return n; });
-                      setCreateErr(null);
-                    }}
-                    style={{ marginTop: 7, border: 'none', background: 'none', font: 'inherit', fontSize: 12, fontWeight: 700, color: '#B42318', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}
-                  >
-                    Deselect {createErr.dates.length === 1 ? 'this date' : `these ${createErr.dates.length} dates`}
-                  </button>
-                </div>
-              )}
+              {createErr && (() => {
+                const notice = createErr.kind === 'notice';
+                return (
+                  <div style={{
+                    background: notice ? '#FFFBEB' : '#FEF3F2',
+                    border: `1px solid ${notice ? '#FDE68A' : '#FECDCA'}`,
+                    color: notice ? '#92400E' : '#912018',
+                    borderRadius: 9, padding: '11px 13px', fontSize: 12.5, marginBottom: 14,
+                    display: 'flex', gap: 9, alignItems: 'flex-start',
+                  }}>
+                    <i className={`fa-solid ${notice ? 'fa-circle-info' : 'fa-circle-exclamation'}`} style={{ marginTop: 2 }} />
+                    <div style={{ flex: 1 }}>
+                      <strong style={{ display: 'block' }}>{createErr.msg}</strong>
+                      {createErr.dates.length > 0 && (
+                        <>
+                          <ul style={{ margin: '4px 0 0', paddingLeft: 17 }}>
+                            {createErr.dates.map(d => <li key={d}>{fmtChip(d)}</li>)}
+                          </ul>
+                          <button
+                            onClick={() => {
+                              setCreateDates(prev => { const n = new Set(prev); createErr.dates.forEach(d => n.delete(d)); return n; });
+                              setCreateErr(null);
+                            }}
+                            style={{ marginTop: 7, border: 'none', background: 'none', font: 'inherit', fontSize: 12, fontWeight: 700, color: '#B42318', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}
+                          >
+                            Deselect {createErr.dates.length === 1 ? 'this date' : `these ${createErr.dates.length} dates`}
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Dates */}
               <div style={{ marginBottom: 16 }}>
