@@ -347,6 +347,26 @@ export default function MyTimesheet() {
 
     const periodDate = `${year}-${pad2(month)}-01`;
 
+    // 0. Resolve the employee's CURRENT schedule + holiday calendar.
+    //    This used to live inside the "header does not exist" branch, which meant
+    //    the header's snapshot of holiday_calendar_id was the only source of truth
+    //    forever after. If HR assigned the calendar after the header was created,
+    //    the timesheet never saw a single holiday. Resolve it every load instead.
+    //
+    //    effective_to: 11 other queries in this codebase use the '9999-12-31'
+    //    sentinel; this one query used .is(null). Accept both so a row written
+    //    under either convention still resolves.
+    const { data: empRow } = await supabase
+      .from('employee_employment')
+      .select('work_schedule_id, holiday_calendar_id, department_id, departments(name)')
+      .eq('employee_id', employee.id)
+      .or('effective_to.is.null,effective_to.eq.9999-12-31')
+      .limit(1)
+      .maybeSingle();
+
+    const empWsId = empRow?.work_schedule_id    ?? null;
+    const empHcId = empRow?.holiday_calendar_id ?? null;
+
     // 1. Find existing header
     let { data: hdr, error: hErr } = await supabase
       .from('timesheet_headers')
@@ -360,18 +380,11 @@ export default function MyTimesheet() {
     let headerId: string;
 
     if (!hdr) {
-      // 2a. Need work schedule + holiday calendar from employee_employment
-      const { data: emp } = await supabase
-        .from('employee_employment')
-        .select('work_schedule_id, holiday_calendar_id, department_id, departments(name)')
-        .eq('employee_id', employee.id)
-        .is('effective_to', null)
-        .single();
-
-      const wsId  = emp?.work_schedule_id    ?? null;
-      const hcId  = emp?.holiday_calendar_id ?? null;
-      const deptId   = emp?.department_id ?? null;
-      const deptName = (emp?.departments as any)?.name ?? null;
+      // 2a. Work schedule + holiday calendar come from the hoisted lookup above
+      const wsId  = empWsId;
+      const hcId  = empHcId;
+      const deptId   = empRow?.department_id ?? null;
+      const deptName = (empRow?.departments as any)?.name ?? null;
 
       // 2b. Resolve planned_minutes from work schedule
       let plannedMins = 0;
@@ -430,43 +443,73 @@ export default function MyTimesheet() {
       hdr = created;
 
       if (ws) { setSchedule(ws); }
-      setHolidays(
-        hdDates.map((d) => ({ holiday_date: d, holiday_name: `Holiday` }))
-      );
+      // Step 4 below re-reads the calendar with real names on this same pass,
+      // so seeding placeholder names here would only flash "Holiday" and lose.
     }
 
     setHeader(hdr as TimesheetHeader);
     headerId = hdr!.id;
 
-    // 3. Load work schedule if not already loaded
-    if (!schedule && hdr!.work_schedule_id) {
+    // 3. Load work schedule. Keep a local copy — `schedule` state is not readable
+    //    until the next render, and step 4b needs it to recompute planned minutes.
+    let wsLive: WorkSchedule | null = schedule;
+    const wsIdLive = hdr!.work_schedule_id ?? empWsId;
+    if (!wsLive && wsIdLive) {
       const { data: wsData } = await supabase
         .from('time_work_schedules')
         .select('id, name, code, start_day_of_week, time_work_schedule_lines(day_number, planned_minutes)')
-        .eq('id', hdr!.work_schedule_id)
-        .single();
+        .eq('id', wsIdLive)
+        .maybeSingle();
       if (wsData) {
-        setSchedule({
+        wsLive = {
           id: wsData.id, name: wsData.name, code: wsData.code,
           start_day_of_week: wsData.start_day_of_week,
           lines: (wsData.time_work_schedule_lines ?? []) as ScheduleLine[],
-        });
+        };
+        setSchedule(wsLive);
       }
     }
 
-    // 4. Load holiday calendar entries for this period
-    if (!holidays.length && hdr!.holiday_calendar_id) {
+    // 4. Load holiday calendar entries for this period.
+    //    Employment wins over the header's snapshot: assigning a calendar after
+    //    the header exists must still light up the timesheet. The old `!holidays.length`
+    //    guard also made this load-once, so navigating July -> August kept July's
+    //    dates on screen. It loads every period now, and clears when there are none.
+    const calId = empHcId ?? hdr!.holiday_calendar_id;
+    let hdRows: { holiday_date: string; holiday_name: string }[] = [];
+    if (calId) {
       const { data: hdData } = await supabase
         .from('time_holidays')
         .select('holiday_date, holiday_pool:holiday_id(holiday_name)')
-        .eq('calendar_id', hdr!.holiday_calendar_id)
+        .eq('calendar_id', calId)
         .gte('holiday_date', periodDate)
         .lte('holiday_date', isoDate(year, month, daysInMonth(year, month)));
-      if (hdData) {
-        setHolidays(hdData.map((h: any) => ({
-          holiday_date: h.holiday_date,
-          holiday_name: (Array.isArray(h.holiday_pool) ? h.holiday_pool[0] : h.holiday_pool)?.holiday_name ?? 'Holiday',
-        })));
+      hdRows = (hdData ?? []).map((h: any) => ({
+        holiday_date: h.holiday_date,
+        holiday_name: (Array.isArray(h.holiday_pool) ? h.holiday_pool[0] : h.holiday_pool)?.holiday_name ?? 'Holiday',
+      }));
+    }
+    setHolidays(hdRows);
+
+    // 4a. Heal a header that was created before the calendar was assigned, so the
+    //     stored snapshot stops disagreeing with the employee's actual assignment.
+    if (calId && hdr!.holiday_calendar_id !== calId) {
+      await supabase.from('timesheet_headers').update({ holiday_calendar_id: calId }).eq('id', hdr!.id);
+      hdr = { ...hdr!, holiday_calendar_id: calId } as typeof hdr;
+      setHeader(hdr as TimesheetHeader);
+    }
+
+    // 4b. planned_minutes is a creation-time snapshot. A holiday added to the
+    //     calendar afterwards leaves it overstated (Aug 2026 read 176 hr when the
+    //     16th made it 168). Recompute from the live schedule + holidays.
+    //     Only while the sheet is still editable — an approved total must not
+    //     move underneath the approver.
+    if (wsLive && hdr!.status === 'to_be_submitted') {
+      const truePlanned = calcPlannedMinutes(year, month, wsLive, hdRows.map(h => h.holiday_date));
+      if (truePlanned !== hdr!.planned_minutes) {
+        await supabase.from('timesheet_headers').update({ planned_minutes: truePlanned }).eq('id', hdr!.id);
+        hdr = { ...hdr!, planned_minutes: truePlanned } as typeof hdr;
+        setHeader(hdr as TimesheetHeader);
       }
     }
 
