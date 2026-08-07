@@ -223,6 +223,42 @@ const STATUS_META: Record<string, { label: string; bg: string; color: string }> 
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
+/** Read-only card for a public holiday.
+ *  Holidays are master data, never attendance rows — nothing is stored and
+ *  nothing is generated. This is derived from `holidayByDate` at render time.
+ *
+ *  `plannedMinutes` is the schedule's raw value for the weekday. The month
+ *  total (plannedMinutesForMonth) deliberately excludes holidays, so printing a
+ *  bare "8h" here would not add up against the header. The row says so instead.
+ */
+function HolidayCard({ name, plannedMinutes }: { name: string; plannedMinutes: number }) {
+  const row = (label: string, value: string) => (
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 12, color: '#6B7280' }}>
+      <span>{label}</span>
+      <span style={{ color: '#374151', fontWeight: 600, textAlign: 'right' }}>{value}</span>
+    </div>
+  );
+  return (
+    <div style={{
+      border: '1px solid #E9D5FF', background: '#FAF5FF', borderRadius: 10,
+      padding: '12px 14px', marginBottom: 8, display: 'flex', flexDirection: 'column', gap: 8,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 14, fontWeight: 700, color: '#5B21B6' }}>
+        <span aria-hidden="true">🎉</span> Public Holiday
+      </div>
+      <div style={{ fontSize: 16, fontWeight: 700, color: '#111827', lineHeight: 1.3 }}>{name}</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, paddingTop: 8, borderTop: '1px solid #F3E8FF' }}>
+        {plannedMinutes > 0 && row('Scheduled hours', `${Math.round(plannedMinutes / 60)}h — not required`)}
+        {row('Source', 'Holiday Calendar')}
+        {row('Status', 'Read-only')}
+      </div>
+      <div style={{ fontSize: 11, color: '#9CA3AF', fontStyle: 'italic', lineHeight: 1.45 }}>
+        Automatically derived from your assigned Holiday Calendar.
+      </div>
+    </div>
+  );
+}
+
 export default function MyTimesheet() {
   const { employee } = useAuth();
 
@@ -1475,13 +1511,35 @@ export default function MyTimesheet() {
                 const recorded = dayEntries.reduce((s, e) => s + e.hours_minutes, 0);
                 const dow      = new Date(selectedDate + 'T00:00:00').getDay();
                 const planned  = schedule ? plannedForDay(dow, schedule) : 0;
+                const holiday  = holidayByDate[selectedDate];
+
+                // A holiday is not a target. Falling through to the normal bar
+                // would say "0 / 8 hr — 8 hr remaining" on Diwali, telling the
+                // employee they owe hours nobody expected — and contradicting
+                // plannedMinutesForMonth(), which excludes holidays from the plan.
+                // The HolidayCard below carries an unworked holiday on its own.
+                if (holiday) {
+                  if (recorded === 0) return null;
+                  // Worked holiday: show the bare total, never a shortfall.
+                  return (
+                    <div style={{ marginTop: 12 }}>
+                      <div style={{ height: 10, borderRadius: 99, overflow: 'hidden', background: '#F1F5F9', marginBottom: 8 }}>
+                        <div style={{ width: '100%', height: '100%', background: '#8B5CF6' }} />
+                      </div>
+                      <div style={{ fontSize: 18, fontWeight: 700, color: '#111827', lineHeight: 1.3 }}>
+                        {+(recorded / 60).toFixed(1)} hr
+                      </div>
+                      <div style={{ fontSize: 11, fontWeight: 500, color: '#5B21B6', lineHeight: 1.4 }}>
+                        Logged on a public holiday
+                      </div>
+                    </div>
+                  );
+                }
 
                 if (planned === 0) {
                   return (
                     <div style={{ marginTop: 10, fontSize: 12, color: '#9CA3AF', fontStyle: 'italic' }}>
-                      {holidayByDate[selectedDate]
-                        ? <span>🎉 {holidayByDate[selectedDate]}</span>
-                        : 'Non-working day'}
+                      Non-working day
                     </div>
                   );
                 }
@@ -1530,11 +1588,6 @@ export default function MyTimesheet() {
                     <div style={{ fontSize: 11, fontWeight: 500, color: statusColor, lineHeight: 1.4 }}>
                       {statusText}
                     </div>
-                    {holidayByDate[selectedDate] && (
-                      <div style={{ fontSize: 11, color: '#5B21B6', fontWeight: 600, marginTop: 6 }}>
-                        🎉 {holidayByDate[selectedDate]}
-                      </div>
-                    )}
                   </div>
                 );
               })()}
@@ -1563,7 +1616,16 @@ export default function MyTimesheet() {
 
             {/* Entries */}
             <div style={{ flex: 1, padding: '5px 10px' }}>
-              {dayEntries.length === 0 && !addingEntry && (
+              {/* Holiday first, then any real entries below it — a holiday can be
+                  worked, and the Add buttons stay live so it can still be logged. */}
+              {holidayByDate[selectedDate] && (
+                <HolidayCard
+                  name={holidayByDate[selectedDate]}
+                  plannedMinutes={schedule ? plannedForDay(new Date(selectedDate + 'T00:00:00').getDay(), schedule) : 0}
+                />
+              )}
+
+              {dayEntries.length === 0 && !addingEntry && !holidayByDate[selectedDate] && (
                 <div style={{ color: '#9CA3AF', fontSize: 12, textAlign: 'center', padding: '20px 0' }}>
                   <i className="fa-regular fa-clock" style={{ fontSize: 20, display: 'block', marginBottom: 6 }} />
                   No entries for this day
