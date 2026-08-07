@@ -512,12 +512,23 @@ export default function MyTimesheet() {
     setCreateOpen(true);
   }
   function toggleCreateDate(dateStr: string) {
-    setCreateDates(prev => {
-      const next = new Set(prev);
-      if (next.has(dateStr)) next.delete(dateStr); else next.add(dateStr);
-      return next;
-    });
+    const next = new Set(createDates);
+    if (next.has(dateStr)) next.delete(dateStr); else next.add(dateStr);
+    setCreateDates(next);
     setCreateErr(null);
+
+    // Adding a date can push the chosen project outside its validity window.
+    // Clear it rather than silently create entries against an inactive project,
+    // and name the date that caused it — otherwise the reset looks like a bug.
+    if (form.projId) {
+      const proj = projects.find(p => p.id === form.projId);
+      const dates = [...next].sort();
+      if (proj && !projectActiveOn(proj, dates)) {
+        const culprit = dates.find(d => !projectActiveOn(proj, [d]));
+        setForm(f => ({ ...f, projId: '' }));
+        setFormErr(`${proj.name} is not active on ${culprit ? fmtChip(culprit) : 'one of the selected dates'} — pick a project again.`);
+      }
+    }
   }
 
   async function submitCreate() {
@@ -870,16 +881,23 @@ export default function MyTimesheet() {
   // Render
   // ─────────────────────────────────────────────────────────────────────
 
+  // A project may be chosen only if its validity window covers every date given.
+  // One date (day panel) and many dates (Create modal) use the same rule.
+  function projectActiveOn(p: Project, dates: string[]) {
+    return dates.every(d => (!p.start_date || p.start_date <= d) && (!p.end_date || p.end_date >= d));
+  }
+
   // ── Entry form fields ─────────────────────────────────────────────────
   // ONE definition, rendered in three places: the inline edit form inside an
   // entry card, the Add Entry form at the panel bottom, and the Create modal.
   // Callers own their own wrapper and action buttons — only the fields live here.
-  //   projectDate — filter projects to those active on this date; null = no filter
-  //                 (the Create modal spans several dates, so it cannot filter)
-  function renderEntryFields(opts?: { projectDate?: string | null; gap?: number }) {
-    const gap         = opts?.gap ?? 8;
-    const projectDate = opts?.projectDate ?? null;
-    const selTT       = timeTypes.find(t => t.id === form.typeId);
+  //   projectDates — only offer projects active on EVERY one of these dates.
+  //                  The day panel passes one; the Create modal passes all the
+  //                  dates picked, so the list is the intersection. Empty = no filter.
+  function renderEntryFields(opts?: { projectDates?: string[]; gap?: number }) {
+    const gap          = opts?.gap ?? 8;
+    const projectDates = opts?.projectDates ?? [];
+    const selTT        = timeTypes.find(t => t.id === form.typeId);
 
     return (
       <>
@@ -909,7 +927,7 @@ export default function MyTimesheet() {
             >
               <option value="">— Select —</option>
               {projects
-                .filter(p => !projectDate || (p.start_date <= projectDate && p.end_date >= projectDate))
+                .filter(p => projectActiveOn(p, projectDates))
                 .map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </div>
@@ -1591,7 +1609,7 @@ export default function MyTimesheet() {
                     {/* Inline edit form — replaces card body when editing this entry */}
                     {isEditing ? (
                       <div style={{ borderTop: '1px solid #BFDBFE', background: '#EFF6FF', padding: '10px 12px 12px' }}>
-                        {renderEntryFields({ projectDate: selectedDate })}
+                        {renderEntryFields({ projectDates: selectedDate ? [selectedDate] : [] })}
                         <div style={{ display: 'flex', gap: 7 }}>
                           <button onClick={handleSaveEntry} disabled={saving} style={{ flex: 1, padding: '7px 0', borderRadius: 6, border: 'none', background: '#1D4ED8', color: '#fff', fontSize: 12, fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
                             {saving ? <><i className="fa-solid fa-spinner fa-spin" /> Saving…</> : 'Update'}
@@ -1649,7 +1667,7 @@ export default function MyTimesheet() {
                     {editingEntry ? 'Edit Entry' : 'Add Entry'}
                   </div>
 
-                  {renderEntryFields({ projectDate: selectedDate })}
+                  {renderEntryFields({ projectDates: selectedDate ? [selectedDate] : [] })}
 
                   <div style={{ display: 'flex', gap: 7 }}>
                     <button
@@ -1860,10 +1878,9 @@ export default function MyTimesheet() {
               </div>
 
               {/* Attendance form — the same fields the day panel renders.
-                  projectDate is null: the modal spans several dates, so projects
-                  cannot be filtered to one day. */}
+                  Projects are intersected across every selected date. */}
               <div style={{ border: '1px solid #BFDBFE', borderRadius: 10, background: '#F8FBFF', padding: 14, marginBottom: 4 }}>
-                {renderEntryFields({ projectDate: null, gap: 10 })}
+                {renderEntryFields({ projectDates: [...createDates].sort(), gap: 10 })}
               </div>
             </div>
 
