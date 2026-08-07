@@ -69,9 +69,10 @@ AS $$
   )
   SELECT CASE
     WHEN EXISTS (
-      SELECT 1 FROM time_holidays th, ctx
-       WHERE th.calendar_id  = ctx.calendar_id
-         AND th.holiday_date = p_date
+      -- CORRECTED 2026-08-07: time_calendar_entries, not the time_holidays pool.
+      SELECT 1 FROM time_calendar_entries ce, ctx
+       WHERE ce.calendar_id = ctx.calendar_id
+         AND ce.entry_date  = p_date
     ) THEN 0
     ELSE COALESCE((
       SELECT l.planned_minutes

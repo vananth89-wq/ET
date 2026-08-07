@@ -126,9 +126,12 @@ SET search_path = public
 AS $$
   SELECT CASE
     WHEN EXISTS (
-      SELECT 1 FROM time_holidays th
+      -- CORRECTED 2026-08-07: holidays live in time_calendar_entries (mig 710).
+      -- time_holidays is the global POOL and mig 709 dropped its calendar_id, so
+      -- the original form here aborted on any environment where 709 applied.
+      SELECT 1 FROM time_calendar_entries ce
       JOIN timesheet_headers h2 ON h2.id = p_header_id
-      WHERE th.calendar_id = h2.holiday_calendar_id AND th.holiday_date = p_date
+      WHERE ce.calendar_id = h2.holiday_calendar_id AND ce.entry_date = p_date
     ) THEN 0
     ELSE COALESCE((
       SELECT l.planned_minutes

@@ -75,9 +75,10 @@ AS $$
   )
   SELECT CASE
     WHEN EXISTS (
-      SELECT 1 FROM time_holidays th, ctx
-       WHERE th.calendar_id  = ctx.calendar_id
-         AND th.holiday_date = p_date
+      -- CORRECTED 2026-08-07: time_calendar_entries, not the time_holidays pool.
+      SELECT 1 FROM time_calendar_entries ce, ctx
+       WHERE ce.calendar_id = ctx.calendar_id
+         AND ce.entry_date  = p_date
     ) THEN 0
     ELSE COALESCE((
       SELECT l.planned_minutes
@@ -257,25 +258,25 @@ BEGIN
   -- New location of the holiday
   IF TG_OP IN ('INSERT', 'UPDATE') THEN
     PERFORM time_holiday_calendar_changed(
-      NEW.calendar_id, date_trunc('month', NEW.holiday_date)::date);
+      NEW.calendar_id, date_trunc('month', NEW.entry_date)::date);
   END IF;
 
   -- Old location too, so moving a holiday across months or calendars restores
   -- the month it left. Skipped when nothing relevant moved.
   IF TG_OP = 'DELETE'
      OR (TG_OP = 'UPDATE'
-         AND (OLD.holiday_date <> NEW.holiday_date OR OLD.calendar_id <> NEW.calendar_id)) THEN
+         AND (OLD.entry_date <> NEW.entry_date OR OLD.calendar_id <> NEW.calendar_id)) THEN
     PERFORM time_holiday_calendar_changed(
-      OLD.calendar_id, date_trunc('month', OLD.holiday_date)::date);
+      OLD.calendar_id, date_trunc('month', OLD.entry_date)::date);
   END IF;
 
   RETURN NULL;   -- AFTER trigger
 END;
 $$;
 
-DROP TRIGGER IF EXISTS trg_time_holidays_recalc ON time_holidays;
+DROP TRIGGER IF EXISTS trg_time_holidays_recalc ON time_calendar_entries;
 CREATE TRIGGER trg_time_holidays_recalc
-  AFTER INSERT OR UPDATE OR DELETE ON time_holidays
+  AFTER INSERT OR UPDATE OR DELETE ON time_calendar_entries
   FOR EACH ROW EXECUTE FUNCTION public.trg_time_holidays_recalc();
 
 -- ── 6. Repair headers that are already wrong, within the last 6 months ─────
@@ -316,7 +317,7 @@ BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_trigger
      WHERE tgname = 'trg_time_holidays_recalc'
-       AND tgrelid = 'time_holidays'::regclass
+       AND tgrelid = 'time_calendar_entries'::regclass
   ) THEN
     RAISE EXCEPTION 'ABORT: trg_time_holidays_recalc not found on time_holidays.';
   END IF;
