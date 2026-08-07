@@ -407,15 +407,14 @@ export default function MyTimesheet() {
       // 2c. Resolve holiday dates for this period
       let hdDates: string[] = [];
       if (hcId) {
-        const { data: hdData } = await supabase
-          .from('time_holidays')
-          .select('holiday_date, time_holidays_pool:holiday_id(holiday_name)')
+        const { data: hdData, error: hdErr } = await supabase
+          .from('time_calendar_entries')
+          .select('entry_date')
           .eq('calendar_id', hcId)
-          .gte('holiday_date', periodDate)
-          .lte('holiday_date', isoDate(year, month, daysInMonth(year, month)));
-        if (hdData) {
-          hdDates = hdData.map((h: any) => h.holiday_date);
-        }
+          .gte('entry_date', periodDate)
+          .lte('entry_date', isoDate(year, month, daysInMonth(year, month)));
+        if (hdErr) { setError(hdErr.message); setLoading(false); return; }
+        hdDates = (hdData ?? []).map((h: any) => h.entry_date);
       }
 
       if (ws) plannedMins = calcPlannedMinutes(year, month, ws, hdDates);
@@ -478,15 +477,19 @@ export default function MyTimesheet() {
     const calId = empHcId ?? hdr!.holiday_calendar_id;
     let hdRows: { holiday_date: string; holiday_name: string }[] = [];
     if (calId) {
-      const { data: hdData } = await supabase
-        .from('time_holidays')
-        .select('holiday_date, holiday_pool:holiday_id(holiday_name)')
+      const { data: hdData, error: hdErr } = await supabase
+        .from('time_calendar_entries')
+        .select('entry_date, time_holidays!inner(holiday_name)')
         .eq('calendar_id', calId)
-        .gte('holiday_date', periodDate)
-        .lte('holiday_date', isoDate(year, month, daysInMonth(year, month)));
+        .gte('entry_date', periodDate)
+        .lte('entry_date', isoDate(year, month, daysInMonth(year, month)));
+      // Surface it. Swallowing this error is exactly how the wrong table went
+      // unnoticed: the query 400'd, data came back null, and the month simply
+      // rendered as if the calendar were empty.
+      if (hdErr) { setError(hdErr.message); setLoading(false); return; }
       hdRows = (hdData ?? []).map((h: any) => ({
-        holiday_date: h.holiday_date,
-        holiday_name: (Array.isArray(h.holiday_pool) ? h.holiday_pool[0] : h.holiday_pool)?.holiday_name ?? 'Holiday',
+        holiday_date: h.entry_date,
+        holiday_name: (Array.isArray(h.time_holidays) ? h.time_holidays[0] : h.time_holidays)?.holiday_name ?? 'Holiday',
       }));
     }
     setHolidays(hdRows);
