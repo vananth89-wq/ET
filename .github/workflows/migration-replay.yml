@@ -38,6 +38,10 @@ on:
     branches: [main]
     paths:
       - 'supabase/migrations/**'
+      # A change to THIS file must re-run this job. Without it a CI fix lands on
+      # main untested and the next real run is the first time anyone finds out --
+      # which is how the service-container shim bug reached main.
+      - '.github/workflows/migration-replay.yml'
   workflow_dispatch:
 
 env:
