@@ -155,6 +155,7 @@ interface TimeType {
   category:         'attendance' | 'absence';
   requires_project: boolean;
   allows_half_day:  boolean;   // absence only — mig 718
+  allows_future:    boolean;   // either category, per type — mig 729
   is_active:        boolean;
 }
 
@@ -405,7 +406,7 @@ export default function MyTimesheet() {
     (async () => {
       const [empRes, ttRes, prRes, actRes] = await Promise.all([
         supabase.from('employees').select('employee_id').eq('id', employee.id).single(),
-        supabase.from('time_types').select('id, name, code, category, requires_project, allows_half_day, is_active').eq('is_active', true).eq('is_system_managed', false).order('category').order('name'),
+        supabase.from('time_types').select('id, name, code, category, requires_project, allows_half_day, allows_future, is_active').eq('is_active', true).eq('is_system_managed', false).order('category').order('name'),
         supabase.from('projects').select('id, name, active, start_date, end_date').eq('active', true).order('name'),
         supabase.rpc('get_employee_activities', { p_employee_id: employee.id }),
       ]);
@@ -753,9 +754,52 @@ export default function MyTimesheet() {
   // offending dates instead and the user deselects them.
   function dateBlockedReason(dateStr: string): string | null {
     if (dateStr.slice(0, 7) !== `${year}-${pad2(month)}`) return 'Outside this timesheet month';
-    if (dateStr > todayIso)                               return 'Future date — attendance cannot be recorded in advance';
+
+    // Mig 729: the TYPE decides whether a future date is legal, not the date.
+    //
+    // The picker sits ABOVE the type selector in the modal, so before a type is
+    // chosen there is nothing to ask. Rather than grey everything out and make
+    // Training impossible to mass-create, allow the date when anything in the
+    // current category could take it. If the user then picks Work, the RPC
+    // returns FUTURE_DATE with the offending dates and the existing
+    // "Deselect these N dates" affordance clears them in one click.
+    if (dateStr > todayIso) {
+      const tt = form.typeId ? timeTypes.find(t => t.id === form.typeId) : undefined;
+      const ok = tt
+        ? tt.allows_future
+        : timeTypes.some(t => (!form.ttCategory || t.category === form.ttCategory) && t.allows_future);
+      if (!ok) {
+        return tt ? `${tt.name} cannot be recorded in advance`
+                  : 'Cannot be recorded in advance';
+      }
+    }
+
     return dayAbsenceBlock(dateStr);
   }
+
+  /**
+   * Mig 729 — nothing is recorded in advance unless the time type opts in.
+   * Attendance never can: you cannot have worked tomorrow. An absence type may
+   * set allows_future so planned leave can be booked ahead.
+   *
+   * Returns the reason to show, or null when the date is fine.
+   */
+  function futureBlock(dateStr: string, typeId?: string): string | null {
+    if (dateStr <= todayIso) return null;
+    const tt = typeId ? timeTypes.find(t => t.id === typeId) : undefined;
+    if (tt?.allows_future) return null;
+    return tt
+      ? `${tt.name} cannot be recorded in advance`
+      : 'This day is in the future — attendance cannot be recorded in advance';
+  }
+
+  /**
+   * How many types of this category the admin has opened up for advance dating.
+   * Zero means the corresponding button has nothing it could offer on a future
+   * day, so it is withdrawn rather than opened onto an empty picker.
+   */
+  const typesAllowingFuture = (cat: 'attendance' | 'absence') =>
+    timeTypes.filter(t => t.category === cat && t.allows_future).length;
 
   // Copy Day keeps the stricter "empty days only" rule on purpose. Pasting N
   // entries into a non-empty day is N separate collision questions and needs
@@ -763,6 +807,11 @@ export default function MyTimesheet() {
   // has also never been exercised in a browser; its first real test should not
   // be the harder version of the problem.
   function pasteBlockedReason(dateStr: string): string | null {
+    // Copy Day carries whatever types the source day held and cannot know that
+    // every one of them allows advance dating, so it stays strictly
+    // retrospective whatever the flags say. Consistent with its empty-days-only
+    // rule: Copy Day takes the narrow option every time.
+    if (dateStr > todayIso) return 'Attendance cannot be pasted into a future day';
     return dateBlockedReason(dateStr)
         ?? ((entriesByDate[dateStr] ?? []).length > 0 ? 'Already has attendance' : null);
   }
@@ -1037,6 +1086,12 @@ export default function MyTimesheet() {
 
     if (needsProject && !form.projId) { setFormErr('Please select a project for this time type.'); return; }
 
+    // Mig 729 (h). Checked here so the message names the type, not just the date.
+    if (!editingEntry) {
+      const fut = futureBlock(selectedDate, form.typeId);
+      if (fut) { setFormErr(`${fut}.`); return; }
+    }
+
     // Project time is itemised: its duration is the sum of the activity rows.
     let totalMins: number;
     if (needsProject) {
@@ -1218,6 +1273,9 @@ export default function MyTimesheet() {
               // because a part-day absence alongside work is legitimate.
               .filter(t => !(t.category === 'absence' && !t.allows_half_day
                              && !editingEntry && !!selectedDate && hasAttendance(selectedDate)))
+              // Mig 729: on a future day only types that opt in are selectable.
+              .filter(t => !(!editingEntry && !!selectedDate && selectedDate > todayIso
+                             && !t.allows_future))
               .map(t => <option key={t.id} value={t.id}>{t.name} ({t.code})</option>)}
           </select>
         </div>
@@ -1587,10 +1645,14 @@ export default function MyTimesheet() {
                           : isHovered  ? '#D0D5DD'
                           : leaveName  ? '#DBEAFE'
                           :              '#E5E7EB'}`,
+                        // isHoliday BEFORE isOffDay. A holiday falling on a weekend
+                        // still has something to say; the border, aria-label and tab
+                        // order already gave it precedence (6c4cde1) — the background
+                        // and the status bar below were simply missed.
                         background: pasteOk    ? '#F6FEFB'
                                   : copySrcOk  ? '#F8FBFF'
-                                  : isOffDay   ? '#F4F5F7'
                                   : isHoliday  ? '#FAF5FF'
+                                  : isOffDay   ? '#F4F5F7'
                                   : leaveName  ? '#EFF6FF'
                                   : isHovered  ? '#FCFCFD'
                                   :              '#fff',
@@ -1665,7 +1727,9 @@ export default function MyTimesheet() {
                               {leaveName}
                             </div>
                           </>
-                        ) : isOffDay ? null : dayEnts.length === 0 ? (
+                        ) : isOffDay ? null
+                          : (dateStr > todayIso && !timeTypes.some(t => t.allows_future)) ? null
+                          : dayEnts.length === 0 ? (
                           <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             <span style={{
                               fontSize: 11, fontWeight: 600, color: '#98A2B3',
@@ -1718,8 +1782,10 @@ export default function MyTimesheet() {
                         )}
                       </div>
 
-                      {/* Status bar — one rounded pill, same source of truth as the metric */}
-                      {!isOffDay && (
+                      {/* Status bar — one rounded pill, same source of truth as the metric.
+                          A holiday keeps its purple bar even on a weekend: `segments`
+                          already computes it, it was just never rendered on an off-day. */}
+                      {(!isOffDay || isHoliday) && (
                         <div style={{ padding: '0 12px 9px', flexShrink: 0 }}>
                           <div style={{
                             display: 'flex', height: 6, borderRadius: 99,
@@ -2085,6 +2151,7 @@ export default function MyTimesheet() {
               {editable && !addingEntry && selectedDate && (() => {
                 const absBlock = dayAbsenceBlock(selectedDate);          // mig 726 (g)
                 const hasAbs   = absenceMinutes(selectedDate) > 0;       // mig 721 (b)
+                const isFuture = selectedDate > todayIso;                // mig 729 (h)
                 const noticeSt = {
                   padding: '8px 12px', borderRadius: 8, fontSize: 12, lineHeight: 1.45,
                   background: '#F9FAFB', border: '1px solid #E5E7EB', color: '#6B7280',
@@ -2092,7 +2159,13 @@ export default function MyTimesheet() {
                 };
                 return (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: dayEntries.length > 0 ? 6 : 8 }}>
-                    {absBlock ? (
+                    {isFuture && !typesAllowingFuture('attendance') ? (
+                      <div style={noticeSt}>
+                        <i className="fa-regular fa-clock" style={{ marginRight: 5 }} />
+                        No attendance type can be recorded in advance. An administrator can
+                        allow it on a scheduled type such as Training.
+                      </div>
+                    ) : absBlock ? (
                       <div style={noticeSt}>
                         <i className="fa-solid fa-umbrella-beach" style={{ marginRight: 5 }} />
                         {absBlock} — attendance cannot be added.
@@ -2113,6 +2186,13 @@ export default function MyTimesheet() {
 
                     {hasAbs ? (
                       <div style={noticeSt}>Only one absence is allowed per day.</div>
+                    ) : isFuture && !typesAllowingFuture('absence') ? (
+                      /* Nothing this button could offer on a future day. When at least
+                         one type IS allowed the button stays and the picker narrows. */
+                      <div style={noticeSt}>
+                        No absence type can be recorded in advance. Ask an administrator to
+                        enable it on the type, or book the leave through the leave module.
+                      </div>
                     ) : (
                       <button
                         onClick={openAddAbsence}
@@ -2314,7 +2394,9 @@ export default function MyTimesheet() {
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px', padding: '0 10px 9px', fontSize: 10.5, color: '#667085' }}>
                     <span><span style={{ display: 'inline-block', width: 4, height: 4, borderRadius: '50%', background: '#F59E0B', marginRight: 5, verticalAlign: 2 }} />Already has attendance</span>
-                    <span>Greyed after today — cannot be recorded in advance</span>
+                    <span>{timeTypes.some(t => t.allows_future)
+                      ? 'Most types cannot be recorded in advance — the greyed days depend on the type'
+                      : 'Greyed after today — cannot be recorded in advance'}</span>
                     <span>Weekends and holidays can be selected</span>
                   </div>
                 </div>

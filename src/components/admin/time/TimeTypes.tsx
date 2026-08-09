@@ -20,6 +20,7 @@ interface TimeType {
   code:                   string;
   category:               'attendance' | 'absence';
   allows_half_day:        boolean;
+  allows_future:          boolean;   // either category, per type — mig 729
   is_system_managed:      boolean;
   requires_project:       boolean;
   is_active:              boolean;
@@ -52,7 +53,7 @@ function CategoryBadge({ category }: { category: string }) {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 const EMPTY: Omit<TimeType, 'id'> & { id: string } = {
-  id: '', name: '', code: '', category: 'attendance', allows_half_day: false, is_system_managed: false, requires_project: false, is_active: true, created_at: null, updated_at: null, creator: null,
+  id: '', name: '', code: '', category: 'attendance', allows_half_day: false, allows_future: false, is_system_managed: false, requires_project: false, is_active: true, created_at: null, updated_at: null, creator: null,
 };
 
 export default function TimeTypes() {
@@ -70,7 +71,7 @@ export default function TimeTypes() {
     setError(null);
     const { data, error: e } = await supabase
       .from('time_types')
-      .select('id, name, code, category, allows_half_day, is_system_managed, requires_project, is_active, created_at, updated_at, creator:profiles!created_by(employees!employee_id(name))')
+      .select('id, name, code, category, allows_half_day, allows_future, is_system_managed, requires_project, is_active, created_at, updated_at, creator:profiles!created_by(employees!employee_id(name))')
       .order('category')
       .order('name');
     if (e) { setError(e.message); setLoading(false); return; }
@@ -102,8 +103,11 @@ export default function TimeTypes() {
       name: form.name.trim(),
       code: form.code.trim(),
       category: form.category,
-      // each flag belongs to exactly one category — mirrored in upsert_time_type (mig 718)
+      // The first two flags belong to exactly one category each — mirrored in
+      // upsert_time_type. allows_future does NOT: "is this scheduled?" is a fair
+      // question of Training as much as of planned leave (mig 729).
       allows_half_day:  form.category === 'absence'    ? form.allows_half_day  : false,
+      allows_future:    form.allows_future,
       requires_project: form.category === 'attendance' ? form.requires_project : false,
       is_active: form.is_active,
     };
@@ -193,6 +197,18 @@ export default function TimeTypes() {
 
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
               <input
+                type="checkbox" checked={form.allows_future}
+                onChange={e => setForm(p => ({ ...p, allows_future: e.target.checked }))}
+              />
+              Allows Future Dates
+              <span style={{ color: '#9CA3AF', fontSize: 11 }}>
+                (for scheduled things — a booked Training next week, planned leave. Leave it
+                off for anything only reportable after the fact: project work, sick leave)
+              </span>
+            </label>
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+              <input
                 type="checkbox" checked={form.is_active}
                 onChange={e => setForm(p => ({ ...p, is_active: e.target.checked }))}
               />
@@ -257,6 +273,7 @@ export default function TimeTypes() {
                         <th>Category</th>
                         {isAttendance && <th>Req. Project</th>}
                         {!isAttendance && <th>Half Day</th>}
+                        <th>In Advance</th>
                         <th>Status</th>
                         <th>Created</th>
                         <th>Last Updated</th>
@@ -287,6 +304,12 @@ export default function TimeTypes() {
                               }
                             </td>
                           )}
+                          <td style={{ textAlign: 'center' }}>
+                            {tt.allows_future
+                              ? <i className="fa-solid fa-check" style={{ color: '#8B5CF6' }} title="May be recorded ahead of today" />
+                              : <i className="fa-solid fa-minus" style={{ color: '#D1D5DB' }} title="Cannot be recorded in advance" />
+                            }
+                          </td>
                           <td>
                             <span style={{
                               fontSize: 11, padding: '2px 8px', borderRadius: 10,
