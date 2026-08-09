@@ -13,6 +13,9 @@
 #   ./scripts/backup.sh              snapshot now
 #   ./scripts/backup.sh --list       show what you have
 #   ./scripts/backup.sh --verify     check the newest archive is readable
+#   ./scripts/backup.sh --if-changed only snapshot if something actually changed
+#                                    (used by the scheduled job, so unattended
+#                                    runs do not pile up identical archives)
 #
 #   Run it before anything risky: a big refactor, a schema change, a command
 #   you are not 100% sure about.
@@ -66,6 +69,9 @@ fi
 [ -d "$PROJECT_DIR" ] || { echo "ERROR: $PROJECT_DIR not found"; exit 1; }
 mkdir -p "$BACKUP_DIR"
 
+IF_CHANGED=0
+[ "${1:-}" = "--if-changed" ] && IF_CHANGED=1
+
 STAMP=$(date +%Y%m%d-%H%M%S)
 # Label the archive with the current commit, so you know what it corresponds to
 SHA=$(git -C "$PROJECT_DIR" rev-parse --short HEAD 2>/dev/null || echo "nogit")
@@ -74,7 +80,26 @@ if ! git -C "$PROJECT_DIR" diff --quiet 2>/dev/null || \
    [ -n "$(git -C "$PROJECT_DIR" status --porcelain 2>/dev/null)" ]; then
   DIRTY="-dirty"
 fi
+# --if-changed: a scheduled run has nothing useful to add when the commit is the
+# same as the last archive AND the working tree is clean. Anything dirty always
+# gets archived, because uncommitted work is exactly what git cannot recover.
+if [ "$IF_CHANGED" = "1" ] && [ -z "$DIRTY" ]; then
+  last=$(ls -t "$BACKUP_DIR"/*.tar.gz 2>/dev/null | head -1 || true)
+  if [ -n "$last" ] && printf '%s' "$(basename "$last")" | grep -q -- "-$SHA\.tar\.gz$"; then
+    echo "No change since $(basename "$last") — nothing to back up."
+    exit 0
+  fi
+fi
+
 ARCHIVE="$BACKUP_DIR/prowess-$STAMP-$SHA$DIRTY.tar.gz"
+
+# Two runs inside the same second would otherwise produce the same filename and
+# the second would silently overwrite the first. Never overwrite a backup.
+n=2
+while [ -e "$ARCHIVE" ]; do
+  ARCHIVE="$BACKUP_DIR/prowess-$STAMP-$SHA$DIRTY-$n.tar.gz"
+  n=$((n + 1))
+done
 
 echo "Backing up $PROJECT_DIR"
 echo "  -> $ARCHIVE"

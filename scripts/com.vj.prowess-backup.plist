@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Automatic Prowess backup to OneDrive.
+
+  Runs scripts/backup.sh with 'if-changed' every 4 hours and once at login.
+  'if-changed' means an unattended run does nothing when the commit is unchanged
+  AND the working tree is clean, so the archive list stays meaningful instead of
+  filling with identical snapshots. Anything uncommitted is always archived,
+  because that is precisely what git cannot recover.
+
+  INSTALL
+    cp com.vj.prowess-backup.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.vj.prowess-backup.plist
+
+  CHECK IT IS RUNNING
+    launchctl list | grep prowess
+    cat /tmp/prowess-backup.log
+
+  RUN IT RIGHT NOW (to test)
+    launchctl start com.vj.prowess-backup
+
+  STOP IT
+    launchctl unload ~/Library/LaunchAgents/com.vj.prowess-backup.plist
+
+  NOTE: launchd gives a process almost no environment, so PATH and the backup
+  directory are set explicitly below. Without PATH, `git` is not found and every
+  archive would be labelled "nogit".
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.vj.prowess-backup</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/vj/Developer/ET-React/scripts/backup.sh</string>
+    <string>--if-changed</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin</string>
+    <key>PROWESS_PROJECT_DIR</key>
+    <string>/Users/vj/Developer/ET-React</string>
+    <key>PROWESS_BACKUP_DIR</key>
+    <string>/Users/vj/Library/CloudStorage/OneDrive-Personal/Backups/prowess</string>
+    <!-- 1 TB of OneDrive and ~9 MB an archive: keep a long history. 120 is
+         roughly two months at this cadence, about 1 GB. -->
+    <key>PROWESS_KEEP</key>
+    <string>120</string>
+  </dict>
+
+  <!-- Every 4 hours. If the Mac is asleep at the due time, launchd runs it
+       once on wake rather than firing every missed interval. -->
+  <key>StartInterval</key>
+  <integer>14400</integer>
+
+  <!-- Also snapshot once when you log in. -->
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/prowess-backup.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/prowess-backup.err</string>
+
+  <!-- Do not let a backup compete with your work for CPU or disk. -->
+  <key>Nice</key>
+  <integer>10</integer>
+  <key>LowPriorityIO</key>
+  <true/>
+  <key>ProcessType</key>
+  <string>Background</string>
+</dict>
+</plist>
