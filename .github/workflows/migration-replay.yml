@@ -1,0 +1,187 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Clean-replay check for supabase/migrations
+#
+# WHY THIS EXISTS
+#   On 2026-08-07 a holiday failed to display for a week. Root cause: migration
+#   710 had aborted partway on Dev, leaving a table created but its functions
+#   missing, and later migrations queried a column that migration 709 drops.
+#   Nothing ever asked "do these files still apply to an empty database?"
+#   This job asks, on every PR, and fails the moment they stop.
+#
+# WHAT IT DOES
+#   Replays every versioned migration, in filename order, into a throwaway
+#   PostgreSQL 16, on top of a prelude that stands in for the Supabase platform
+#   (auth schema, roles, extensions). Reports every failure, not just the first.
+#
+# NOT A DEPLOY. It touches no real environment and holds no secrets.
+#
+# KNOWN BASELINE
+#   The history cannot currently replay from zero — roles, user_roles,
+#   permissions, role_permissions and modules are created by no migration, and
+#   ~113 failures cascade from that. Until the migration adding them lands, this
+#   job runs in report-only mode: it posts the failure count and never fails the
+#   build. Flip STRICT to 'true' once a clean run is achievable; from then on any
+#   new breakage fails the PR.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Migration replay
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/**'
+      - '.github/workflows/migration-replay.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/**'
+  workflow_dispatch:
+
+env:
+  # Set to 'true' once the RBAC-tables migration lands and a clean replay passes.
+  STRICT: 'false'
+
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install psql client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+
+      - name: Apply the Supabase platform prelude
+        env:
+          PGPASSWORD: postgres
+        run: |
+          # Everything the hosted platform provides before the first project
+          # migration runs. pg_net and pg_cron are stubbed — they are not
+          # available in a stock postgres image and no migration depends on
+          # their behaviour at apply time, only on the calls parsing.
+          psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE SCHEMA IF NOT EXISTS auth;
+          CREATE SCHEMA IF NOT EXISTS extensions;
+          CREATE SCHEMA IF NOT EXISTS storage;
+          CREATE SCHEMA IF NOT EXISTS supabase_functions;
+          CREATE SCHEMA IF NOT EXISTS cron;
+          CREATE SCHEMA IF NOT EXISTS net;
+
+          CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
+          CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA extensions;
+          CREATE EXTENSION IF NOT EXISTS pg_trgm;
+          CREATE EXTENSION IF NOT EXISTS btree_gist;
+
+          DO $$ BEGIN CREATE ROLE anon NOLOGIN NOINHERIT;                    EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+          DO $$ BEGIN CREATE ROLE authenticated NOLOGIN NOINHERIT;           EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+          DO $$ BEGIN CREATE ROLE service_role NOLOGIN NOINHERIT BYPASSRLS;  EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+          DO $$ BEGIN CREATE ROLE supabase_admin SUPERUSER;                  EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+          DO $$ BEGIN CREATE ROLE authenticator NOINHERIT;                   EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+          CREATE TABLE IF NOT EXISTS auth.users (
+            id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+            email text, raw_user_meta_data jsonb, raw_app_meta_data jsonb,
+            encrypted_password text, email_confirmed_at timestamptz,
+            created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now(),
+            last_sign_in_at timestamptz, confirmation_token text, recovery_token text,
+            aud text, role text, instance_id uuid, is_super_admin boolean,
+            banned_until timestamptz, deleted_at timestamptz, phone text);
+          CREATE TABLE IF NOT EXISTS auth.identities (
+            id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id uuid REFERENCES auth.users(id), provider text,
+            identity_data jsonb, created_at timestamptz DEFAULT now());
+
+          CREATE OR REPLACE FUNCTION auth.uid()   RETURNS uuid  LANGUAGE sql STABLE AS $f$ SELECT NULLIF(current_setting('request.jwt.claim.sub', true), '')::uuid $f$;
+          CREATE OR REPLACE FUNCTION auth.role()  RETURNS text  LANGUAGE sql STABLE AS $f$ SELECT COALESCE(NULLIF(current_setting('request.jwt.claim.role', true), ''), 'authenticated') $f$;
+          CREATE OR REPLACE FUNCTION auth.jwt()   RETURNS jsonb LANGUAGE sql STABLE AS $f$ SELECT COALESCE(NULLIF(current_setting('request.jwt.claims', true), '')::jsonb, '{}'::jsonb) $f$;
+          CREATE OR REPLACE FUNCTION auth.email() RETURNS text  LANGUAGE sql STABLE AS $f$ SELECT NULLIF(current_setting('request.jwt.claim.email', true), '') $f$;
+
+          CREATE OR REPLACE FUNCTION net.http_post(url text, body jsonb DEFAULT '{}', params jsonb DEFAULT '{}', headers jsonb DEFAULT '{}', timeout_milliseconds int DEFAULT 5000)
+            RETURNS bigint LANGUAGE sql AS $f$ SELECT 1::bigint $f$;
+          CREATE OR REPLACE FUNCTION net.http_get(url text, params jsonb DEFAULT '{}', headers jsonb DEFAULT '{}', timeout_milliseconds int DEFAULT 5000)
+            RETURNS bigint LANGUAGE sql AS $f$ SELECT 1::bigint $f$;
+          CREATE TABLE IF NOT EXISTS net._http_response (id bigint, status_code int, content text, created timestamptz DEFAULT now());
+          CREATE OR REPLACE FUNCTION cron.schedule(job_name text, schedule text, command text) RETURNS bigint  LANGUAGE sql AS $f$ SELECT 1::bigint $f$;
+          CREATE OR REPLACE FUNCTION cron.unschedule(job_name text)                            RETURNS boolean LANGUAGE sql AS $f$ SELECT true $f$;
+          CREATE OR REPLACE FUNCTION cron.unschedule(job_id bigint)                            RETURNS boolean LANGUAGE sql AS $f$ SELECT true $f$;
+          CREATE TABLE IF NOT EXISTS cron.job (jobid bigint, jobname text, schedule text, command text, active boolean DEFAULT true);
+          CREATE TABLE IF NOT EXISTS storage.buckets (id text PRIMARY KEY, name text, public boolean DEFAULT false,
+            file_size_limit bigint, allowed_mime_types text[], created_at timestamptz DEFAULT now());
+          CREATE TABLE IF NOT EXISTS storage.objects (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+            bucket_id text, name text, owner uuid, created_at timestamptz DEFAULT now(), metadata jsonb);
+          CREATE OR REPLACE FUNCTION storage.foldername(name text) RETURNS text[] LANGUAGE sql IMMUTABLE AS $f$ SELECT string_to_array(name, '/') $f$;
+
+          GRANT USAGE ON SCHEMA public, auth, extensions, storage, net, cron TO anon, authenticated, service_role;
+          SQL
+          echo "prelude applied"
+
+      - name: Replay every migration
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -uo pipefail
+          ok=0; fail=0
+          : > /tmp/failures.txt
+          # Only versioned files (NNNNNNNNNNN_*.sql). Loose scratch files in the
+          # directory are not part of the history and are skipped deliberately.
+          for f in $(ls supabase/migrations/*.sql | grep -E '/[0-9]{11}_' | sort); do
+            name=$(basename "$f")
+            err=$(psql -h localhost -U postgres -d postgres -q -v ON_ERROR_STOP=1 \
+                    -f "$f" 2>&1 >/dev/null | grep -m1 -E "ERROR:" | sed 's/.*ERROR:  //')
+            if [ -z "$err" ]; then
+              ok=$((ok+1))
+            else
+              fail=$((fail+1))
+              printf '%s\n    %s\n' "$name" "$err" >> /tmp/failures.txt
+            fi
+          done
+          echo "replayed=$((ok+fail)) ok=$ok failed=$fail"
+          echo "REPLAY_FAILED=$fail" >> $GITHUB_ENV
+
+          {
+            echo "## Migration replay"
+            echo ""
+            echo "| replayed | applied | failed |"
+            echo "|---|---|---|"
+            echo "| $((ok+fail)) | $ok | **$fail** |"
+            if [ "$fail" -gt 0 ]; then
+              echo ""
+              echo "<details><summary>Failures</summary>"
+              echo ""
+              echo '```'
+              cat /tmp/failures.txt
+              echo '```'
+              echo ""
+              echo "</details>"
+            fi
+          } >> $GITHUB_STEP_SUMMARY
+
+      - name: Verdict
+        run: |
+          if [ "${REPLAY_FAILED}" -eq 0 ]; then
+            echo "Clean replay — the migration history builds a database from zero."
+            exit 0
+          fi
+          if [ "${STRICT}" = 'true' ]; then
+            echo "::error::${REPLAY_FAILED} migration(s) failed to replay. See the job summary."
+            exit 1
+          fi
+          echo "::warning::${REPLAY_FAILED} migration(s) failed to replay (report-only; STRICT is false). See the job summary."
+          echo "Baseline as of 2026-08-07 was 157 failures, ~113 cascading from the five"
+          echo "RBAC tables that no migration creates. A number ABOVE that baseline means"
+          echo "this PR made things worse."

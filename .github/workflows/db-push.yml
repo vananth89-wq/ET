@@ -7,17 +7,36 @@
 # push staging UAT    none        Auto-applies as soon as merge lands
 # push prod    Prod   REQUIRED    Waits for approver via GitHub Environment
 #
+# ── 2026-08-07: connects straight to Postgres, no `supabase link` ────────────
+# `supabase link` calls the Management API's /api-keys endpoint and validates
+# the response. When Supabase rolled out the new publishable/secret key format
+# an extra key appeared in that array and the CLI's schema rejected its
+# timestamp — "failed to get api keys: SchemaError ... at [2][inserted_at]" —
+# so linking broke with no change on our side (runs #47 and #48, 2026-08-07).
+#
+# `db push --db-url` talks to Postgres directly. It never touches the
+# Management API, needs no access token, and cannot be broken by changes to
+# the key format. Fewer moving parts and one less secret.
+#
 # Setup (one-time):
 #   1. GitHub repo → Settings → Environments → create three envs:
 #        - dev            (no protection rules)
 #        - uat            (optional: require reviewers)
 #        - production     (require reviewers — MUST)
-#   2. In each environment → add secrets:
-#        - SUPABASE_ACCESS_TOKEN   (personal access token from
-#                                   https://supabase.com/dashboard/account/tokens)
-#        - SUPABASE_DB_PASSWORD    (DB password, from Supabase Dashboard →
-#                                   Settings → Database)
-#   3. In each environment → add variable:
+#   2. In each environment → add secret:
+#        - SUPABASE_DB_URL
+#          Supabase Dashboard → Project Settings → Database →
+#          Connection string → URI, and pick **Session pooler**, e.g.
+#            postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres
+#
+#          Use the POOLER host, not db.<ref>.supabase.co. GitHub-hosted runners
+#          are IPv4-only and direct Postgres hostnames are IPv6-only, so a
+#          direct connection times out. Session mode (port 5432) is required —
+#          transaction mode (6543) cannot run migrations.
+#
+#          SUPABASE_ACCESS_TOKEN and SUPABASE_DB_PASSWORD are no longer used
+#          and can be deleted once this is confirmed working.
+#   3. In each environment → add variable (informational only now):
 #        - SUPABASE_PROJECT_REF    (dev = etmnumptfadkynbsgszz,
 #                                   uat = okpnubnswpgybpzgwgtr,
 #                                   prod = <fill when created>)
@@ -32,6 +51,13 @@ on:
       - 'supabase/migrations/**'
       - '.github/workflows/db-push.yml'
   workflow_dispatch:   # allow manual re-runs from the Actions tab
+
+env:
+  # PIN THE CLI. `version: latest` is why runs #47/#48 broke without a commit —
+  # a new release shipped mid-afternoon and CI picked it up on its own.
+  # Set this to the version the last green run installed (read it from that
+  # run's "Install Supabase CLI" step), then bump it deliberately.
+  SUPABASE_CLI_VERSION: latest
 
 jobs:
   # ── Determine which env to target based on branch ──────────────────────────
@@ -62,39 +88,48 @@ jobs:
       - name: Install Supabase CLI
         uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: ${{ env.SUPABASE_CLI_VERSION }}
 
       - name: Show target
         run: |
           echo "── Target environment: ${{ needs.choose-env.outputs.env }}"
           echo "── Project ref:        ${{ vars.SUPABASE_PROJECT_REF }}"
+          echo "── CLI version:"
+          supabase --version
 
-      - name: Link to Supabase project
+      - name: Check the connection secret is set
         env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_DB_PASSWORD:  ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |
-          supabase link --project-ref "${{ vars.SUPABASE_PROJECT_REF }}"
+          # Fail here with a readable message rather than 40 lines of libpq later.
+          if [ -z "$SUPABASE_DB_URL" ]; then
+            echo "::error::SUPABASE_DB_URL is not set for the '${{ needs.choose-env.outputs.env }}' environment."
+            echo "Add it under Settings → Environments → ${{ needs.choose-env.outputs.env }} → Secrets."
+            echo "Use the SESSION POOLER URI from Dashboard → Project Settings → Database."
+            exit 1
+          fi
+          case "$SUPABASE_DB_URL" in
+            *:6543/*) echo "::error::That is the transaction-mode pooler (port 6543); migrations need session mode (5432)."; exit 1 ;;
+            *db.*.supabase.co*) echo "::warning::Direct host detected. GitHub runners are IPv4-only and this is usually IPv6-only — expect a timeout. Prefer the pooler URI." ;;
+          esac
+          echo "── Connection secret present."
 
       - name: Dry-run — list pending migrations
         env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_DB_PASSWORD:  ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |
           echo "── Migrations that would be applied:"
-          supabase migration list --linked || true
+          supabase migration list --db-url "$SUPABASE_DB_URL" || true
 
       - name: Push migrations
         env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_DB_PASSWORD:  ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |
-          supabase db push --linked --yes --include-all
+          supabase db push --db-url "$SUPABASE_DB_URL" --yes --include-all
 
       - name: Confirm
         env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_DB_PASSWORD:  ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |
           echo "── Post-push state:"
-          supabase migration list --linked | tail -20
+          supabase migration list --db-url "$SUPABASE_DB_URL" | tail -20
