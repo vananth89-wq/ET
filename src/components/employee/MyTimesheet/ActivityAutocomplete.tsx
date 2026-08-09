@@ -213,11 +213,20 @@ export default function ActivityAutocomplete({
     overflowY:   'auto',
   } : { display: 'none' };
 
-  const dropdown = open ? (
+  // Typing something with no match used to open a panel saying "No matching
+  // activities." That reads as an error for what is a perfectly normal action:
+  // the typed text IS the activity, so there is nothing to match and nothing to
+  // confirm. The dropdown simply closes and the user keeps typing.
+  //
+  // The one empty state worth showing is a focused field with nothing typed and
+  // no history yet — there, the panel explains what the field is for.
+  const hasContent = suggestions.length > 0 || !value.trim();
+
+  const dropdown = (open && hasContent) ? (
     <div style={dropdownStyle} ref={listRef} onMouseDown={e => e.preventDefault()}>
       {suggestions.length === 0 ? (
         <div style={{ padding: '14px 12px', fontSize: 12, color: '#9CA3AF', textAlign: 'center' }}>
-          {value.trim() ? 'No matching activities.' : 'No activities yet — type to add your first.'}
+          No activities yet — type to add your first.
         </div>
       ) : (
         rows.map((row, ri) => {
@@ -298,7 +307,7 @@ export default function ActivityAutocomplete({
         style={inputStyle}
       />
 
-      {open && createPortal(dropdown, document.body)}
+      {dropdown && createPortal(dropdown, document.body)}
 
       {favErr && (
         <div style={{ fontSize: 11, color: '#DC2626', marginTop: 3, display: 'flex', alignItems: 'center', gap: 4 }}>

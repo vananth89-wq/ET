@@ -547,6 +547,51 @@ export default function MyTimesheet() {
       .eq('id', headerId);
   }
 
+  // ── Activity history ──────────────────────────────────────────────────
+  // Both save paths — the day panel and the Create modal — must do the same two
+  // things after writing entries: show the new activity as a suggestion NOW,
+  // and reconcile with the server. submitCreate previously did neither (it fired
+  // record_activity_usages and never refreshed), so an activity typed in the
+  // modal only appeared after a full page reload.
+  //
+  // The optimistic pass is what makes it feel instant; the RPC round-trip then
+  // replaces it with the real row, server id and true usage_count included.
+  function noteActivitiesUsed(names: string[]) {
+    const clean = names.map(n => n.trim()).filter(Boolean);
+    if (!clean.length || !employee?.id) return;
+
+    // Optimistic. Build new objects rather than mutating the ones in state —
+    // `[...prev]` copies the array, not the items inside it.
+    setActivityHistory(prev => {
+      const now  = new Date().toISOString();
+      const next = [...prev];
+      for (const name of clean) {
+        const i = next.findIndex(h => h.activity_name.toLowerCase() === name.toLowerCase());
+        if (i >= 0) {
+          next[i] = { ...next[i], usage_count: next[i].usage_count + 1, last_used_at: now };
+        } else {
+          next.push({
+            id:            `optimistic-${Date.now()}-${name}`,
+            activity_name: name,
+            usage_count:   1,
+            last_used_at:  now,
+            is_favorite:   false,
+          });
+        }
+      }
+      return next;
+    });
+
+    // Reconcile. Deliberately not gated on data?.ok — record_activity_usages
+    // returns ok:true unconditionally, so the guard only ever hid real errors.
+    const empId = employee.id;
+    supabase
+      .rpc('record_activity_usages', { p_employee_id: empId, p_activity_names: clean })
+      .then(() =>
+        supabase.rpc('get_employee_activities', { p_employee_id: empId })
+          .then(({ data: hist }) => { if (hist) setActivityHistory(hist as ActivityHistoryItem[]); }));
+  }
+
   // ── Toasts ────────────────────────────────────────────────────────────
   const toastSeq = useRef(0);
   function pushToast(msg: string, kind: 'ok' | 'bad' = 'ok', undoIds?: string[]) {
@@ -668,7 +713,7 @@ export default function MyTimesheet() {
 
     setCreateOpen(false);
     await reloadEntries();
-    if (acts.length && employee?.id) supabase.rpc('record_activity_usages', { p_employee_id: employee.id, p_activity_names: acts });
+    noteActivitiesUsed(acts);
     pushToast(
       `Created on ${data.created} ${data.created === 1 ? 'day' : 'days'} — ${dates.map(fmtChip).join(', ')}`,
       'ok',
@@ -895,19 +940,8 @@ export default function MyTimesheet() {
       if (insErr) { setFormErr(insErr.message); setSaving(false); return; }
     }
 
-    // Record activity usages in history (fire-and-forget)
-    if (cleanActivities && cleanActivities.length > 0 && employee?.id) {
-      supabase.rpc('record_activity_usages', {
-        p_employee_id:    employee.id,
-        p_activity_names: cleanActivities,
-      }).then(({ data }) => {
-        // Refresh local history so autocomplete is up-to-date immediately
-        if (data?.ok) {
-          supabase.rpc('get_employee_activities', { p_employee_id: employee!.id })
-            .then(({ data: hist }) => { if (hist) setActivityHistory(hist as ActivityHistoryItem[]); });
-        }
-      });
-    }
+    // Same treatment as the Create modal — one helper, one behaviour.
+    if (cleanActivities) noteActivitiesUsed(cleanActivities);
 
     // Reload entries then sync recorded_minutes
     const { data: ents } = await supabase
