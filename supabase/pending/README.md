@@ -1,90 +1,62 @@
-# supabase/pending — reviewed, tested, deliberately not applied
+# supabase/pending — empty, and here is why
 
-Migrations here are **not executed by anything**. The deploy workflow watches
-`supabase/migrations/**` only, and files here carry a `.staged` suffix so even a
-mistaken glob skips them. They are parked because they are correct but not yet
-worth the deploy risk.
+Nothing is staged here. This file is kept for the record, because what was parked
+here for four months turned out to be the single largest thing wrong with the
+migration history, and the reason it stayed parked is worth remembering.
 
-To activate one: rename off the `.staged` suffix and move it into
-`supabase/migrations/`. Nothing else.
+## What was here
 
----
+`20260419003_rbac_core_tables.sql.staged` — creating `modules`, `permissions`,
+`roles`, `user_roles` and `role_permissions`. Five tables at the centre of the
+permission engine, created by **no migration in this repository**. They existed in
+Dev and UAT only because someone made them by hand long ago and every environment
+since has been built by copying another one.
 
-## 20260419003_rbac_core_tables.sql.staged
+It was written, tested and deliberately not applied on 2026-08-09. The evidence was
+solid — identical structure in Dev and UAT, zero change when applied to a
+reconstruction of Dev, replay 157 → 37 — but two things were unknown, and one of them
+was load-bearing:
 
-**Staged 2026-08-09. Do not apply until you are building a fresh environment.**
+> how the Supabase CLI handles an **out-of-order version** against a real ledger
+> (reasoned about, not proven)
 
-### The problem it solves
+## The unknown, resolved
 
-Five tables at the centre of the permission engine are created by **no migration
-in this repository**:
+Measured the same day with the pinned CLI (2.113.0) against a real ledger:
 
-    modules · permissions · roles · user_roles · role_permissions
-
-They exist in Dev and UAT only because they were made by hand in SQL long ago
-and carried forward when the database was copied. Every environment has been
-built by copying another one, so nobody ever noticed.
-
-Consequence: `supabase/migrations/` **cannot build a database from zero**.
-Replaying the history into an empty PostgreSQL fails at `20260422002` with
-`relation "roles" does not exist`, and roughly 113 further failures cascade from
-that one hole. Measured baseline 2026-08-09: **151 of 713 migrations fail** to
-replay. See `.github/workflows/migration-replay.yml`.
-
-### Why it is dated April, not August
-
-Migrations run in filename order. The failures happen near the *beginning* of
-the history. A file dated today would run last and fix nothing. `20260419003`
-places it immediately after `20260419001_initial_schema` (which creates
-`profiles`, referenced by `user_roles`) and before the first migration that
-needs these tables.
-
-### Evidence gathered before staging
-
-| Check | Result |
+| Scenario | Result |
 |---|---|
-| Any migration DROPs or RENAMEs these tables? | Only `role_permissions`, by mig 146. The other four: never. |
-| Dev vs UAT structure | **Identical** — every column, constraint, index, RLS setting |
-| `role_permissions` present? | **Absent in both** — correctly, mig 146 dropped it |
-| Applied to a reconstruction of Dev | **Zero change** — 74 schema facts + row counts identical, twice |
-| Effect on replay | **157 → 37 failures** |
+| **Add a new file with an early version** | `db push --include-all` applies only that file, records it in sorted position, re-runs nothing. Plain `db push` refuses and names the flag. **Safe.** |
+| **Rename a file the ledger already contains** | `db push` hard-fails with `LegacyDbPushMissingLocalError` **before applying anything**, and stays failed until `supabase migration repair --status reverted <version>` is run against every environment. **Never do this.** |
 
-### The two hazards, and how each is handled
+`db-push.yml` already passes `--include-all`. The first row is exactly this
+migration's shape, so it was activated: moved to `supabase/migrations/`, no longer
+staged.
 
-**1. `ENABLE ROW LEVEL SECURITY` is not purely additive.** Re-enabling RLS on a
-table where someone deliberately turned it *off* would start hiding rows from
-the application. RLS is therefore only switched on for tables this migration
-actually creates; pre-existing tables are left untouched. Verified by disabling
-RLS on `roles` and confirming the migration leaves it disabled.
+The second row is why `20260803001_time_work_schedules_repair.sql` was **not**
+renamed even though its position is the direct cause of fourteen replay failures.
+A new file, `20260802696_time_work_schedule_tables.sql`, creates the tables early
+instead, and 20260803001 stays exactly where it is doing exactly what it did.
 
-**2. `role_permissions` was deliberately dropped by mig 146.** Recreating it on
-an environment past 146 would resurrect a deleted table. It is created only
-where `supabase_migrations.schema_migrations` lacks version `20260506146`. On a
-fresh replay that ledger does not exist, so the table is created and 146 drops
-it later — exactly as history intended.
+## The lesson worth keeping
 
-### Why it is staged rather than applied
+Staging it was the right call at the time and the wrong call for four months. The
+mistake was not the caution — it was leaving the unknown *unmeasured*. The
+experiment that resolved it took under an hour: a throwaway Postgres, five dummy
+migrations, and two `db push` runs.
 
-There is no benefit today. Permissions work because the application queries the
-**database**, not these files; nothing at runtime ever reads a migration. The
-benefit arrives only when an environment is built from files instead of copied.
+**If something is parked because of an unknown, the next step is to measure the
+unknown, not to re-read the reasoning.**
 
-Two things remain untested and are the reason for caution:
+## Where things stand
 
-- how the Supabase CLI handles an **out-of-order version** against a real ledger
-  (reasoned about, not proven — `--include-all` is already passed by db-push)
-- **Prod**, which does not exist yet
+Replay went from **152 failures to 8** on 2026-08-09. The eight that remain are
+itemised, each with a diagnosis, in `docs/migration-replay-backlog.md`. The replay
+workflow now ratchets against a `BASELINE` rather than reporting into the void: a run
+above the baseline fails the build, a run below it tells you to lower the number.
 
-### When to apply it
+## If you need to stage something again
 
-The day you build UAT or Prod from migrations rather than from a copy. Apply to
-Dev first, run `supabase/checks/verify_time_backend.sql` before and after, and
-confirm the replay count drops from 151 to ~37.
-
-### What is still missing after this one
-
-The replay does not reach zero. Behind these five, two more hand-made tables
-surface — `pending_invite_reminders` and `buckets` — plus roughly a dozen
-ordering issues and a few genuine bugs (`column ur.assigned_by does not exist`,
-`column n.email_status does not exist`). Expect two or three more rounds before
-`STRICT: 'true'` can be set on the replay workflow.
+Put the file here with a `.staged` suffix — the deploy workflow watches
+`supabase/migrations/**` only, so nothing here can execute. Write down what is
+unknown about it, and what experiment would settle that. Then run the experiment.

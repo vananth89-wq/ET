@@ -84,7 +84,6 @@ BEGIN
 
     -- Wrap each direct report in a savepoint so one failure doesn't abort all
     BEGIN
-      SAVEPOINT dr_reassign;
 
       -- Fetch direct report's current open employment slice
       SELECT * INTO v_current_ee
@@ -97,7 +96,6 @@ BEGIN
 
       IF NOT FOUND THEN
         -- No open slice — nothing to reassign
-        RELEASE SAVEPOINT dr_reassign;
         CONTINUE;
       END IF;
 
@@ -145,12 +143,9 @@ BEGIN
              updated_at = now()
       WHERE  id = v_dr_emp_id;
 
-      RELEASE SAVEPOINT dr_reassign;
 
     EXCEPTION WHEN OTHERS THEN
       -- Roll back only this direct report's changes; log and continue
-      ROLLBACK TO SAVEPOINT dr_reassign;
-      RELEASE   SAVEPOINT  dr_reassign;
       v_dr_errors := v_dr_errors || jsonb_build_object(
         'employee_id',   v_dr_emp_id,
         'employee_name', v_dr_name,

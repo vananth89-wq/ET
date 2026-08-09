@@ -15,13 +15,16 @@
 #
 # NOT A DEPLOY. It touches no real environment and holds no secrets.
 #
-# KNOWN BASELINE
-#   The history cannot currently replay from zero — roles, user_roles,
-#   permissions, role_permissions and modules are created by no migration, and
-#   ~113 failures cascade from that. Until the migration adding them lands, this
-#   job runs in report-only mode: it posts the failure count and never fails the
-#   build. Flip STRICT to 'true' once a clean run is achievable; from then on any
-#   new breakage fails the PR.
+# HOW IT JUDGES
+#   Not pass/fail against zero — a gate nobody can pass is a gate everybody
+#   learns to ignore. It ratchets instead: BASELINE is the agreed number of
+#   known failures, a run above it fails the build, and a run below it passes
+#   and tells you to lower BASELINE. The number only ever goes down.
+#
+#   152 -> 8 on 2026-08-09, by creating the five RBAC tables and the work
+#   schedule tables early enough, shimming pg_net/pg_cron, and repairing two
+#   migrations that could never have applied. The eight that remain are
+#   itemised in docs/migration-replay-backlog.md, each with its own diagnosis.
 # ─────────────────────────────────────────────────────────────────────────────
 
 name: Migration replay
@@ -38,8 +41,16 @@ on:
   workflow_dispatch:
 
 env:
-  # Set to 'true' once the RBAC-tables migration lands and a clean replay passes.
-  STRICT: 'false'
+  # The ratchet. A run ABOVE this number fails the build; a run BELOW it passes
+  # with a note telling you to lower the number and lock the improvement in.
+  # Zero is the destination, not the gate -- a gate you cannot pass today is a
+  # gate people learn to ignore.
+  #
+  #   2026-08-07  157   before the holiday-source fix
+  #   2026-08-09  152   after mig 726 (+1: 726 itself, cascading)
+  #   2026-08-09    8   after the RBAC tables, the work-schedule ordering fix,
+  #                     the pg_net/pg_cron shims, and the 564/724 repairs
+  BASELINE: '8'
 
 jobs:
   replay:
@@ -65,6 +76,23 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq postgresql-client
+
+      - name: Install replay shims for pg_net and pg_cron
+        run: |
+          # Stock PostgreSQL has neither extension, so `CREATE EXTENSION pg_net`
+          # fails and takes the migration with it -- along with everything that
+          # depends on the columns it would have created. No migration depends on
+          # their RUNTIME behaviour at apply time, only on the statement parsing
+          # and on the objects existing, and the prelude below provides those.
+          # An empty extension with a matching control file is therefore a
+          # faithful stand-in, and far more honest than an exclusion list.
+          EXT=$(pg_config --sharedir)/extension
+          for e in pg_net pg_cron; do
+            printf "comment = 'replay shim for %s'\ndefault_version = '1.0'\nrelocatable = false\nsuperuser = false\n" "$e" \
+              | sudo tee "$EXT/$e.control" > /dev/null
+            echo "-- shim: the objects live in the replay prelude" | sudo tee "$EXT/$e--1.0.sql" > /dev/null
+          done
+          echo "shims installed in $EXT"
 
       - name: Apply the Supabase platform prelude
         env:
@@ -116,10 +144,19 @@ jobs:
           CREATE OR REPLACE FUNCTION net.http_get(url text, params jsonb DEFAULT '{}', headers jsonb DEFAULT '{}', timeout_milliseconds int DEFAULT 5000)
             RETURNS bigint LANGUAGE sql AS $f$ SELECT 1::bigint $f$;
           CREATE TABLE IF NOT EXISTS net._http_response (id bigint, status_code int, content text, created timestamptz DEFAULT now());
-          CREATE OR REPLACE FUNCTION cron.schedule(job_name text, schedule text, command text) RETURNS bigint  LANGUAGE sql AS $f$ SELECT 1::bigint $f$;
-          CREATE OR REPLACE FUNCTION cron.unschedule(job_name text)                            RETURNS boolean LANGUAGE sql AS $f$ SELECT true $f$;
+          -- cron.schedule must RECORD the job, not just return a number: several
+          -- migrations schedule a job and then verify it exists in cron.job. A
+          -- stub that always returned 1 left that table empty and those
+          -- verification blocks aborted on a database that was in fact fine.
+          CREATE TABLE IF NOT EXISTS cron.job (jobid bigserial, jobname text, schedule text, command text, active boolean DEFAULT true);
+          CREATE OR REPLACE FUNCTION cron.schedule(job_name text, schedule text, command text) RETURNS bigint LANGUAGE plpgsql AS $f$
+          BEGIN
+            DELETE FROM cron.job WHERE jobname = job_name;
+            INSERT INTO cron.job (jobname, schedule, command) VALUES (job_name, schedule, command);
+            RETURN (SELECT jobid FROM cron.job WHERE jobname = job_name);
+          END $f$;
+          CREATE OR REPLACE FUNCTION cron.unschedule(job_name text) RETURNS boolean LANGUAGE sql AS $f$ DELETE FROM cron.job WHERE jobname = job_name; SELECT true $f$;
           CREATE OR REPLACE FUNCTION cron.unschedule(job_id bigint)                            RETURNS boolean LANGUAGE sql AS $f$ SELECT true $f$;
-          CREATE TABLE IF NOT EXISTS cron.job (jobid bigint, jobname text, schedule text, command text, active boolean DEFAULT true);
           CREATE TABLE IF NOT EXISTS storage.buckets (id text PRIMARY KEY, name text, public boolean DEFAULT false,
             file_size_limit bigint, allowed_mime_types text[], created_at timestamptz DEFAULT now());
           CREATE TABLE IF NOT EXISTS storage.objects (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -185,14 +222,20 @@ jobs:
       - name: Verdict
         run: |
           if [ "${REPLAY_FAILED}" -eq 0 ]; then
-            echo "Clean replay — the migration history builds a database from zero."
+            echo "Clean replay - the migration history builds a database from zero."
+            echo "Set BASELINE to 0 so it stays that way."
             exit 0
           fi
-          if [ "${STRICT}" = 'true' ]; then
-            echo "::error::${REPLAY_FAILED} migration(s) failed to replay. See the job summary."
+          if [ "${REPLAY_FAILED}" -gt "${BASELINE}" ]; then
+            echo "::error::${REPLAY_FAILED} migrations failed to replay, above the baseline of ${BASELINE}."
+            echo "This change made the migration history worse. See the job summary for which files."
             exit 1
           fi
-          echo "::warning::${REPLAY_FAILED} migration(s) failed to replay (report-only; STRICT is false). See the job summary."
-          echo "Baseline as of 2026-08-07 was 157 failures, ~113 cascading from the five"
-          echo "RBAC tables that no migration creates. A number ABOVE that baseline means"
-          echo "this PR made things worse."
+          if [ "${REPLAY_FAILED}" -lt "${BASELINE}" ]; then
+            echo "::notice::${REPLAY_FAILED} failures - BELOW the baseline of ${BASELINE}."
+            echo "Lower BASELINE in this workflow to ${REPLAY_FAILED} to lock the improvement in."
+            exit 0
+          fi
+          echo "::warning::${REPLAY_FAILED} migrations failed to replay - exactly the baseline of ${BASELINE}."
+          echo "Not a regression. The remaining failures are itemised in docs/migration-replay-backlog.md."
+          exit 0

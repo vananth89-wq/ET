@@ -285,6 +285,14 @@ GRANT EXECUTE ON FUNCTION public.time_employment_assignment_changed(uuid) TO aut
 -- 722 bound it to time_holidays, the global POOL. Adding a date to a calendar
 -- touches time_calendar_entries, so the trigger could never have fired.
 DROP TRIGGER IF EXISTS trg_time_holidays_recalc ON time_holidays;
+-- CORRECTED 2026-08-09: mig 722 attaches this trigger to time_calendar_entries
+-- (722 line 277), not to the time_holidays pool -- the header above assumed the
+-- pool. Dropping only the pool binding left the function with a live dependent,
+-- so DROP FUNCTION failed with "other objects depend on it" on any database
+-- where 722 had actually run. Dev happened not to be in that state; a clean
+-- replay always is. Both bindings are removed here, and the correct trigger is
+-- recreated as trg_time_calendar_entries_recalc further down.
+DROP TRIGGER IF EXISTS trg_time_holidays_recalc ON time_calendar_entries;
 DROP FUNCTION IF EXISTS public.trg_time_holidays_recalc();
 
 CREATE OR REPLACE FUNCTION public.trg_time_calendar_entries_recalc()
