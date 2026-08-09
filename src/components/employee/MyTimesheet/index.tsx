@@ -37,6 +37,16 @@ interface TimesheetHeader {
   approved_at:         string | null;
 }
 
+/** Mig 727: one activity with its own duration. These rows are the source of
+ *  truth for a project entry; the parent's hours_minutes and activities[] are
+ *  mirrors a database trigger keeps in step. */
+interface TimesheetEntryActivity {
+  id:            string;
+  activity_name: string;
+  hours_minutes: number;
+  display_order: number;
+}
+
 interface TimesheetEntry {
   id:            string;
   header_id:     string;
@@ -49,8 +59,75 @@ interface TimesheetEntry {
   activities:    string[] | null;
   is_system_generated: boolean;
   // joined
+  timesheet_entry_activities?: TimesheetEntryActivity[] | null;
   time_types?:  { name: string; code: string; category: string; requires_project: boolean } | { name: string; code: string; category: string; requires_project: boolean }[];
   projects?:    { name: string } | { name: string }[];
+}
+
+/** One editable activity line. Held as STRINGS on purpose: a half-typed "1" in
+ *  the hours box must stay "1" rather than collapsing to 0 while the person is
+ *  still typing. */
+type ActRow = { name: string; h: string; m: string };
+
+const rowMinutes = (r: ActRow) =>
+  (parseInt(r.h || '0', 10) || 0) * 60 + (parseInt(r.m || '0', 10) || 0);
+
+/** A row with no name is the empty line at the bottom of the list, not data. */
+const namedRows = (rows: ActRow[]) => rows.filter(r => r.name.trim() !== '');
+
+const actTotal = (rows: ActRow[]) =>
+  namedRows(rows).reduce((sum, r) => sum + rowMinutes(r), 0);
+
+/** Rows -> the payload save_timesheet_entry and bulk_create both expect. */
+const actPayload = (rows: ActRow[]) =>
+  namedRows(rows).map(r => ({ name: r.name.trim(), minutes: rowMinutes(r) }));
+
+/** Returns the message to show, or null when the rows are usable. Every branch
+ *  names the offending activity — "Add hours" with no subject is a puzzle. */
+function validateActRows(rows: ActRow[]): string | null {
+  const named = namedRows(rows);
+  if (!named.length) return 'Add at least one activity.';
+
+  const noHours = named.find(r => rowMinutes(r) <= 0);
+  if (noHours) return `Add hours for "${noHours.name.trim()}".`;
+
+  if (rows.some(r => !r.name.trim() && rowMinutes(r) > 0))
+    return 'One line has hours but no activity name.';
+
+  const seen = new Set<string>();
+  for (const r of named) {
+    const key = r.name.trim().toLowerCase();
+    if (seen.has(key))
+      return `"${r.name.trim()}" is listed twice — combine the hours into one line.`;
+    seen.add(key);
+  }
+  return null;
+}
+
+/** Entry -> editable rows.
+ *
+ *  An entry written before mig 727 has activity NAMES on the parent and no rows
+ *  at all. Rather than let a migration invent a split, its names are surfaced
+ *  here with the whole duration on the first one, so the person who actually
+ *  did the work reallocates it — and only when they were editing anyway. */
+function entryToActRows(ent: TimesheetEntry): ActRow[] {
+  const rows = (ent.timesheet_entry_activities ?? []) as TimesheetEntryActivity[];
+  if (rows.length) {
+    return [...rows]
+      .sort((a, b) => a.display_order - b.display_order)
+      .map(r => ({
+        name: r.activity_name,
+        h: String(Math.floor(r.hours_minutes / 60)),
+        m: String(r.hours_minutes % 60),
+      }));
+  }
+  const names = (ent.activities ?? []).filter(Boolean);
+  if (!names.length) return [{ name: '', h: '', m: '' }];
+  return names.map((n, i) => ({
+    name: n,
+    h: i === 0 ? String(Math.floor(ent.hours_minutes / 60)) : '',
+    m: i === 0 ? String(ent.hours_minutes % 60) : '',
+  }));
 }
 
 interface ScheduleLine {
@@ -318,7 +395,7 @@ export default function MyTimesheet() {
   const [activityHistory, setActivityHistory] = useState<ActivityHistoryItem[]>([]);
 
   // Entry form
-  const emptyForm = { kind: 'time_type' as 'time_type' | 'project', typeId: '', projId: '', hours: '', mins: '', notes: '', activities: [''], ttCategory: '' as '' | 'attendance' | 'absence' };
+  const emptyForm = { kind: 'time_type' as 'time_type' | 'project', typeId: '', projId: '', hours: '', mins: '', notes: '', actRows: [{ name: '', h: '', m: '' }] as ActRow[], ttCategory: '' as '' | 'attendance' | 'absence' };
   const [form,    setForm]    = useState(emptyForm);
   const [formErr, setFormErr] = useState('');
 
@@ -522,6 +599,7 @@ export default function MyTimesheet() {
       .select(`
         id, header_id, entry_date, entry_kind, project_id, time_type_id,
         hours_minutes, notes, activities, is_system_generated,
+        timesheet_entry_activities ( id, activity_name, hours_minutes, display_order ),
         time_types ( name, code, category, requires_project ),
         projects ( name )
       `)
@@ -610,7 +688,7 @@ export default function MyTimesheet() {
     if (!header) return;
     const { data: ents } = await supabase
       .from('timesheet_entries')
-      .select(`id, header_id, entry_date, entry_kind, project_id, time_type_id, hours_minutes, notes, activities, is_system_generated, time_types(name,code,category,requires_project), projects(name)`)
+      .select(`id, header_id, entry_date, entry_kind, project_id, time_type_id, hours_minutes, notes, activities, is_system_generated, timesheet_entry_activities(id, activity_name, hours_minutes, display_order), time_types(name,code,category,requires_project), projects(name)`)
       .eq('header_id', header.id)
       .order('entry_date').order('created_at');
     const list = (ents ?? []) as unknown as TimesheetEntry[];
@@ -741,25 +819,35 @@ export default function MyTimesheet() {
 
     const tt = timeTypes.find(t => t.id === form.typeId);
     if (tt?.requires_project && !form.projId) { fail('Please select a project for this time type.'); return; }
-    if (tt?.requires_project && form.activities.every(a => !a.trim())) {
-      fail('Add at least one activity.'); return;
+    // Project time takes its duration from the activity rows; everything else
+    // still uses the Hours/Minutes boxes.
+    let totalMins: number;
+    if (tt?.requires_project) {
+      const bad = validateActRows(form.actRows);
+      if (bad) { fail(bad); return; }
+      totalMins = actTotal(form.actRows);
+    } else {
+      const hrs = parseInt(form.hours || '0', 10);
+      const mins = parseInt(form.mins || '0', 10);
+      if (isNaN(hrs) || isNaN(mins) || (hrs === 0 && mins === 0)) { fail('Duration must be greater than 0.'); return; }
+      totalMins = hrs * 60 + mins;
     }
 
-    const hrs = parseInt(form.hours || '0', 10);
-    const mins = parseInt(form.mins || '0', 10);
-    if (isNaN(hrs) || isNaN(mins) || (hrs === 0 && mins === 0)) { fail('Duration must be greater than 0.'); return; }
-
     setCreating(true); setFormErr(''); setCreateErr(null);
-    const acts = form.activities.map(a => a.trim()).filter(Boolean);
+    const actRowsPayload = tt?.requires_project ? actPayload(form.actRows) : null;
+    const acts = (actRowsPayload ?? []).map(a => a.name);
     const { data, error: rpcErr } = await supabase.rpc('bulk_create_timesheet_entries', {
       p_header_id: header.id,
       p_dates: dates,
       p_entry: {
         time_type_id:  form.typeId,
         project_id:    tt?.requires_project ? form.projId : null,
-        hours_minutes: hrs * 60 + mins,
+        hours_minutes: totalMins,
         notes:         form.notes.trim() || null,
-        activities:    acts.length ? acts : null,
+        // Objects carry per-activity hours and switch the RPC into itemised
+        // mode; a plain string array is still accepted for anything that is not
+        // project time.
+        activities:    actRowsPayload && actRowsPayload.length ? actRowsPayload : null,
       },
     });
     setCreating(false);
@@ -775,8 +863,13 @@ export default function MyTimesheet() {
     setCreateOpen(false);
     await reloadEntries();
     noteActivitiesUsed(acts);
+    // APPEND is not creation and should not be reported as it: a day that
+    // already held this project had its activity rows merged in.
+    const parts: string[] = [];
+    if (data.created)  parts.push(`created on ${data.created} ${data.created === 1 ? 'day' : 'days'}`);
+    if (data.appended) parts.push(`added to ${data.appended} existing ${data.appended === 1 ? 'entry' : 'entries'}`);
     pushToast(
-      `Created on ${data.created} ${data.created === 1 ? 'day' : 'days'} — ${dates.map(fmtChip).join(', ')}`,
+      `${parts.join(' · ') || 'Saved'} — ${dates.map(fmtChip).join(', ')}`,
       'ok',
       data.entry_ids,
     );
@@ -908,7 +1001,6 @@ export default function MyTimesheet() {
   function openEdit(ent: TimesheetEntry) {
     setEditingEntry(ent);
     const totalM = ent.hours_minutes;
-    const acts = ent.activities && ent.activities.length > 0 ? ent.activities : [''];
     const tt = timeTypes.find(t => t.id === ent.time_type_id);
     setForm({
       kind:       'time_type',
@@ -917,7 +1009,7 @@ export default function MyTimesheet() {
       hours:      String(Math.floor(totalM / 60)),
       mins:       String(totalM % 60),
       notes:      ent.notes ?? '',
-      activities: acts,
+      actRows:    entryToActRows(ent),
       ttCategory: (tt?.category === 'absence' ? 'absence' : 'attendance') as '' | 'attendance' | 'absence',
     });
     setFormErr('');
@@ -934,32 +1026,37 @@ export default function MyTimesheet() {
   async function handleSaveEntry() {
     if (!header || !selectedDate) return;
 
-    // Validate
     if (!form.typeId) { setFormErr('Please select a time type.'); return; }
-    const hrs  = parseInt(form.hours || '0', 10);
-    const mins = parseInt(form.mins  || '0', 10);
-    if (isNaN(hrs) || isNaN(mins) || (hrs === 0 && mins === 0)) {
-      setFormErr('Duration must be greater than 0.'); return;
-    }
-    if (mins < 0 || mins > 59) { setFormErr('Minutes must be 0–59.'); return; }
-    if (hrs < 0 || hrs > 23)   { setFormErr('Hours must be 0–23.'); return; }
 
-    const totalMins = hrs * 60 + mins;
     const selectedTimeType = timeTypes.find(t => t.id === form.typeId);
     const needsProject = !!selectedTimeType?.requires_project;
-    if (needsProject && !form.projId) { setFormErr('Please select a project for this time type.'); return; }
-    // Project work must say what the work was — one activity minimum.
-    if (needsProject && form.activities.every(a => !a.trim())) {
-      setFormErr('Add at least one activity.'); return;
-    }
-    // Map absence → 'leave', else 'time_type' (project entries always stay time_type with project_id set)
+    // Map absence → 'leave', else 'time_type' (project entries stay 'time_type'
+    // with project_id set — never write entry_kind='project').
     const entryKind: TimesheetEntry['entry_kind'] =
       selectedTimeType?.category === 'absence' ? 'leave' : 'time_type';
 
-    // Day occupancy — the client half of mig 726 rules (f) and (g). Checked
-    // here rather than left to the trigger so the message names the day and
-    // the fix, instead of surfacing the database's own sentence. Both rules
-    // are INSERT-only in the database, so both are skipped when editing.
+    if (needsProject && !form.projId) { setFormErr('Please select a project for this time type.'); return; }
+
+    // Project time is itemised: its duration is the sum of the activity rows.
+    let totalMins: number;
+    if (needsProject) {
+      const bad = validateActRows(form.actRows);
+      if (bad) { setFormErr(bad); return; }
+      totalMins = actTotal(form.actRows);
+    } else {
+      const hrs  = parseInt(form.hours || '0', 10);
+      const mins = parseInt(form.mins  || '0', 10);
+      if (isNaN(hrs) || isNaN(mins) || (hrs === 0 && mins === 0)) {
+        setFormErr('Duration must be greater than 0.'); return;
+      }
+      if (mins < 0 || mins > 59) { setFormErr('Minutes must be 0–59.'); return; }
+      if (hrs < 0 || hrs > 23)   { setFormErr('Hours must be 0–23.'); return; }
+      totalMins = hrs * 60 + mins;
+    }
+
+    // Day occupancy — the client half of mig 726 rules (f) and (g). Checked here
+    // so the message names the day and the fix. Both are INSERT-only in the
+    // database, so both are skipped when editing.
     if (!editingEntry) {
       if (entryKind === 'leave') {
         const planned = plannedFor(selectedDate);
@@ -973,50 +1070,32 @@ export default function MyTimesheet() {
       }
     }
 
-    // Collect non-empty activities
-    const showActivities = needsProject;
-    const cleanActivities = showActivities
-      ? form.activities.map(a => a.trim()).filter(a => a.length > 0)
-      : null;
-
     setSaving(true);
     setFormErr('');
 
+    // ONE RPC, ONE TRANSACTION — mig 727. supabase-js sends every table call as
+    // its own HTTP request, so writing the parent and then its activity rows
+    // would be two transactions: a failure between them leaves an entry whose
+    // rows do not add up to its own hours. save_timesheet_entry also checks the
+    // header status, which no direct table write ever did.
+    const cleanActivities = needsProject ? actPayload(form.actRows).map(a => a.name) : null;
+    const { data: saveRes, error: saveErr } = await supabase.rpc('save_timesheet_entry', {
+      p_header_id: header.id,
+      p_entry_id:  editingEntry?.id ?? null,
+      p_entry: {
+        entry_date:    selectedDate,
+        time_type_id:  form.typeId,
+        project_id:    needsProject ? form.projId : null,
+        notes:         form.notes.trim() || null,
+        hours_minutes: needsProject ? null : totalMins,
+      },
+      p_activities: needsProject ? actPayload(form.actRows) : null,
+    });
+
+    if (saveErr)      { setFormErr(saveErr.message); setSaving(false); return; }
+    if (!saveRes?.ok) { setFormErr(saveRes?.message ?? 'Could not save this entry.'); setSaving(false); return; }
+
     let newEntries: TimesheetEntry[];
-
-    if (editingEntry) {
-      // Update existing
-      const { error: updErr } = await supabase
-        .from('timesheet_entries')
-        .update({
-          entry_kind:    entryKind,
-          time_type_id:  form.typeId || null,
-          project_id:    needsProject ? form.projId || null : null,
-          hours_minutes: totalMins,
-          notes:         form.notes.trim() || null,
-          activities:    cleanActivities && cleanActivities.length > 0 ? cleanActivities : null,
-        })
-        .eq('id', editingEntry.id);
-
-      if (updErr) { setFormErr(updErr.message); setSaving(false); return; }
-    } else {
-      // Insert new
-      const { error: insErr } = await supabase
-        .from('timesheet_entries')
-        .insert({
-          header_id:     header.id,
-          entry_date:    selectedDate,
-          entry_kind:    entryKind,
-          time_type_id:  form.typeId || null,
-          project_id:    needsProject ? form.projId || null : null,
-          hours_minutes: totalMins,
-          notes:         form.notes.trim() || null,
-          activities:    cleanActivities && cleanActivities.length > 0 ? cleanActivities : null,
-          created_by:    (await supabase.auth.getUser()).data.user?.id ?? null,
-        });
-
-      if (insErr) { setFormErr(insErr.message); setSaving(false); return; }
-    }
 
     // Same treatment as the Create modal — one helper, one behaviour.
     if (cleanActivities) noteActivitiesUsed(cleanActivities);
@@ -1024,7 +1103,7 @@ export default function MyTimesheet() {
     // Reload entries then sync recorded_minutes
     const { data: ents } = await supabase
       .from('timesheet_entries')
-      .select(`id, header_id, entry_date, entry_kind, project_id, time_type_id, hours_minutes, notes, activities, is_system_generated, time_types(name,code,category,requires_project), projects(name)`)
+      .select(`id, header_id, entry_date, entry_kind, project_id, time_type_id, hours_minutes, notes, activities, is_system_generated, timesheet_entry_activities(id, activity_name, hours_minutes, display_order), time_types(name,code,category,requires_project), projects(name)`)
       .eq('header_id', header.id)
       .order('entry_date').order('created_at');
 
@@ -1160,49 +1239,82 @@ export default function MyTimesheet() {
           </div>
         )}
 
-        {/* Activities — shown when the selected time type requires a project */}
-        {selTT?.requires_project && (
-          <div style={{ marginBottom: gap }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-              <Label>Activities *</Label>
-              <button
-                type="button"
-                onClick={() => setForm(f => ({ ...f, activities: [...f.activities, ''] }))}
-                style={{ background: 'none', border: 'none', color: '#2563EB', fontSize: 11, fontWeight: 700, cursor: 'pointer', padding: '0 2px' }}
-              >
-                + Add
-              </button>
-            </div>
-            {form.activities.map((act, idx) => (
-              <div key={idx} style={{ display: 'flex', gap: 5, marginBottom: 5 }}>
-                <div style={{ flex: 1 }}>
-                  <ActivityAutocomplete
-                    value={act}
-                    onChange={val => setForm(f => {
-                      const acts = [...f.activities];
-                      acts[idx] = val;
-                      return { ...f, activities: acts };
-                    })}
-                    onFavoriteToggle={handleFavoriteToggle}
-                    history={activityHistory}
-                    inputStyle={inputSt}
-                  />
-                </div>
-                {form.activities.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => setForm(f => ({ ...f, activities: f.activities.filter((_, i) => i !== idx) }))}
-                    style={{ background: 'none', border: '1px solid #FEE2E2', borderRadius: 5, color: '#DC2626', cursor: 'pointer', padding: '0 7px', fontSize: 13 }}
-                  >
-                    ×
-                  </button>
-                )}
+        {/* Activities with their own hours — mig 727. For project time these rows
+            ARE the duration, which is why the Hours/Minutes pair below is gone
+            rather than left read-only: a field you cannot change is still a
+            field people try to change. */}
+        {selTT?.requires_project && (() => {
+          const total   = actTotal(form.actRows);
+          const setRows = (fn: (rows: ActRow[]) => ActRow[]) =>
+            setForm(f => ({ ...f, actRows: fn(f.actRows) }));
+          const numSt   = { ...inputSt, width: 54, textAlign: 'center' as const, flex: '0 0 auto' };
+          return (
+            <div style={{ marginBottom: gap }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                <Label>Activities &amp; hours *</Label>
+                <button
+                  type="button"
+                  onClick={() => { setRows(rows => [...rows, { name: '', h: '', m: '' }]); setFormErr(''); }}
+                  style={{ background: 'none', border: 'none', color: '#2563EB', fontSize: 11, fontWeight: 700, cursor: 'pointer', padding: '0 2px' }}
+                >
+                  + Add
+                </button>
               </div>
-            ))}
-          </div>
-        )}
 
-        {/* Duration */}
+              {form.actRows.map((row, idx) => (
+                <div key={idx} style={{ display: 'flex', gap: 5, marginBottom: 5, alignItems: 'flex-start' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <ActivityAutocomplete
+                      value={row.name}
+                      onChange={val => { setRows(rows => rows.map((r, i) => i === idx ? { ...r, name: val } : r)); setFormErr(''); }}
+                      onFavoriteToggle={handleFavoriteToggle}
+                      history={activityHistory}
+                      inputStyle={inputSt}
+                    />
+                  </div>
+                  <input
+                    type="number" min="0" max="23" placeholder="h" aria-label="Hours"
+                    value={row.h}
+                    onChange={e => { const v = e.target.value; setRows(rows => rows.map((r, i) => i === idx ? { ...r, h: v } : r)); setFormErr(''); }}
+                    style={numSt}
+                  />
+                  <input
+                    type="number" min="0" max="59" placeholder="m" aria-label="Minutes"
+                    value={row.m}
+                    onChange={e => { const v = e.target.value; setRows(rows => rows.map((r, i) => i === idx ? { ...r, m: v } : r)); setFormErr(''); }}
+                    style={numSt}
+                  />
+                  {form.actRows.length > 1 && (
+                    <button
+                      type="button"
+                      aria-label={`Remove ${row.name.trim() || 'this activity'}`}
+                      onClick={() => { setRows(rows => rows.filter((_, i) => i !== idx)); setFormErr(''); }}
+                      style={{ background: 'none', border: '1px solid #FEE2E2', borderRadius: 5, color: '#DC2626', cursor: 'pointer', padding: '0 7px', fontSize: 13, alignSelf: 'stretch' }}
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+              ))}
+
+              {/* The running total IS the entry's duration. It belongs here,
+                  beside the numbers that produce it. */}
+              <div style={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+                marginTop: 6, paddingTop: 6, borderTop: '1px dashed #E5E7EB',
+              }}>
+                <span style={{ fontSize: 11, color: '#6B7280', fontWeight: 600 }}>Total for the day</span>
+                <span style={{ fontSize: 13, fontWeight: 700, fontVariantNumeric: 'tabular-nums',
+                               color: total > 0 ? '#111827' : '#9CA3AF' }}>
+                  {fmtMins(total)}
+                </span>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Duration — only for entries that are not itemised. */}
+        {!selTT?.requires_project && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: gap }}>
           <div>
             <Label>Hours</Label>
@@ -1223,6 +1335,7 @@ export default function MyTimesheet() {
             />
           </div>
         </div>
+        )}
 
         {/* Notes */}
         <div style={{ marginBottom: 10 }}>
@@ -1881,19 +1994,36 @@ export default function MyTimesheet() {
                     {/* Collapsible detail */}
                     {isOpen && (
                       <div style={{ borderTop: '1px solid #F3F4F6', background: '#FAFAFA', padding: '10px 12px 12px' }}>
-                        {ent.activities && ent.activities.length > 0 && (
-                          <div style={{ marginBottom: ent.notes ? 8 : 0 }}>
-                            <div style={{ fontSize: 9, fontWeight: 800, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
-                              Activities
-                            </div>
-                            {ent.activities.map((a, i) => (
-                              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '2px 0' }}>
-                                <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#34D399', flexShrink: 0, display: 'inline-block' }} />
-                                <span style={{ fontSize: 12, color: '#374151', fontWeight: 500 }}>{a}</span>
+                        {(() => {
+                          const rows  = [...((ent.timesheet_entry_activities ?? []) as TimesheetEntryActivity[])]
+                                          .sort((a, b) => a.display_order - b.display_order);
+                          const names = (ent.activities ?? []).filter(Boolean);
+                          if (!rows.length && !names.length) return null;
+                          return (
+                            <div style={{ marginBottom: ent.notes ? 8 : 0 }}>
+                              <div style={{ fontSize: 9, fontWeight: 800, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
+                                Activities
                               </div>
-                            ))}
-                          </div>
-                        )}
+                              {rows.length > 0
+                                ? rows.map(r => (
+                                    <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '2px 0' }}>
+                                      <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#34D399', flexShrink: 0, display: 'inline-block' }} />
+                                      <span style={{ fontSize: 12, color: '#374151', fontWeight: 500, flex: 1, minWidth: 0 }}>{r.activity_name}</span>
+                                      <span style={{ fontSize: 11, color: '#6B7280', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{fmtMins(r.hours_minutes)}</span>
+                                    </div>
+                                  ))
+                                /* Recorded before activities carried their own hours. Say so
+                                   rather than showing a number that was never entered. */
+                                : names.map((a, i) => (
+                                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '2px 0' }}>
+                                      <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#D1D5DB', flexShrink: 0, display: 'inline-block' }} />
+                                      <span style={{ fontSize: 12, color: '#374151', fontWeight: 500, flex: 1, minWidth: 0 }}>{a}</span>
+                                      <span style={{ fontSize: 10, color: '#9CA3AF', fontStyle: 'italic' }}>hours not split</span>
+                                    </div>
+                                  ))}
+                            </div>
+                          );
+                        })()}
                         {ent.notes && (
                           <div style={{
                             background: '#fff', border: '1px solid #E5E7EB', borderRadius: 6,
