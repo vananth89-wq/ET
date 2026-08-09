@@ -618,14 +618,75 @@ export default function MyTimesheet() {
     setHeader(h => h ? { ...h, recorded_minutes: list.reduce((s, e) => s + e.hours_minutes, 0) } : h);
   }
 
-  // ── Date-scope rules — shared by Create and Copy ──────────────────────
+  // ── Day occupancy — the client half of migration 726 ──────────────────
+  /**
+   * Planned minutes for a date. The mirror of time_planned_minutes_for_date()
+   * (mig 723): holiday first, then the schedule line for that weekday.
+   *
+   * Returns 0 when the schedule has not loaded yet, which makes every caller
+   * below fall OPEN rather than block a day it cannot measure. A day wrongly
+   * offered is caught by the trigger; a day wrongly blocked just looks broken.
+   */
+  function plannedFor(dateStr: string): number {
+    if (holidayByDate[dateStr]) return 0;
+    if (!schedule)              return 0;
+    const [y, m, d] = dateStr.split('-').map(Number);
+    return plannedForDay(new Date(y, m - 1, d).getDay(), schedule);
+  }
+
+  /** Minutes of absence recorded on a date. */
+  function absenceMinutes(dateStr: string): number {
+    return (entriesByDate[dateStr] ?? [])
+      .filter(e => e.entry_kind === 'leave')
+      .reduce((s, e) => s + e.hours_minutes, 0);
+  }
+
+  /** Attendance = anything that is neither leave nor holiday. */
+  function hasAttendance(dateStr: string): boolean {
+    return (entriesByDate[dateStr] ?? [])
+      .some(e => e.entry_kind !== 'leave' && e.entry_kind !== 'holiday');
+  }
+
+  /**
+   * Rule (g) of mig 726 — absence already covers the whole planned day, so
+   * there is no room for work in it. Instance-level: measured in minutes, not
+   * read off the type's allows_half_day flag. A half-day-CAPABLE type recorded
+   * for the full 8 hours fills the day just as completely as a full-day-only
+   * one, and mig 721 rules (c)/(d) never looked at it.
+   *
+   * Returns the reason to show, or null when attendance is allowed.
+   */
+  function dayAbsenceBlock(dateStr: string): string | null {
+    const planned = plannedFor(dateStr);
+    if (planned <= 0) return null;            // holiday or non-working: nothing to fill
+    if (absenceMinutes(dateStr) < planned) return null;
+    const ent = (entriesByDate[dateStr] ?? []).find(e => e.entry_kind === 'leave');
+    return `${ent ? getCellLabel(ent) : 'Absence'} covers the full day`;
+  }
+
+  // ── Date-scope rules — Create modal ───────────────────────────────────
   // A date may receive attendance when it is inside this month, not in the
-  // future, and empty. Non-working days ARE allowed: weekend work is real work.
+  // future, and not already used up by absence. Non-working days ARE allowed:
+  // weekend work is real work.
+  //
+  // A day that already holds OTHER entries is allowed too, since mig 726. The
+  // clash is now (date, time type, project) — the picker cannot evaluate that
+  // before the type and project are chosen, so the RPC reports it with the
+  // offending dates instead and the user deselects them.
   function dateBlockedReason(dateStr: string): string | null {
     if (dateStr.slice(0, 7) !== `${year}-${pad2(month)}`) return 'Outside this timesheet month';
     if (dateStr > todayIso)                               return 'Future date — attendance cannot be recorded in advance';
-    if ((entriesByDate[dateStr] ?? []).length > 0)        return 'Already has attendance';
-    return null;
+    return dayAbsenceBlock(dateStr);
+  }
+
+  // Copy Day keeps the stricter "empty days only" rule on purpose. Pasting N
+  // entries into a non-empty day is N separate collision questions and needs
+  // the classify-and-preview machinery the Create modal gets in PR 2. Copy Day
+  // has also never been exercised in a browser; its first real test should not
+  // be the harder version of the problem.
+  function pasteBlockedReason(dateStr: string): string | null {
+    return dateBlockedReason(dateStr)
+        ?? ((entriesByDate[dateStr] ?? []).length > 0 ? 'Already has attendance' : null);
   }
 
   // ── Create ────────────────────────────────────────────────────────────
@@ -745,10 +806,10 @@ export default function MyTimesheet() {
 
   async function pasteInto(dateStr: string) {
     if (!header || !clipboard) return;
-    const blocked = dateBlockedReason(dateStr);
+    const blocked = pasteBlockedReason(dateStr);
     if (blocked) {
       pushToast(blocked === 'Already has attendance'
-        ? 'Attendance already exists for this day. Paste is only allowed into empty days.'
+        ? 'This day already has entries. Paste is only allowed into empty days.'
         : `${blocked}.`, 'bad');
       return;
     }
@@ -894,6 +955,23 @@ export default function MyTimesheet() {
     // Map absence → 'leave', else 'time_type' (project entries always stay time_type with project_id set)
     const entryKind: TimesheetEntry['entry_kind'] =
       selectedTimeType?.category === 'absence' ? 'leave' : 'time_type';
+
+    // Day occupancy — the client half of mig 726 rules (f) and (g). Checked
+    // here rather than left to the trigger so the message names the day and
+    // the fix, instead of surfacing the database's own sentence. Both rules
+    // are INSERT-only in the database, so both are skipped when editing.
+    if (!editingEntry) {
+      if (entryKind === 'leave') {
+        const planned = plannedFor(selectedDate);
+        if (planned > 0 && totalMins >= planned && hasAttendance(selectedDate)) {
+          setFormErr('Attendance is already recorded on this day, so an absence covering the whole day cannot be added. Reduce the hours, or remove the attendance first.');
+          return;
+        }
+      } else {
+        const block = dayAbsenceBlock(selectedDate);
+        if (block) { setFormErr(`${block} — attendance cannot be added.`); return; }
+      }
+    }
 
     // Collect non-empty activities
     const showActivities = needsProject;
@@ -1054,6 +1132,13 @@ export default function MyTimesheet() {
             <option value="">— Select —</option>
             {timeTypes
               .filter(t => !form.ttCategory || t.category === form.ttCategory)
+              // Mig 726 rule (f): on a day that already has attendance, a
+              // full-day-ONLY absence type can never be legal — rule (c) locks
+              // it to the whole planned day and (f) then rejects it. Do not
+              // offer a choice that must fail. Half-day-capable types stay,
+              // because a part-day absence alongside work is legitimate.
+              .filter(t => !(t.category === 'absence' && !t.allows_half_day
+                             && !editingEntry && !!selectedDate && hasAttendance(selectedDate)))
               .map(t => <option key={t.id} value={t.id}>{t.name} ({t.code})</option>)}
           </select>
         </div>
@@ -1862,33 +1947,68 @@ export default function MyTimesheet() {
                 </div>
               )}
 
-              {/* Add Attendance / Add Absence buttons */}
-              {editable && !addingEntry && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: dayEntries.length > 0 ? 6 : 8 }}>
-                  <button
-                    onClick={openAddAttendance}
-                    style={{
-                      width: '100%', padding: '8px 0', borderRadius: 8, border: 'none',
-                      background: '#DCFCE7', color: '#166534',
-                      fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                    }}
-                  >
-                    🕐 Add Attendance
-                  </button>
-                  <button
-                    onClick={openAddAbsence}
-                    style={{
-                      width: '100%', padding: '8px 0', borderRadius: 8, border: 'none',
-                      background: '#FEF9C3', color: '#854D0E',
-                      fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                    }}
-                  >
-                    🏖 Add Absence
-                  </button>
-                </div>
-              )}
+              {/* Add Attendance / Add Absence buttons.
+                  Prevention over validation: a button that leads to a certain
+                  rejection is withdrawn and replaced by the reason, rather than
+                  offered and then failed on save. There is no fix available at
+                  the point of that error — the day simply is not available. */}
+              {editable && !addingEntry && selectedDate && (() => {
+                const absBlock = dayAbsenceBlock(selectedDate);          // mig 726 (g)
+                const hasAbs   = absenceMinutes(selectedDate) > 0;       // mig 721 (b)
+                const noticeSt = {
+                  padding: '8px 12px', borderRadius: 8, fontSize: 12, lineHeight: 1.45,
+                  background: '#F9FAFB', border: '1px solid #E5E7EB', color: '#6B7280',
+                  textAlign: 'center' as const,
+                };
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: dayEntries.length > 0 ? 6 : 8 }}>
+                    {absBlock ? (
+                      <div style={noticeSt}>
+                        <i className="fa-solid fa-umbrella-beach" style={{ marginRight: 5 }} />
+                        {absBlock} — attendance cannot be added.
+                      </div>
+                    ) : (
+                      <button
+                        onClick={openAddAttendance}
+                        style={{
+                          width: '100%', padding: '8px 0', borderRadius: 8, border: 'none',
+                          background: '#DCFCE7', color: '#166534',
+                          fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                        }}
+                      >
+                        🕐 Add Attendance
+                      </button>
+                    )}
+
+                    {hasAbs ? (
+                      <div style={noticeSt}>Only one absence is allowed per day.</div>
+                    ) : (
+                      <button
+                        onClick={openAddAbsence}
+                        style={{
+                          width: '100%', padding: '8px 0', borderRadius: 8, border: 'none',
+                          background: '#FEF9C3', color: '#854D0E',
+                          fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                        }}
+                      >
+                        🏖 Add Absence
+                      </button>
+                    )}
+
+                    {/* Not a blocker — a part-day absence alongside work is
+                        legitimate. Say what is still possible, not just what
+                        is not: the full-day types are already gone from the
+                        picker, and this explains the gap. */}
+                    {!hasAbs && hasAttendance(selectedDate) && (
+                      <div style={{ ...noticeSt, textAlign: 'left' }}>
+                        Attendance is recorded on this day, so only a part-day absence can be added.
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Locked notice */}
               {!editable && (
