@@ -1257,14 +1257,17 @@ export default function MyTimesheet() {
                   const isOffDay   = dayPlanned === 0;
                   const recorded   = dayEnts.reduce((s, e) => s + e.hours_minutes, 0);
                   const status     = dayStatus(recorded, dayPlanned);
-                  const isHovered  = hoverDate === dateStr && !isOffDay;
-
                   const holidayName = holidayByDate[dateStr];
                   const isHoliday   = !!holidayName || dayEnts.some(e => e.entry_kind === 'holiday');
                   // A holiday can still be worked. Only take over the cell body when
                   // nothing was logged, otherwise real entries would be hidden.
                   const workEnts    = dayEnts.filter(e => e.entry_kind !== 'holiday');
                   const holidayOnly = isHoliday && workEnts.length === 0;
+
+                  // Hover/focus affordance follows tabIndex: a weekend holiday is
+                  // reachable, so it should respond like any other reachable cell.
+                  // Declared after isHoliday — it reads it.
+                  const isHovered   = hoverDate === dateStr && (!isOffDay || isHoliday);
 
                   // Full-day absence: every entry is leave AND it covers the plan.
                   // A half day of leave stays a normal working day with a leave row.
@@ -1312,11 +1315,14 @@ export default function MyTimesheet() {
                     <div
                       key={dateStr}
                       role="button"
-                      tabIndex={isOffDay ? -1 : 0}
+                      // A holiday or an entry outranks "non-working day": a public
+                      // holiday falling on a weekend still has something to show, so
+                      // it stays keyboard-reachable and announces by name.
+                      tabIndex={isOffDay && !isHoliday && dayEnts.length === 0 ? -1 : 0}
                       aria-label={`${day} ${MONTH_NAMES[month - 1]}, ${
-                        isOffDay   ? 'non-working day'
-                        : isHoliday ? `public holiday${holidayName ? ' — ' + holidayName : ''}`
+                        isHoliday   ? `public holiday${holidayName ? ' — ' + holidayName : ''}${isOffDay ? ', non-working day' : ''}`
                         : leaveName ? leaveName
+                        : isOffDay  ? 'non-working day'
                         : `${fmtDayHours(recorded, status)} of ${Math.round(dayPlanned / 60)} hours logged`}`}
                       onMouseEnter={() => setHoverDate(dateStr)}
                       onMouseLeave={() => setHoverDate(null)}
@@ -1343,10 +1349,10 @@ export default function MyTimesheet() {
                           isClipSrc   ? '#10B981'
                           : pasteOk    ? '#6EE7B7'
                           : copySrcOk  ? '#93C5FD'
-                          : isOffDay    ? 'transparent'
                           : isSelected ? '#2563EB'
-                          : isHovered  ? '#D0D5DD'
                           : isHoliday  ? '#EDE4FE'
+                          : isOffDay   ? 'transparent'
+                          : isHovered  ? '#D0D5DD'
                           : leaveName  ? '#DBEAFE'
                           :              '#E5E7EB'}`,
                         background: pasteOk    ? '#F6FEFB'
