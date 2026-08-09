@@ -162,8 +162,16 @@ export default function TimeTypes() {
           {form.id ? 'Edit Time Type' : 'New Time Type'}
         </h3>
         <form onSubmit={handleSubmit}>
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
-            <div className={`form-group${formErrors.name ? ' form-group--error' : ''}`}>
+          {/* One field per row, each sized to what it actually holds.
+              A full-width input quietly promises a long answer — a Code box wide
+              enough for forty characters invites someone to type a sentence into
+              it. Sizing the box is a form of instruction: it tells you roughly
+              how much to write before you have read the label.
+              The stack is capped so labels, inputs, checkboxes and the button all
+              share ONE left edge and one comfortable reading column, while the
+              card itself stays full width and aligned with the tables below. */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 18, maxWidth: 560 }}>
+            <div className={`form-group${formErrors.name ? ' form-group--error' : ''}`} style={{ maxWidth: 560 }}>
               <label>Name</label>
               <input
                 type="text" placeholder="e.g. Training"
@@ -173,7 +181,7 @@ export default function TimeTypes() {
               {formErrors.name && <small className="field-error"><i className="fa-solid fa-circle-exclamation" /> {formErrors.name}</small>}
             </div>
 
-            <div className={`form-group${formErrors.code ? ' form-group--error' : ''}`}>
+            <div className={`form-group${formErrors.code ? ' form-group--error' : ''}`} style={{ maxWidth: 180 }}>
               <label>Code</label>
               <input
                 type="text" placeholder="e.g. TRN" style={{ textTransform: 'uppercase' }}
@@ -183,7 +191,7 @@ export default function TimeTypes() {
               {formErrors.code && <small className="field-error"><i className="fa-solid fa-circle-exclamation" /> {formErrors.code}</small>}
             </div>
 
-            <div className="form-group">
+            <div className="form-group" style={{ maxWidth: 280 }}>
               <label>Category</label>
               <select value={form.category} onChange={e => setForm(p => ({ ...p, category: e.target.value as 'attendance' | 'absence' }))}>
                 <option value="attendance">Attendance</option>
