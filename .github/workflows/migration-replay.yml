@@ -134,7 +134,12 @@ jobs:
         env:
           PGPASSWORD: postgres
         run: |
-          set -uo pipefail
+          # GitHub runs steps as `bash -e`. This loop DELIBERATELY tolerates
+          # failing migrations — and `grep` exits 1 whenever a migration applies
+          # cleanly (no ERROR line to match), which under errexit killed the
+          # script on the very first success. Turn errexit off explicitly.
+          set +e
+          set -o pipefail
           ok=0; fail=0
           : > /tmp/failures.txt
           # Only versioned files (NNNNNNNNNNN_*.sql). Loose scratch files in the
@@ -170,6 +175,12 @@ jobs:
               echo "</details>"
             fi
           } >> $GITHUB_STEP_SUMMARY
+
+          # A shell step's exit code is its LAST command's. The block above ends
+          # in an `if` that is false when nothing failed, which would mark a
+          # perfectly clean replay as a failure. Be explicit: this step reports,
+          # it does not judge. The Verdict step decides.
+          exit 0
 
       - name: Verdict
         run: |
