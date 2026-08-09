@@ -52,6 +52,16 @@ function CategoryBadge({ category }: { category: string }) {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
+/** One checkbox rule: an 18px gutter for the box, the label beside it, and the
+ *  explanation on the next line starting at the label's left edge. */
+const ruleRowSt: React.CSSProperties = {
+  display: 'grid', gridTemplateColumns: '18px 1fr', columnGap: 10, rowGap: 3,
+  alignItems: 'start', cursor: 'pointer',
+};
+const ruleBoxSt:   React.CSSProperties = { marginTop: 3, width: 15, height: 15, cursor: 'pointer' };
+const ruleLabelSt: React.CSSProperties = { fontSize: 13, fontWeight: 600, color: '#374151' };
+const ruleHintSt:  React.CSSProperties = { gridColumn: 2, fontSize: 11.5, color: '#9CA3AF', lineHeight: 1.55 };
+
 const EMPTY: Omit<TimeType, 'id'> & { id: string } = {
   id: '', name: '', code: '', category: 'attendance', allows_half_day: false, allows_future: false, is_system_managed: false, requires_project: false, is_active: true, created_at: null, updated_at: null, creator: null,
 };
@@ -139,8 +149,9 @@ export default function TimeTypes() {
     <div className="ar-panel">
       <h2 className="page-title">Time Types</h2>
       <p className="page-subtitle">
-        Define categories of time entries employees can log. Absence types (full-day) prevent other
-        entries on the same day unless "Allows Partial Overlap" is enabled.
+        Define the categories of time entry employees can log. Each type carries its own rules:
+        whether it needs a project, whether an absence may be taken as a half day, and whether it
+        can be recorded ahead of today.
       </p>
 
       {error && <ErrorBanner message={error} onRetry={load} />}
@@ -181,52 +192,74 @@ export default function TimeTypes() {
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: 24, marginBottom: 16 }}>
-            {form.category === 'absence' && (
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
-                <input
-                  type="checkbox" checked={form.allows_half_day}
-                  onChange={e => setForm(p => ({ ...p, allows_half_day: e.target.checked }))}
-                />
-                Allows Half Day
-                <span style={{ color: '#9CA3AF', fontSize: 11 }}>
-                  (may be taken for part of a day; employees can log attendance alongside it)
-                </span>
-              </label>
-            )}
-
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
-              <input
-                type="checkbox" checked={form.allows_future}
-                onChange={e => setForm(p => ({ ...p, allows_future: e.target.checked }))}
-              />
-              Allows Future Dates
-              <span style={{ color: '#9CA3AF', fontSize: 11 }}>
-                (for scheduled things — a booked Training next week, planned leave. Leave it
-                off for anything only reportable after the fact: project work, sick leave)
-              </span>
-            </label>
-
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
-              <input
-                type="checkbox" checked={form.is_active}
-                onChange={e => setForm(p => ({ ...p, is_active: e.target.checked }))}
-              />
-              Active
-            </label>
+          {/* One rule per row. The old layout put the label and its explanation on
+              the SAME line inside a flex row, so three options of very different
+              lengths produced ragged columns and the longest label wrapped mid-phrase.
+              A grid gives each option a fixed 18px gutter for the box and puts the
+              explanation directly beneath its own label — one left edge to read down,
+              and the checkbox you are about to tick is never separated from the
+              sentence that says what it does. */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 13, marginBottom: 18, maxWidth: 660 }}>
 
             {form.category === 'attendance' && (
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+              <label style={ruleRowSt}>
                 <input
                   type="checkbox" checked={form.requires_project}
                   onChange={e => setForm(p => ({ ...p, requires_project: e.target.checked }))}
+                  style={ruleBoxSt}
                 />
-                Requires Project
-                <span style={{ color: '#9CA3AF', fontSize: 11 }}>
-                  (employee must select an active project when logging this type)
+                <span style={ruleLabelSt}>Requires Project</span>
+                <span style={ruleHintSt}>
+                  The employee must pick an active project when logging this type.
                 </span>
               </label>
             )}
+
+            {form.category === 'absence' && (
+              <label style={ruleRowSt}>
+                <input
+                  type="checkbox" checked={form.allows_half_day}
+                  onChange={e => setForm(p => ({ ...p, allows_half_day: e.target.checked }))}
+                  style={ruleBoxSt}
+                />
+                <span style={ruleLabelSt}>Allows Half Day</span>
+                <span style={ruleHintSt}>
+                  May be taken for part of a day, and attendance can be logged alongside it.
+                  Leave it off and the entry is locked to the whole planned day and blocks
+                  everything else.
+                </span>
+              </label>
+            )}
+
+            <label style={ruleRowSt}>
+              <input
+                type="checkbox" checked={form.allows_future}
+                onChange={e => setForm(p => ({ ...p, allows_future: e.target.checked }))}
+                style={ruleBoxSt}
+              />
+              <span style={ruleLabelSt}>Allows Future Dates</span>
+              <span style={ruleHintSt}>
+                For things that are <i>scheduled</i> — a booked training next week, planned
+                leave. Leave it off for anything only reportable after the fact: project work,
+                sick leave.
+              </span>
+            </label>
+
+            {/* Active is a status, not a rule about how time is recorded, so it sits
+                below a divider rather than in the same list. */}
+            <label style={{ ...ruleRowSt, borderTop: '1px solid #F1F5F9', paddingTop: 13 }}>
+              <input
+                type="checkbox" checked={form.is_active}
+                onChange={e => setForm(p => ({ ...p, is_active: e.target.checked }))}
+                style={{ ...ruleBoxSt, marginTop: 16 }}
+              />
+              <span style={{ ...ruleLabelSt, marginTop: 13 }}>Active</span>
+              <span style={ruleHintSt}>
+                Inactive types disappear from the employee's picker. Entries already recorded
+                against them are untouched.
+              </span>
+            </label>
+
           </div>
 
           <div className="rd-form-actions">
