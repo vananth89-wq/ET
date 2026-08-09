@@ -80,19 +80,36 @@ jobs:
       - name: Install replay shims for pg_net and pg_cron
         run: |
           # Stock PostgreSQL has neither extension, so `CREATE EXTENSION pg_net`
-          # fails and takes the migration with it -- along with everything that
+          # fails and takes its migration with it -- along with everything that
           # depends on the columns it would have created. No migration depends on
           # their RUNTIME behaviour at apply time, only on the statement parsing
           # and on the objects existing, and the prelude below provides those.
-          # An empty extension with a matching control file is therefore a
-          # faithful stand-in, and far more honest than an exclusion list.
-          EXT=$(pg_config --sharedir)/extension
+          #
+          # The database is a SERVICE CONTAINER, not the runner. The control files
+          # have to land inside THAT container's share directory. Writing them on
+          # the runner filesystem looks like it works and does nothing at all --
+          # which is exactly what run #5 did: 12 failures instead of 8, the four
+          # extras being pg_net, pg_cron and the two that cascade from them.
+          mkdir -p /tmp/shim
           for e in pg_net pg_cron; do
-            printf "comment = 'replay shim for %s'\ndefault_version = '1.0'\nrelocatable = false\nsuperuser = false\n" "$e" \
-              | sudo tee "$EXT/$e.control" > /dev/null
-            echo "-- shim: the objects live in the replay prelude" | sudo tee "$EXT/$e--1.0.sql" > /dev/null
+            printf "comment = 'replay shim for %s'\ndefault_version = '1.0'\nrelocatable = false\nsuperuser = false\n" "$e" > "/tmp/shim/$e.control"
+            echo "-- shim: the objects live in the replay prelude" > "/tmp/shim/$e--1.0.sql"
           done
-          echo "shims installed in $EXT"
+
+          CID=$(docker ps --filter "ancestor=postgres:16" --format '{{.ID}}' | head -1)
+          if [ -z "$CID" ]; then
+            echo "::error::postgres:16 service container not found -- cannot install the replay shims."
+            exit 1
+          fi
+
+          EXT="$(docker exec "$CID" pg_config --sharedir)/extension"
+          for f in /tmp/shim/*; do docker cp "$f" "$CID:$EXT/"; done
+
+          # Prove it landed. A shim that silently fails is worse than no shim:
+          # it turns a known-cause failure into an unexplained one.
+          docker exec "$CID" test -f "$EXT/pg_net.control"  || { echo "::error::pg_net shim not present in the container";  exit 1; }
+          docker exec "$CID" test -f "$EXT/pg_cron.control" || { echo "::error::pg_cron shim not present in the container"; exit 1; }
+          echo "shims installed in $EXT inside container $CID"
 
       - name: Apply the Supabase platform prelude
         env:
