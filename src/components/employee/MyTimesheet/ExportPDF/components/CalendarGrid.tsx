@@ -65,7 +65,9 @@ export function CalendarGrid({ days, todayIso }: { days: ExportDay[]; todayIso: 
         const done  = real.length > 0 && real[real.length - 1].date <= todayIso;
         const over  = planned > 0 && total > planned;
         const short = planned > 0 && done && total < planned;
-        const tone  = over ? '#92400E' : short ? colors.ink3 : colors.ink2;
+        // Same rule as the weekly cards: amber for over, ordinary ink for
+        // everything else. The '4h short' line below still says it.
+        const tone  = over ? '#92400E' : colors.ink2;
 
         return (
           <View key={ri} style={styles.calRowB} wrap={false}>

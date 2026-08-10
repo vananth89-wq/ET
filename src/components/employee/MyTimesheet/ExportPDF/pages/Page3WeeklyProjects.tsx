@@ -60,10 +60,12 @@ export function Page3WeeklyProjects({ data }: { data: TimesheetExportData }) {
                 const short   = hasPlan && done && w.total < w.planned;
 
                 // The same three colours the calendar and the KPI tiles use:
-                // red beyond plan, amber short of it, blue otherwise.
-                // Amber is the only alert on this report and it means OVER.
-                // Falling short is slate: informative, not an accusation.
-                const tone = over ? colors.amber : short ? colors.ink3 : colors.blueMid;
+
+                // Amber is the ONLY colour on this report that means anything, and
+                // it means OVER. A short week stays blue: slate read as "switched
+                // off" rather than "under target", and the shortfall is already
+                // said twice — by the gap above the bar and by the caption.
+                const tone = over ? colors.amber : colors.blueMid;
 
                 const caption =
                     over  ? `${fmtHM(w.total - w.planned)} beyond ${fmtHM(w.planned)} planned`
