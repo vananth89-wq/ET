@@ -20,6 +20,11 @@ import { supabase }                                   from '../../../lib/supabas
 import ErrorBanner                                    from '../../shared/ErrorBanner';
 import ActivityAutocomplete                           from './ActivityAutocomplete';
 import type { ActivityHistoryItem }                   from './ActivityAutocomplete';
+import { ExportPDFButton }                            from './ExportPDF';
+import type { TimesheetExportData, ExportDay, ExportEntry }
+                                                      from './ExportPDF/types';
+import { buildWeeks, buildProjects, buildActivityTotals, entryMinutes }
+                                                      from './ExportPDF/utils/dataTransforms';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1008,6 +1013,149 @@ export default function MyTimesheet() {
     month === 12 ? goToPeriod(year + 1, 1) : goToPeriod(year, month + 1);
   }
 
+  // ── Export PDF — the month as a four-page report ──────────────────────
+  /**
+   * Built ON CLICK rather than held in state. Two of the labels the report
+   * carries -- the holiday calendar's NAME and the manager's name -- are not
+   * needed anywhere else on this page. Loading them on every calendar render to
+   * serve a button most people press once a month is the wrong trade, and it
+   * keeps a failure in either lookup inside the export instead of breaking the
+   * calendar.
+   *
+   * Everything numeric below comes from state that is already on screen, so the
+   * PDF cannot disagree with the page that produced it.
+   */
+  async function buildExportData(): Promise<TimesheetExportData> {
+    if (!header) throw new Error('this month has not finished loading');
+
+    // The three labels the page does not already hold. Each falls back to a
+    // dash rather than failing the export: a report reading "Manager: --" is
+    // still a correct report; no report at all is not.
+    let department   = '—';
+    let calendarName = '—';
+    let managerName  = '—';
+    try {
+      const { data: empRow } = await supabase
+        .from('employee_employment')
+        .select('holiday_calendar_id, departments(name)')
+        .eq('employee_id', employee!.id)
+        .or('effective_to.is.null,effective_to.eq.9999-12-31')
+        .limit(1)
+        .maybeSingle();
+
+      const dept = Array.isArray(empRow?.departments) ? empRow?.departments[0] : empRow?.departments;
+      if (dept?.name) department = dept.name;
+
+      const calId = empRow?.holiday_calendar_id ?? header.holiday_calendar_id;
+      const { data: me } = await supabase
+        .from('employees').select('manager_id').eq('id', employee!.id).maybeSingle();
+
+      const [calRes, mgrRes] = await Promise.all([
+        calId
+          ? supabase.from('time_holiday_calendars').select('name').eq('id', calId).maybeSingle()
+          : Promise.resolve({ data: null }),
+        me?.manager_id
+          ? supabase.from('employees').select('name').eq('id', me.manager_id).maybeSingle()
+          : Promise.resolve({ data: null }),
+      ]);
+      if ((calRes.data as { name?: string } | null)?.name) calendarName = (calRes.data as { name: string }).name;
+      if ((mgrRes.data as { name?: string } | null)?.name) managerName  = (mgrRes.data as { name: string }).name;
+    } catch {
+      /* labels only -- every number below is already in hand */
+    }
+
+    // ── The month grid ──────────────────────────────────────────────────
+    const monthDays: ExportDay[] = [];
+    for (let d = 1; d <= totalDays; d++) {
+      const date      = isoDate(year, month, d);
+      const dow       = new Date(year, month - 1, d).getDay();
+      const dayEnts   = entriesByDate[date] ?? [];
+      const isHoliday = !!holidayByDate[date];
+      monthDays.push({
+        date, day: d, dow,
+        minutes:   dayEnts.reduce((s, e) => s + e.hours_minutes, 0),
+        planned:   plannedFor(date),
+        isHoliday,
+        isLeave:   dayEnts.some(e => e.entry_kind === 'leave'),
+        // A holiday outranks a weekend, exactly as the calendar cell does.
+        isWeekend: !isHoliday && !!schedule && plannedForDay(dow, schedule) === 0,
+      });
+    }
+
+    // ── The rows ────────────────────────────────────────────────────────
+    const expEntries: ExportEntry[] = entries.map(e => {
+      const t         = Array.isArray(e.time_types) ? e.time_types[0] : e.time_types;
+      const p         = Array.isArray(e.projects)   ? e.projects[0]   : e.projects;
+      const rows      = (e.timesheet_entry_activities ?? []) as TimesheetEntryActivity[];
+      const dow       = new Date(`${e.entry_date}T00:00:00`).getDay();
+      const isHoliday = !!holidayByDate[e.entry_date];
+
+      const activities = rows.length
+        ? [...rows].sort((a, b) => a.display_order - b.display_order)
+            .map(r => ({ name: r.activity_name, minutes: r.hours_minutes }))
+        // A pre-727 entry has names and no split. Reported at zero minutes so
+        // the name still appears in the Activities column while the totals
+        // chart refuses to invent a measurement nobody took.
+        : (e.activities ?? []).filter(Boolean).map(n => ({ name: n, minutes: 0 }));
+
+      return {
+        date:      e.entry_date,
+        dayLabel:  DAY_ABBR[dow],
+        kind:      e.entry_kind === 'leave' ? 'leave' : e.entry_kind === 'holiday' ? 'holiday' : 'work',
+        typeName:  t?.name ?? (e.entry_kind === 'holiday' ? 'Holiday' : '—'),
+        project:   p?.name ?? null,
+        minutes:   entryMinutes(e.hours_minutes, rows.map(r => ({ minutes: r.hours_minutes }))),
+        notes:     e.notes,
+        activities,
+        isHoliday,
+        isWeekend: !isHoliday && !!schedule && plannedForDay(dow, schedule) === 0,
+      };
+    });
+
+    // ── KPIs ────────────────────────────────────────────────────────────
+    const recorded = entries.reduce((s, e) => s + e.hours_minutes, 0);
+    const planned  = header.planned_minutes;
+    // "Present" counts days carrying real attendance -- neither leave nor the
+    // system-generated holiday row. A day of leave is accounted for, not worked.
+    const daysPresent = monthDays.filter(d =>
+      (entriesByDate[d.date] ?? []).some(e => e.entry_kind !== 'leave' && e.entry_kind !== 'holiday')
+    ).length;
+
+    return {
+      employeeName:    employee?.name ?? '—',
+      employeeCode:    empCode || '—',
+      department,
+      holidayCalendar: calendarName,
+      manager:         managerName,
+      workSchedule:    schedule ? `${schedule.name} (${schedule.code})` : '—',
+      periodLabel:     `1 – ${totalDays} ${MONTH_NAMES[month - 1]} ${year}`,
+      monthSlug:       `${MONTH_NAMES[month - 1].slice(0, 3)}${year}`,
+      status:          header.status,
+
+      plannedMinutes:  planned,
+      recordedMinutes: recorded,
+      overtimeMinutes: Math.max(0, recorded - planned),
+      leaveDays:       monthDays.filter(d => d.isLeave).length,
+      workingDays:     monthDays.filter(d => d.planned > 0).length,
+      daysPresent,
+      utilisationPct:  planned > 0 ? (recorded / planned) * 100 : 0,
+      varianceMinutes: recorded - planned,
+
+      monthDays,
+      entries:    expEntries,
+      weeks:      buildWeeks(monthDays),
+      projects:   buildProjects(expEntries),
+      activities: buildActivityTotals(expEntries),
+
+      submittedAt: header.submitted_at,
+      approvedAt:  header.approved_at,
+      referenceId: header.external_code,
+
+      generatedAt: new Date().toISOString(),
+      documentId:  header.id,
+    };
+  }
+
   // ── Derived: entries indexed by date ─────────────────────────────────
   const entriesByDate = useMemo(() =>
     entries.reduce<Record<string, TimesheetEntry[]>>((acc, e) => {
@@ -1473,6 +1621,14 @@ export default function MyTimesheet() {
               </button>
             </div>
           )}
+
+          <div style={{ marginLeft: editable ? 0 : 'auto' }}>
+            <ExportPDFButton
+              getData={buildExportData}
+              onToast={(msg, kind) => pushToast(msg, kind)}
+              disabled={!header || loading}
+            />
+          </div>
 
           {editable && (
             <button
