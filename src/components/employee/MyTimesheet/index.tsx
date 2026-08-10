@@ -1759,11 +1759,18 @@ export default function MyTimesheet() {
                   // nothing was logged, otherwise real entries would be hidden.
                   const workEnts    = dayEnts.filter(e => e.entry_kind !== 'holiday');
                   const holidayOnly = isHoliday && workEnts.length === 0;
+                  // The same courtesy for a NON-WORKING day, which it never got.
+                  // Weekend work is real work -- Copy Day, dateBlockedReason and the
+                  // mass-create picker all say so -- but every presentational branch
+                  // below tested `isOffDay` alone, so pasted weekend hours were
+                  // written, stored, and then drawn as an empty grey square. The cell
+                  // only stands down when the day is off AND holds nothing.
+                  const offDayEmpty = isOffDay && dayEnts.length === 0;
 
                   // Hover/focus affordance follows tabIndex: a weekend holiday is
                   // reachable, so it should respond like any other reachable cell.
                   // Declared after isHoliday — it reads it.
-                  const isHovered   = hoverDate === dateStr && (!isOffDay || isHoliday);
+                  const isHovered   = hoverDate === dateStr && (!isOffDay || isHoliday || dayEnts.length > 0);
 
                   // Full-day absence: every entry is leave AND it covers the plan.
                   // A half day of leave stays a normal working day with a leave row.
@@ -1775,7 +1782,7 @@ export default function MyTimesheet() {
 
                   // Metric shows for any logged day, and for a PAST working day with
                   // nothing logged (-> "0/8h"). Never future, weekend, holiday or leave.
-                  const showMetric = !isOffDay && !holidayOnly && !leaveName
+                  const showMetric = !offDayEmpty && !holidayOnly && !leaveName
                                      && (dayEnts.length > 0 || isPast);
 
                   // Copy Day roles. Non-working days participate — weekend work is real work.
@@ -1787,6 +1794,10 @@ export default function MyTimesheet() {
                   // On a worked holiday the schedule's planned hours are not a target,
                   // so show the bare total rather than an "x / 8h" shortfall.
                   const metricColor = isHoliday          ? '#7C3AED'
+                                    // dayStatus() calls planned<=0 'done', which would
+                                    // paint weekend hours green as though a target had
+                                    // been met. There is no target on a day off.
+                                    : isOffDay           ? '#2563EB'
                                     : status === 'over'  ? '#DC2626'
                                     : status === 'done'  ? '#059669'
                                     : status === 'empty' ? '#D97706'
@@ -1796,6 +1807,9 @@ export default function MyTimesheet() {
                   const segments: { w: number; c: string }[] =
                       isHoliday          ? [{ w: 100, c: '#8B5CF6' }]
                     : leaveName          ? [{ w: 100, c: '#3B82F6' }]
+                    // Blue, full width: hours recorded against no target. Green here
+                    // would claim a plan was met that never existed.
+                    : isOffDay           ? [{ w: 100, c: '#3B82F6' }]
                     : status === 'over'  ? [{ w: (dayPlanned / recorded) * 100, c: '#10B981' },
                                             { w: 100 - (dayPlanned / recorded) * 100, c: '#EF4444' }]
                     : status === 'done'  ? [{ w: 100, c: '#10B981' }]
@@ -1818,7 +1832,9 @@ export default function MyTimesheet() {
                       aria-label={`${day} ${MONTH_NAMES[month - 1]}, ${
                         isHoliday   ? `public holiday${holidayName ? ' — ' + holidayName : ''}${isOffDay ? ', non-working day' : ''}`
                         : leaveName ? leaveName
-                        : isOffDay  ? 'non-working day'
+                        : isOffDay  ? (dayEnts.length > 0
+                            ? `${fmtDayHours(recorded, status)} logged, non-working day`
+                            : 'non-working day')
                         : `${fmtDayHours(recorded, status)} of ${Math.round(dayPlanned / 60)} hours logged`}`}
                       onMouseEnter={() => setHoverDate(dateStr)}
                       onMouseLeave={() => setHoverDate(null)}
@@ -1847,7 +1863,7 @@ export default function MyTimesheet() {
                           : copySrcOk  ? '#93C5FD'
                           : isSelected ? '#2563EB'
                           : isHoliday  ? '#EDE4FE'
-                          : isOffDay   ? 'transparent'
+                          : offDayEmpty ? 'transparent'
                           : isHovered  ? '#D0D5DD'
                           : leaveName  ? '#DBEAFE'
                           :              '#E5E7EB'}`,
@@ -1858,7 +1874,7 @@ export default function MyTimesheet() {
                         background: pasteOk    ? '#F6FEFB'
                                   : copySrcOk  ? '#F8FBFF'
                                   : isHoliday  ? '#FAF5FF'
-                                  : isOffDay   ? '#F4F5F7'
+                                  : offDayEmpty ? '#F4F5F7'
                                   : leaveName  ? '#EFF6FF'
                                   : isHovered  ? '#FCFCFD'
                                   :              '#fff',
@@ -1881,10 +1897,10 @@ export default function MyTimesheet() {
                         padding: '12px 12px 0', gap: 6, height: 26, flexShrink: 0,
                       }}>
                         <span style={{
-                          fontSize: 12, fontWeight: isOffDay ? 500 : 600, lineHeight: 1,
+                          fontSize: 12, fontWeight: offDayEmpty ? 500 : 600, lineHeight: 1,
                           fontVariantNumeric: 'tabular-nums',
                           color: isToday ? '#fff'
-                               : isOffDay ? '#C3C8D0'
+                               : offDayEmpty ? '#C3C8D0'
                                : isHoliday ? '#7C3AED'
                                : leaveName ? '#1E40AF'
                                : '#475569',
@@ -1903,7 +1919,7 @@ export default function MyTimesheet() {
                               {fmtDayHours(recorded, status)}
                             </b>
                             <span style={{ fontSize: 10, fontWeight: 500, color: '#98A2B3' }}>
-                              {isHoliday ? 'h' : `/${Math.round(dayPlanned / 60)}h`}
+                              {isHoliday || isOffDay ? 'h' : `/${Math.round(dayPlanned / 60)}h`}
                             </span>
                           </span>
                         )}
@@ -1933,7 +1949,7 @@ export default function MyTimesheet() {
                               {leaveName}
                             </div>
                           </>
-                        ) : isOffDay ? null
+                        ) : offDayEmpty ? null
                           : (dateStr > todayIso && !timeTypes.some(t => t.allows_future)) ? null
                           : dayEnts.length === 0 ? (
                           <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -1991,7 +2007,7 @@ export default function MyTimesheet() {
                       {/* Status bar — one rounded pill, same source of truth as the metric.
                           A holiday keeps its purple bar even on a weekend: `segments`
                           already computes it, it was just never rendered on an off-day. */}
-                      {(!isOffDay || isHoliday) && (
+                      {(!offDayEmpty || isHoliday) && (
                         <div style={{ padding: '0 12px 9px', flexShrink: 0 }}>
                           <div style={{
                             display: 'flex', height: 6, borderRadius: 99,
