@@ -43,7 +43,10 @@ export const colors = {
  */
 export const dayState = {
   working: { bg: '#F4F8FF', border: '#DAE6FA', ink: '#1E40AF', dot: '#2563EB', label: 'Working'      },
-  holiday: { bg: '#E9F9EF', border: '#BDEACE', ink: '#047857', dot: '#10B981', label: 'Holiday'      },
+  // Purple, matching getEntryBadge() in MyTimesheet — the app has always drawn
+  // HOL purple. The calendar here briefly used green, which also collided with
+  // the green page 2 gives non-project attendance.
+  holiday: { bg: '#F1ECFD', border: '#DDD0F8', ink: '#5B21B6', dot: '#7C3AED', label: 'Holiday'      },
   // Amber = OVER, and nothing else. It used to mean "leave" here and "short of
   // plan" on page 3 while red meant over — one colour with two opposite senses
   // and one sense with two colours. Nothing on the report is red now: recording
@@ -109,8 +112,8 @@ export const styles = StyleSheet.create({
   dayHead:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
                 marginTop: 13, marginBottom: 5 },
   dayName:    { fontSize: 10, fontFamily: 'Helvetica-Bold', color: colors.ink },
-  dayTag:     { fontSize: 7, fontFamily: 'Helvetica-Bold', color: colors.purple,
-                backgroundColor: colors.purpleLt, paddingHorizontal: 6, paddingVertical: 2,
+  dayTag:     { fontSize: 7, fontFamily: 'Helvetica-Bold', color: '#5B21B6',
+                backgroundColor: '#F1ECFD', paddingHorizontal: 6, paddingVertical: 2,
                 borderRadius: 7, marginLeft: 7 },
   dayChip:    { fontSize: 7.5, fontFamily: 'Helvetica-Bold', paddingHorizontal: 8,
                 paddingVertical: 3, borderRadius: 8 },

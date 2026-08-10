@@ -1,5 +1,5 @@
 import { Page, View, Text } from '@react-pdf/renderer';
-import { styles, colors } from '../utils/pdfStyles';
+import { styles, colors, dayState } from '../utils/pdfStyles';
 import { PDFHeader } from '../components/PDFHeader';
 import { PDFFooter } from '../components/PDFFooter';
 import { fmtHM, fmtHMWide, fmtDateLong, fmtMonthYear } from '../utils/dataTransforms';
@@ -32,12 +32,19 @@ import type { TimesheetExportData, ExportEntry, ExportDay } from '../types';
  * grid on page 1 is where the gaps are visible.
  */
 
-/** Left accent, matching getEntryBadge() in MyTimesheet so the report and the
- *  calendar colour the same thing the same way. */
+/**
+ * Left accent, read from the SAME dayState map the calendar uses.
+ *
+ * It used to be a second hand-written list, and drifted the moment the palette
+ * moved: leave stayed amber here after amber became "over planned" everywhere
+ * else, so a leave day wore the over-plan colour directly above a chip that
+ * meant over-plan. Two lists describing one vocabulary is one list too many.
+ */
 function accentFor(e: ExportEntry): string {
-  if (e.kind === 'holiday') return colors.purple;
-  if (e.kind === 'leave')   return colors.amber;
-  return e.project ? colors.blueMid : colors.greenMid;
+  if (e.kind === 'holiday') return dayState.holiday.dot;
+  if (e.kind === 'leave')   return dayState.leave.dot;
+  // Green is non-project attendance and nothing else, now that holiday is purple.
+  return e.project ? dayState.working.dot : colors.greenMid;
 }
 
 function DayChip({ day, total }: { day: ExportDay | undefined; total: number }) {
