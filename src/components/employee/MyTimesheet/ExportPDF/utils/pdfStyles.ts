@@ -44,8 +44,12 @@ export const colors = {
 export const dayState = {
   working: { bg: '#F4F8FF', border: '#DAE6FA', ink: '#1E40AF', dot: '#2563EB', label: 'Working'      },
   holiday: { bg: '#E9F9EF', border: '#BDEACE', ink: '#047857', dot: '#10B981', label: 'Holiday'      },
-  leave:   { bg: '#FEF6DC', border: '#F6E2A0', ink: '#92400E', dot: '#F59E0B', label: 'Leave'        },
-  over:    { bg: '#FEF0F0', border: '#F8D2D2', ink: '#B91C1C', dot: '#DC2626', label: 'Over planned' },
+  // Amber = OVER, and nothing else. It used to mean "leave" here and "short of
+  // plan" on page 3 while red meant over — one colour with two opposite senses
+  // and one sense with two colours. Nothing on the report is red now: recording
+  // more than planned is worth noticing, it is not an error.
+  leave:   { bg: '#EEF2F7', border: '#DDE3EB', ink: '#475569', dot: '#64748B', label: 'Leave'        },
+  over:    { bg: '#FEF6DC', border: '#F6E2A0', ink: '#92400E', dot: '#F59E0B', label: 'Over planned' },
   missing: { bg: '#FFF8EC', border: '#FAE2BE', ink: '#C2410C', dot: '#F97316', label: 'Missing'      },
   weekend: { bg: '#F7F8FA', border: '#EDEFF2', ink: '#9CA3AF', dot: '',        label: 'Weekend'      },
   // A working day still ahead of us is NOT missing and NOT a weekend. Mig 729
@@ -82,7 +86,9 @@ export const styles = StyleSheet.create({
   headerRight:{ alignItems: 'flex-end' },
   logoChip:   { alignSelf: 'flex-end', backgroundColor: colors.white, borderRadius: 4,
                 paddingVertical: 4, paddingHorizontal: 7 },
-  logoImg:    { height: 13 },
+  // 16pt. The band's height is set by the three lines of text on the left
+  // (~47pt), so the right column has room well past this before it binds.
+  logoImg:    { height: 16 },
   // The status chip sits UNDER the logo, so it carries the gap. When there is
   // no logo it is the only thing in the column and must not be pushed down.
   chipBelow:  { marginTop: 8 },
@@ -125,10 +131,12 @@ export const styles = StyleSheet.create({
   // The activities column is a two-column list of its own: name left, hours
   // right-aligned, a hairline between each. The question this block gets asked
   // is "do these add up?", which is arithmetic, and arithmetic needs a column.
-  actLine:    { flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 2 },
-  // #F1F2F5 was invisible at 9pt — the separation it was meant to provide simply
-  // was not there. #E5E7EB is the document's standard rule and does show.
-  actLineRule:{ borderBottomWidth: 1, borderBottomColor: colors.border, borderBottomStyle: 'solid' },
+  // No rule between activities. The card is already a bordered box with a
+  // coloured edge, and the hours column already aligns — a line across the
+  // middle of that is a third fence round one field. The hairline was added to
+  // separate them, then darkened because it was invisible; deleting it is the
+  // only fix that removes something instead of adding a mark to cover a mark.
+  actLine:    { flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 3.5 },
   actName:    { width: '68%', fontSize: 9, color: colors.ink2, paddingRight: 6 },
   actMins:    { width: '32%', fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: colors.ink3,
                 textAlign: 'right' },
@@ -159,6 +167,9 @@ export const styles = StyleSheet.create({
   secHead:   { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
   secBar:    { width: 3, height: 11, backgroundColor: colors.blueMid, borderRadius: 1.5, marginRight: 7 },
   secTitle:  { fontSize: 9, fontFamily: 'Helvetica-Bold', color: colors.blue, letterSpacing: 1.1 },
+  // Where a chart says what its 100% actually is. Without it a bar labelled
+  // 38% reads as 38% of the month, which it is not.
+  secSub:    { fontSize: 7.5, color: colors.ink4, marginLeft: 9 },
   secRule:   { borderBottomWidth: 1, borderBottomColor: colors.headRule, borderBottomStyle: 'solid',
                marginBottom: 11 },
   secWrap:   { marginBottom: 11 },
@@ -251,14 +262,26 @@ export const styles = StyleSheet.create({
   track:     { height: 7, backgroundColor: '#E6E8EC', borderRadius: 3.5 },
   fill:      { height: 7, borderRadius: 3.5 },
 
-  // ── activity bars ───────────────────────────────────────────────────
-  actRow:    { flexDirection: 'row', alignItems: 'center', marginBottom: 9 },
-  actLbl:    { width: '21%', fontSize: 9, color: colors.ink2 },
-  actTrack:  { width: '100%', height: 9, backgroundColor: '#E6E8EC', borderRadius: 4.5 },
-  actFill:   { height: 9, borderRadius: 4.5 },
-  actHrs:    { width: '9%', fontSize: 9.5, fontFamily: 'Helvetica-Bold', color: colors.ink,
-               textAlign: 'right' },
-  actPct:    { width: '8%', fontSize: 8, color: colors.ink4, textAlign: 'right' },
+  // ── activity bars: label above, bar the full width ──────────────────
+  // Two facts a row over eight-plus rows is a chart, and now looks like one. A
+  // name pinned to 21% of the width squeezed the track and wrapped long names;
+  // at full width the difference between 30% and 4% is visible rather than
+  // inferred.
+  actStack:  { paddingTop: 6, paddingBottom: 8,
+               borderBottomWidth: 1, borderBottomColor: '#F1F2F5', borderBottomStyle: 'solid' },
+  actTop:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end',
+               marginBottom: 4 },
+  actName2:  { fontSize: 9.5, fontFamily: 'Helvetica-Bold', color: colors.ink },
+  actVals:   { fontSize: 9, fontFamily: 'Helvetica-Bold', color: colors.ink },
+  actPct2:   { fontSize: 8, color: colors.ink4 },
+  actTrack:  { width: '100%', height: 8, backgroundColor: '#E6E8EC', borderRadius: 4 },
+  actFill:   { height: 8, borderRadius: 4 },
+  // The hours the chart does NOT cover, named rather than left to vanish.
+  restTxt:   { fontSize: 9, color: colors.ink4 },
+  // Days active, on the same line as the name. The claim that four facts a
+  // row need a table was wrong: three of them fit above the bar and the
+  // fourth IS the bar.
+  actMeta:   { fontSize: 8, color: colors.ink4 },
 
   docLine:   { textAlign: 'center', fontSize: 7, color: colors.ink4, marginTop: 5 },
 

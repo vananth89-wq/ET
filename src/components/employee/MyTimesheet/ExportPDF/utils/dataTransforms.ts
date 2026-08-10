@@ -112,8 +112,15 @@ export function buildWeeks(days: ExportDay[]): ExportWeek[] {
   return weeks;
 }
 
-/** Projects by hours descending. A project with no hours is not listed at all. */
-export function buildProjects(entries: ExportEntry[]): ExportProject[] {
+/**
+ * Projects by hours descending. A project with no hours is not listed at all.
+ *
+ * `denominator` is the month's recorded minutes, NOT the project subtotal.
+ * Dividing by the subtotal made AMPTJ read 41% on a report whose own header
+ * said the month was 80 hours — 41% of something the reader could not see. The
+ * share now means what a reader assumes it means.
+ */
+export function buildProjects(entries: ExportEntry[], denominator: number): ExportProject[] {
   const byName = new Map<string, { minutes: number; days: Set<string> }>();
   for (const e of entries) {
     if (!e.project || e.minutes <= 0) continue;
@@ -122,12 +129,11 @@ export function buildProjects(entries: ExportEntry[]): ExportProject[] {
     row.days.add(e.date);
     byName.set(e.project, row);
   }
-  const total = [...byName.values()].reduce((s, r) => s + r.minutes, 0);
   return [...byName.entries()]
     .map(([name, r]) => ({
       name,
       minutes: r.minutes,
-      pctOfTotal: total ? (r.minutes / total) * 100 : 0,
+      pctOfTotal: denominator ? (r.minutes / denominator) * 100 : 0,
       daysActive: r.days.size,
     }))
     .sort((a, b) => b.minutes - a.minutes);
@@ -138,7 +144,7 @@ export function buildProjects(entries: ExportEntry[]): ExportProject[] {
  * has no activity rows — an entry written before per-activity hours existed still
  * has names on it, and dropping those would silently under-report the month.
  */
-export function buildActivityTotals(entries: ExportEntry[]): ExportActivityTotal[] {
+export function buildActivityTotals(entries: ExportEntry[], denominator: number): ExportActivityTotal[] {
   const byName = new Map<string, number>();
   for (const e of entries) {
     for (const a of e.activities) {
@@ -149,9 +155,10 @@ export function buildActivityTotals(entries: ExportEntry[]): ExportActivityTotal
       byName.set(a.name, (byName.get(a.name) ?? 0) + a.minutes);
     }
   }
-  const total = [...byName.values()].reduce((s, m) => s + m, 0);
+  // Share of the MONTH, not of the itemised subtotal — same reasoning as
+  // buildProjects. The uncovered remainder is printed by the page.
   return [...byName.entries()]
-    .map(([name, minutes]) => ({ name, minutes, pctOfTotal: total ? (minutes / total) * 100 : 0 }))
+    .map(([name, minutes]) => ({ name, minutes, pctOfTotal: denominator ? (minutes / denominator) * 100 : 0 }))
     .sort((a, b) => b.minutes - a.minutes);
 }
 

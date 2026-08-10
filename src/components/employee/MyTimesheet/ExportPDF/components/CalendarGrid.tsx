@@ -65,7 +65,7 @@ export function CalendarGrid({ days, todayIso }: { days: ExportDay[]; todayIso: 
         const done  = real.length > 0 && real[real.length - 1].date <= todayIso;
         const over  = planned > 0 && total > planned;
         const short = planned > 0 && done && total < planned;
-        const tone  = over ? colors.red : short ? colors.amber : colors.ink2;
+        const tone  = over ? '#92400E' : short ? colors.ink3 : colors.ink2;
 
         return (
           <View key={ri} style={styles.calRowB} wrap={false}>
@@ -103,8 +103,8 @@ export function CalendarGrid({ days, todayIso }: { days: ExportDay[]; todayIso: 
                 <Text style={{ ...styles.calWkVal, color: tone }}>
                   {total > 0 ? fmtHM(total) : '—'}{planned > 0 ? ` / ${fmtHM(planned)}` : ''}
                 </Text>
-                {over  && <Text style={{ ...styles.calWkSub, color: colors.red }}>{fmtHM(total - planned)} over</Text>}
-                {short && <Text style={{ ...styles.calWkSub, color: '#B45309' }}>{fmtHM(planned - total)} short</Text>}
+                {over  && <Text style={{ ...styles.calWkSub, color: '#92400E' }}>{fmtHM(total - planned)} over</Text>}
+                {short && <Text style={{ ...styles.calWkSub, color: colors.ink4 }}>{fmtHM(planned - total)} short</Text>}
               </>)}
             </View>
           </View>

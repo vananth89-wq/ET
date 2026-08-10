@@ -13,9 +13,10 @@ import type { TimesheetExportData, ExportEntry, ExportDay } from '../types';
  * per-activity hours are the point of mig 727 and a reviewer asking "what did
  * the six hours on WISAYAH go on?" should not have to open the app.
  *
- * The activity list is itself two columns — name left, hours right-aligned,
- * hairline between — so the figures stack and can be checked against the card
- * total beside them. They were a single "Code Review — 2h" string, which put
+ * The activity list is itself two columns — name left, hours right-aligned — so
+ * the figures stack and can be checked against the card total beside them. No
+ * rule between them: the card border and the aligned column already do that
+ * work, and a line through the middle of a bordered box is a third fence. They were a single "Code Review — 2h" string, which put
  * the hours wherever the name happened to end and made the one thing a reviewer
  * wants to do, add them up, harder than it needed to be.
  *
@@ -86,15 +87,7 @@ function EntryCard({ e }: { e: ExportEntry }) {
           <View style={{ width: '56%', paddingRight: 8 }}>
             {e.activities.length === 0 && <Text style={styles.cardActNil}>—</Text>}
             {e.activities.map((a, i) => (
-              <View
-                key={`${a.name}-${i}`}
-                // react-pdf has no :last-child, so the rule is applied to every
-                // line but the last — a hairline under the final activity would
-                // read as the start of another row that never comes.
-                style={i < e.activities.length - 1
-                  ? { ...styles.actLine, ...styles.actLineRule }
-                  : styles.actLine}
-              >
+              <View key={`${a.name}-${i}`} style={styles.actLine}>
                 <Text style={styles.actName}>{a.name}</Text>
                 {/* A pre-727 entry carries names with no split. A blank cell in
                     a column of figures reads as a rendering fault; a dash says

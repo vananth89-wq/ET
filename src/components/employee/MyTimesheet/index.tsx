@@ -1190,8 +1190,11 @@ export default function MyTimesheet() {
       monthDays,
       entries:    expEntries,
       weeks:      buildWeeks(monthDays),
-      projects:   buildProjects(expEntries),
-      activities: buildActivityTotals(expEntries),
+      // Shares are of the MONTH, not of each chart's own subtotal. Dividing by
+      // the subtotal made AMPTJ read 41% on a report whose header said the month
+      // was 80 hours -- 41% of something the reader could not see.
+      projects:   buildProjects(expEntries, recorded),
+      activities: buildActivityTotals(expEntries, recorded),
 
       submittedAt: header.submitted_at,
       approvedAt:  header.approved_at,

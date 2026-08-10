@@ -86,7 +86,7 @@ export function Page1EmpInfo({ data }: { data: TimesheetExportData }) {
                 concept, calculation or approval path, so the tile reports the
                 measurement it can defend: hours recorded beyond planned. */}
             <KPICard label="Over Planned"    value={fmtHours(overMins)}             caption="hrs beyond schedule" icon="over"
-                     tone={overMins > 0 ? colors.red : colors.ink4} />
+                     tone={overMins > 0 ? colors.amber : colors.ink4} />
           </View>
         </View>
 
