@@ -17,10 +17,14 @@ import type { TimesheetExportData } from '../types';
  * week or spread across the month?").
  */
 export function Page3WeeklyProjects({ data }: { data: TimesheetExportData }) {
+  const todayIso = data.generatedAt.slice(0, 10);
+
   // Only weeks with hours are shown; a month opening or closing with an empty
   // week would otherwise spend a card saying nothing.
   const weeks = data.weeks.filter(w => w.total > 0);
-  const peak  = Math.max(1, ...weeks.map(w => w.total));
+  // Bars and their planned ghosts share one scale, so a bar shorter than its
+  // ghost means exactly what it looks like.
+  const peak  = Math.max(1, ...weeks.map(w => Math.max(w.total, w.planned)));
   // Capped at a quarter each: a month with two active weeks should not print two
   // half-page bars, which reads as a chart of something else entirely.
   const slotW = weeks.length ? `${100 / weeks.length}%` : '100%';
@@ -40,13 +44,34 @@ export function Page3WeeklyProjects({ data }: { data: TimesheetExportData }) {
           ) : (
             <View style={styles.wkGrid}>
               {weeks.map((w, i) => {
-                const over = w.planned > 0 && w.total > w.planned;
-                const tone = over ? colors.red : colors.blueMid;
+                // A week is judged only once it is over. Week 2 of a month is
+                // not "short" on the 10th — most of it has not happened, and mig
+                // 729 forbids recording most types in advance anyway. Same
+                // reasoning as the calendar's `future` day state on page 1.
+                const done    = w.end <= todayIso;
+                const hasPlan = w.planned > 0;
+                const over    = hasPlan && w.total > w.planned;
+                const short   = hasPlan && done && w.total < w.planned;
+
+                // The same three colours the calendar and the KPI tiles use:
+                // red beyond plan, amber short of it, blue otherwise.
+                const tone = over ? colors.red : short ? colors.amber : colors.blueMid;
+
+                const caption =
+                    over  ? `${fmtHM(w.total - w.planned)} beyond ${fmtHM(w.planned)} planned`
+                  : short ? `${fmtHM(w.planned - w.total)} short of ${fmtHM(w.planned)}`
+                  : !done ? 'hrs so far'
+                  : hasPlan ? `of ${fmtHM(w.planned)} planned`
+                  : 'hrs recorded';
+
                 return (
                   <View key={w.label} style={{ ...styles.wkSlot, width: slotW, maxWidth: '25%' }}>
                     <View style={styles.wkBox}>
                       <Text style={styles.wkLbl}>WEEK {i + 1} · {w.label.toUpperCase()}</Text>
                       <View style={styles.wkBarWrap}>
+                        {hasPlan && (
+                          <View style={{ ...styles.wkGhost, height: (w.planned / peak) * 62 }} />
+                        )}
                         <View style={{
                           ...styles.wkBar, backgroundColor: tone,
                           // Floored at 6pt: a week with one hour in it should
@@ -55,10 +80,7 @@ export function Page3WeeklyProjects({ data }: { data: TimesheetExportData }) {
                         }} />
                       </View>
                       <Text style={{ ...styles.wkVal, color: tone }}>{fmtHours(w.total)}</Text>
-                      <Text style={styles.wkSub}>
-                        {over ? `${fmtHM(w.total - w.planned)} beyond ${fmtHours(w.planned)}h planned`
-                              : 'hrs recorded'}
-                      </Text>
+                      <Text style={styles.wkSub}>{caption}</Text>
                     </View>
                   </View>
                 );

@@ -1,5 +1,5 @@
 import { View, Text } from '@react-pdf/renderer';
-import { styles, dayState } from '../utils/pdfStyles';
+import { styles, dayState, colors } from '../utils/pdfStyles';
 import type { DayStateKey } from '../utils/pdfStyles';
 import { fmtHM } from '../utils/dataTransforms';
 import type { ExportDay } from '../types';
@@ -7,7 +7,7 @@ import type { ExportDay } from '../types';
 const DOW = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 
 /**
- * Classify a day into one of the six legend states.
+ * Classify a day into one of the legend states.
  *
  * Order matters and encodes rules this system already enforces elsewhere:
  *   - A HOLIDAY OUTRANKS A WEEKEND. Same precedence as the calendar cell on
@@ -26,6 +26,14 @@ function classify(d: ExportDay, todayIso: string): DayStateKey {
   return d.date <= todayIso ? 'missing' : 'future';
 }
 
+/**
+ * The month grid, with each row's total in an eighth column.
+ *
+ * That column is why there is no separate "month timeline" chart: the shape of
+ * the month is already here, a row at a time, beside the days that produced it.
+ * A strip of week bars underneath would be the same five numbers a second time,
+ * and page 3's weekly cards a third.
+ */
 export function CalendarGrid({ days, todayIso }: { days: ExportDay[]; todayIso: string }) {
   if (!days.length) return null;
 
@@ -35,47 +43,82 @@ export function CalendarGrid({ days, todayIso }: { days: ExportDay[]; todayIso: 
   const rows: (ExportDay | null)[][] = [];
   for (let i = 0; i < cells.length; i += 7) rows.push(cells.slice(i, i + 7));
 
-  // Only the states actually present are shown. A legend listing six colours
-  // when four are on the page sends the reader hunting for two that aren't there.
+  // Only the states actually present are shown. A legend listing seven colours
+  // when four are on the page sends the reader hunting for three that aren't.
   const present = new Set(days.map(d => classify(d, todayIso)));
 
   return (
     <View>
       <View style={styles.calHeadB}>
         {DOW.map(l => <Text key={l} style={styles.calHeadC}>{l}</Text>)}
+        <Text style={styles.calWkHead}>WEEK</Text>
       </View>
 
-      {rows.map((row, ri) => (
-        <View key={ri} style={styles.calRowB} wrap={false}>
-          {row.map((d, ci) => {
-            if (!d) return <View key={ci} style={styles.calSlot} />;
-            const key = classify(d, todayIso);
-            const st  = dayState[key];
-            // A weekend and a day still to come record nothing BY NATURE. A dash
-            // there would read as an omission; the empty cell is the honest mark.
-            const caption = key === 'weekend' || key === 'future' ? ''
-                          : d.isHoliday ? 'HOL'
-                          : d.isLeave && d.minutes === 0 ? 'LV'
-                          : d.minutes > 0 ? fmtHM(d.minutes)
-                          : '—';
-            return (
-              <View key={ci} style={styles.calSlot}>
-                <View style={{ ...styles.calBox, backgroundColor: st.bg, borderColor: st.border }}>
-                  <Text style={{ ...styles.calDayB, color: st.ink }}>{d.day}</Text>
-                  {caption ? <Text style={{ ...styles.calHrsB, color: st.ink }}>{caption}</Text> : null}
-                  {st.dot ? <View style={{ ...styles.calDot, backgroundColor: st.dot }} /> : null}
+      {rows.map((row, ri) => {
+        // Totals come from the days actually in this row, so the figure can
+        // never disagree with the cells beside it.
+        const real    = row.filter(Boolean) as ExportDay[];
+        const total   = real.reduce((s, d) => s + d.minutes, 0);
+        const planned = real.reduce((s, d) => s + d.planned, 0);
+        // A week is judged only once it is over — the same reasoning as the
+        // `future` day state, and as the weekly cards on page 3.
+        const done  = real.length > 0 && real[real.length - 1].date <= todayIso;
+        const over  = planned > 0 && total > planned;
+        const short = planned > 0 && done && total < planned;
+        const tone  = over ? colors.red : short ? colors.amber : colors.ink2;
+
+        return (
+          <View key={ri} style={styles.calRowB} wrap={false}>
+            {row.map((d, ci) => {
+              if (!d) return <View key={ci} style={styles.calSlot} />;
+              const key = classify(d, todayIso);
+              const st  = dayState[key];
+              // A weekend and a day still to come record nothing BY NATURE. A
+              // dash would read as an omission; the empty cell is the honest mark.
+              const caption = key === 'weekend' || key === 'future' ? ''
+                            : d.isHoliday ? 'HOL'
+                            : d.isLeave && d.minutes === 0 ? 'LV'
+                            : d.minutes > 0 ? fmtHM(d.minutes)
+                            : '—';
+              const delta = key === 'over' ? d.minutes - d.planned : 0;
+              return (
+                <View key={ci} style={styles.calSlot}>
+                  <View style={{ ...styles.calBox, backgroundColor: st.bg, borderColor: st.border }}>
+                    <Text style={{ ...styles.calDayB, color: st.ink }}>{d.day}</Text>
+                    {caption ? <Text style={{ ...styles.calHrsB, color: st.ink }}>{caption}</Text> : null}
+                    {delta > 0
+                      ? <Text style={{ ...styles.calDelta, color: st.ink }}>+{fmtHM(delta)}</Text>
+                      : st.dot ? <View style={{ ...styles.calDot, backgroundColor: st.dot }} /> : null}
+                  </View>
                 </View>
-              </View>
-            );
-          })}
-        </View>
-      ))}
+              );
+            })}
+
+            <View style={styles.calWkSlot}>
+              {/* Nothing recorded is only worth reporting when the week both had
+                  hours to give and has already gone. A week still ahead, or a
+                  stub row that is all weekend, reports nothing rather than a
+                  dash saying only that the obvious is true. */}
+              {real.length === 0 || (total === 0 && (planned === 0 || !done)) ? null : (<>
+                <Text style={{ ...styles.calWkVal, color: tone }}>
+                  {total > 0 ? fmtHM(total) : '—'}{planned > 0 ? ` / ${fmtHM(planned)}` : ''}
+                </Text>
+                {over  && <Text style={{ ...styles.calWkSub, color: colors.red }}>{fmtHM(total - planned)} over</Text>}
+                {short && <Text style={{ ...styles.calWkSub, color: '#B45309' }}>{fmtHM(planned - total)} short</Text>}
+              </>)}
+            </View>
+          </View>
+        );
+      })}
 
       <View style={styles.legend}>
         {(Object.keys(dayState) as DayStateKey[]).filter(k => present.has(k)).map(k => (
-          <View key={k} style={styles.legendIt}>
-            <View style={{ ...styles.legendSw, backgroundColor: dayState[k].bg, borderColor: dayState[k].border }} />
-            <Text style={styles.legendTx}>{dayState[k].label}</Text>
+          <View key={k} style={{
+            ...styles.legendPill,
+            backgroundColor: dayState[k].bg,
+            borderColor:     dayState[k].border,
+          }}>
+            <Text style={{ ...styles.legendTx, color: dayState[k].ink }}>{dayState[k].label}</Text>
           </View>
         ))}
       </View>

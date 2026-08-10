@@ -46,6 +46,10 @@ export interface ExportDay {
 
 export interface ExportWeek {
   label:   string;             // '4–10 Aug'
+  /** ISO bounds. A week cannot be called "short" without knowing whether it has
+   *  actually happened — see Page3, and the calendar's `future` day state. */
+  start:   string;
+  end:     string;
   days:    Array<{ dow: number; minutes: number; planned: number }>;
   total:   number;
   planned: number;

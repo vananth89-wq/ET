@@ -95,6 +95,8 @@ export function buildWeeks(days: ExportDay[]): ExportWeek[] {
     const last  = bucket[bucket.length - 1];
     weeks.push({
       label:   `${fmtDateShort(first.date)} – ${fmtDateShort(last.date)}`,
+      start:   first.date,
+      end:     last.date,
       days:    bucket.map(d => ({ dow: d.dow, minutes: d.minutes, planned: d.planned })),
       total:   bucket.reduce((s, d) => s + d.minutes, 0),
       planned: bucket.reduce((s, d) => s + d.planned, 0),

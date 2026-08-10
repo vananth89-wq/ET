@@ -64,28 +64,28 @@ export function Page1EmpInfo({ data }: { data: TimesheetExportData }) {
         <View style={styles.secWrap}>
           <SectionHead>Monthly Summary</SectionHead>
           <View style={styles.kpiGrid}>
-            <KPICard label="Planned Hours"   value={fmtHours(data.plannedMinutes)}  caption="hrs this month"
+            <KPICard label="Planned Hours"   value={fmtHours(data.plannedMinutes)}  caption="hrs this month" icon="clock"
                      tone={colors.blueMid} />
-            <KPICard label="Recorded Hours"  value={fmtHours(data.recordedMinutes)} caption="hrs logged"
+            <KPICard label="Recorded Hours"  value={fmtHours(data.recordedMinutes)} caption="hrs logged" icon="trend"
                      tone={colors.greenMid} />
             {/* The mockup calls this "Attendance / completion rate". It is
                 recorded ÷ planned, which is a utilisation figure — calling it
                 attendance would imply a presence measurement this system never
                 takes. */}
             <KPICard label="Utilisation"     value={String(Math.round(data.utilisationPct))} unit="%"
-                     caption="of planned hours" tone={colors.green} />
-            <KPICard label="Projects"        value={String(data.projects.length)}   caption="active this month"
+                     caption="of planned hours" icon="gauge" tone={colors.green} />
+            <KPICard label="Projects"        value={String(data.projects.length)}   caption="active this month" icon="folder"
                      tone={colors.blue} />
-            <KPICard label="Working Days"    value={String(data.workingDays)}       caption="scheduled days"
+            <KPICard label="Working Days"    value={String(data.workingDays)}       caption="scheduled days" icon="calendar"
                      tone={colors.blue} />
-            <KPICard label="Leave Days"      value={String(data.leaveDays)}         caption="days absent"
+            <KPICard label="Leave Days"      value={String(data.leaveDays)}         caption="days absent" icon="suitcase"
                      tone={colors.amber} />
-            <KPICard label="Public Holidays" value={String(holidays)}               caption="days this month"
+            <KPICard label="Public Holidays" value={String(holidays)}               caption="days this month" icon="star"
                      tone={colors.greenMid} />
             {/* The mockup's eighth tile is OVERTIME. This system has no overtime
                 concept, calculation or approval path, so the tile reports the
                 measurement it can defend: hours recorded beyond planned. */}
-            <KPICard label="Over Planned"    value={fmtHours(overMins)}             caption="hrs beyond schedule"
+            <KPICard label="Over Planned"    value={fmtHours(overMins)}             caption="hrs beyond schedule" icon="over"
                      tone={overMins > 0 ? colors.red : colors.ink4} />
           </View>
         </View>

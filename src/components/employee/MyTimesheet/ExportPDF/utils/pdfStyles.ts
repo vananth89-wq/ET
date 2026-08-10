@@ -138,12 +138,16 @@ export const styles = StyleSheet.create({
                   marginTop: 6, paddingTop: 5 },
   cardNote:   { fontSize: 8, color: colors.ink3 },
 
+  // Pale blue, with the strong #DBEAFE reserved for the MONTH total. On a page
+  // with six day groups, giving both the same fill would leave the month total
+  // indistinguishable from the six above it.
   dayTotal:   { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center',
-                backgroundColor: colors.surface, borderRadius: 5,
+                backgroundColor: '#F2F6FF', borderRadius: 5,
+                borderTopWidth: 1, borderTopColor: '#DCE6FA', borderTopStyle: 'solid',
                 paddingVertical: 6, paddingHorizontal: 11 },
-  dayTotalLbl:{ fontSize: 7, color: colors.ink3, fontFamily: 'Helvetica-Bold', letterSpacing: 0.6,
+  dayTotalLbl:{ fontSize: 7, color: colors.blue, fontFamily: 'Helvetica-Bold', letterSpacing: 0.6,
                 marginRight: 10 },
-  dayTotalVal:{ fontSize: 10, fontFamily: 'Helvetica-Bold', color: colors.ink },
+  dayTotalVal:{ fontSize: 10, fontFamily: 'Helvetica-Bold', color: colors.blue },
 
   monthTotal: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
                 marginTop: 16, paddingVertical: 9, paddingHorizontal: 12,
@@ -157,7 +161,7 @@ export const styles = StyleSheet.create({
   secTitle:  { fontSize: 9, fontFamily: 'Helvetica-Bold', color: colors.blue, letterSpacing: 1.1 },
   secRule:   { borderBottomWidth: 1, borderBottomColor: colors.headRule, borderBottomStyle: 'solid',
                marginBottom: 11 },
-  secWrap:   { marginBottom: 13 },
+  secWrap:   { marginBottom: 11 },
 
   // ── boxed info grid ─────────────────────────────────────────────────
   infoBox:   { borderWidth: 1, borderColor: colors.rule, borderStyle: 'solid', borderRadius: 7 },
@@ -173,27 +177,44 @@ export const styles = StyleSheet.create({
   kpiBox:    { borderWidth: 1, borderColor: colors.rule, borderStyle: 'solid', borderRadius: 7,
                backgroundColor: colors.white, overflow: 'hidden' },
   kpiRail:   { height: 3 },
-  kpiPad:    { paddingVertical: 9, paddingHorizontal: 11 },
-  kpiLblB:   { fontSize: 6.5, color: colors.ink4, fontFamily: 'Helvetica-Bold', letterSpacing: 0.8 },
+  kpiPad:    { paddingVertical: 8, paddingHorizontal: 11 },
+  kpiHead:   { flexDirection: 'row', alignItems: 'center' },
+  kpiLblB:   { fontSize: 6.5, color: colors.ink4, fontFamily: 'Helvetica-Bold', letterSpacing: 0.8,
+               marginLeft: 5 },
   kpiValB:   { fontSize: 18, fontFamily: 'Helvetica-Bold', marginTop: 4 },
   kpiUnit:   { fontSize: 9, fontFamily: 'Helvetica-Bold' },
   kpiSubB:   { fontSize: 7, color: colors.ink4, marginTop: 4 },
 
   // ── boxed calendar ──────────────────────────────────────────────────
   calHeadB:  { flexDirection: 'row', marginBottom: 4 },
-  calHeadC:  { width: '14.285%', textAlign: 'center', fontSize: 6.5, color: colors.ink4,
+  calHeadC:  { width: '12.2%', textAlign: 'center', fontSize: 6.5, color: colors.ink4,
                fontFamily: 'Helvetica-Bold', letterSpacing: 0.8 },
-  calRowB:   { flexDirection: 'row', marginBottom: 2.5 },
-  calSlot:   { width: '14.285%', paddingHorizontal: 1.5 },
-  calBox:    { borderWidth: 1, borderStyle: 'solid', borderRadius: 5, height: 34,
-               paddingTop: 5, paddingBottom: 4, alignItems: 'center', justifyContent: 'flex-start' },
+  calRowB:   { flexDirection: 'row', marginBottom: 2, alignItems: 'stretch' },
+  calSlot:   { width: '12.2%', paddingHorizontal: 1.5 },
+  calBox:    { borderWidth: 1, borderStyle: 'solid', borderRadius: 5, height: 33,
+               paddingTop: 3.5, paddingBottom: 2.5, alignItems: 'center', justifyContent: 'flex-start' },
   calDayB:   { fontSize: 9, fontFamily: 'Helvetica-Bold' },
-  calHrsB:   { fontSize: 6.5, marginTop: 2 },
-  calDot:    { width: 3, height: 3, borderRadius: 1.5, marginTop: 3 },
-  legend:    { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginTop: 8 },
-  legendIt:  { flexDirection: 'row', alignItems: 'center', marginRight: 14 },
-  legendSw:  { width: 9, height: 9, borderRadius: 2.5, borderWidth: 1, borderStyle: 'solid', marginRight: 5 },
-  legendTx:  { fontSize: 7, color: colors.ink3 },
+  calHrsB:   { fontSize: 6.5, marginTop: 1.5 },
+  calDot:    { width: 3, height: 3, borderRadius: 1.5, marginTop: 2.5 },
+  // The over-plan delta replaces the dot rather than joining it. On a 36pt cell
+  // there is room for one mark, and "+2h" says everything the dot did and more.
+  calDelta:  { fontSize: 6, fontFamily: 'Helvetica-Bold', marginTop: 1.5 },
+
+  // Eighth column: what the row adds up to. Puts the shape of the month on
+  // page 1 without a second chart of the same data.
+  calWkHead: { width: '14.6%', textAlign: 'right', fontSize: 6.5, color: colors.ink4,
+               fontFamily: 'Helvetica-Bold', letterSpacing: 0.8, paddingRight: 2 },
+  calWkSlot: { width: '14.6%', paddingLeft: 6, paddingRight: 2, justifyContent: 'center' },
+  calWkVal:  { fontSize: 8, fontFamily: 'Helvetica-Bold', textAlign: 'right' },
+  calWkSub:  { fontSize: 6, textAlign: 'right', marginTop: 1 },
+  // The legend IS the swatch: each pill is painted in the state it names, in the
+  // same fill and border the grid uses. A grey chip beside a coloured square
+  // asks the reader to match two things; this one is the thing.
+  legend:    { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginTop: 9 },
+  legendPill:{ flexDirection: 'row', alignItems: 'center', marginRight: 9, marginBottom: 4,
+               paddingVertical: 3.5, paddingHorizontal: 9, borderRadius: 10,
+               borderWidth: 1, borderStyle: 'solid' },
+  legendTx:  { fontSize: 8, fontFamily: 'Helvetica-Bold', letterSpacing: 0.2 },
 
   // ── weekly cards with a vertical bar ────────────────────────────────
   wkGrid:    { flexDirection: 'row', marginHorizontal: -4 },
@@ -203,8 +224,13 @@ export const styles = StyleSheet.create({
                alignItems: 'center' },
   wkLbl:     { fontSize: 6.5, color: colors.ink4, fontFamily: 'Helvetica-Bold', letterSpacing: 0.7,
                textAlign: 'center', marginBottom: 8 },
-  wkBarWrap: { height: 62, justifyContent: 'flex-end', marginBottom: 8 },
+  wkBarWrap: { width: 26, height: 62, justifyContent: 'flex-end', marginBottom: 8 },
   wkBar:     { width: 26, borderTopLeftRadius: 3, borderTopRightRadius: 3 },
+  // The week's PLANNED hours, behind the bar. Without it "32.0" is a number
+  // with nothing to be measured against, and the colour has to carry the whole
+  // story on its own.
+  wkGhost:   { position: 'absolute', bottom: 0, left: 0, width: 26,
+               backgroundColor: '#E6E8EC', borderTopLeftRadius: 3, borderTopRightRadius: 3 },
   wkVal:     { fontSize: 16, fontFamily: 'Helvetica-Bold' },
   wkSub:     { fontSize: 6.5, color: colors.ink4, marginTop: 3, textAlign: 'center' },
 
