@@ -1,68 +1,81 @@
 import { View, Text } from '@react-pdf/renderer';
-import { styles, colors } from '../utils/pdfStyles';
+import { styles, dayState } from '../utils/pdfStyles';
+import type { DayStateKey } from '../utils/pdfStyles';
+import { fmtHM } from '../utils/dataTransforms';
 import type { ExportDay } from '../types';
-import { DOW_LABEL, fmtHours } from '../utils/dataTransforms';
+
+const DOW = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 
 /**
- * The month at a glance. Colour carries the meaning, so the legend below is not
- * decoration — a reader in greyscale needs it.
+ * Classify a day into one of the six legend states.
  *
- * Precedence matches the on-screen calendar: holiday outranks weekend, because a
- * public holiday falling on a Saturday is still a holiday.
+ * Order matters and encodes rules this system already enforces elsewhere:
+ *   - A HOLIDAY OUTRANKS A WEEKEND. Same precedence as the calendar cell on
+ *     screen (`6c4cde1`, mig 729) and as the day header on page 2.
+ *   - "Missing" is only ever claimed about the PAST. A working day later this
+ *     month has not been missed, it has not arrived — and mig 729 forbids
+ *     recording it in advance for most types, so flagging it would be telling
+ *     someone off for obeying the rules.
  */
-function cellTone(d: ExportDay): { bg: string; fg: string } {
-  if (d.isHoliday)             return { bg: colors.purpleLt, fg: colors.purple };
-  if (d.isLeave)               return { bg: colors.blueLt,   fg: colors.blue };
-  if (d.isWeekend)             return { bg: colors.surface,  fg: colors.ink4 };
-  if (d.minutes > 0)           return { bg: colors.greenLt,  fg: colors.green };
-  return { bg: colors.redLt, fg: colors.red };            // a working day with nothing on it
+function classify(d: ExportDay, todayIso: string): DayStateKey {
+  if (d.isHoliday)           return 'holiday';
+  if (d.isLeave)             return 'leave';
+  if (d.planned <= 0)        return d.minutes > 0 ? 'working' : 'weekend';
+  if (d.minutes > d.planned) return 'over';
+  if (d.minutes > 0)         return 'working';
+  return d.date <= todayIso ? 'missing' : 'future';
 }
 
-export function CalendarGrid({ days }: { days: ExportDay[] }) {
+export function CalendarGrid({ days, todayIso }: { days: ExportDay[]; todayIso: string }) {
   if (!days.length) return null;
 
-  // Pad the first row so the 1st lands under its weekday.
-  const lead  = days[0].dow;
-  const cells: Array<ExportDay | null> = [...Array<null>(lead).fill(null), ...days];
+  // Lead the first row with blanks so the 1st lands under its real weekday.
+  const cells: (ExportDay | null)[] = [...Array(days[0].dow).fill(null), ...days];
   while (cells.length % 7 !== 0) cells.push(null);
-
-  const rows: Array<Array<ExportDay | null>> = [];
+  const rows: (ExportDay | null)[][] = [];
   for (let i = 0; i < cells.length; i += 7) rows.push(cells.slice(i, i + 7));
+
+  // Only the states actually present are shown. A legend listing six colours
+  // when four are on the page sends the reader hunting for two that aren't there.
+  const present = new Set(days.map(d => classify(d, todayIso)));
 
   return (
     <View>
-      <View style={styles.calHead}>
-        {DOW_LABEL.map(d => <Text key={d} style={styles.calHeadCell}>{d.toUpperCase()}</Text>)}
+      <View style={styles.calHeadB}>
+        {DOW.map(l => <Text key={l} style={styles.calHeadC}>{l}</Text>)}
       </View>
 
       {rows.map((row, ri) => (
-        <View key={ri} style={styles.calRow}>
+        <View key={ri} style={styles.calRowB} wrap={false}>
           {row.map((d, ci) => {
-            if (!d) return <View key={ci} style={{ ...styles.calCell, backgroundColor: colors.white, borderColor: colors.white }} />;
-            const tone = cellTone(d);
+            if (!d) return <View key={ci} style={styles.calSlot} />;
+            const key = classify(d, todayIso);
+            const st  = dayState[key];
+            // A weekend and a day still to come record nothing BY NATURE. A dash
+            // there would read as an omission; the empty cell is the honest mark.
+            const caption = key === 'weekend' || key === 'future' ? ''
+                          : d.isHoliday ? 'HOL'
+                          : d.isLeave && d.minutes === 0 ? 'LV'
+                          : d.minutes > 0 ? fmtHM(d.minutes)
+                          : '—';
             return (
-              <View key={ci} style={{ ...styles.calCell, backgroundColor: tone.bg }}>
-                <Text style={{ ...styles.calDay, color: tone.fg }}>{d.day}</Text>
-                <Text style={{ ...styles.calHrs, color: tone.fg }}>
-                  {d.minutes > 0 ? `${fmtHours(d.minutes)}h` : ''}
-                </Text>
+              <View key={ci} style={styles.calSlot}>
+                <View style={{ ...styles.calBox, backgroundColor: st.bg, borderColor: st.border }}>
+                  <Text style={{ ...styles.calDayB, color: st.ink }}>{d.day}</Text>
+                  {caption ? <Text style={{ ...styles.calHrsB, color: st.ink }}>{caption}</Text> : null}
+                  {st.dot ? <View style={{ ...styles.calDot, backgroundColor: st.dot }} /> : null}
+                </View>
               </View>
             );
           })}
         </View>
       ))}
 
-      <View style={{ flexDirection: 'row', marginTop: 7, flexWrap: 'wrap' }}>
-        {[
-          ['Present',  colors.greenLt,  colors.green],
-          ['Leave',    colors.blueLt,   colors.blue],
-          ['Holiday',  colors.purpleLt, colors.purple],
-          ['Weekend',  colors.surface,  colors.ink4],
-          ['No entry', colors.redLt,    colors.red],
-        ].map(([label, bg, fg]) => (
-          <View key={label} style={{ flexDirection: 'row', alignItems: 'center', marginRight: 12 }}>
-            <View style={{ width: 7, height: 7, borderRadius: 2, backgroundColor: bg, marginRight: 4 }} />
-            <Text style={{ fontSize: 6.5, color: fg }}>{label}</Text>
+      <View style={styles.legend}>
+        {(Object.keys(dayState) as DayStateKey[]).filter(k => present.has(k)).map(k => (
+          <View key={k} style={styles.legendIt}>
+            <View style={{ ...styles.legendSw, backgroundColor: dayState[k].bg, borderColor: dayState[k].border }} />
+            <Text style={styles.legendTx}>{dayState[k].label}</Text>
           </View>
         ))}
       </View>

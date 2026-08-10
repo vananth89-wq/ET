@@ -37,6 +37,9 @@ export interface ExportDay {
   minutes:   number;
   planned:   number;
   isHoliday: boolean;
+  /** The holiday's name, so a day header can say WHICH holiday rather than
+   *  just that the day was one. Null on every ordinary day. */
+  holidayName: string | null;
   isLeave:   boolean;
   isWeekend: boolean;
 }
@@ -76,7 +79,17 @@ export interface TimesheetExportData {
   // ── KPIs, all pre-computed ────────────────────────────────────────────
   plannedMinutes:  number;
   recordedMinutes: number;
-  overtimeMinutes: number;      // max(0, recorded - planned) — see dataTransforms
+  /**
+   * Hours recorded beyond the DAY's planned hours, summed across the month —
+   * NOT max(0, monthRecorded - monthPlanned).
+   *
+   * The month-level figure contradicts the calendar: a month that is 120 hours
+   * short overall still reports zero, while the grid sits there flagging a
+   * 10-hour Monday in red. Summing the daily excess is what the calendar shows,
+   * and it is the only reading that survives someone checking one against the
+   * other. `varianceMinutes` below is the signed month-level figure.
+   */
+  overtimeMinutes: number;
   leaveDays:       number;
   workingDays:     number;
   daysPresent:     number;

@@ -2,78 +2,187 @@ import { Page, View, Text } from '@react-pdf/renderer';
 import { styles, colors } from '../utils/pdfStyles';
 import { PDFHeader } from '../components/PDFHeader';
 import { PDFFooter } from '../components/PDFFooter';
-import { fmtHM, fmtDateShort } from '../utils/dataTransforms';
-import type { TimesheetExportData } from '../types';
+import { fmtHM, fmtDateLong, fmtMonthYear } from '../utils/dataTransforms';
+import type { TimesheetExportData, ExportEntry, ExportDay } from '../types';
 
 /**
- * Columns are what this system actually records.
+ * Daily entries, grouped by day, one card per PROJECT.
  *
- * The brief specified Time In / Time Out / Break; Prowess is duration-only by
- * design and has never stored a clock time, so those three columns would have
- * been empty on every row of every report. Project and Activities take their
- * place — on a project timesheet that is the detail a reviewer is looking for.
+ * A card is one timesheet entry — which, since mig 726, IS one (day, time type,
+ * project). Its activities are listed inside it with their own hours, because
+ * per-activity hours are the point of mig 727 and a reviewer asking "what did
+ * the six hours on WISAYAH go on?" should not have to open the app.
+ *
+ * Deliberately NOT in the mockup, because this system does not have them:
+ *   - Time In / Time Out / Break. Prowess is duration-only by design. Those
+ *     columns would be empty on every row of every report ever generated.
+ *   - The red "Overtime" tag. There is no overtime concept, no calculation and
+ *     no approval path for one. The day chip reports recorded against planned
+ *     and turns amber when it runs over — the same signal the calendar cell
+ *     gives on screen — without naming a policy that does not exist.
+ *
+ * Days with nothing recorded are omitted entirely, as in the mockup. The month
+ * grid on page 1 is where the gaps are visible.
  */
-const COLS = [
-  { key: 'date',  label: 'DATE',       w: '11%' },
-  { key: 'day',   label: 'DAY',        w: '7%'  },
-  { key: 'type',  label: 'TYPE',       w: '14%' },
-  { key: 'proj',  label: 'PROJECT',    w: '17%' },
-  { key: 'acts',  label: 'ACTIVITIES', w: '25%' },
-  { key: 'hrs',   label: 'HOURS',      w: '10%', right: true },
-  { key: 'notes', label: 'NOTES',      w: '16%' },
-];
+
+/** Left accent, matching getEntryBadge() in MyTimesheet so the report and the
+ *  calendar colour the same thing the same way. */
+function accentFor(e: ExportEntry): string {
+  if (e.kind === 'holiday') return colors.purple;
+  if (e.kind === 'leave')   return colors.amber;
+  return e.project ? colors.blueMid : colors.greenMid;
+}
+
+function DayChip({ day, total }: { day: ExportDay | undefined; total: number }) {
+  const planned = day?.planned ?? 0;
+
+  // A holiday's system-generated row carries no hours, so both sides are zero
+  // and the chip would read as a lone dash — which looks like a rendering fault
+  // rather than a fact. The purple holiday tag beside the date already says
+  // everything this day has to say.
+  if (planned <= 0 && total <= 0) return null;
+
+  // No planned hours means a weekend or a holiday — there is nothing to compare
+  // against, so comparing would invent a target. Weekend work is real work.
+  if (planned <= 0) {
+    return (
+      <Text style={{ ...styles.dayChip, color: colors.ink3, backgroundColor: colors.surface }}>
+        {fmtHM(total)}
+      </Text>
+    );
+  }
+
+  const over = total > planned;
+  return (
+    <Text style={{
+      ...styles.dayChip,
+      color:           over ? '#92400E'    : colors.blue,
+      backgroundColor: over ? colors.amberLt : colors.blueLt,
+    }}>
+      {fmtHM(total)} / {fmtHM(planned)}
+    </Text>
+  );
+}
+
+function EntryCard({ e }: { e: ExportEntry }) {
+  return (
+    <View style={styles.card} wrap={false}>
+      <View style={{ ...styles.cardAccent, backgroundColor: accentFor(e) }} />
+      <View style={styles.cardBody}>
+        <View style={styles.cardRow}>
+          <View style={{ width: '26%', paddingRight: 8 }}>
+            <Text style={styles.cardProj}>{e.project ?? e.typeName}</Text>
+            {/* When the card is a project, the time type still matters — Work
+                and Training on the same project are different things. */}
+            {e.project ? <Text style={styles.tiny}>{e.typeName}</Text> : null}
+          </View>
+
+          <View style={{ width: '56%', paddingRight: 8 }}>
+            {e.activities.length === 0 && <Text style={styles.cardActNil}>—</Text>}
+            {e.activities.map((a, i) => (
+              <Text key={`${a.name}-${i}`} style={styles.cardAct}>
+                {/* A pre-727 entry carries names with no split. The name is
+                    shown; no hours are invented against it. */}
+                {a.minutes > 0 ? `${a.name} — ${fmtHM(a.minutes)}` : a.name}
+              </Text>
+            ))}
+          </View>
+
+          <Text style={{ ...styles.cardHrs, width: '18%' }}>{fmtHM(e.minutes)}</Text>
+        </View>
+
+        {e.notes ? (
+          <View style={styles.cardNoteWrap}>
+            <Text style={styles.cardNote}>{e.notes}</Text>
+          </View>
+        ) : null}
+      </View>
+    </View>
+  );
+}
 
 export function Page2DailyDetails({ data }: { data: TimesheetExportData }) {
+  const dayByDate = new Map(data.monthDays.map(d => [d.date, d]));
+
+  // Grouped, then sorted by date explicitly. The query does order by entry_date,
+  // so insertion order is usually already right — but "usually" is not a basis
+  // for a document someone prints and signs, and any future caller that appends
+  // an entry to state without re-sorting would silently print August 9th before
+  // August 7th. ISO dates sort correctly as strings.
+  const groups = new Map<string, ExportEntry[]>();
+  for (const e of data.entries) {
+    const list = groups.get(e.date);
+    if (list) list.push(e); else groups.set(e.date, [e]);
+  }
+  const ordered = [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+
+  const monthLabel = data.monthDays[0] ? fmtMonthYear(data.monthDays[0].date) : '';
   const total = data.entries.reduce((s, e) => s + e.minutes, 0);
 
   return (
     <Page size="A4" style={styles.page}>
       <PDFHeader data={data} subtitle={`Daily Attendance · ${data.periodLabel}`} />
       <View style={styles.body}>
-        <Text style={styles.sectionTitle}>Daily Attendance Details</Text>
+        <Text style={styles.sectionTitle}>Daily Entries — {monthLabel}</Text>
         <View style={styles.sectionRule} />
 
-        <View style={styles.th} fixed>
-          {COLS.map(c => (
-            <Text key={c.key} style={{ ...styles.thCell, width: c.w, textAlign: c.right ? 'right' : 'left' }}>
-              {c.label}
-            </Text>
-          ))}
-        </View>
-
-        {data.entries.length === 0 && (
-          <View style={styles.tr}><Text style={styles.tdMute}>No entries recorded for this period.</Text></View>
+        {groups.size === 0 && (
+          <Text style={styles.tdMute}>No entries recorded for this period.</Text>
         )}
 
-        {data.entries.map((e, i) => {
-          const muted = e.isWeekend || e.isHoliday;
-          const cell  = muted ? styles.tdMute : styles.td;
-          const rowSt = { ...styles.tr, ...(muted ? styles.trMute : i % 2 ? styles.trAlt : {}) };
-          const actLabel = e.activities.length
-            ? e.activities.map(a => (a.minutes > 0 ? `${a.name} (${fmtHM(a.minutes)})` : a.name)).join(', ')
-            : '—';
+        {ordered.map(([date, list]) => {
+          const day     = dayByDate.get(date);
+          const dayTot  = list.reduce((s, e) => s + e.minutes, 0);
+          const holiday = day?.holidayName;
+
           return (
-            <View key={`${e.date}-${i}`} style={rowSt} wrap={false}>
-              <Text style={{ ...cell, width: COLS[0].w }}>{fmtDateShort(e.date)}</Text>
-              <Text style={{ ...cell, width: COLS[1].w }}>{e.dayLabel}</Text>
-              <Text style={{ ...cell, width: COLS[2].w }}>{e.typeName}</Text>
-              <Text style={{ ...cell, width: COLS[3].w }}>{e.project ?? '—'}</Text>
-              <Text style={{ ...cell, width: COLS[4].w }}>{actLabel}</Text>
-              <Text style={{ ...cell, width: COLS[5].w, textAlign: 'right',
-                             color: muted ? colors.ink4 : colors.ink,
-                             fontFamily: 'Helvetica-Bold' }}>{fmtHM(e.minutes)}</Text>
-              <Text style={{ ...cell, width: COLS[6].w }}>{e.notes ?? ''}</Text>
+            <View key={date}>
+              {/* Heading, column labels and the FIRST card are one unwrappable
+                  unit, so a date can never strand itself at the foot of a page
+                  with its entries overleaf. minPresenceAhead was the obvious
+                  alternative and it is far too blunt: it reserved space for the
+                  whole day and pushed a group that would have fitted onto the
+                  next page, losing half of page 2 to white. The rest of the
+                  cards flow normally and pack tight. */}
+              <View wrap={false}>
+                <View style={styles.dayHead}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Text style={styles.dayName}>{fmtDateLong(date)}</Text>
+                    {/* A holiday outranks "non-working day" here too — it names
+                        the holiday rather than reporting a blank weekend. */}
+                    {holiday ? <Text style={styles.dayTag}>{holiday}</Text> : null}
+                  </View>
+                  <DayChip day={day} total={dayTot} />
+                </View>
+
+                <View style={styles.colLbls}>
+                  <Text style={{ ...styles.colLbl, width: '26%' }}>PROJECT</Text>
+                  <Text style={{ ...styles.colLbl, width: '56%' }}>ACTIVITIES</Text>
+                  <Text style={{ ...styles.colLbl, width: '18%', textAlign: 'right' }}>HOURS</Text>
+                </View>
+
+                <EntryCard e={list[0]} />
+              </View>
+
+              {list.slice(1).map((e, i) => <EntryCard key={`${date}-${i + 1}`} e={e} />)}
+
+              <View style={styles.dayTotal} wrap={false}>
+                <Text style={styles.dayTotalLbl}>DAILY TOTAL</Text>
+                <Text style={styles.dayTotalVal}>{fmtHM(dayTot)}</Text>
+              </View>
             </View>
           );
         })}
 
-        <View style={styles.totalRow}>
-          <Text style={{ ...styles.totalCell, width: '74%' }}>
-            TOTAL · {data.entries.length} {data.entries.length === 1 ? 'entry' : 'entries'}
-          </Text>
-          <Text style={{ ...styles.totalCell, width: '10%', textAlign: 'right' }}>{fmtHM(total)}</Text>
-          <Text style={{ ...styles.totalCell, width: '16%' }} />
-        </View>
+        {groups.size > 0 && (
+          <View style={styles.monthTotal} wrap={false}>
+            <Text style={styles.monthTotalLbl}>
+              MONTH TOTAL · {data.entries.length} {data.entries.length === 1 ? 'entry' : 'entries'}
+              {' '}across {groups.size} {groups.size === 1 ? 'day' : 'days'}
+            </Text>
+            <Text style={styles.monthTotalVal}>{fmtHM(total)}</Text>
+          </View>
+        )}
       </View>
       <PDFFooter documentId={data.documentId} />
     </Page>

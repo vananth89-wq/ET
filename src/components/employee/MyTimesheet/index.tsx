@@ -1076,6 +1076,7 @@ export default function MyTimesheet() {
         minutes:   dayEnts.reduce((s, e) => s + e.hours_minutes, 0),
         planned:   plannedFor(date),
         isHoliday,
+        holidayName: holidayByDate[date] ?? null,
         isLeave:   dayEnts.some(e => e.entry_kind === 'leave'),
         // A holiday outranks a weekend, exactly as the calendar cell does.
         isWeekend: !isHoliday && !!schedule && plannedForDay(dow, schedule) === 0,
@@ -1134,7 +1135,10 @@ export default function MyTimesheet() {
 
       plannedMinutes:  planned,
       recordedMinutes: recorded,
-      overtimeMinutes: Math.max(0, recorded - planned),
+      // Beyond the DAY's planned hours, summed -- not the month-level shortfall.
+      // A month 120 hours short overall would otherwise report zero while the
+      // calendar on page 1 sits there flagging a 10-hour Monday in red.
+      overtimeMinutes: monthDays.reduce((s, d) => s + Math.max(0, d.minutes - d.planned), 0),
       leaveDays:       monthDays.filter(d => d.isLeave).length,
       workingDays:     monthDays.filter(d => d.planned > 0).length,
       daysPresent,

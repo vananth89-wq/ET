@@ -35,6 +35,23 @@ export function fmtDate(iso: string): string {
   return `${d} ${MONTHS[m - 1]} ${y}`;
 }
 
+const DOW_FULL = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+const MONTH_FULL = ['January','February','March','April','May','June',
+                    'July','August','September','October','November','December'];
+
+/** "Sunday, 2 August 2026" — the day-group heading on page 2. */
+export function fmtDateLong(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  const dow = new Date(y, m - 1, d).getDay();
+  return `${DOW_FULL[dow]}, ${d} ${MONTH_FULL[m - 1]} ${y}`;
+}
+
+/** "AUGUST 2026" — the section rule on page 2. */
+export function fmtMonthYear(iso: string): string {
+  const [y, m] = iso.split('-').map(Number);
+  return `${MONTH_FULL[m - 1].toUpperCase()} ${y}`;
+}
+
 export function fmtDateShort(iso: string): string {
   const [, m, d] = iso.split('-').map(Number);
   const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];

@@ -21,16 +21,22 @@ import { fmtStamp } from '../utils/dataTransforms';
 export function ApprovalStamp({ data }: { data: TimesheetExportData }) {
   const approved = data.status === 'approved' && !!data.approvedAt;
   const accent   = approved ? colors.greenMid : data.status === 'to_be_approved' ? colors.blueMid : colors.amber;
-  const mark     = approved ? '● APPROVED'
-                 : data.status === 'to_be_approved' ? '○ AWAITING APPROVAL'
-                 : '○ NOT YET SUBMITTED';
+  // The dot is a View, not a bullet character. react-pdf's built-in Helvetica
+  // has no glyph for ● or ○ — they rendered as a zero-width box that collided
+  // with the first letter of the label ("○NOT YET SUBMITTED").
+  const mark     = approved ? 'APPROVED'
+                 : data.status === 'to_be_approved' ? 'AWAITING APPROVAL'
+                 : 'NOT YET SUBMITTED';
   const markCol  = approved ? colors.green : data.status === 'to_be_approved' ? colors.blue : '#92400E';
 
   return (
     <View style={styles.stamp} wrap={false}>
       <View style={{ ...styles.stampAccent, backgroundColor: accent }} />
       <View style={styles.stampBody}>
-        <View style={styles.stampCol}>
+        <View style={{ ...styles.stampCol, flexDirection: 'row', alignItems: 'center' }}>
+          <View style={{ width: 6, height: 6, borderRadius: 3, marginRight: 6,
+                         backgroundColor: approved ? colors.greenMid : 'transparent',
+                         borderWidth: approved ? 0 : 1.2, borderStyle: 'solid', borderColor: markCol }} />
           <Text style={{ ...styles.stampMark, color: markCol }}>{mark}</Text>
         </View>
         <View style={styles.stampDiv} />

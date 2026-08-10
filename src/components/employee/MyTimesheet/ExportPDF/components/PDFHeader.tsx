@@ -1,5 +1,6 @@
 import { View, Text } from '@react-pdf/renderer';
 import { styles, colors } from '../utils/pdfStyles';
+import { fmtStamp } from '../utils/dataTransforms';
 import type { TimesheetExportData } from '../types';
 
 const STATUS_CHIP: Record<TimesheetExportData['status'], { label: string; bg: string; fg: string }> = {
@@ -22,7 +23,7 @@ export function PDFHeader({ data, subtitle }: { data: TimesheetExportData; subti
           <Text style={styles.headerTitle}>Employee Timesheet Report</Text>
           <Text style={styles.headerSub}>{subtitle ?? data.periodLabel}</Text>
           <Text style={styles.headerMeta}>
-            {data.employeeName} · {data.employeeCode} · generated {data.generatedAt}
+            {data.employeeName} · {data.employeeCode} · generated {fmtStamp(data.generatedAt)}
           </Text>
         </View>
         <View style={{ ...styles.chip, backgroundColor: chip.bg, color: chip.fg }}>
