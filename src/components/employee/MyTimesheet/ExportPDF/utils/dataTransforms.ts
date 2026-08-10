@@ -23,6 +23,20 @@ export function fmtHM(minutes: number): string {
   return m === 0 ? `${h}h` : `${h}h ${m}m`;
 }
 
+/**
+ * "2h 00m" — the column form.
+ *
+ * fmtHM's compact output is right when hours stand alone, and wrong the moment
+ * they stack: a run of "2h", "45m", "1h 30m" has three different shapes and
+ * stops reading as a column. This pads every value to the same one so the
+ * figures line up and can be added by eye.
+ */
+export function fmtHMWide(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return `${h}h ${String(m).padStart(2, '0')}m`;
+}
+
 export function fmtHours(minutes: number): string {
   return (minutes / 60).toFixed(1);
 }

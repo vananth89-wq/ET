@@ -75,6 +75,17 @@ export const styles = StyleSheet.create({
   headerSub:  { color: '#BFDBFE', fontSize: 10, marginTop: 3 },
   headerMeta: { color: '#93C5FD', fontSize: 7.5, marginTop: 9 },
   chip:       { paddingHorizontal: 9, paddingVertical: 4, borderRadius: 9, fontSize: 7.5, fontFamily: 'Helvetica-Bold' },
+  // Right column, under the status chip. alignSelf keeps the white chip the
+  // width of the logo instead of stretching a slab across the band, and putting
+  // it here costs no vertical space at all: the space beside the title was
+  // already empty, whereas above the title it pushed the whole band taller.
+  headerRight:{ alignItems: 'flex-end' },
+  logoChip:   { alignSelf: 'flex-end', backgroundColor: colors.white, borderRadius: 4,
+                paddingVertical: 4, paddingHorizontal: 7 },
+  logoImg:    { height: 13 },
+  // The status chip sits UNDER the logo, so it carries the gap. When there is
+  // no logo it is the only thing in the column and must not be pushed down.
+  chipBelow:  { marginTop: 8 },
 
   // ── section furniture ───────────────────────────────────────────────
   section:      { marginBottom: 16 },
@@ -111,6 +122,18 @@ export const styles = StyleSheet.create({
   cardAct:    { fontSize: 9, color: colors.ink2, marginBottom: 1 },
   cardActNil: { fontSize: 9, color: colors.ink4 },
   cardHrs:    { fontSize: 9.5, fontFamily: 'Helvetica-Bold', color: colors.ink, textAlign: 'right' },
+  // The activities column is a two-column list of its own: name left, hours
+  // right-aligned, a hairline between each. The question this block gets asked
+  // is "do these add up?", which is arithmetic, and arithmetic needs a column.
+  actLine:    { flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 2 },
+  // #F1F2F5 was invisible at 9pt — the separation it was meant to provide simply
+  // was not there. #E5E7EB is the document's standard rule and does show.
+  actLineRule:{ borderBottomWidth: 1, borderBottomColor: colors.border, borderBottomStyle: 'solid' },
+  actName:    { width: '68%', fontSize: 9, color: colors.ink2, paddingRight: 6 },
+  actMins:    { width: '32%', fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: colors.ink3,
+                textAlign: 'right' },
+  actMinsNil: { width: '32%', fontSize: 8.5, color: colors.ink4, textAlign: 'right' },
+
   cardNoteWrap: { borderTopWidth: 1, borderTopColor: '#F3F4F6', borderTopStyle: 'solid',
                   marginTop: 6, paddingTop: 5 },
   cardNote:   { fontSize: 8, color: colors.ink3 },

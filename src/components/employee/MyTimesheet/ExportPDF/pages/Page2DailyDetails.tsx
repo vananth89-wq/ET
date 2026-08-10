@@ -2,7 +2,7 @@ import { Page, View, Text } from '@react-pdf/renderer';
 import { styles, colors } from '../utils/pdfStyles';
 import { PDFHeader } from '../components/PDFHeader';
 import { PDFFooter } from '../components/PDFFooter';
-import { fmtHM, fmtDateLong, fmtMonthYear } from '../utils/dataTransforms';
+import { fmtHM, fmtHMWide, fmtDateLong, fmtMonthYear } from '../utils/dataTransforms';
 import type { TimesheetExportData, ExportEntry, ExportDay } from '../types';
 
 /**
@@ -12,6 +12,12 @@ import type { TimesheetExportData, ExportEntry, ExportDay } from '../types';
  * project). Its activities are listed inside it with their own hours, because
  * per-activity hours are the point of mig 727 and a reviewer asking "what did
  * the six hours on WISAYAH go on?" should not have to open the app.
+ *
+ * The activity list is itself two columns — name left, hours right-aligned,
+ * hairline between — so the figures stack and can be checked against the card
+ * total beside them. They were a single "Code Review — 2h" string, which put
+ * the hours wherever the name happened to end and made the one thing a reviewer
+ * wants to do, add them up, harder than it needed to be.
  *
  * Deliberately NOT in the mockup, because this system does not have them:
  *   - Time In / Time Out / Break. Prowess is duration-only by design. Those
@@ -80,11 +86,23 @@ function EntryCard({ e }: { e: ExportEntry }) {
           <View style={{ width: '56%', paddingRight: 8 }}>
             {e.activities.length === 0 && <Text style={styles.cardActNil}>—</Text>}
             {e.activities.map((a, i) => (
-              <Text key={`${a.name}-${i}`} style={styles.cardAct}>
-                {/* A pre-727 entry carries names with no split. The name is
-                    shown; no hours are invented against it. */}
-                {a.minutes > 0 ? `${a.name} — ${fmtHM(a.minutes)}` : a.name}
-              </Text>
+              <View
+                key={`${a.name}-${i}`}
+                // react-pdf has no :last-child, so the rule is applied to every
+                // line but the last — a hairline under the final activity would
+                // read as the start of another row that never comes.
+                style={i < e.activities.length - 1
+                  ? { ...styles.actLine, ...styles.actLineRule }
+                  : styles.actLine}
+              >
+                <Text style={styles.actName}>{a.name}</Text>
+                {/* A pre-727 entry carries names with no split. A blank cell in
+                    a column of figures reads as a rendering fault; a dash says
+                    the thing that is true — no figure was ever recorded. */}
+                {a.minutes > 0
+                  ? <Text style={styles.actMins}>{fmtHMWide(a.minutes)}</Text>
+                  : <Text style={styles.actMinsNil}>—</Text>}
+              </View>
             ))}
           </View>
 

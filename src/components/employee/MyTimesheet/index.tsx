@@ -342,6 +342,44 @@ function HolidayCard({ name, plannedMinutes }: { name: string; plannedMinutes: n
   );
 }
 
+/**
+ * The Prowess mark, inlined as a data URL for the PDF export.
+ *
+ * Honours the admin-configured `nav_logo` exactly as AppHeader does, so
+ * rebranding the app rebrands the report without a second setting. Falls back
+ * to the bundled /logo.png, and to null if anything at all goes wrong -- the
+ * report simply prints without a logo, which is still a correct report.
+ *
+ * The bytes are inlined rather than passed as a URL because a themed nav_logo
+ * can be cross-origin, and react-pdf fetching one inside the renderer fails
+ * silently: a blank band and no error to chase. Fetching here, where the
+ * session already has credentials, also leaves the downloaded PDF
+ * self-contained.
+ */
+async function loadLogoDataUrl(): Promise<string | null> {
+  try {
+    let src = '/logo.png';
+    const { data: theme } = await supabase.rpc('get_theme_settings');
+    if (theme?.nav_logo) src = theme.nav_logo as string;
+
+    const res = await fetch(src);
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    // A 404 handled by the SPA shell returns index.html with a 200. Without
+    // this check that HTML would be handed to react-pdf as an "image".
+    if (!blob.type.startsWith('image/')) return null;
+
+    return await new Promise<string | null>(resolve => {
+      const fr = new FileReader();
+      fr.onload  = () => resolve(typeof fr.result === 'string' ? fr.result : null);
+      fr.onerror = () => resolve(null);
+      fr.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
+}
+
 export default function MyTimesheet() {
   const { employee } = useAuth();
 
@@ -1028,6 +1066,10 @@ export default function MyTimesheet() {
   async function buildExportData(): Promise<TimesheetExportData> {
     if (!header) throw new Error('this month has not finished loading');
 
+    // Started here, awaited at the bottom, so it overlaps the label lookups
+    // instead of adding its own round trip to the click.
+    const logoPromise = loadLogoDataUrl();
+
     // The three labels the page does not already hold. Each falls back to a
     // dash rather than failing the export: a report reading "Manager: --" is
     // still a correct report; no report at all is not.
@@ -1157,6 +1199,7 @@ export default function MyTimesheet() {
 
       generatedAt: new Date().toISOString(),
       documentId:  header.id,
+      logoDataUrl: await logoPromise,
     };
   }
 

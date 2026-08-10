@@ -111,4 +111,15 @@ export interface TimesheetExportData {
   // ── Meta ──────────────────────────────────────────────────────────────
   generatedAt: string;
   documentId:  string;
+
+  /**
+   * The Prowess mark as a base64 data URL, or null.
+   *
+   * A data URL rather than a path: the admin-configurable `nav_logo` can live
+   * on Supabase storage, and react-pdf fetching a cross-origin image inside the
+   * renderer fails silently — you get a blank band with no error to chase.
+   * Resolving it in the app, where the session already has credentials, and
+   * inlining the bytes also keeps the PDF self-contained once downloaded.
+   */
+  logoDataUrl: string | null;
 }
