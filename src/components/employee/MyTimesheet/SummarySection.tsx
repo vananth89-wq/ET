@@ -196,6 +196,18 @@ export default function SummarySection({
     const todayOpen = working.find(x => x.date === todayIso && x.minutes === 0) ?? null;
     const aheadN   = working.filter(x => x.date > todayIso).length;
 
+    /**
+     * Which weekdays this schedule actually works.
+     *
+     * plannedFor() returns 0 for a holiday AND for a weekend, so a day's own
+     * planned figure cannot say which it was. Reading it across the month can:
+     * if any NON-holiday day sharing this weekday is planned, the weekday is a
+     * working one. Needed because a holiday that lands on a Saturday costs the
+     * week nothing, and a "1 holiday" note against an unchanged /40h target
+     * explains a reduction that never happened — the note's only job.
+     */
+    const workingDows = new Set(days.filter(x => !x.isHol && x.planned > 0).map(x => x.dow));
+
     // Sun–Sat buckets, matching the calendar rows above.
     type Wk = { label: string; start: string; end: string; planned: number; minutes: number;
                 leave: number; holidays: number; missing: typeof days };
@@ -205,12 +217,13 @@ export default function SummarySection({
       if (!bucket.length) return;
       const f = bucket[0], l = bucket[bucket.length - 1];
       weeks.push({
-        label: `${f.day} – ${l.day} ${M3[month - 1]}`,
+        label: f.day === l.day ? `${f.day} ${M3[month - 1]}`
+                               : `${f.day}–${l.day} ${M3[month - 1]}`,
         start: f.date, end: l.date,
         planned:  bucket.reduce((s, x) => s + x.planned, 0),
         minutes:  bucket.reduce((s, x) => s + x.minutes, 0),
         leave:    bucket.reduce((s, x) => s + x.leave, 0),
-        holidays: bucket.filter(x => x.isHol).length,
+        holidays: bucket.filter(x => x.isHol && workingDows.has(x.dow)).length,
         missing:  bucket.filter(x => x.planned > 0 && x.minutes === 0 && x.date < todayIso),
       });
       bucket = [];
@@ -393,11 +406,20 @@ export default function SummarySection({
                 padding: '7px 0',
                 borderTop: i === 0 ? 'none' : `1px solid ${C.hair}`,
               }}>
-                {/* Fixed, so every bar starts at the same x and the four can be
-                    compared by length alone — which is the whole point of bars. */}
-                <div style={{ width: 132, flexShrink: 0, fontSize: 12.5, lineHeight: 1.35 }}>
-                  <span style={{ fontWeight: 700, color: C.ink2 }}>Wk {i + 1}</span>
-                  <span style={{ fontWeight: 500, color: C.ink4, marginLeft: 6 }}>{w.label}</span>
+                {/* WEEK NUMBER LEFT, DATE FAR RIGHT.
+                    They used to sit side by side — "Wk 1  1 – 1 Aug" — two
+                    labels competing for the same job at the same moment. Moving
+                    them apart lets the number anchor the row and turns the date
+                    into a reference you read only when you want it.
+
+                    Fixed width, so every bar starts at the same x and the weeks
+                    can be compared by bar length alone, which is the whole
+                    point of drawing bars. */}
+                <div style={{ width: 104, flexShrink: 0, fontSize: 12.5, lineHeight: 1.35 }}>
+                  <span style={{ fontWeight: 700, color: C.ink2 }}>Week {i + 1}</span>
+                  {/* Only holidays that actually cost this week hours. One that
+                      falls on a weekend leaves the target untouched, and a note
+                      against an unchanged /40h explains nothing. */}
                   {w.holidays > 0 && (
                     <div style={{ fontSize: 10.5, fontWeight: 600, color: '#7C3AED' }}>
                       {w.holidays} {w.holidays === 1 ? 'holiday' : 'holidays'}
@@ -405,11 +427,11 @@ export default function SummarySection({
                   )}
                 </div>
 
-                <div style={{ flex: 1, minWidth: 60 }}>
+                <div style={{ flex: 1, minWidth: 70 }}>
                   <SplitBar workPct={workPct} leavePct={leavePct} workColor={workColor} />
                 </div>
 
-                <div style={{ width: 92, flexShrink: 0, textAlign: 'right', fontSize: 12,
+                <div style={{ width: 84, flexShrink: 0, textAlign: 'right', fontSize: 12,
                               fontWeight: 700, color: w.minutes > 0 ? C.ink2 : C.ink4 }}>
                   {w.minutes > 0 ? `${h1(w.minutes)}h` : '—'}
                   <em style={{ fontStyle: 'normal', fontWeight: 500, color: C.ink4 }}>
@@ -419,8 +441,13 @@ export default function SummarySection({
 
                 {/* Fixed width and right-aligned content, so the pills form a
                     column instead of ragging against the hours beside them. */}
-                <div style={{ width: 96, flexShrink: 0, display: 'flex', justifyContent: 'flex-end' }}>
+                <div style={{ width: 90, flexShrink: 0, display: 'flex', justifyContent: 'flex-end' }}>
                   <Tag text={tag.t} bg={tag.bg} fg={tag.fg} mt={0} />
+                </div>
+
+                <div style={{ width: 72, flexShrink: 0, textAlign: 'right',
+                              fontSize: 11.5, color: C.ink4 }}>
+                  {w.label}
                 </div>
               </div>
             );
