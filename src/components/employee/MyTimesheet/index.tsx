@@ -2117,6 +2117,7 @@ export default function MyTimesheet() {
                   entries={entries}
                   plannedMinutes={header?.planned_minutes ?? 0}
                   plannedFor={plannedFor}
+                  holidayByDate={holidayByDate}
                   todayIso={todayIso}
                   onJumpToDate={jumpToDate}
                 />

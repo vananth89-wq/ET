@@ -72,6 +72,30 @@ function Bar({ pct, color }: { pct: number; color: string }) {
   );
 }
 
+/**
+ * Work and leave, side by side in one track.
+ *
+ * Leave carries real hours — `timesheet_entries` has CHECK (hours_minutes > 0),
+ * so a leave row can never be zero — and those hours land in the week's total.
+ * Without the split a week spent entirely on annual leave reads 40h / 40h,
+ * green, "Complete", indistinguishable from a week of solid work. The total is
+ * right either way; the composition was the part you could not see.
+ */
+function SplitBar({ workPct, leavePct, workColor }: {
+  workPct: number; leavePct: number; workColor: string;
+}) {
+  return (
+    <div style={{ display: 'flex', height: 8, borderRadius: 99, background: C.track, overflow: 'hidden' }}>
+      <div style={{ height: 8, width: `${workPct}%`, background: workColor,
+                    transition: 'width 0.4s ease-out' }} />
+      {/* A lighter tint of the calendar's leave blue: same family, visibly
+          subordinate — hours accounted for rather than hours worked. */}
+      <div style={{ height: 8, width: `${leavePct}%`, background: '#93C5FD',
+                    transition: 'width 0.4s ease-out' }} />
+    </div>
+  );
+}
+
 function Tag({ text, bg, fg }: { text: string; bg: string; fg: string }) {
   return (
     <span style={{ display: 'inline-block', fontSize: 10, fontWeight: 700, padding: '2px 7px',
@@ -96,13 +120,18 @@ export interface SummarySectionProps {
   plannedMinutes: number;                     // header.planned_minutes
   /** Mirrors the calendar's own rule: 0 on a weekend or a holiday. */
   plannedFor: (dateStr: string) => number;
+  /** Only to EXPLAIN a week's reduced target. Holidays are master data in
+   *  time_calendar_entries, never attendance rows: they contribute no recorded
+   *  hours and no planned hours, so there is nothing of them to put in a bar —
+   *  but a week that silently reads /32h instead of /40h looks like a fault. */
+  holidayByDate: Record<string, string>;
   todayIso: string;
   /** Chip click and the back link both come through here. */
   onJumpToDate: (dateStr: string | null) => void;
 }
 
 export default function SummarySection({
-  year, month, entries, plannedMinutes, plannedFor, todayIso, onJumpToDate,
+  year, month, entries, plannedMinutes, plannedFor, holidayByDate, todayIso, onJumpToDate,
 }: SummarySectionProps) {
 
   const d = useMemo(() => {
@@ -114,6 +143,9 @@ export default function SummarySection({
         planned: plannedFor(date),
         minutes: entries.filter(e => e.entry_date === date)
                         .reduce((s, e) => s + e.hours_minutes, 0),
+        leave:   entries.filter(e => e.entry_date === date && e.entry_kind === 'leave')
+                        .reduce((s, e) => s + e.hours_minutes, 0),
+        isHol:   !!holidayByDate[date],
       };
     });
 
@@ -122,15 +154,19 @@ export default function SummarySection({
     // Days, not entries. Since mig 726 one day holds several entries, so
     // counting rows would have made a three-project Monday read as three days.
     const logged   = days.filter(x => x.minutes > 0).length;
-    // A claim about the PAST only. Mig 729 forbids recording most types in
-    // advance, so flagging the rest of the month would be scolding someone for
-    // obeying the rules.
-    const missing  = working.filter(x => x.minutes === 0 && x.date <= todayIso);
+    // A claim about the PAST only, and today is not past. You cannot have
+    // missed a day that has not ended — flagging it turns a normal morning into
+    // an outstanding item. Mig 729 rules out the rest of the month for the same
+    // reason: most types cannot be recorded in advance at all.
+    const missing  = working.filter(x => x.minutes === 0 && x.date < todayIso);
+    /** Today, if it is a working day with nothing on it yet. Reported neutrally
+     *  beside the chips rather than counted among them. */
+    const todayOpen = working.find(x => x.date === todayIso && x.minutes === 0) ?? null;
     const aheadN   = working.filter(x => x.date > todayIso).length;
 
     // Sun–Sat buckets, matching the calendar rows above.
     type Wk = { label: string; start: string; end: string; planned: number; minutes: number;
-                missing: typeof days };
+                leave: number; holidays: number; missing: typeof days };
     const weeks: Wk[] = [];
     let bucket: typeof days = [];
     const flush = () => {
@@ -139,9 +175,11 @@ export default function SummarySection({
       weeks.push({
         label: `${f.day} – ${l.day} ${M3[month - 1]}`,
         start: f.date, end: l.date,
-        planned: bucket.reduce((s, x) => s + x.planned, 0),
-        minutes: bucket.reduce((s, x) => s + x.minutes, 0),
-        missing: bucket.filter(x => x.planned > 0 && x.minutes === 0 && x.date <= todayIso),
+        planned:  bucket.reduce((s, x) => s + x.planned, 0),
+        minutes:  bucket.reduce((s, x) => s + x.minutes, 0),
+        leave:    bucket.reduce((s, x) => s + x.leave, 0),
+        holidays: bucket.filter(x => x.isHol).length,
+        missing:  bucket.filter(x => x.planned > 0 && x.minutes === 0 && x.date < todayIso),
       });
       bucket = [];
     };
@@ -164,7 +202,7 @@ export default function SummarySection({
     if (noProject > 0) projects.push({ name: 'No project', minutes: noProject, noProject: true });
 
     return {
-      days, working, recorded, logged, missing, aheadN, weeks, projects,
+      days, working, recorded, logged, missing, todayOpen, aheadN, weeks, projects,
       // Clamped: past plan this is negative, and "−12h to log" is not a thing.
       remaining: Math.max(0, plannedMinutes - recorded),
       over:      Math.max(0, recorded - plannedMinutes),
@@ -223,15 +261,30 @@ export default function SummarySection({
             const done  = w.end <= todayIso;
             const start = w.start > todayIso;
             const pct   = w.planned > 0 ? (w.minutes / w.planned) * 100 : 0;
+            const over  = w.planned > 0 && w.minutes > w.planned;
+            const work  = w.minutes - w.leave;
+
+            // Fill is capped at the track; the overshoot is named in the tag
+            // instead. Work and leave then split that fill by their real share,
+            // so the two segments always sum to the bar and never to more.
+            const fill    = Math.min(100, pct);
+            const workPct  = w.minutes > 0 ? fill * (work / w.minutes)     : 0;
+            const leavePct = w.minutes > 0 ? fill * (w.leave / w.minutes)  : 0;
+
             // A week is only judged once it is over. Same rule as the calendar's
-            // future days and the PDF's weekly cards.
-            const tag = w.planned === 0        ? { t: 'Non-working',  bg: '#F3F4F6', fg: C.ink3 }
-                      : start                  ? { t: 'Not yet due',  bg: '#F3F4F6', fg: C.ink3 }
-                      : !done                  ? { t: 'In progress',  bg: '#EFF6FF', fg: '#1D4ED8' }
-                      : pct >= 100             ? { t: 'Complete',     bg: '#ECFDF5', fg: '#047857' }
-                      : pct > 0                ? { t: 'Partial',      bg: '#FEF6DC', fg: '#92400E' }
-                      :                          { t: 'Nothing logged', bg: '#FEF6DC', fg: '#92400E' };
-            const color = pct >= 100 ? '#10B981' : done ? '#F59E0B' : C.blue;
+            // future days and the PDF's weekly cards — and OVER is its own state,
+            // amber and named. It used to fall into `pct >= 100` and print
+            // "Complete" in green while sitting eight hours beyond the plan.
+            const tag = w.planned === 0 ? { t: 'Non-working',   bg: '#F3F4F6', fg: C.ink3 }
+                      : start           ? { t: 'Not yet due',   bg: '#F3F4F6', fg: C.ink3 }
+                      : over            ? { t: `Over by ${h1(w.minutes - w.planned)}h`,
+                                                                bg: '#FEF6DC', fg: '#92400E' }
+                      : !done           ? { t: 'In progress',   bg: '#EFF6FF', fg: '#1D4ED8' }
+                      : pct >= 100      ? { t: 'Complete',      bg: '#ECFDF5', fg: '#047857' }
+                      : pct > 0         ? { t: 'Partial',       bg: '#FEF6DC', fg: '#92400E' }
+                      :                   { t: 'Nothing logged', bg: '#FEF6DC', fg: '#92400E' };
+
+            const workColor = over ? '#F59E0B' : pct >= 100 ? '#10B981' : C.blue;
 
             return (
               <div key={w.start} style={{ marginBottom: i === d.weeks.length - 1 ? 0 : 13 }}>
@@ -239,6 +292,14 @@ export default function SummarySection({
                   <span style={{ fontSize: 12.5, fontWeight: 700, color: C.ink2 }}>
                     Wk {i + 1}
                     <i style={{ fontStyle: 'normal', fontWeight: 500, color: C.ink4, marginLeft: 7 }}>{w.label}</i>
+                    {/* Why this week's target is smaller than its neighbours'.
+                        Without it a row reading /32h next to four /40h rows
+                        looks like a miscalculation. */}
+                    {w.holidays > 0 && (
+                      <i style={{ fontStyle: 'normal', fontWeight: 600, color: '#7C3AED', marginLeft: 7 }}>
+                        · {w.holidays} {w.holidays === 1 ? 'holiday' : 'holidays'}
+                      </i>
+                    )}
                   </span>
                   <span style={{ fontSize: 12, fontWeight: 700, color: C.ink2 }}>
                     {w.minutes > 0 ? `${h1(w.minutes)}h` : '—'}
@@ -247,8 +308,17 @@ export default function SummarySection({
                     </em>
                   </span>
                 </div>
-                <Bar pct={pct} color={color} />
-                <Tag text={tag.t} bg={tag.bg} fg={tag.fg} />
+                <SplitBar workPct={workPct} leavePct={leavePct} workColor={workColor} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                  <Tag text={tag.t} bg={tag.bg} fg={tag.fg} />
+                  {w.leave > 0 && (
+                    <span style={{ fontSize: 10.5, color: C.ink4, marginTop: 6 }}>
+                      <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: 2,
+                                     background: '#93C5FD', marginRight: 5 }} />
+                      incl. {h1(w.leave)}h leave
+                    </span>
+                  )}
+                </div>
               </div>
             );
           })}
@@ -260,7 +330,7 @@ export default function SummarySection({
             </div>
             {d.missing.length === 0 ? (
               <div style={{ fontSize: 12, color: C.ink4 }}>
-                Nothing outstanding. Every working day up to today has time against it.
+                Nothing outstanding. Every working day before today has time against it.
               </div>
             ) : (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -280,6 +350,22 @@ export default function SummarySection({
                   </button>
                 ))}
               </div>
+            )}
+
+            {/* Today is not missing — it has not finished. Neutral, and below
+                the chips rather than counted among them. */}
+            {d.todayOpen && (
+              <button
+                onClick={() => onJumpToDate(d.todayOpen!.date)}
+                style={{
+                  marginTop: d.missing.length ? 9 : 0, background: 'none', border: 'none',
+                  padding: 0, font: 'inherit', fontSize: 11.5, color: C.ink3,
+                  cursor: 'pointer', textAlign: 'left', display: 'block',
+                }}
+              >
+                Today ({D3[d.todayOpen.dow]} {d.todayOpen.day} {M3[month - 1]}) has nothing logged yet —
+                <span style={{ color: C.blue, fontWeight: 600 }}> open it</span>
+              </button>
             )}
           </div>
         </div>
