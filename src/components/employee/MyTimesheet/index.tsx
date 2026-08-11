@@ -41,6 +41,9 @@ interface TimesheetHeader {
   recorded_minutes:    number;
   submitted_at:        string | null;
   approved_at:         string | null;
+  /** Mig 731: when an entry or activity under this header last changed.
+   *  Compared with approved_at to answer "is there anything to resubmit?" */
+  content_changed_at:  string | null;
 }
 
 /** Mig 727: one activity with its own duration. These rows are the source of
@@ -471,6 +474,9 @@ export default function MyTimesheet() {
   const emptyForm = { kind: 'time_type' as 'time_type' | 'project', typeId: '', projId: '', hours: '', mins: '', notes: '', actRows: [{ name: '', h: '', m: '' }] as ActRow[], ttCategory: '' as '' | 'attendance' | 'absence' };
   const [form,    setForm]    = useState(emptyForm);
   const [formErr, setFormErr] = useState('');
+  /** What the edit form held when it opened. NULL while adding — there is
+   *  nothing for a new entry to be unchanged from. */
+  const [baselineForm, setBaselineForm] = useState<typeof emptyForm | null>(null);
 
   // ── Fetch employee code + reference data once ───────────────────────────
   useEffect(() => {
@@ -520,7 +526,7 @@ export default function MyTimesheet() {
     // 1. Find existing header
     let { data: hdr, error: hErr } = await supabase
       .from('timesheet_headers')
-      .select('id, employee_id, period, external_code, status, work_schedule_id, holiday_calendar_id, planned_minutes, recorded_minutes, submitted_at, approved_at')
+      .select('id, employee_id, period, external_code, status, work_schedule_id, holiday_calendar_id, planned_minutes, recorded_minutes, submitted_at, approved_at, content_changed_at')
       .eq('employee_id', employee.id)
       .eq('period', periodDate)
       .maybeSingle();
@@ -585,7 +591,7 @@ export default function MyTimesheet() {
           planned_minutes:     plannedMins,
           recorded_minutes:    0,
         })
-        .select('id, employee_id, period, external_code, status, work_schedule_id, holiday_calendar_id, planned_minutes, recorded_minutes, submitted_at, approved_at')
+        .select('id, employee_id, period, external_code, status, work_schedule_id, holiday_calendar_id, planned_minutes, recorded_minutes, submitted_at, approved_at, content_changed_at')
         .single();
 
       if (cErr) { setError(cErr.message); setLoading(false); return; }
@@ -787,7 +793,23 @@ export default function MyTimesheet() {
       .order('entry_date').order('created_at');
     const list = (ents ?? []) as unknown as TimesheetEntry[];
     setEntries(list);
-    setHeader(h => h ? { ...h, recorded_minutes: list.reduce((s, e) => s + e.hours_minutes, 0) } : h);
+
+    // content_changed_at is stamped by a trigger (mig 731), so the only way to
+    // know its new value is to read it. Not computed locally from `list`:
+    // a delete leaves nothing behind to compute from, and an activity reshuffle
+    // that keeps the day's total can change the sheet without moving any number
+    // this function can see.
+    const { data: hdr } = await supabase
+      .from('timesheet_headers')
+      .select('content_changed_at')
+      .eq('id', header.id)
+      .single();
+
+    setHeader(h => h ? {
+      ...h,
+      recorded_minutes:   list.reduce((s, e) => s + e.hours_minutes, 0),
+      content_changed_at: hdr?.content_changed_at ?? h.content_changed_at,
+    } : h);
   }
 
   // ── Day occupancy — the client half of migration 726 ──────────────────
@@ -1293,6 +1315,27 @@ export default function MyTimesheet() {
   const pending      = status === 'to_be_approved';
   const editable     = !pending && !monthClosed;
 
+  // ── Is there anything to resubmit? (mig 731) ─────────────────────────
+  // Only asked of an APPROVED month. A month that has never been filed always
+  // has something to submit; a month waiting on an approver has no button at
+  // all. But an approved month with nothing touched since would otherwise offer
+  // Resubmit anyway, and taking it would stamp a fresh approval — and later
+  // start a fresh workflow instance — over a sheet nobody had changed.
+  //
+  // content_changed_at is maintained by a trigger on entries AND on activity
+  // lines, because a delete leaves no row behind to inspect and an activity
+  // reshuffle can change the day without moving the day's total.
+  const changedSinceApproval =
+    status !== 'approved'            ? true                       // nothing to compare against
+    : header?.approved_at == null    ? true                       // approved with no stamp: fail open
+    : header?.content_changed_at == null ? false
+    : header.content_changed_at > header.approved_at;
+
+  const submitBlocked =
+    entries.length === 0 ? 'Nothing is recorded on this timesheet yet.'
+    : !changedSinceApproval ? 'Nothing has changed since this timesheet was approved.'
+    : '';
+
   // Why it is locked, in the employee's words, for the panel notice.
   const lockReason = pending
     ? 'Waiting for approval — withdraw it to make changes.'
@@ -1314,6 +1357,7 @@ export default function MyTimesheet() {
   function openAdd(overrides?: Partial<typeof emptyForm>) {
     setEditingEntry(null);
     setForm({ ...emptyForm, ...overrides });
+    setBaselineForm(null);   // adding: there is nothing to be unchanged from
     setFormErr('');
     setAddingEntry(true);
   }
@@ -1324,8 +1368,8 @@ export default function MyTimesheet() {
     setEditingEntry(ent);
     const totalM = ent.hours_minutes;
     const tt = timeTypes.find(t => t.id === ent.time_type_id);
-    setForm({
-      kind:       'time_type',
+    const opened = {
+      kind:       'time_type' as const,
       typeId:     ent.time_type_id ?? '',
       projId:     ent.project_id  ?? '',
       hours:      String(Math.floor(totalM / 60)),
@@ -1333,7 +1377,14 @@ export default function MyTimesheet() {
       notes:      ent.notes ?? '',
       actRows:    entryToActRows(ent),
       ttCategory: (tt?.category === 'absence' ? 'absence' : 'attendance') as '' | 'attendance' | 'absence',
-    });
+    };
+    setForm(opened);
+    // Keep what the form looked like on open, so Update can tell whether
+    // anything was actually typed. Not derived from `editingEntry` at compare
+    // time: entryToActRows() does real work (a pre-727 entry has names with no
+    // hours) and re-running it to compare would be comparing the form against a
+    // second interpretation of the entry rather than against itself.
+    setBaselineForm(opened);
     setFormErr('');
     setAddingEntry(true);
   }
@@ -1342,8 +1393,45 @@ export default function MyTimesheet() {
     setAddingEntry(false);
     setEditingEntry(null);
     setForm(emptyForm);
+    setBaselineForm(null);
     setFormErr('');
   }
+
+  /**
+   * Has anything in the edit form actually moved?
+   *
+   * WHY THIS EXISTS
+   *   save_timesheet_entry() rewrites an entry's activity rows by deleting them
+   *   all and re-inserting, unconditionally. With mig 731 watching that table,
+   *   opening an entry and pressing Update without typing anything stamped the
+   *   timesheet as changed and lit up Resubmit — a change that never happened.
+   *   The honest place to catch that is here, where both sides are already in
+   *   hand, rather than diffing old against new inside a 250-line RPC.
+   *
+   *   It also saves a pointless round trip, which is the smaller half.
+   *
+   * Hours and minutes are compared as NUMBERS. The baseline is generated as
+   * "3" and "0"; a person who selects the field and retypes "03" has changed
+   * nothing, and a string compare would disagree.
+   */
+  const numEq = (a: string, b: string) =>
+    (parseInt(a || '0', 10) || 0) === (parseInt(b || '0', 10) || 0);
+
+  function formUnchanged(a: typeof emptyForm, b: typeof emptyForm): boolean {
+    if (a.typeId !== b.typeId || a.projId !== b.projId) return false;
+    if (!numEq(a.hours, b.hours) || !numEq(a.mins, b.mins)) return false;
+    if ((a.notes ?? '').trim() !== (b.notes ?? '').trim()) return false;
+    if (a.actRows.length !== b.actRows.length) return false;
+    // Order matters: display_order is stored, so dragging two activities into a
+    // different sequence IS a change even though the set is identical.
+    return a.actRows.every((r, i) => {
+      const s = b.actRows[i];
+      return r.name.trim() === s.name.trim() && numEq(r.h, s.h) && numEq(r.m, s.m);
+    });
+  }
+
+  const editUnchanged = !!editingEntry && !!baselineForm && formUnchanged(form, baselineForm);
+  const saveBlocked   = editUnchanged ? 'Nothing has changed in this entry yet.' : '';
 
   async function handleSaveEntry() {
     if (!header || !selectedDate) return;
@@ -1552,7 +1640,7 @@ export default function MyTimesheet() {
     if (!header) return;
     const { data } = await supabase
       .from('timesheet_headers')
-      .select('status, submitted_at, approved_at')
+      .select('status, submitted_at, approved_at, content_changed_at')
       .eq('id', header.id)
       .single();
     if (!data) return;
@@ -1776,6 +1864,15 @@ export default function MyTimesheet() {
             {statusM.label}
           </span>
 
+          {/* A greyed-out Resubmit with no visible reason reads as broken. The
+              chip says the month is approved; this says why there is nothing
+              to do about it. */}
+          {status === 'approved' && !changedSinceApproval && entries.length > 0 && (
+            <span style={{ fontSize: 12, color: '#9CA3AF' }}>
+              No changes since approval
+            </span>
+          )}
+
           {editable && (
             <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
               <button
@@ -1819,22 +1916,28 @@ export default function MyTimesheet() {
               open, because editing an approved month is now allowed and a
               corrected month has to be re-filed. With no workflow it simply
               re-approves; with one it goes back into the queue. */}
+          {/* The title sits on the wrapper, not the button: browsers suppress
+              pointer events on a disabled control, so a tooltip attached to it
+              never appears — which would leave a greyed-out button with no
+              explanation at all. */}
           {editable && (
+            <span title={submitBlocked || undefined} style={{ display: 'inline-flex' }}>
             <button
               onClick={() => setConfirmSubmit(true)}
-              disabled={entries.length === 0}
+              disabled={!!submitBlocked}
               style={{
                 padding: '7px 18px', borderRadius: 7, border: 'none',
-                background: entries.length === 0 ? '#E5E7EB' : '#1D4ED8',
-                color: entries.length === 0 ? '#9CA3AF' : '#fff',
-                fontWeight: 600, fontSize: 13, cursor: entries.length === 0 ? 'not-allowed' : 'pointer',
+                background: submitBlocked ? '#E5E7EB' : '#1D4ED8',
+                color:      submitBlocked ? '#9CA3AF' : '#fff',
+                fontWeight: 600, fontSize: 13, cursor: submitBlocked ? 'not-allowed' : 'pointer',
                 display: 'flex', alignItems: 'center', gap: 6,
               }}
-              title={entries.length === 0 ? 'Nothing is recorded on this timesheet yet.' : undefined}
+              title={submitBlocked || undefined}
             >
               <i className="fa-solid fa-paper-plane" />
               {status === 'approved' ? 'Resubmit' : 'Submit for Approval'}
             </button>
+            </span>
           )}
 
           {/* The way out of Pending Approval. Without it, submitting is still a
@@ -2476,9 +2579,13 @@ export default function MyTimesheet() {
                       <div style={{ borderTop: '1px solid #BFDBFE', background: '#EFF6FF', padding: '10px 12px 12px' }}>
                         {renderEntryFields({ projectDates: selectedDate ? [selectedDate] : [] })}
                         <div style={{ display: 'flex', gap: 7 }}>
-                          <button onClick={handleSaveEntry} disabled={saving} style={{ flex: 1, padding: '7px 0', borderRadius: 6, border: 'none', background: '#1D4ED8', color: '#fff', fontSize: 12, fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
+                          {/* title on the wrapper — a disabled button never
+                              receives hover, so a tooltip on it is invisible */}
+                          <span title={saveBlocked || undefined} style={{ flex: 1, display: 'flex' }}>
+                          <button onClick={handleSaveEntry} disabled={saving || !!saveBlocked} style={{ flex: 1, padding: '7px 0', borderRadius: 6, border: 'none', background: saveBlocked ? '#E5E7EB' : '#1D4ED8', color: saveBlocked ? '#9CA3AF' : '#fff', fontSize: 12, fontWeight: 600, cursor: (saving || saveBlocked) ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
                             {saving ? <><i className="fa-solid fa-spinner fa-spin" /> Saving…</> : 'Update'}
                           </button>
+                          </span>
                           <button onClick={cancelForm} disabled={saving} style={{ padding: '7px 14px', borderRadius: 6, border: '1px solid #E5E7EB', background: '#fff', color: '#374151', fontSize: 12, cursor: 'pointer' }}>Cancel</button>
                         </div>
                       </div>
@@ -2552,14 +2659,16 @@ export default function MyTimesheet() {
                   {renderEntryFields({ projectDates: selectedDate ? [selectedDate] : [] })}
 
                   <div style={{ display: 'flex', gap: 7 }}>
+                    <span title={saveBlocked || undefined} style={{ flex: 1, display: 'flex' }}>
                     <button
-                      onClick={handleSaveEntry} disabled={saving}
-                      style={{ flex: 1, padding: '7px 0', borderRadius: 6, border: 'none', background: '#1D4ED8', color: '#fff', fontSize: 12, fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}
+                      onClick={handleSaveEntry} disabled={saving || !!saveBlocked}
+                      style={{ flex: 1, padding: '7px 0', borderRadius: 6, border: 'none', background: saveBlocked ? '#E5E7EB' : '#1D4ED8', color: saveBlocked ? '#9CA3AF' : '#fff', fontSize: 12, fontWeight: 600, cursor: (saving || saveBlocked) ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}
                     >
                       {saving
                         ? <><i className="fa-solid fa-spinner fa-spin" /> Saving…</>
                         : editingEntry ? 'Update' : 'Save Entry'}
                     </button>
+                    </span>
                     <button
                       onClick={cancelForm} disabled={saving}
                       style={{ padding: '7px 14px', borderRadius: 6, border: '1px solid #E5E7EB', background: '#fff', color: '#374151', fontSize: 12, cursor: 'pointer' }}
