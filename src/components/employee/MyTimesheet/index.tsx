@@ -422,13 +422,18 @@ export default function MyTimesheet() {
   const [error,        setError]        = useState<string | null>(null);
   const [saving,       setSaving]       = useState(false);
   const [submitting,   setSubmitting]   = useState(false);
+  const [withdrawing,  setWithdrawing]  = useState(false);
+  /** First day of the earliest month this employee may still change, from
+   *  time_employee_edit_floor() (mig 730). NULL = no configured limit. */
+  const [editFloor,    setEditFloor]    = useState<string | null>(null);
 
   // Panel
   const [selectedDate,   setSelectedDate]   = useState<string | null>(null);
   const [panelOpen,      setPanelOpen]      = useState(false);
   const [addingEntry,    setAddingEntry]    = useState(false);
   const [editingEntry,   setEditingEntry]   = useState<TimesheetEntry | null>(null);
-  const [confirmSubmit,  setConfirmSubmit]  = useState(false);
+  const [confirmSubmit,   setConfirmSubmit]   = useState(false);
+  const [confirmWithdraw, setConfirmWithdraw] = useState(false);
 
   // Hovered calendar day - drives the cell hover state and the empty-day CTA
   const [hoverDate, setHoverDate] = useState<string | null>(null);
@@ -650,9 +655,12 @@ export default function MyTimesheet() {
     // 4b. planned_minutes is a creation-time snapshot. A holiday added to the
     //     calendar afterwards leaves it overstated (Aug 2026 read 176 hr when the
     //     16th made it 168). Recompute from the live schedule + holidays.
-    //     Only while the sheet is still editable — an approved total must not
-    //     move underneath the approver.
-    if (wsLive && hdr!.status === 'to_be_submitted') {
+    //     Not while somebody is being asked to approve it — the total must not
+    //     move underneath the approver. Approved sheets DO recompute, because
+    //     with mig 730 approved is the normal resting state of every month that
+    //     has been submitted, and freezing them would mean a holiday added in
+    //     arrears leaves the planned figure permanently wrong.
+    if (wsLive && hdr!.status !== 'to_be_approved') {
       const truePlanned = calcPlannedMinutes(year, month, wsLive, hdRows.map(h => h.holiday_date));
       if (truePlanned !== hdr!.planned_minutes) {
         await supabase.from('timesheet_headers').update({ planned_minutes: truePlanned }).eq('id', hdr!.id);
@@ -737,6 +745,24 @@ export default function MyTimesheet() {
         supabase.rpc('get_employee_activities', { p_employee_id: empId })
           .then(({ data: hist }) => { if (hist) setActivityHistory(hist as ActivityHistoryItem[]); }));
   }
+
+  // ── Edit window ───────────────────────────────────────────────────────
+  // The floor is a single config value, not per-month, so it is fetched once
+  // rather than on every period change. The database enforces it either way
+  // (trg_timesheet_entry_edit_window); this is only so the UI can say WHY a
+  // month is read-only instead of presenting buttons that will be refused.
+  useEffect(() => {
+    let cancelled = false;
+    supabase.rpc('time_employee_edit_floor').then(({ data, error: e }) => {
+      if (cancelled) return;
+      // A failure here must not lock the employee out of their own timesheet.
+      // NULL already means "no limit", and the trigger is the real gate, so
+      // failing open costs nothing: the write is still refused server-side.
+      if (e) { setEditFloor(null); return; }
+      setEditFloor(typeof data === 'string' ? data : null);
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   // ── Toasts ────────────────────────────────────────────────────────────
   const toastSeq = useRef(0);
@@ -1249,7 +1275,32 @@ export default function MyTimesheet() {
   const todayIso   = isoDate(today.getFullYear(), today.getMonth() + 1, today.getDate());
   const status     = header?.status ?? 'to_be_submitted';
   const statusM    = STATUS_META[status];
-  const editable   = status === 'to_be_submitted';
+
+  // ── What makes a month editable (mig 730) ────────────────────────────
+  // It used to be `status === 'to_be_submitted'`, which meant submitting was a
+  // one-way door: the sheet went to Pending Approval, nothing existed to
+  // approve it, and the employee was locked out of their own month for ever.
+  //
+  // Now two independent things decide it:
+  //   * PENDING — somebody has been asked to look at it. Withdraw first.
+  //   * THE EDIT WINDOW — how many whole months back the employee may still
+  //     change, from time_edit_config. This is the thing that closes a month,
+  //     and it closes an APPROVED month too, which is the point: with no
+  //     workflow configured, approved is the normal resting state, so if
+  //     approved meant read-only nobody could ever correct anything.
+  const monthStart   = isoDate(year, month, 1);
+  const monthClosed  = editFloor != null && monthStart < editFloor;
+  const pending      = status === 'to_be_approved';
+  const editable     = !pending && !monthClosed;
+
+  // Why it is locked, in the employee's words, for the panel notice.
+  const lockReason = pending
+    ? 'Waiting for approval — withdraw it to make changes.'
+    : monthClosed
+      ? `This month is closed for editing. The earliest month you can still change is ${
+          editFloor ? `${MONTH_NAMES[Number(editFloor.slice(5, 7)) - 1]} ${editFloor.slice(0, 4)}` : '—'}.`
+      : '';
+
   const dayEntries = selectedDate ? (entriesByDate[selectedDate] ?? []) : [];
 
   // Calendar cells
@@ -1434,18 +1485,78 @@ export default function MyTimesheet() {
     setExpandedEntries(anyOpen ? new Set() : new Set(ents.map(e => e.id)));
   }
 
-  // ── Submit for approval ──────────────────────────────────────────────
+  // ── Submit / withdraw ────────────────────────────────────────────────
+  //
+  // This was a bare column UPDATE that set status to 'to_be_approved' and did
+  // nothing else — no workflow instance, no approver, no queue, no screen. The
+  // sheet said "Pending Approval" and was pending nowhere.
+  //
+  // submit_timesheet() (mig 730) asks whether a workflow is actually assigned
+  // to timesheet_headers. If none is, there is nobody to approve it, so it goes
+  // straight to 'approved' — which is honest, where waiting for ever was not.
+  // If one is, it goes to 'to_be_approved' and can be withdrawn.
   async function handleSubmit() {
     if (!header) return;
     setSubmitting(true);
-    const { error: updErr } = await supabase
-      .from('timesheet_headers')
-      .update({ status: 'to_be_approved', submitted_at: new Date().toISOString() })
-      .eq('id', header.id);
+    const { data, error: rpcErr } = await supabase.rpc('submit_timesheet', { p_header_id: header.id });
     setSubmitting(false);
-    if (updErr) { setError(updErr.message); return; }
+
+    if (rpcErr) { setError(rpcErr.message); return; }
+    if (!data?.ok) {
+      // ALREADY_PENDING / EMPTY / NOT_YOURS / NOT_FOUND all carry a sentence
+      // meant for the person reading it, so show that rather than the code.
+      setConfirmSubmit(false);
+      pushToast(data?.message ?? 'Could not submit this timesheet.', 'bad');
+      // Somebody else may have moved it; re-read rather than guess.
+      await refreshHeaderStatus();
+      return;
+    }
+
     setConfirmSubmit(false);
-    setHeader(h => h ? { ...h, status: 'to_be_approved', submitted_at: new Date().toISOString() } : h);
+    const nowIso = new Date().toISOString();
+    const next   = data.status as 'approved' | 'to_be_approved';
+    setHeader(h => h ? {
+      ...h,
+      status:       next,
+      submitted_at: nowIso,
+      approved_at:  next === 'approved' ? nowIso : null,
+    } : h);
+    pushToast(
+      next === 'approved'
+        ? 'Timesheet submitted and approved — no approval workflow is configured.'
+        : 'Timesheet submitted for approval.',
+    );
+  }
+
+  async function handleWithdraw() {
+    if (!header) return;
+    setWithdrawing(true);
+    const { data, error: rpcErr } = await supabase.rpc('withdraw_timesheet', { p_header_id: header.id });
+    setWithdrawing(false);
+
+    if (rpcErr) { setError(rpcErr.message); return; }
+    setConfirmWithdraw(false);
+    if (!data?.ok) {
+      pushToast(data?.message ?? 'Could not withdraw this timesheet.', 'bad');
+      await refreshHeaderStatus();
+      return;
+    }
+    setHeader(h => h ? { ...h, status: 'to_be_submitted', submitted_at: null, approved_at: null } : h);
+    pushToast('Withdrawn. You can edit and submit it again.');
+  }
+
+  /** Re-read just the three fields that submit/withdraw move, after a refusal.
+   *  Cheaper and less disruptive than a full reload, and it stops the screen
+   *  arguing with the database about what state the sheet is in. */
+  async function refreshHeaderStatus() {
+    if (!header) return;
+    const { data } = await supabase
+      .from('timesheet_headers')
+      .select('status, submitted_at, approved_at')
+      .eq('id', header.id)
+      .single();
+    if (!data) return;
+    setHeader(h => h ? { ...h, ...(data as Partial<TimesheetHeader>) } : h);
   }
 
   // ─────────────────────────────────────────────────────────────────────
@@ -1704,6 +1815,10 @@ export default function MyTimesheet() {
             />
           </div>
 
+          {/* Submit stays available on an APPROVED month while its window is
+              open, because editing an approved month is now allowed and a
+              corrected month has to be re-filed. With no workflow it simply
+              re-approves; with one it goes back into the queue. */}
           {editable && (
             <button
               onClick={() => setConfirmSubmit(true)}
@@ -1715,8 +1830,26 @@ export default function MyTimesheet() {
                 fontWeight: 600, fontSize: 13, cursor: entries.length === 0 ? 'not-allowed' : 'pointer',
                 display: 'flex', alignItems: 'center', gap: 6,
               }}
+              title={entries.length === 0 ? 'Nothing is recorded on this timesheet yet.' : undefined}
             >
-              <i className="fa-solid fa-paper-plane" /> Submit for Approval
+              <i className="fa-solid fa-paper-plane" />
+              {status === 'approved' ? 'Resubmit' : 'Submit for Approval'}
+            </button>
+          )}
+
+          {/* The way out of Pending Approval. Without it, submitting is still a
+              one-way door — which is the bug this whole change exists to fix. */}
+          {pending && (
+            <button
+              onClick={() => setConfirmWithdraw(true)}
+              style={{
+                padding: '7px 18px', borderRadius: 7, border: '1px solid #D0D5DD',
+                background: '#fff', color: '#1F2937', fontWeight: 600, fontSize: 13,
+                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+              }}
+              title="Take this timesheet back so you can change it"
+            >
+              <i className="fa-solid fa-rotate-left" style={{ fontSize: 11 }} /> Withdraw
             </button>
           )}
         </div>
@@ -2514,11 +2647,14 @@ export default function MyTimesheet() {
                 );
               })()}
 
-              {/* Locked notice */}
+              {/* Locked notice. It used to read "Pending Approval — entries are
+                  locked", which named the status without saying what to do
+                  about it. There are two different locks now and they have two
+                  different answers, so it says which one applies. */}
               {!editable && (
                 <div style={{ marginTop: 14, padding: '8px 12px', background: '#F9FAFB', borderRadius: 6, fontSize: 12, color: '#6B7280', textAlign: 'center' }}>
                   <i className="fa-solid fa-lock" style={{ marginRight: 5 }} />
-                  {statusM.label} — entries are locked.
+                  {lockReason}
                 </div>
               )}
             </div>
@@ -2740,18 +2876,28 @@ export default function MyTimesheet() {
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
               <i className="fa-solid fa-paper-plane" style={{ fontSize: 20, color: '#1D4ED8' }} />
-              <h3 style={{ fontSize: 16, fontWeight: 700, color: '#111827', margin: 0 }}>Submit Timesheet</h3>
+              <h3 style={{ fontSize: 16, fontWeight: 700, color: '#111827', margin: 0 }}>
+                {status === 'approved' ? 'Resubmit Timesheet' : 'Submit Timesheet'}
+              </h3>
             </div>
             <p style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.5, marginBottom: 8 }}>
-              Submit your <strong>{MONTH_NAMES[month - 1]} {year}</strong> timesheet for approval?
+              {status === 'approved' ? 'Resubmit your' : 'Submit your'}{' '}
+              <strong>{MONTH_NAMES[month - 1]} {year}</strong> timesheet for approval?
             </p>
             <p style={{ fontSize: 13, color: '#6B7280', marginBottom: 16 }}>
               Total recorded: <strong style={{ color: '#111827' }}>{fmtMins(entries.reduce((s,e) => s + e.hours_minutes, 0))}</strong>
               &nbsp;across&nbsp;<strong>{entries.length}</strong> {entries.length === 1 ? 'entry' : 'entries'}.
             </p>
-            <div style={{ fontSize: 12, color: '#D97706', background: '#FFF7ED', borderRadius: 6, padding: '8px 12px', marginBottom: 20 }}>
-              <i className="fa-solid fa-triangle-exclamation" style={{ marginRight: 5 }} />
-              Once submitted, entries cannot be added or edited.
+            {/* The old warning — "once submitted, entries cannot be added or
+                edited" — was true and permanent, because nothing could approve
+                the sheet and nothing could take it back. Both halves of what
+                can actually happen are stated instead, and the toast afterwards
+                says which one did. */}
+            <div style={{ fontSize: 12, color: '#1D4ED8', background: '#EFF6FF', borderRadius: 6, padding: '8px 12px', marginBottom: 20, lineHeight: 1.5 }}>
+              <i className="fa-solid fa-circle-info" style={{ marginRight: 5 }} />
+              If an approval workflow is set up, this goes to an approver and locks
+              until they act or you withdraw it. If not, it is approved straight away
+              and stays editable while the month is still open.
             </div>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button
@@ -2765,6 +2911,43 @@ export default function MyTimesheet() {
                 style={{ padding: '8px 20px', borderRadius: 7, border: 'none', background: '#1D4ED8', color: '#fff', fontWeight: 600, fontSize: 13, cursor: submitting ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 7 }}
               >
                 {submitting ? <><i className="fa-solid fa-spinner fa-spin" /> Submitting…</> : <><i className="fa-solid fa-check" /> Confirm Submit</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Withdraw confirmation modal ───────────────────────────────────── */}
+      {confirmWithdraw && (
+        <div
+          style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => setConfirmWithdraw(false)}
+        >
+          <div
+            style={{ background: '#fff', borderRadius: 12, padding: '28px 32px', width: 420, boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+              <i className="fa-solid fa-rotate-left" style={{ fontSize: 20, color: '#B45309' }} />
+              <h3 style={{ fontSize: 16, fontWeight: 700, color: '#111827', margin: 0 }}>Withdraw Timesheet</h3>
+            </div>
+            <p style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.5, marginBottom: 16 }}>
+              Take your <strong>{MONTH_NAMES[month - 1]} {year}</strong> timesheet back from
+              approval so you can change it? It returns to <strong>To Be Submitted</strong> and
+              you will need to submit it again.
+            </p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setConfirmWithdraw(false)}
+                style={{ padding: '8px 18px', borderRadius: 7, border: '1px solid #E5E7EB', background: '#fff', color: '#374151', fontWeight: 500, fontSize: 13, cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleWithdraw} disabled={withdrawing}
+                style={{ padding: '8px 20px', borderRadius: 7, border: 'none', background: '#B45309', color: '#fff', fontWeight: 600, fontSize: 13, cursor: withdrawing ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 7 }}
+              >
+                {withdrawing ? <><i className="fa-solid fa-spinner fa-spin" /> Withdrawing…</> : <><i className="fa-solid fa-rotate-left" /> Confirm Withdraw</>}
               </button>
             </div>
           </div>
