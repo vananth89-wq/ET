@@ -75,6 +75,19 @@ const C = {
 };
 /** Donut + legend colours by rank, so a project keeps one colour throughout. */
 const RANK = ['#2563EB', '#7C3AED', '#0F766E', '#10B981', '#F59E0B', '#F97316', '#64748B'];
+/** Non-project time: a neutral ramp, deliberately quieter than the projects. */
+const NEUTRAL = ['#94A3B8', '#CBD5E1', '#B8C0CC', '#DDE3EA'];
+/** Leave is the exception — it keeps the tint the weekly bars already use for
+ *  it, so the segment in a bar and the slice in the donut are the same fact. */
+const LEAVE_BLUE = '#93C5FD';
+
+/** One colour rule, used by the donut and by its legend, so the two can never
+ *  disagree about which slice is which. */
+function sliceColor(p: { noProject: boolean; isLeave: boolean }, rank: number, otherRank: number) {
+  if (p.isLeave)   return LEAVE_BLUE;
+  if (p.noProject) return NEUTRAL[Math.min(otherRank, NEUTRAL.length - 1)];
+  return RANK[Math.min(rank, RANK.length - 1)];
+}
 
 // ─── Small presentational pieces ─────────────────────────────────────────────
 
@@ -231,20 +244,43 @@ export default function SummarySection({
     for (const x of days) { if (x.dow === 0 && bucket.length) flush(); bucket.push(x); }
     flush();
 
-    // Project split. Time with no project — training, leave — is one grey slice
-    // rather than an omission, so the donut still totals Recorded.
-    const byName = new Map<string, number>();
-    let noProject = 0;
+    // ── Project split ───────────────────────────────────────────────────
+    // Non-project time is named by its TIME TYPE — Annual Leave, Training —
+    // rather than collapsed into one grey "No project" slice.
+    //
+    // The lump was the reason a month with eight hours of leave in it could be
+    // read end to end without the word appearing once: the hours were in
+    // Recorded, in the day cell, and in the weekly bar's second segment, and
+    // nowhere did anything say what they were. This is the block that exists to
+    // cover non-project time, so it is the block that has to name it.
+    const byName  = new Map<string, number>();
+    const byOther = new Map<string, { minutes: number; isLeave: boolean }>();
     for (const e of entries) {
       if (e.hours_minutes <= 0) continue;
       const p = Array.isArray(e.projects) ? e.projects[0] : e.projects;
-      if (p?.name) byName.set(p.name, (byName.get(p.name) ?? 0) + e.hours_minutes);
-      else noProject += e.hours_minutes;
+      if (p?.name) { byName.set(p.name, (byName.get(p.name) ?? 0) + e.hours_minutes); continue; }
+
+      const t = Array.isArray(e.time_types) ? e.time_types[0] : e.time_types;
+      const key = t?.name ?? 'Other attendance';
+      const cur = byOther.get(key);
+      if (cur) { cur.minutes += e.hours_minutes; cur.isLeave = cur.isLeave || e.entry_kind === 'leave'; }
+      else byOther.set(key, { minutes: e.hours_minutes, isLeave: e.entry_kind === 'leave' });
     }
-    const projects = [...byName.entries()]
-      .map(([name, minutes]) => ({ name, minutes, noProject: false }))
-      .sort((a, b) => b.minutes - a.minutes);
-    if (noProject > 0) projects.push({ name: 'No project', minutes: noProject, noProject: true });
+
+    const projects = [
+      ...[...byName.entries()]
+        .map(([name, minutes]) => ({ name, minutes, noProject: false, isLeave: false }))
+        .sort((a, b) => b.minutes - a.minutes),
+      // Non-project groups come after the projects whatever their size, so the
+      // donut's colour ranking still tracks project order and a project keeps
+      // the same colour here and in the cards below.
+      ...[...byOther.entries()]
+        .map(([name, r]) => ({ name, minutes: r.minutes, noProject: true, isLeave: r.isLeave }))
+        .sort((a, b) => b.minutes - a.minutes),
+    ];
+
+    const leaveMinutes = days.reduce((s, x) => s + x.leave, 0);
+    const leaveDays    = days.filter(x => x.leave > 0).length;
 
     // ── Project → activities ────────────────────────────────────────────
     // PROJECT-BEARING ENTRIES ONLY. Training, leave and any other time with no
@@ -303,7 +339,7 @@ export default function SummarySection({
 
     return {
       days, working, recorded, logged, missing, todayOpen, aheadN, weeks, projects,
-      projectActs, projectTotal,
+      projectActs, projectTotal, leaveMinutes, leaveDays,
       // Clamped: past plan this is negative, and "−12h to log" is not a thing.
       remaining: Math.max(0, plannedMinutes - recorded),
       over:      Math.max(0, recorded - plannedMinutes),
@@ -315,6 +351,13 @@ export default function SummarySection({
   const pace = d.aheadN > 0 ? d.remaining / d.aheadN : 0;
   const donutTotal = d.projects.reduce((s, p) => s + p.minutes, 0);
   const donutPcts  = wholePercents(d.projects.map(p => p.minutes), donutTotal);
+  // Projects and non-project groups are ranked separately so each walks its own
+  // palette — otherwise the first non-project slice would take the next project
+  // colour and read as a project.
+  const donutColors = (() => {
+    let r = 0, o = 0;
+    return d.projects.map(p => sliceColor(p, p.noProject ? 0 : r++, p.noProject ? o++ : 0));
+  })();
   const projPcts   = wholePercents(d.projectActs.map(p => p.minutes), d.projectTotal);
 
   return (
@@ -342,7 +385,15 @@ export default function SummarySection({
           ? <Kpi label="Over plan" value={h1(d.over)} unit="h" tone={C.amber} sub="beyond the month's target" />
           : <Kpi label="Remaining" value={h1(d.remaining)} unit="h"
                  tone={d.attain < 80 ? C.amber : C.green} sub="to log this month" />}
-        <Kpi label="Attainment" value={d.attain.toFixed(1)} unit="%" tone="#475569" sub="of monthly target" />
+        {/* Attainment used to sit here and say exactly what the labelled bar in
+            the panel below says, under the same word, with a whole sentence of
+            context this tile could not carry. Leave had no home at all: eight
+            hours of it landed in Recorded, in a day cell and in a weekly bar
+            segment without the word appearing once in this summary. */}
+        <Kpi label="Leave" value={String(d.leaveDays)}
+             tone={d.leaveDays ? '#1D4ED8' : C.ink4}
+             sub={d.leaveDays === 0 ? 'no leave this month'
+                : `${d.leaveDays === 1 ? 'day' : 'days'} · ${h1(d.leaveMinutes)}h recorded`} />
         <Kpi label="Days Logged" value={String(d.logged)} tone={C.green}
              sub={`of ${d.working.length} working days`} />
         <Kpi label="Missing Entries" value={String(d.missing.length)}
@@ -357,7 +408,19 @@ export default function SummarySection({
         <div style={panelSt}>
           <div style={pTitleSt}>
             Weekly Progress
-            <em style={{ fontStyle: 'normal', fontSize: 11, fontWeight: 600, color: C.ink4 }}>Sun – Sat</em>
+            <em style={{ fontStyle: 'normal', fontSize: 11, fontWeight: 600, color: C.ink4,
+                         display: 'flex', alignItems: 'center', gap: 10 }}>
+              {/* The bars have carried a leave segment since they were built and
+                  nothing ever said so. One key for the panel, rather than the
+                  per-row caption the compact layout had no room for. */}
+              {d.leaveMinutes > 0 && (
+                <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: 2, background: LEAVE_BLUE }} />
+                  leave
+                </span>
+              )}
+              <span>Sun – Sat</span>
+            </em>
           </div>
 
           {d.weeks.map((w, i) => {
@@ -503,7 +566,10 @@ export default function SummarySection({
         {/* ── By project ────────────────────────────────────────────── */}
         <div style={panelSt}>
           <div style={pTitleSt}>
-            By Project
+            {/* Not "By Project" any more: it names Annual Leave and Training as
+                their own slices, so a title claiming projects would be
+                describing two thirds of what is on screen. */}
+            By Project &amp; Type
             <em style={{ fontStyle: 'normal', fontSize: 11, fontWeight: 600, color: C.ink4 }}>
               {h1(donutTotal)}h of {h1(d.recorded)}h recorded
             </em>
@@ -525,7 +591,7 @@ export default function SummarySection({
                     cum += pct;
                     return (
                       <circle key={p.name} cx="21" cy="21" r="15.9155" fill="none" strokeWidth="5"
-                        stroke={p.noProject ? '#9CA3AF' : RANK[Math.min(i, RANK.length - 1)]}
+                        stroke={donutColors[i]}
                         strokeDasharray={`${pct} ${100 - pct}`} strokeDashoffset={off} />
                     );
                   });
@@ -542,7 +608,7 @@ export default function SummarySection({
                 {d.projects.map((p, i) => (
                   <div key={p.name} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 9 }}>
                     <span style={{ width: 9, height: 9, borderRadius: 3, flex: 'none',
-                                   background: p.noProject ? '#9CA3AF' : RANK[Math.min(i, RANK.length - 1)] }} />
+                                   background: donutColors[i] }} />
                     <span style={{ flex: 1, fontSize: 12.5, fontWeight: 600,
                                    color: p.noProject ? C.ink4 : C.ink2 }}>{p.name}</span>
                     <span style={{ fontSize: 12.5, fontWeight: 700, color: p.noProject ? C.ink3 : C.ink }}>

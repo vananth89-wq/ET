@@ -1,5 +1,5 @@
 import { Page, View, Text } from '@react-pdf/renderer';
-import { styles, colors, rankColors } from '../utils/pdfStyles';
+import { styles, colors, rankColors, dayState } from '../utils/pdfStyles';
 import { PDFHeader } from '../components/PDFHeader';
 import { PDFFooter } from '../components/PDFFooter';
 import { SectionHead } from '../components/SectionHead';
@@ -182,19 +182,45 @@ export function Page3WeeklyProjects({ data }: { data: TimesheetExportData }) {
                   other non-project attendance are real hours; letting them fall
                   out of the bottom of a section headed "of 80h recorded" is how
                   a total stops adding up. No bar — it is not a project. */}
+              {/* WHAT THE CARDS ABOVE CANNOT SHOW, NAMED.
+                  This was one line reading "Non-project attendance" against a
+                  total — which is where a month's leave went to be anonymous.
+                  The hours were in Recorded, in the calendar and in the weekly
+                  bars, and the word "leave" appeared nowhere on this page.
+
+                  HOURS ONLY, no percentages. The shares above are of PROJECT
+                  time and these rows are by definition not project time, so
+                  their share could only be of the month. One column holding
+                  both gave 44 + 33 + 20 + 3 + 13 = 113, and a reader who adds a
+                  column and gets 113 is right to stop believing the rest. The
+                  hours close the gap on their own: project time in the heading,
+                  these rows, and the month total below. */}
               {rest > 0 && (
-                <View style={styles.actStack} wrap={false}>
-                  <View style={styles.actTop}>
-                    <Text style={styles.restTxt}>Non-project attendance</Text>
-                    {/* HOURS ONLY, deliberately. The percentages above are of
-                        PROJECT time; this row is the part that is not project
-                        time, so its share can only be of the month. Printing
-                        both in one column gave 44 + 33 + 20 + 3 + 13 = 113 and
-                        a reader who adds a column and gets 113 is right to stop
-                        believing the rest. The hours close the gap on their own:
-                        70h of project work, 10h here, 80h recorded below. */}
-                    <Text style={styles.restTxt}>{fmtHMWide(rest)}</Text>
-                  </View>
+                <View style={styles.npWrap} wrap={false}>
+                  <Text style={styles.npHead}>NON-PROJECT ATTENDANCE</Text>
+                  {data.nonProjectTypes.map(t => (
+                    <View key={t.name} style={styles.npRow}>
+                      <View style={{
+                        ...styles.npDot,
+                        backgroundColor: t.isLeave ? dayState.leave.dot : colors.ink4,
+                      }} />
+                      <Text style={styles.npName}>{t.name}</Text>
+                      <Text style={styles.npHrs}>{fmtHMWide(t.minutes)}</Text>
+                    </View>
+                  ))}
+                  {/* Only if the named rows somehow fail to reach the gap —
+                      they are derived from the same entries, so this should
+                      never draw. An unexplained difference is worse than an
+                      ugly one. */}
+                  {rest - data.nonProjectTypes.reduce((s, t) => s + t.minutes, 0) > 0 && (
+                    <View style={styles.npRow}>
+                      <View style={{ ...styles.npDot, backgroundColor: colors.ink4 }} />
+                      <Text style={styles.npName}>Unaccounted</Text>
+                      <Text style={styles.npHrs}>
+                        {fmtHMWide(rest - data.nonProjectTypes.reduce((s, t) => s + t.minutes, 0))}
+                      </Text>
+                    </View>
+                  )}
                 </View>
               )}
 

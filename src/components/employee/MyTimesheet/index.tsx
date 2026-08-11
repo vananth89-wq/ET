@@ -24,7 +24,8 @@ import type { ActivityHistoryItem }                   from './ActivityAutocomple
 import { ExportPDFButton }                            from './ExportPDF';
 import type { TimesheetExportData, ExportDay, ExportEntry }
                                                       from './ExportPDF/types';
-import { buildWeeks, buildProjects, buildActivityTotals, buildProjectActivities, entryMinutes }
+import { buildWeeks, buildProjects, buildActivityTotals, buildProjectActivities,
+         buildNonProjectTypes, entryMinutes }
                                                       from './ExportPDF/utils/dataTransforms';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -1271,6 +1272,7 @@ export default function MyTimesheet() {
       // section states that denominator in its own heading, and the difference
       // from `recorded` is printed there as non-project attendance.
       projectActivities: buildProjectActivities(expEntries),
+      nonProjectTypes:   buildNonProjectTypes(expEntries),
 
       submittedAt: header.submitted_at,
       approvedAt:  header.approved_at,

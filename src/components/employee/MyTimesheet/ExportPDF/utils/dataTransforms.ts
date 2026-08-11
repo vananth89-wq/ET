@@ -1,6 +1,6 @@
 import type {
   ExportDay, ExportEntry, ExportWeek, ExportProject, ExportActivityTotal,
-  ExportProjectActivity, ExportProjectBreakdown,
+  ExportProjectActivity, ExportProjectBreakdown, ExportNonProjectType,
 } from '../types';
 
 /**
@@ -262,4 +262,24 @@ export function buildProjectActivities(entries: ExportEntry[]): ExportProjectBre
   list.forEach((p, i) => { p.pctOfProjectTime = pcts[i]; });
 
   return list;
+}
+
+/**
+ * The other half of buildProjectActivities: everything with no project on it,
+ * grouped by time type. Leave, training, and anything else that is real
+ * attendance but belongs to no project.
+ *
+ * Together the two cover every recorded minute, which is the property page 3
+ * relies on when it prints the month total underneath them both.
+ */
+export function buildNonProjectTypes(entries: ExportEntry[]): ExportNonProjectType[] {
+  const byType = new Map<string, ExportNonProjectType>();
+  for (const e of entries) {
+    if (e.project || e.minutes <= 0) continue;
+    const key = e.typeName || 'Other attendance';
+    const cur = byType.get(key);
+    if (cur) { cur.minutes += e.minutes; cur.isLeave = cur.isLeave || e.kind === 'leave'; }
+    else byType.set(key, { name: key, minutes: e.minutes, isLeave: e.kind === 'leave' });
+  }
+  return [...byType.values()].sort((a, b) => b.minutes - a.minutes);
 }

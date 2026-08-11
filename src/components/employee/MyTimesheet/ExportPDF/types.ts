@@ -90,6 +90,22 @@ export interface ExportProjectBreakdown {
   activities: ExportProjectActivity[];
 }
 
+/**
+ * Non-project attendance, named by its time type.
+ *
+ * The nested project section on page 3 cannot show these — they have no project
+ * to sit under — so they used to arrive as a single "Non-project attendance"
+ * line. That line was where a month's leave went to be unnamed: the hours were
+ * in Recorded, in the calendar and in the weekly bars, and the word appeared
+ * nowhere on the page except a KPI count of days.
+ */
+export interface ExportNonProjectType {
+  name:     string;
+  minutes:  number;
+  /** Drawn in the calendar's leave ink, so the row and the day cells agree. */
+  isLeave:  boolean;
+}
+
 export interface ExportActivityTotal {
   name:       string;
   minutes:    number;
@@ -110,6 +126,8 @@ export interface TimesheetExportData {
 
   /** Page 3's nested breakdown. Project-bearing entries only. */
   projectActivities: ExportProjectBreakdown[];
+  /** What page 3's nested breakdown deliberately excludes, named. */
+  nonProjectTypes: ExportNonProjectType[];
 
   // ── KPIs, all pre-computed ────────────────────────────────────────────
   plannedMinutes:  number;

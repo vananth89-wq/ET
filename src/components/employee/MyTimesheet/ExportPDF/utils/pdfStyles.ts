@@ -324,6 +324,15 @@ export const styles = StyleSheet.create({
   pActTrack: { width: '100%', height: 3, backgroundColor: '#EDEFF2', borderRadius: 2 },
   pActFill:  { height: 3, borderRadius: 2 },
 
+  // ── Page 3: non-project attendance, named ─────────────────────────────
+  npWrap:    { marginTop: 4, paddingTop: 7, borderTopWidth: 1, borderTopColor: colors.border },
+  npHead:    { fontSize: 7, letterSpacing: 0.7, color: colors.ink4,
+               fontFamily: 'Helvetica-Bold', marginBottom: 4 },
+  npRow:     { flexDirection: 'row', alignItems: 'center', paddingVertical: 2.5 },
+  npDot:     { width: 5, height: 5, borderRadius: 2.5, marginRight: 7 },
+  npName:    { flex: 1, fontSize: 8.5, color: colors.ink3 },
+  npHrs:     { fontSize: 8.5, color: colors.ink2, fontFamily: 'Helvetica-Bold' },
+
   docLine:   { textAlign: 'center', fontSize: 7, color: colors.ink4, marginTop: 5 },
 
   // ── info grid ───────────────────────────────────────────────────────
