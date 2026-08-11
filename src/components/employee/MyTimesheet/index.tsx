@@ -785,8 +785,17 @@ export default function MyTimesheet() {
     else pushToast(data?.message ?? 'Could not undo.', 'bad');
   }
 
-  async function reloadEntries() {
-    if (!header) return;
+  /**
+   * THE reload. Entries plus the header fields a write can move.
+   *
+   * Returns the list because the callers that follow a write need it for the
+   * recorded-minutes sync, and needing it is exactly why two of them grew their
+   * own hand-written copy of this query instead of calling it. One of those
+   * copies is why editing an approved entry did not re-enable Resubmit: the
+   * change stamp was re-read here and nowhere else.
+   */
+  async function reloadEntries(): Promise<TimesheetEntry[]> {
+    if (!header) return entries;
     const { data: ents } = await supabase
       .from('timesheet_entries')
       .select(`id, header_id, entry_date, entry_kind, project_id, time_type_id, hours_minutes, notes, activities, is_system_generated, timesheet_entry_activities(id, activity_name, hours_minutes, display_order), time_types(name,code,category,requires_project), projects(name)`)
@@ -811,6 +820,8 @@ export default function MyTimesheet() {
       recorded_minutes:   list.reduce((s, e) => s + e.hours_minutes, 0),
       content_changed_at: hdr?.content_changed_at ?? h.content_changed_at,
     } : h);
+
+    return list;
   }
 
   // ── Day occupancy — the client half of migration 726 ──────────────────
@@ -1331,11 +1342,18 @@ export default function MyTimesheet() {
   // content_changed_at is maintained by a trigger on entries AND on activity
   // lines, because a delete leaves no row behind to inspect and an activity
   // reshuffle can change the day without moving the day's total.
+  // Parsed, not string-compared. PostgREST serialises timestamptz as
+  // "…+00:00" while a client-side new Date().toISOString() ends in "Z", and the
+  // two sort against each other by character: within the same second,
+  // "…123456+00:00" reads as EARLIER than "…123Z" because '4' < 'Z'. Fine most
+  // of the time and wrong exactly when the edit follows the approval closely,
+  // which is the case this whole feature is about.
+  const ts = (v: string | null | undefined) => (v ? Date.parse(v) : NaN);
   const changedSinceApproval =
-    status !== 'approved'            ? true                       // nothing to compare against
-    : header?.approved_at == null    ? true                       // approved with no stamp: fail open
+    status !== 'approved'                ? true   // nothing to compare against
+    : header?.approved_at == null        ? true   // approved with no stamp: fail open
     : header?.content_changed_at == null ? false
-    : header.content_changed_at > header.approved_at;
+    : !(ts(header.content_changed_at) <= ts(header.approved_at));  // NaN-safe: unknown means show it
 
   const submitBlocked =
     entries.length === 0 ? 'Nothing is recorded on this timesheet yet.'
@@ -1517,22 +1535,16 @@ export default function MyTimesheet() {
     if (saveErr)      { setFormErr(saveErr.message); setSaving(false); return; }
     if (!saveRes?.ok) { setFormErr(saveRes?.message ?? 'Could not save this entry.'); setSaving(false); return; }
 
-    let newEntries: TimesheetEntry[];
-
     // Same treatment as the Create modal — one helper, one behaviour.
     if (cleanActivities) noteActivitiesUsed(cleanActivities);
 
-    // Reload entries then sync recorded_minutes
-    const { data: ents } = await supabase
-      .from('timesheet_entries')
-      .select(`id, header_id, entry_date, entry_kind, project_id, time_type_id, hours_minutes, notes, activities, is_system_generated, timesheet_entry_activities(id, activity_name, hours_minutes, display_order), time_types(name,code,category,requires_project), projects(name)`)
-      .eq('header_id', header.id)
-      .order('entry_date').order('created_at');
-
-    newEntries = (ents ?? []) as unknown as TimesheetEntry[];
-    setEntries(newEntries);
+    // This used to be a private copy of reloadEntries' query, inlined here
+    // because it needed the list back. It drifted the moment reloadEntries
+    // learned to re-read content_changed_at: saving an entry on an approved
+    // month wrote the hours, moved the total, and left Resubmit greyed out
+    // saying "No changes since approval" over a change that had just happened.
+    const newEntries = await reloadEntries();
     await syncRecordedMinutes(header.id, newEntries);
-    setHeader(h => h ? { ...h, recorded_minutes: newEntries.reduce((s,e) => s + e.hours_minutes, 0) } : h);
 
     setSaving(false);
     cancelForm();
@@ -1543,10 +1555,11 @@ export default function MyTimesheet() {
     const { error: delErr } = await supabase.from('timesheet_entries').delete().eq('id', entryId);
     if (delErr) { setError(delErr.message); return; }
 
-    const newEntries = entries.filter(e => e.id !== entryId);
-    setEntries(newEntries);
+    // Filtering the list locally would save a round trip and is how this used to
+    // work — but the header's change stamp only exists server-side, so a delete
+    // that never re-read it left the sheet looking untouched. One path.
+    const newEntries = await reloadEntries();
     await syncRecordedMinutes(header.id, newEntries);
-    setHeader(h => h ? { ...h, recorded_minutes: newEntries.reduce((s,e) => s + e.hours_minutes, 0) } : h);
     if (editingEntry?.id === entryId) cancelForm();
   }
 
@@ -1607,14 +1620,13 @@ export default function MyTimesheet() {
     }
 
     setConfirmSubmit(false);
-    const nowIso = new Date().toISOString();
-    const next   = data.status as 'approved' | 'to_be_approved';
-    setHeader(h => h ? {
-      ...h,
-      status:       next,
-      submitted_at: nowIso,
-      approved_at:  next === 'approved' ? nowIso : null,
-    } : h);
+    const next = data.status as 'approved' | 'to_be_approved';
+    // Optimistic status so the chip flips immediately, then the real timestamps.
+    // The browser's clock must not set approved_at: content_changed_at comes
+    // from the database, and comparing one machine's clock against another's is
+    // how "nothing has changed" survives a change made seconds later.
+    setHeader(h => h ? { ...h, status: next } : h);
+    await refreshHeaderStatus();
     pushToast(
       next === 'approved'
         ? 'Timesheet submitted and approved — no approval workflow is configured.'
