@@ -19,6 +19,7 @@ import { useAuth }                                    from '../../../contexts/Au
 import { supabase }                                   from '../../../lib/supabase';
 import ErrorBanner                                    from '../../shared/ErrorBanner';
 import ActivityAutocomplete                           from './ActivityAutocomplete';
+import SummarySection                                 from './SummarySection';
 import type { ActivityHistoryItem }                   from './ActivityAutocomplete';
 import { ExportPDFButton }                            from './ExportPDF';
 import type { TimesheetExportData, ExportDay, ExportEntry }
@@ -431,6 +432,29 @@ export default function MyTimesheet() {
 
   // Hovered calendar day - drives the cell hover state and the empty-day CTA
   const [hoverDate, setHoverDate] = useState<string | null>(null);
+
+  // ── Days / Summary ────────────────────────────────────────────────────
+  // NOT a router and NOT a display toggle. Both blocks are always mounted in
+  // one scroll flow; the tabs move the viewport and the scroll position moves
+  // the tabs back. Someone who never touches a tab still reaches the summary
+  // by scrolling, which is the whole point.
+  const scrollRef  = useRef<HTMLDivElement | null>(null);
+  const summaryRef = useRef<HTMLDivElement | null>(null);
+  const [atSummary, setAtSummary] = useState(false);
+
+  function scrollToSummary() {
+    summaryRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  function scrollToCalendar() {
+    // The page header lives OUTSIDE the scrolling element, so scrollIntoView on
+    // it does nothing. Scroll the container itself.
+    scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+  /** A missing-day chip: go back up and open that day, ready to record. */
+  function jumpToDate(dateStr: string | null) {
+    scrollToCalendar();
+    if (dateStr) { setSelectedDate(dateStr); setPanelOpen(true); cancelForm(); }
+  }
 
   // Expand/collapse per entry card in the panel
   const [expandedEntries, setExpandedEntries] = useState<Set<string>>(new Set());
@@ -1713,6 +1737,27 @@ export default function MyTimesheet() {
             <Stat label="Submitted" value={new Date(header.submitted_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} />
           )}
         </div>
+        {/* Tabs — these SCROLL, they do not switch. Nothing is unmounted, so
+            the summary stays reachable by scrolling whether or not anyone
+            presses one, and the active tab follows the viewport. */}
+        <div style={{ display: 'flex', gap: 22, marginTop: 12, marginBottom: -12 }}>
+          {([['days', 'Days'], ['summary', 'Summary']] as const).map(([k, label]) => {
+            const on = k === 'summary' ? atSummary : !atSummary;
+            return (
+              <button
+                key={k}
+                onClick={() => (k === 'summary' ? scrollToSummary() : scrollToCalendar())}
+                style={{
+                  background: 'none', border: 'none', padding: '0 0 9px', font: 'inherit',
+                  fontSize: 13, fontWeight: on ? 700 : 500,
+                  color: on ? '#1D4ED8' : '#6B7280', cursor: 'pointer',
+                  borderBottom: `2px solid ${on ? '#2563EB' : 'transparent'}`,
+                  transition: 'color 0.12s ease, border-color 0.12s ease',
+                }}
+              >{label}</button>
+            );
+          })}
+        </div>
       </div>
 
       {error && <div style={{ padding: '8px 24px' }}><ErrorBanner message={error} onRetry={loadPeriod} /></div>}
@@ -1721,7 +1766,17 @@ export default function MyTimesheet() {
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
 
         {/* ── Calendar ──────────────────────────────────────────────────── */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px 40px' }}>
+        <div
+          ref={scrollRef}
+          onScroll={() => {
+            const el = scrollRef.current, sum = summaryRef.current;
+            if (!el || !sum) return;
+            // "At the summary" once its top passes the upper third of the
+            // viewport — the point where it is what you are actually reading.
+            setAtSummary(sum.offsetTop - el.scrollTop < el.clientHeight / 3);
+          }}
+          style={{ flex: 1, overflowY: 'auto', padding: '16px 20px 40px' }}
+        >
           {loading ? (
             <div style={{ textAlign: 'center', padding: 60, color: '#9CA3AF' }}>
               <i className="fa-solid fa-spinner fa-spin" style={{ fontSize: 22, display: 'block', marginBottom: 10 }} />
@@ -2049,6 +2104,22 @@ export default function MyTimesheet() {
                   <span><span style={{ color: '#10B981', fontWeight: 800 }}>▬</span> Complete</span>
                   <span><span style={{ color: '#6366F1', fontWeight: 800 }}>▬</span> Overtime</span>
                 </div>
+              </div>
+
+              {/* ── Monthly Summary ─────────────────────────────────────
+                  Same scroll flow as the calendar, never unmounted. Every
+                  figure is derived from state already on this page, so it
+                  cannot disagree with the grid above it. */}
+              <div ref={summaryRef} id="summary-section">
+                <SummarySection
+                  year={year}
+                  month={month}
+                  entries={entries}
+                  plannedMinutes={header?.planned_minutes ?? 0}
+                  plannedFor={plannedFor}
+                  todayIso={todayIso}
+                  onJumpToDate={jumpToDate}
+                />
               </div>
             </>
           )}
