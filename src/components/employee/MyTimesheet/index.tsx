@@ -24,7 +24,7 @@ import type { ActivityHistoryItem }                   from './ActivityAutocomple
 import { ExportPDFButton }                            from './ExportPDF';
 import type { TimesheetExportData, ExportDay, ExportEntry }
                                                       from './ExportPDF/types';
-import { buildWeeks, buildProjects, buildActivityTotals, entryMinutes }
+import { buildWeeks, buildProjects, buildActivityTotals, buildProjectActivities, entryMinutes }
                                                       from './ExportPDF/utils/dataTransforms';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -1267,6 +1267,10 @@ export default function MyTimesheet() {
       // was 80 hours -- 41% of something the reader could not see.
       projects:   buildProjects(expEntries, recorded),
       activities: buildActivityTotals(expEntries, recorded),
+      // Nested, and measured against project time rather than the month -- the
+      // section states that denominator in its own heading, and the difference
+      // from `recorded` is printed there as non-project attendance.
+      projectActivities: buildProjectActivities(expEntries),
 
       submittedAt: header.submitted_at,
       approvedAt:  header.approved_at,

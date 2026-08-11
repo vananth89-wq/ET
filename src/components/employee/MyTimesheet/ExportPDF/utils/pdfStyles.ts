@@ -286,6 +286,44 @@ export const styles = StyleSheet.create({
   // fourth IS the bar.
   actMeta:   { fontSize: 8, color: colors.ink4 },
 
+  // ── Page 3: a project card with its activities nested inside ──────────
+  // A bordered box per project, because the whole point of the nesting is that
+  // you can see where one project's hours stop and the next one's start. A rule
+  // between them would not do that — the activity lines already have rules.
+  pCard:     { borderWidth: 1, borderColor: colors.border, borderRadius: 5,
+               marginBottom: 7 },
+  pCardHead: { flexDirection: 'row', alignItems: 'center',
+               paddingVertical: 5, paddingHorizontal: 8,
+               backgroundColor: '#FAFBFC',
+               borderBottomWidth: 1, borderBottomColor: colors.border },
+  pDot:      { width: 6, height: 6, borderRadius: 2, marginRight: 6 },
+  pName:     { flex: 1, fontSize: 9.5, fontFamily: 'Helvetica-Bold', color: colors.ink },
+  pDays:     { fontSize: 7.5, color: colors.ink4, marginRight: 10 },
+  pHrs:      { fontSize: 9.5, fontFamily: 'Helvetica-Bold', color: colors.ink, marginRight: 8 },
+  pPct:      { fontSize: 8, color: colors.ink3, width: 26, textAlign: 'right' },
+
+  pActs:     { paddingHorizontal: 8, paddingTop: 2, paddingBottom: 6 },
+  pActRow:   { paddingTop: 5 },
+  pActTop:   { flexDirection: 'row', alignItems: 'baseline' },
+  pActNo:    { fontSize: 7.5, color: colors.ink4, width: 12 },
+  pActName:  { flex: 1, fontSize: 8.5, color: colors.ink2 },
+  // The remainder row is a caveat, not a finding. Grey, so it never reads as
+  // something a person typed into the app.
+  pActNameQ: { flex: 1, fontSize: 8.5, color: colors.ink4 },
+  pActHrs:   { fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: colors.ink },
+  pActHrsQ:  { fontSize: 8.5, color: colors.ink3 },
+  // The indent lives on a WRAPPER, not on the track. width:'100%' resolves
+  // against the parent's content box and marginLeft is applied afterwards, so
+  // putting both on one View made every bar overrun the card border by exactly
+  // the indent — visible only once rasterised, which is the whole argument for
+  // rendering these before shipping them.
+  pActBar:   { paddingLeft: 12, marginTop: 3 },
+  // Slimmer than the project bars above it: a hierarchy you can see without
+  // reading. width '100%' and never flex — a track inside a COLUMN parent
+  // solved on the wrong axis once already and rendered as a hairline.
+  pActTrack: { width: '100%', height: 3, backgroundColor: '#EDEFF2', borderRadius: 2 },
+  pActFill:  { height: 3, borderRadius: 2 },
+
   docLine:   { textAlign: 'center', fontSize: 7, color: colors.ink4, marginTop: 5 },
 
   // ── info grid ───────────────────────────────────────────────────────

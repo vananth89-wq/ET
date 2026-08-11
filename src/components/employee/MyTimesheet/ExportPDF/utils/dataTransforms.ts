@@ -1,5 +1,6 @@
 import type {
   ExportDay, ExportEntry, ExportWeek, ExportProject, ExportActivityTotal,
+  ExportProjectActivity, ExportProjectBreakdown,
 } from '../types';
 
 /**
@@ -175,4 +176,90 @@ export function entryMinutes(
 ): number {
   if (activities && activities.length) return activities.reduce((s, a) => s + a.minutes, 0);
   return parentMinutes ?? 0;
+}
+
+/**
+ * Whole percentages that actually total 100.
+ *
+ * Rounding each share independently is what produced 102% on a five-project
+ * month: five values each rounding up, and a reader who adds a column of
+ * printed numbers and gets the wrong answer stops trusting the ones they did
+ * not check. Largest-remainder gives every entry its floor, then hands the
+ * leftover points to whichever shares were cut hardest.
+ *
+ * Only meaningful when `values` sums to `total`. Where it does not — the
+ * activity chart, measured against the month — the remainder is a real fact and
+ * is printed as its own row instead.
+ */
+export function wholePercents(values: number[], total: number): number[] {
+  if (total <= 0 || values.length === 0) return values.map(() => 0);
+  const exact  = values.map(v => (v / total) * 100);
+  const out    = exact.map(Math.floor);
+  let leftover = 100 - out.reduce((s, n) => s + n, 0);
+  const byFrac = exact
+    .map((e, i) => ({ i, frac: e - Math.floor(e) }))
+    .sort((a, b) => b.frac - a.frac);
+  for (let k = 0; k < byFrac.length && leftover > 0; k++, leftover--) out[byFrac[k].i] += 1;
+  return out;
+}
+
+/**
+ * Projects with their activities nested underneath — page 3's chart.
+ *
+ * PROJECT-BEARING ENTRIES ONLY. Training, leave and anything else without a
+ * project are absent by design: they have no project to sit under. They are not
+ * lost — the page prints the non-project remainder as its own line, and the
+ * activity chart on page 4 counts every activity whether or not it had a
+ * project. Two blocks, two scopes, each stated in its heading.
+ */
+export function buildProjectActivities(entries: ExportEntry[]): ExportProjectBreakdown[] {
+  const byProject = new Map<string, {
+    minutes: number; days: Set<string>; acts: Map<string, ExportProjectActivity>;
+  }>();
+
+  for (const e of entries) {
+    if (!e.project || e.minutes <= 0) continue;
+    const row = byProject.get(e.project)
+      ?? { minutes: 0, days: new Set<string>(), acts: new Map<string, ExportProjectActivity>() };
+    row.minutes += e.minutes;
+    row.days.add(e.date);
+
+    const add = (name: string, minutes: number, itemised: boolean) => {
+      const cur = row.acts.get(name);
+      if (cur) { cur.minutes += minutes; cur.itemised = cur.itemised && itemised; }
+      else row.acts.set(name, { name, minutes, itemised });
+    };
+
+    let itemised = 0;
+    for (const a of e.activities) {
+      if (a.minutes > 0) { add(a.name, a.minutes, true); itemised += a.minutes; }
+    }
+
+    // A pre-727 entry carries activity NAMES with no hours split, so `itemised`
+    // lands short of the entry total. Printing the names against nothing would
+    // imply a measurement that was never taken; dropping the difference would
+    // leave a card whose lines do not add up to its own header. Named instead.
+    const gap = e.minutes - itemised;
+    if (gap > 0) add('Not itemised', gap, false);
+
+    byProject.set(e.project, row);
+  }
+
+  const list = [...byProject.entries()]
+    .map(([name, r]) => ({
+      name,
+      minutes:    r.minutes,
+      daysActive: r.days.size,
+      pctOfProjectTime: 0,
+      activities: [...r.acts.values()].sort((a, b) =>
+        // The caveat row sits last however big it is, so real work reads first.
+        a.itemised === b.itemised ? b.minutes - a.minutes : a.itemised ? -1 : 1),
+    }))
+    .sort((a, b) => b.minutes - a.minutes);
+
+  const total = list.reduce((s, p) => s + p.minutes, 0);
+  const pcts  = wholePercents(list.map(p => p.minutes), total);
+  list.forEach((p, i) => { p.pctOfProjectTime = pcts[i]; });
+
+  return list;
 }

@@ -62,6 +62,34 @@ export interface ExportProject {
   daysActive: number;
 }
 
+/** One activity line inside a project card on page 3. */
+export interface ExportProjectActivity {
+  name:    string;
+  minutes: number;
+  /** false only for the synthetic "Not itemised" remainder row. */
+  itemised: boolean;
+}
+
+/**
+ * A project with its activities nested underneath.
+ *
+ * Replaces the flat project chart. The two used to be separate lists on
+ * separate pages against separate denominators — projects totalled 46h,
+ * activities 63h, the month 80h — and no arrangement of captions made that
+ * read as anything but three answers to one question. Nesting makes the
+ * arithmetic visible: activities sum to their project, projects sum to
+ * projectTotalMinutes, and what is left over is non-project time, named.
+ */
+export interface ExportProjectBreakdown {
+  name:       string;
+  minutes:    number;
+  daysActive: number;
+  /** Of PROJECT time, not of the month. Whole numbers that total 100 across
+   *  the set — largest-remainder, so five round-ups cannot make it 102. */
+  pctOfProjectTime: number;
+  activities: ExportProjectActivity[];
+}
+
 export interface ExportActivityTotal {
   name:       string;
   minutes:    number;
@@ -79,6 +107,9 @@ export interface TimesheetExportData {
   periodLabel:     string;      // '1 – 31 August 2026'
   monthSlug:       string;      // 'Aug2026' — used in the filename
   status:          'to_be_submitted' | 'to_be_approved' | 'approved';
+
+  /** Page 3's nested breakdown. Project-bearing entries only. */
+  projectActivities: ExportProjectBreakdown[];
 
   // ── KPIs, all pre-computed ────────────────────────────────────────────
   plannedMinutes:  number;

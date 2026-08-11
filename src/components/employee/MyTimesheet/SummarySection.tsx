@@ -20,6 +20,13 @@ interface SumEntry {
   hours_minutes: number;
   projects?:  { name: string } | { name: string }[];
   time_types?: { name: string } | { name: string }[];
+  /** Mig 727's itemised rows. Already loaded with every entry by the page
+   *  above; this panel simply never read them until the project breakdown. */
+  timesheet_entry_activities?: Array<{
+    activity_name: string; hours_minutes: number; display_order: number;
+  }> | null;
+  /** Legacy names with no hours against them, from before 727. */
+  activities?: string[] | null;
 }
 
 const MONTHS = ['January','February','March','April','May','June',
@@ -30,6 +37,30 @@ const D3 = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const pad2 = (n: number) => String(n).padStart(2, '0');
 const iso  = (y: number, m: number, d: number) => `${y}-${pad2(m)}-${pad2(d)}`;
 const dim  = (y: number, m: number) => new Date(y, m, 0).getDate();
+
+/**
+ * Whole percentages that total 100.
+ *
+ * Rounding each share on its own is how a four-project month printed 45 + 30 +
+ * 18 + 6 = 99, and a column of numbers that does not add up undermines the ones
+ * beside it that do. Largest-remainder: everyone gets their floor, the leftover
+ * points go to whichever shares were cut hardest.
+ *
+ * Duplicated from the PDF's dataTransforms rather than imported, for the same
+ * reason the date helpers above are — this panel deliberately depends on
+ * nothing. A shared module is the right fix if a third consumer appears.
+ */
+function wholePercents(values: number[], total: number): number[] {
+  if (total <= 0 || values.length === 0) return values.map(() => 0);
+  const exact  = values.map(v => (v / total) * 100);
+  const out    = exact.map(Math.floor);
+  let leftover = 100 - out.reduce((s, n) => s + n, 0);
+  const byFrac = exact
+    .map((e, i) => ({ i, frac: e - Math.floor(e) }))
+    .sort((a, b) => b.frac - a.frac);
+  for (let k = 0; k < byFrac.length && leftover > 0; k++, leftover--) out[byFrac[k].i] += 1;
+  return out;
+}
 
 /** Hours to one decimal, trailing ".0" dropped: 8, 6.5, 33.8. */
 function h1(mins: number): string {
@@ -96,10 +127,11 @@ function SplitBar({ workPct, leavePct, workColor }: {
   );
 }
 
-function Tag({ text, bg, fg }: { text: string; bg: string; fg: string }) {
+function Tag({ text, bg, fg, mt = 6 }: { text: string; bg: string; fg: string; mt?: number }) {
   return (
     <span style={{ display: 'inline-block', fontSize: 10, fontWeight: 700, padding: '2px 7px',
-                   borderRadius: 5, marginTop: 6, background: bg, color: fg }}>{text}</span>
+                   borderRadius: 5, marginTop: mt, background: bg, color: fg,
+                   whiteSpace: 'nowrap' }}>{text}</span>
   );
 }
 
@@ -201,8 +233,64 @@ export default function SummarySection({
       .sort((a, b) => b.minutes - a.minutes);
     if (noProject > 0) projects.push({ name: 'No project', minutes: noProject, noProject: true });
 
+    // ── Project → activities ────────────────────────────────────────────
+    // PROJECT-BEARING ENTRIES ONLY. Training, leave and any other time with no
+    // project against it are absent here on purpose: they have no project to
+    // sit under, and inventing a card for each would make this block a second,
+    // worse version of the donut above — which is exactly why the donut stays.
+    // The two answer different questions and say so in their headings.
+    type Act  = { name: string; minutes: number; itemised: boolean };
+    type Proj = { name: string; minutes: number; days: number; acts: Act[] };
+
+    const projMap = new Map<string, { minutes: number; days: Set<string>; acts: Map<string, Act> }>();
+    for (const e of entries) {
+      if (e.hours_minutes <= 0) continue;
+      const p = Array.isArray(e.projects) ? e.projects[0] : e.projects;
+      if (!p?.name) continue;
+
+      const row = projMap.get(p.name) ?? { minutes: 0, days: new Set<string>(), acts: new Map() };
+      row.minutes += e.hours_minutes;
+      row.days.add(e.entry_date);
+
+      const add = (name: string, minutes: number, itemised: boolean) => {
+        const cur = row.acts.get(name);
+        if (cur) { cur.minutes += minutes; cur.itemised = cur.itemised && itemised; }
+        else row.acts.set(name, { name, minutes, itemised });
+      };
+
+      const rows = e.timesheet_entry_activities ?? [];
+      const itemisedTotal = rows.reduce((s, a) => s + (a.hours_minutes ?? 0), 0);
+
+      for (const a of rows) {
+        if ((a.hours_minutes ?? 0) > 0) add(a.activity_name, a.hours_minutes, true);
+      }
+
+      // The safety net. Every entry saved through the app is itemised, so this
+      // should never draw — but a card whose lines total less than its own
+      // header is the failure that made the PDF's two summaries disagree, and
+      // an unexplained gap is worse than a named one. Covers a pre-727 entry
+      // (names, no hours) and anything written straight to the table.
+      const gap = e.hours_minutes - itemisedTotal;
+      if (gap > 0) add('Not itemised', gap, false);
+
+      projMap.set(p.name, row);
+    }
+
+    const projectActs: Proj[] = [...projMap.entries()]
+      .map(([name, r]) => ({
+        name, minutes: r.minutes, days: r.days.size,
+        acts: [...r.acts.values()].sort((a, b) =>
+          // "Not itemised" is a caveat, not a finding: it sits last whatever
+          // its size, so the real work reads first.
+          a.itemised === b.itemised ? b.minutes - a.minutes : a.itemised ? -1 : 1),
+      }))
+      .sort((a, b) => b.minutes - a.minutes);
+
+    const projectTotal = projectActs.reduce((s, p) => s + p.minutes, 0);
+
     return {
       days, working, recorded, logged, missing, todayOpen, aheadN, weeks, projects,
+      projectActs, projectTotal,
       // Clamped: past plan this is negative, and "−12h to log" is not a thing.
       remaining: Math.max(0, plannedMinutes - recorded),
       over:      Math.max(0, recorded - plannedMinutes),
@@ -213,6 +301,8 @@ export default function SummarySection({
 
   const pace = d.aheadN > 0 ? d.remaining / d.aheadN : 0;
   const donutTotal = d.projects.reduce((s, p) => s + p.minutes, 0);
+  const donutPcts  = wholePercents(d.projects.map(p => p.minutes), donutTotal);
+  const projPcts   = wholePercents(d.projectActs.map(p => p.minutes), d.projectTotal);
 
   return (
     <div style={{ marginTop: 26 }}>
@@ -286,38 +376,51 @@ export default function SummarySection({
 
             const workColor = over ? '#F59E0B' : pct >= 100 ? '#10B981' : C.blue;
 
+            /* ONE LINE PER WEEK.
+               Four weeks used to occupy three stacked rows each — label, bar,
+               tag — which is most of a screen for four numbers. Everything that
+               was in those rows is still here except the "incl. Xh leave"
+               caption: the bar's second segment already IS that fact, and the
+               words were only naming it.
+
+               The holiday note stays. It is the only thing explaining why a
+               week reads /32h while its neighbours read /40h, and without it a
+               short week looks like an arithmetic fault rather than a public
+               holiday. */
             return (
-              <div key={w.start} style={{ marginBottom: i === d.weeks.length - 1 ? 0 : 13 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 5 }}>
-                  <span style={{ fontSize: 12.5, fontWeight: 700, color: C.ink2 }}>
-                    Wk {i + 1}
-                    <i style={{ fontStyle: 'normal', fontWeight: 500, color: C.ink4, marginLeft: 7 }}>{w.label}</i>
-                    {/* Why this week's target is smaller than its neighbours'.
-                        Without it a row reading /32h next to four /40h rows
-                        looks like a miscalculation. */}
-                    {w.holidays > 0 && (
-                      <i style={{ fontStyle: 'normal', fontWeight: 600, color: '#7C3AED', marginLeft: 7 }}>
-                        · {w.holidays} {w.holidays === 1 ? 'holiday' : 'holidays'}
-                      </i>
-                    )}
-                  </span>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: C.ink2 }}>
-                    {w.minutes > 0 ? `${h1(w.minutes)}h` : '—'}
-                    <em style={{ fontStyle: 'normal', fontWeight: 500, color: C.ink4 }}>
-                      {' '}/ {h1(w.planned)}h
-                    </em>
-                  </span>
-                </div>
-                <SplitBar workPct={workPct} leavePct={leavePct} workColor={workColor} />
-                <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-                  <Tag text={tag.t} bg={tag.bg} fg={tag.fg} />
-                  {w.leave > 0 && (
-                    <span style={{ fontSize: 10.5, color: C.ink4, marginTop: 6 }}>
-                      <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: 2,
-                                     background: '#93C5FD', marginRight: 5 }} />
-                      incl. {h1(w.leave)}h leave
-                    </span>
+              <div key={w.start} style={{
+                display: 'flex', alignItems: 'center', gap: 12,
+                padding: '7px 0',
+                borderTop: i === 0 ? 'none' : `1px solid ${C.hair}`,
+              }}>
+                {/* Fixed, so every bar starts at the same x and the four can be
+                    compared by length alone — which is the whole point of bars. */}
+                <div style={{ width: 132, flexShrink: 0, fontSize: 12.5, lineHeight: 1.35 }}>
+                  <span style={{ fontWeight: 700, color: C.ink2 }}>Wk {i + 1}</span>
+                  <span style={{ fontWeight: 500, color: C.ink4, marginLeft: 6 }}>{w.label}</span>
+                  {w.holidays > 0 && (
+                    <div style={{ fontSize: 10.5, fontWeight: 600, color: '#7C3AED' }}>
+                      {w.holidays} {w.holidays === 1 ? 'holiday' : 'holidays'}
+                    </div>
                   )}
+                </div>
+
+                <div style={{ flex: 1, minWidth: 60 }}>
+                  <SplitBar workPct={workPct} leavePct={leavePct} workColor={workColor} />
+                </div>
+
+                <div style={{ width: 92, flexShrink: 0, textAlign: 'right', fontSize: 12,
+                              fontWeight: 700, color: w.minutes > 0 ? C.ink2 : C.ink4 }}>
+                  {w.minutes > 0 ? `${h1(w.minutes)}h` : '—'}
+                  <em style={{ fontStyle: 'normal', fontWeight: 500, color: C.ink4 }}>
+                    {' '}/ {h1(w.planned)}h
+                  </em>
+                </div>
+
+                {/* Fixed width and right-aligned content, so the pills form a
+                    column instead of ragging against the hours beside them. */}
+                <div style={{ width: 96, flexShrink: 0, display: 'flex', justifyContent: 'flex-end' }}>
+                  <Tag text={tag.t} bg={tag.bg} fg={tag.fg} mt={0} />
                 </div>
               </div>
             );
@@ -419,7 +522,7 @@ export default function SummarySection({
                       {h1(p.minutes)}h
                     </span>
                     <span style={{ fontSize: 11.5, color: C.ink4, width: 34, textAlign: 'right' }}>
-                      {donutTotal > 0 ? Math.round((p.minutes / donutTotal) * 100) : 0}%
+                      {donutPcts[i]}%
                     </span>
                   </div>
                 ))}
@@ -446,6 +549,95 @@ export default function SummarySection({
           </div>
         </div>
       </div>
+
+      {/* ── By project & activity ─────────────────────────────────────────
+          PROJECT TIME ONLY, and the heading says so.
+
+          The donut above answers "where did the month go?" and includes the
+          non-project time — training, leave — that has no project to sit
+          under. This answers the next question down: within the project work,
+          what was actually done. Two blocks, two denominators, each stated
+          rather than assumed. That distinction is the whole reason the donut
+          stays; without it this would be a second, worse version of it.
+
+          Percentages are of PROJECT time, so they total 100 inside this block.
+          Reading them against the month would leave a silent remainder equal
+          to the donut's grey slice, which is the arithmetic that made the
+          PDF's two summaries disagree. */}
+      {d.projectActs.length > 0 && (
+        <div style={{ ...panelSt, marginTop: 14 }}>
+          <div style={pTitleSt}>
+            By Project &amp; Activity
+            <em style={{ fontStyle: 'normal', fontSize: 11, fontWeight: 600, color: C.ink4 }}>
+              {h1(d.projectTotal)}h of project time · {d.projectActs.length}{' '}
+              {d.projectActs.length === 1 ? 'project' : 'projects'}
+            </em>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12 }}>
+            {d.projectActs.map((p, i) => {
+              const colour  = RANK[Math.min(i, RANK.length - 1)];
+              // Each activity bar is scaled to the LARGEST activity in its own
+              // card, not to the project total. Scaling to the total makes a
+              // four-way split render as four stubs and the reader compares
+              // nothing; within a card the question is which activity dominated.
+              const widest  = Math.max(...p.acts.map(a => a.minutes), 1);
+
+              return (
+                <div key={p.name} style={{
+                  border: `1px solid ${C.rule}`, borderRadius: 10, overflow: 'hidden',
+                  background: '#fff',
+                }}>
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    padding: '10px 12px', background: '#FBFCFD',
+                    borderBottom: `1px solid ${C.hair}`,
+                  }}>
+                    <span style={{ width: 9, height: 9, borderRadius: 3, flex: 'none', background: colour }} />
+                    <span style={{ flex: 1, fontSize: 13, fontWeight: 750, color: C.ink }}>{p.name}</span>
+                    <span style={{ fontSize: 13, fontWeight: 750, color: C.ink }}>{h1(p.minutes)}h</span>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: C.ink4 }}>
+                      {projPcts[i]}%
+                    </span>
+                  </div>
+
+                  <div style={{ padding: '4px 12px 10px' }}>
+                    {p.acts.map((a, j) => (
+                      <div key={a.name} style={{ paddingTop: 8 }}>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                          <span style={{ fontSize: 11, color: C.ink4, width: 14, flex: 'none' }}>
+                            {j + 1}.
+                          </span>
+                          <span style={{
+                            flex: 1, fontSize: 12.5, minWidth: 0,
+                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                            // The caveat row is muted and italic so it never
+                            // reads as something somebody typed.
+                            color: a.itemised ? C.ink2 : C.ink4,
+                            fontStyle: a.itemised ? 'normal' : 'italic',
+                          }}>{a.name}</span>
+                          <span style={{ fontSize: 12.5, fontWeight: 700,
+                                         color: a.itemised ? C.ink : C.ink3 }}>
+                            {h1(a.minutes)}h
+                          </span>
+                        </div>
+                        <div style={{ marginTop: 4, marginLeft: 22, height: 3, borderRadius: 99,
+                                      background: C.track, overflow: 'hidden' }}>
+                          <div style={{
+                            height: 3, borderRadius: 99,
+                            width: `${(a.minutes / widest) * 100}%`,
+                            background: a.itemised ? colour : '#D1D5DB',
+                          }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

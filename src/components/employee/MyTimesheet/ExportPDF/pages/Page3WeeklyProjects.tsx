@@ -7,12 +7,19 @@ import { fmtHM, fmtHMWide, fmtHours } from '../utils/dataTransforms';
 import type { TimesheetExportData } from '../types';
 
 /**
- * Weekly totals as bar cards, then hours by project.
+ * Weekly totals as bar cards, then projects with their activities nested.
  *
- * Projects use the same stacked bars as the activity chart on page 4, so the
- * two summaries read as one idea. They were briefly a table on the argument
- * that four facts a row need columns — which was wrong: name and days sit on
- * the top line, hours and share on the right, and the fourth fact IS the bar.
+ * WHY NESTED
+ *   Projects were a flat bar chart here and activities a second flat chart on
+ *   page 4. Two lists, two denominators, and a reader with a reasonable question
+ *   — "which activities went on WISAYAH?" — that neither could answer. Nesting
+ *   answers it and makes the arithmetic self-evident at the same time: activity
+ *   lines sum to their project header, headers sum to the section total, and the
+ *   difference from the month is printed as non-project attendance.
+ *
+ *   Page 4's activity chart stays. It counts EVERY activity, including those on
+ *   non-project time, which this section excludes by construction — the same
+ *   division of labour the screen uses between its donut and its project cards.
  *
  * The design asked for a DESCRIPTION per project. `projects` has exactly four
  * meaningful columns — name, start_date, end_date, active — so DAYS ACTIVE takes
@@ -33,7 +40,6 @@ export function Page3WeeklyProjects({ data }: { data: TimesheetExportData }) {
   const slotW = weeks.length ? `${100 / weeks.length}%` : '100%';
 
   const projTotal = data.projects.reduce((s, p) => s + p.minutes, 0);
-  const projPeak  = Math.max(1, ...data.projects.map(p => p.minutes));
   // Hours recorded against no project at all — leave, training, anything the
   // project chart cannot show.
   const rest      = Math.max(0, data.recordedMinutes - projTotal);
@@ -100,54 +106,94 @@ export function Page3WeeklyProjects({ data }: { data: TimesheetExportData }) {
         </View>
 
         <View>
-          {/* The heading carries the denominator. Kept as a table rather than
-              stacked bars because each row holds four facts and there are rarely
-              more than a handful — four sorted numbers do not need a chart to be
-              compared. The bar column went from 34% to 44% by tightening the
-              rest, which is where the comparison actually improves. */}
-          <SectionHead sub={`${fmtHM(projTotal)} of ${fmtHM(data.recordedMinutes)} recorded · bars compare against the largest project`}>
-            Hours by Project
+          {/* PROJECTS WITH THEIR ACTIVITIES NESTED, replacing the flat chart.
+
+              The flat version listed projects here and activities on page 4, as
+              two independent charts against two different denominators —
+              projects 46h, activities 63h, month 80h — and no caption made that
+              read as anything but three answers to one question. Nested, the
+              arithmetic is visible: activity lines sum to their project header,
+              project headers sum to the figure in this heading, and what is left
+              is non-project time, printed below with its own name.
+
+              Percentages are of PROJECT time and use largest-remainder rounding,
+              so the column totals 100 rather than the 102 five round-ups used to
+              produce. */}
+          <SectionHead sub={`${fmtHM(projTotal)} of ${fmtHM(data.recordedMinutes)} recorded · shares are of project time`}>
+            By Project &amp; Activity
           </SectionHead>
-          {data.projects.length === 0 ? (
+          {data.projectActivities.length === 0 ? (
             <Text style={styles.tdMute}>No project time recorded in this period.</Text>
           ) : (
             <View>
-              {data.projects.map((p, i) => (
-                <View key={p.name} style={styles.actStack} wrap={false}>
-                  <View style={styles.actTop}>
-                    <Text style={styles.actName2}>
-                      {p.name}
-                      <Text style={styles.actMeta}>
-                        {'   '}{p.daysActive} {p.daysActive === 1 ? 'day' : 'days'}
-                      </Text>
-                    </Text>
-                    <Text style={styles.actVals}>
-                      {fmtHMWide(p.minutes)}
-                      <Text style={styles.actPct2}>   {Math.round(p.pctOfTotal)}%</Text>
-                    </Text>
-                  </View>
-                  <View style={styles.actTrack}>
-                    <View style={{
-                      ...styles.actFill,
-                      width: `${Math.max(1.5, (p.minutes / projPeak) * 100)}%`,
-                      backgroundColor: rankColors[Math.min(i, rankColors.length - 1)],
-                    }} />
-                  </View>
-                </View>
-              ))}
+              {data.projectActivities.map((p, i) => {
+                const colour = rankColors[Math.min(i, rankColors.length - 1)];
+                // Each card scales to its OWN largest activity. Scaling to the
+                // project total renders a four-way split as four stubs and there
+                // is nothing left to compare; within a card the question being
+                // asked is which activity dominated.
+                const widest = Math.max(1, ...p.activities.map(a => a.minutes));
 
-              {/* Whatever the chart does not cover, named. Leave, training and
-                  any other non-project attendance are real hours; letting them
-                  fall out of the bottom of a chart headed "of 80h recorded" is
-                  how a total stops adding up. No bar — it is not a project. */}
+                return (
+                  /* wrap={false} per card, not per section: a project with eight
+                     activities must be allowed to start a new page rather than
+                     force the whole chart onto one. A card that splits would put
+                     its header on one page and its hours on the next. */
+                  <View key={p.name} style={styles.pCard} wrap={false}>
+                    <View style={styles.pCardHead}>
+                      <View style={{ ...styles.pDot, backgroundColor: colour }} />
+                      <Text style={styles.pName}>{p.name}</Text>
+                      <Text style={styles.pDays}>
+                        {p.daysActive} {p.daysActive === 1 ? 'day' : 'days'}
+                      </Text>
+                      <Text style={styles.pHrs}>{fmtHMWide(p.minutes)}</Text>
+                      <Text style={styles.pPct}>{p.pctOfProjectTime}%</Text>
+                    </View>
+
+                    <View style={styles.pActs}>
+                      {p.activities.map((a, j) => (
+                        <View key={`${a.name}-${j}`} style={styles.pActRow}>
+                          <View style={styles.pActTop}>
+                            <Text style={styles.pActNo}>{j + 1}.</Text>
+                            <Text style={a.itemised ? styles.pActName : styles.pActNameQ}>
+                              {a.name}
+                            </Text>
+                            <Text style={a.itemised ? styles.pActHrs : styles.pActHrsQ}>
+                              {fmtHMWide(a.minutes)}
+                            </Text>
+                          </View>
+                          <View style={styles.pActBar}>
+                            <View style={styles.pActTrack}>
+                              <View style={{
+                                ...styles.pActFill,
+                                width: `${Math.max(1.5, (a.minutes / widest) * 100)}%`,
+                                backgroundColor: a.itemised ? colour : '#D1D5DB',
+                              }} />
+                            </View>
+                          </View>
+                        </View>
+                      ))}
+                    </View>
+                  </View>
+                );
+              })}
+
+              {/* Whatever the cards do not cover, named. Leave, training and any
+                  other non-project attendance are real hours; letting them fall
+                  out of the bottom of a section headed "of 80h recorded" is how
+                  a total stops adding up. No bar — it is not a project. */}
               {rest > 0 && (
                 <View style={styles.actStack} wrap={false}>
                   <View style={styles.actTop}>
                     <Text style={styles.restTxt}>Non-project attendance</Text>
-                    <Text style={styles.restTxt}>
-                      {fmtHMWide(rest)}
-                      <Text style={styles.actPct2}>   {Math.round((rest / Math.max(1, data.recordedMinutes)) * 100)}%</Text>
-                    </Text>
+                    {/* HOURS ONLY, deliberately. The percentages above are of
+                        PROJECT time; this row is the part that is not project
+                        time, so its share can only be of the month. Printing
+                        both in one column gave 44 + 33 + 20 + 3 + 13 = 113 and
+                        a reader who adds a column and gets 113 is right to stop
+                        believing the rest. The hours close the gap on their own:
+                        70h of project work, 10h here, 80h recorded below. */}
+                    <Text style={styles.restTxt}>{fmtHMWide(rest)}</Text>
                   </View>
                 </View>
               )}

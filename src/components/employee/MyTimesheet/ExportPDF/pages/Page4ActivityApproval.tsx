@@ -4,7 +4,7 @@ import { PDFHeader } from '../components/PDFHeader';
 import { PDFFooter } from '../components/PDFFooter';
 import { SectionHead } from '../components/SectionHead';
 import { ApprovalStamp } from '../components/ApprovalStamp';
-import { fmtHM, fmtHMWide, fmtStamp } from '../utils/dataTransforms';
+import { wholePercents, fmtHM, fmtHMWide, fmtStamp } from '../utils/dataTransforms';
 import type { TimesheetExportData } from '../types';
 
 /** Beyond this the chart stops being scannable and starts being a list. What is
@@ -38,6 +38,16 @@ export function Page4ActivityApproval({ data }: { data: TimesheetExportData }) {
   // carry no activities at all.
   const rest = Math.max(0, data.recordedMinutes - itemised);
 
+  // Every row on this page — each activity, the overflow line, and the
+  // not-itemised remainder — sums to the month, so the percentages must too.
+  // Rounding each one independently printed a column that added to 102, and a
+  // reader who checks the arithmetic and finds it wrong stops trusting the
+  // figures they did not check. Largest-remainder, computed across the whole
+  // set at once, including the rows that are printed as a single line.
+  const pcts    = wholePercents([...all.map(a => a.minutes), rest], data.recordedMinutes);
+  const pctOf   = (i: number) => pcts[i] ?? 0;
+  const pctRest = pcts[all.length] ?? 0;
+
   return (
     <Page size="A4" style={styles.page}>
       <PDFHeader data={data} subtitle={`Activity Summary & Approval · ${data.periodLabel}`} />
@@ -61,7 +71,7 @@ export function Page4ActivityApproval({ data }: { data: TimesheetExportData }) {
                     <Text style={styles.actName2}>{a.name}</Text>
                     <Text style={styles.actVals}>
                       {fmtHMWide(a.minutes)}
-                      <Text style={styles.actPct2}>   {Math.round(a.pctOfTotal)}%</Text>
+                      <Text style={styles.actPct2}>   {pctOf(i)}%</Text>
                     </Text>
                   </View>
                   <View style={styles.actTrack}>
@@ -95,7 +105,7 @@ export function Page4ActivityApproval({ data }: { data: TimesheetExportData }) {
                     <Text style={styles.restTxt}>Not itemised</Text>
                     <Text style={styles.restTxt}>
                       {fmtHMWide(rest)}
-                      <Text style={styles.actPct2}>   {Math.round((rest / Math.max(1, data.recordedMinutes)) * 100)}%</Text>
+                      <Text style={styles.actPct2}>   {pctRest}%</Text>
                     </Text>
                   </View>
                 </View>
