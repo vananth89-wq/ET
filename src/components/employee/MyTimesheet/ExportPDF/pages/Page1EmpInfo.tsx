@@ -36,7 +36,12 @@ function InfoRow({ pairs, last }: { pairs: Array<[string, string, string?]>; las
 }
 
 export function Page1EmpInfo({ data }: { data: TimesheetExportData }) {
-  const st = STATUS_TEXT[data.status];
+  // Three places on this page state the status — the band's chip, this cell and
+  // the stamp on the last page. They have to agree, or the reader picks the one
+  // that suits them.
+  const st = data.status === 'approved' && data.changedSinceApproval
+    ? { txt: 'Approved · changed since', tone: '#92400E' }
+    : STATUS_TEXT[data.status];
 
   // "Today" comes from generatedAt rather than a fresh clock read, so every
   // number on the page is measured against the same instant — a report that

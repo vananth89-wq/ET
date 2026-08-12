@@ -29,7 +29,14 @@ const STATUS_CHIP: Record<TimesheetExportData['status'], { label: string; bg: st
  * still a correct report without a logo on it.
  */
 export function PDFHeader({ data, subtitle }: { data: TimesheetExportData; subtitle?: string }) {
-  const chip = STATUS_CHIP[data.status];
+  // Approved, then edited, not re-approved. The chip is on EVERY page and costs
+  // no vertical space, which makes it the cheapest place to qualify the claim —
+  // a notice in the body of page 1 pushed the calendar legend onto a page of
+  // its own the first time it was tried.
+  const stale = data.status === 'approved' && data.changedSinceApproval;
+  const chip  = stale
+    ? { label: 'APPROVED · CHANGED SINCE', bg: '#FEF6DC', fg: '#92400E' }
+    : STATUS_CHIP[data.status];
   return (
     <View style={styles.headerBand} fixed>
       <View style={styles.headerTop}>

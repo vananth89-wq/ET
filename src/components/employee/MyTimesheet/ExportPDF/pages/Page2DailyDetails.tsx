@@ -2,7 +2,7 @@ import { Page, View, Text } from '@react-pdf/renderer';
 import { styles, colors, dayState } from '../utils/pdfStyles';
 import { PDFHeader } from '../components/PDFHeader';
 import { PDFFooter } from '../components/PDFFooter';
-import { fmtHM, fmtHMWide, fmtDateLong, fmtMonthYear } from '../utils/dataTransforms';
+import { fmtHM, fmtHMWide, fmtDateLong, fmtMonthYear, fmtStamp } from '../utils/dataTransforms';
 import type { TimesheetExportData, ExportEntry, ExportDay } from '../types';
 
 /**
@@ -79,8 +79,9 @@ function DayChip({ day, total }: { day: ExportDay | undefined; total: number }) 
 }
 
 function EntryCard({ e }: { e: ExportEntry }) {
+  const chg = e.changeMark;
   return (
-    <View style={styles.card} wrap={false}>
+    <View style={chg ? { ...styles.card, ...styles.cardChg } : styles.card} wrap={false}>
       <View style={{ ...styles.cardAccent, backgroundColor: accentFor(e) }} />
       <View style={styles.cardBody}>
         <View style={styles.cardRow}>
@@ -89,6 +90,11 @@ function EntryCard({ e }: { e: ExportEntry }) {
             {/* When the card is a project, the time type still matters — Work
                 and Training on the same project are different things. */}
             {e.project ? <Text style={styles.tiny}>{e.typeName}</Text> : null}
+            {/* The accent bar already means project / leave / holiday, so the
+                mark cannot live there. A tag says it in words instead. */}
+            {chg ? (
+              <Text style={styles.chgTag}>{chg === 'added' ? 'ADDED' : 'EDITED'}</Text>
+            ) : null}
           </View>
 
           <View style={{ width: '56%', paddingRight: 8 }}>
@@ -143,6 +149,18 @@ export function Page2DailyDetails({ data }: { data: TimesheetExportData }) {
       <View style={styles.body}>
         <Text style={styles.sectionTitle}>Daily Entries — {monthLabel}</Text>
         <View style={styles.sectionRule} />
+
+        {/* The mark means nothing without the date it is measured against. */}
+        {data.changedSinceApproval && data.approvedAt && (
+          <View style={styles.chgLegend}>
+            <Text style={styles.chgTag}>ADDED</Text>
+            <Text style={{ ...styles.chgLegTxt, marginLeft: 6 }}>
+              / <Text style={styles.chgTag}>EDITED</Text>
+              {'  '}mark entries recorded after the approval of {fmtStamp(data.approvedAt)}.
+              Deleted entries cannot be shown.
+            </Text>
+          </View>
+        )}
 
         {groups.size === 0 && (
           <Text style={styles.tdMute}>No entries recorded for this period.</Text>

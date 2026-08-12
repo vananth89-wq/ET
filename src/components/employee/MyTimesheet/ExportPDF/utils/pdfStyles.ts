@@ -333,6 +333,25 @@ export const styles = StyleSheet.create({
   npName:    { flex: 1, fontSize: 8.5, color: colors.ink3 },
   npHrs:     { fontSize: 8.5, color: colors.ink2, fontFamily: 'Helvetica-Bold' },
 
+  // ── Marking rows that post-date the approval ──────────────────────────
+  // Amber, the same alert colour used everywhere else, and the label carries
+  // the meaning. Colour alone could be mistaken for the over-plan day chip at
+  // the top of the group; "ADDED" cannot.
+  chgTag:    { fontSize: 6.5, fontFamily: 'Helvetica-Bold', letterSpacing: 0.4,
+               color: '#92400E', backgroundColor: '#FEF6DC',
+               borderWidth: 0.5, borderColor: '#F6E2A0',
+               borderRadius: 3, paddingVertical: 1.5, paddingHorizontal: 4,
+               marginTop: 3, alignSelf: 'flex-start' },
+  // A wash rather than a fill: enough to find when scanning a page of cards,
+  // not enough to fight the text sitting on it.
+  cardChg:   { backgroundColor: '#FFFCF4', borderColor: '#F6E2A0' },
+  // NOT `legend` — that name is taken by the calendar's legend pills on page 1,
+  // and an object literal keeps the LAST value, so reusing it would have
+  // silently restyled them from three sections away.
+  chgLegend: { flexDirection: 'row', alignItems: 'center', marginBottom: 7 },
+  chgLegTxt: { fontSize: 7.5, color: colors.ink3 },
+
+
   docLine:   { textAlign: 'center', fontSize: 7, color: colors.ink4, marginTop: 5 },
 
   // ── info grid ───────────────────────────────────────────────────────
@@ -399,11 +418,15 @@ export const styles = StyleSheet.create({
   },
   stampAccent: { width: 4 },
   stampBody:   { flexDirection: 'row', flex: 1, paddingVertical: 9, paddingHorizontal: 12, alignItems: 'center' },
-  stampCol:    { paddingRight: 14 },
-  stampDiv:    { width: 1, alignSelf: 'stretch', backgroundColor: colors.border, marginRight: 14 },
+  stampCol:    { paddingRight: 12 },
+  stampDiv:    { width: 1, alignSelf: 'stretch', backgroundColor: colors.border, marginRight: 12 },
   stampLbl:    { fontSize: 6.5, color: colors.ink4, fontFamily: 'Helvetica-Bold', letterSpacing: 0.4 },
   stampVal:    { fontSize: 8, color: colors.ink2, marginTop: 2 },
   stampMark:   { fontSize: 9, fontFamily: 'Helvetica-Bold' },
+  // Five columns only fit if the labels stop competing for the same points.
+  stampLbl2:   { fontSize: 6, color: colors.ink4, fontFamily: 'Helvetica-Bold', letterSpacing: 0.3 },
+  stampVal2:   { fontSize: 7.5, color: colors.ink2, marginTop: 2 },
+  stampMark2:  { fontSize: 8.5, fontFamily: 'Helvetica-Bold' },
 
   // ── footer ──────────────────────────────────────────────────────────
   footer: {

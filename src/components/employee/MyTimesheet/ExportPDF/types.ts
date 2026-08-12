@@ -16,8 +16,13 @@ export interface ExportActivity {
   minutes: number;
 }
 
+/** Null once the sheet's current approval covers this row. */
+export type ExportChangeMark = 'added' | 'edited' | null;
+
 export interface ExportEntry {
   date:       string;          // ISO yyyy-mm-dd
+  /** Whether this row post-dates the approval printed on the report. */
+  changeMark: ExportChangeMark;
   dayLabel:   string;          // 'Mon'
   kind:       ExportEntryKind;
   typeName:   string;          // the time type, e.g. 'Work'
@@ -123,6 +128,14 @@ export interface TimesheetExportData {
   periodLabel:     string;      // '1 – 31 August 2026'
   monthSlug:       string;      // 'Aug2026' — used in the filename
   status:          'to_be_submitted' | 'to_be_approved' | 'approved';
+
+  /** True when the header's content stamp is later than its approval — the
+   *  only signal that catches DELETED entries, which cannot be marked in a
+   *  document that only prints rows that still exist. */
+  changedSinceApproval: boolean;
+  /** How many rows carry a mark. Fewer than the real number of changes
+   *  whenever something was deleted. */
+  changedEntryCount: number;
 
   /** Page 3's nested breakdown. Project-bearing entries only. */
   projectActivities: ExportProjectBreakdown[];

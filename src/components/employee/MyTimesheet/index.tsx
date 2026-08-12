@@ -55,6 +55,12 @@ interface TimesheetEntryActivity {
   activity_name: string;
   hours_minutes: number;
   display_order: number;
+  /** save_timesheet_entry deletes every activity row for an entry and
+   *  re-inserts them on any save, so this moves whenever the entry was saved —
+   *  including the case where the parent row does not, because the sum and the
+   *  name list came out identical. The most reliable "this was touched" signal
+   *  we have. */
+  created_at?:   string;
 }
 
 interface TimesheetEntry {
@@ -68,6 +74,8 @@ interface TimesheetEntry {
   notes:         string | null;
   activities:    string[] | null;
   is_system_generated: boolean;
+  created_at:    string;
+  updated_at:    string;
   // joined
   timesheet_entry_activities?: TimesheetEntryActivity[] | null;
   time_types?:  { name: string; code: string; category: string; requires_project: boolean } | { name: string; code: string; category: string; requires_project: boolean }[];
@@ -298,6 +306,39 @@ function getCellLabel(ent: TimesheetEntry): string {
   if (p?.name) return p.name;
   const t = Array.isArray(ent.time_types) ? ent.time_types[0] : ent.time_types;
   return t?.name ?? '';
+}
+
+/**
+ * Does this entry post-date the approval printed on the report?
+ *
+ * Three signals, because no single one covers the ground:
+ *   * created_at  — the row did not exist when the sheet was approved.
+ *   * updated_at  — the row was changed afterwards.
+ *   * the newest ACTIVITY row's created_at — save_timesheet_entry deletes and
+ *     re-inserts every activity line on any save, so this moves even when the
+ *     parent does not. Moving an hour from Code Review to Testing leaves the
+ *     entry's sum and name list identical, mig 727's sync skips the parent
+ *     UPDATE, and updated_at never budges — while the breakdown, the thing 727
+ *     exists to record, changed.
+ *
+ * What it CANNOT see is a deletion: a row removed after approval is not here to
+ * mark. That is why the header-level flag drives the status chip and the stamp,
+ * and this only decorates the rows that survive.
+ */
+function changeMarkFor(e: TimesheetEntry, approvedAt: string | null): 'added' | 'edited' | null {
+  if (!approvedAt) return null;                     // nothing to measure against
+  const appr = Date.parse(approvedAt);
+  if (Number.isNaN(appr)) return null;
+
+  const created = Date.parse(e.created_at ?? '');
+  if (!Number.isNaN(created) && created > appr) return 'added';
+
+  const stamps = [
+    Date.parse(e.updated_at ?? ''),
+    ...(e.timesheet_entry_activities ?? []).map(a => Date.parse(a.created_at ?? '')),
+  ].filter(n => !Number.isNaN(n));
+
+  return stamps.some(t => t > appr) ? 'edited' : null;
 }
 
 // ─── Style constants ──────────────────────────────────────────────────────────
@@ -681,8 +722,8 @@ export default function MyTimesheet() {
       .from('timesheet_entries')
       .select(`
         id, header_id, entry_date, entry_kind, project_id, time_type_id,
-        hours_minutes, notes, activities, is_system_generated,
-        timesheet_entry_activities ( id, activity_name, hours_minutes, display_order ),
+        hours_minutes, notes, activities, is_system_generated, created_at, updated_at,
+        timesheet_entry_activities ( id, activity_name, hours_minutes, display_order, created_at ),
         time_types ( name, code, category, requires_project ),
         projects ( name )
       `)
@@ -798,7 +839,7 @@ export default function MyTimesheet() {
     if (!header) return entries;
     const { data: ents } = await supabase
       .from('timesheet_entries')
-      .select(`id, header_id, entry_date, entry_kind, project_id, time_type_id, hours_minutes, notes, activities, is_system_generated, timesheet_entry_activities(id, activity_name, hours_minutes, display_order), time_types(name,code,category,requires_project), projects(name)`)
+      .select(`id, header_id, entry_date, entry_kind, project_id, time_type_id, hours_minutes, notes, activities, is_system_generated, created_at, updated_at, timesheet_entry_activities(id, activity_name, hours_minutes, display_order, created_at), time_types(name,code,category,requires_project), projects(name)`)
       .eq('header_id', header.id)
       .order('entry_date').order('created_at');
     const list = (ents ?? []) as unknown as TimesheetEntry[];
@@ -1210,6 +1251,11 @@ export default function MyTimesheet() {
     }
 
     // ── The rows ────────────────────────────────────────────────────────
+    // Marks are only meaningful against an approval. A sheet that has never
+    // been approved has nothing for its rows to post-date, and one waiting on
+    // an approver carries no approved_at at all.
+    const apprAt = header.status === 'approved' ? header.approved_at : null;
+
     const expEntries: ExportEntry[] = entries.map(e => {
       const t         = Array.isArray(e.time_types) ? e.time_types[0] : e.time_types;
       const p         = Array.isArray(e.projects)   ? e.projects[0]   : e.projects;
@@ -1236,6 +1282,7 @@ export default function MyTimesheet() {
         activities,
         isHoliday,
         isWeekend: !isHoliday && !!schedule && plannedForDay(dow, schedule) === 0,
+        changeMark: changeMarkFor(e, apprAt),
       };
     });
 
@@ -1284,6 +1331,15 @@ export default function MyTimesheet() {
       // from `recorded` is printed there as non-project attendance.
       projectActivities: buildProjectActivities(expEntries),
       nonProjectTypes:   buildNonProjectTypes(expEntries),
+
+      // The HEADER stamp is what catches a deletion — no row survives to be
+      // marked, so a report showing no marks is not a report showing no
+      // changes. The count below can therefore be lower than the truth, and
+      // the stamp says "deletions only" when it is zero.
+      changedSinceApproval: !!apprAt
+        && !!header.content_changed_at
+        && Date.parse(header.content_changed_at) > Date.parse(apprAt),
+      changedEntryCount: expEntries.filter(x => x.changeMark).length,
 
       submittedAt: header.submitted_at,
       approvedAt:  header.approved_at,
@@ -2535,11 +2591,17 @@ export default function MyTimesheet() {
                 const badge    = getEntryBadge(ent);
                 const isOpen   = expandedEntries.has(ent.id);
                 const isEditing = editingEntry?.id === ent.id;
+                // Same rule as the exported report, computed the same way, so
+                // the screen and the PDF cannot mark different rows.
+                const chg = status === 'approved'
+                  ? changeMarkFor(ent, header?.approved_at ?? null) : null;
                 return (
                   <div key={ent.id} style={{
-                    border: isEditing ? '2px solid #2563EB' : '1px solid #E5E7EB',
+                    border: isEditing ? '2px solid #2563EB'
+                          : chg       ? '1px solid #F6E2A0'
+                          :             '1px solid #E5E7EB',
                     borderRadius: 10, overflow: 'hidden',
-                    background: '#fff',
+                    background: chg && !isEditing ? '#FFFCF4' : '#fff',
                     transition: 'box-shadow 0.15s',
                   }}>
                     {/* Card header: single-line compact */}
@@ -2555,6 +2617,19 @@ export default function MyTimesheet() {
                           <div style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 700, color: '#111827', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {primaryText}
                             {ent.is_system_generated && <span style={{ fontSize: 9, color: '#9CA3AF', background: '#F3F4F6', padding: '1px 4px', borderRadius: 3, marginLeft: 6, fontWeight: 400 }}>auto</span>}
+                            {/* Recorded after the approval this sheet still
+                                carries. The tag says which, because a wash
+                                alone would just look like a selected row. */}
+                            {chg && (
+                              <span
+                                title={`This entry was ${chg} after the timesheet was approved.`}
+                                style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.04em',
+                                         color: '#92400E', background: '#FEF6DC',
+                                         border: '1px solid #F6E2A0', padding: '1px 5px',
+                                         borderRadius: 3, marginLeft: 6 }}>
+                                {chg === 'added' ? 'ADDED' : 'EDITED'}
+                              </span>
+                            )}
                           </div>
                           {/* Right: hours + divider + actions + chevron */}
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
