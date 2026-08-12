@@ -68,15 +68,60 @@ BEGIN;
 -- PART 0 — allow 'approve' as an action
 -- ═══════════════════════════════════════════════════════════════════════════
 -- permissions.action carries a CHECK that has been extended each time a new
--- verb was needed ('reassign' most recently, in mig 545 -- whose exact
--- drop-and-recreate shape this copies). PART 3 needs 'approve'.
+-- verb was needed ('reassign' most recently, in mig 545). PART 3 needs
+-- 'approve'.
+--
+-- WHY THIS IS NOT A HARD-CODED LIST
+--   The first attempt at this migration re-stated mig 545's list verbatim plus
+--   'approve', and Dev refused it:
+--
+--     ERROR: check constraint "permissions_action_check" of relation
+--            "permissions" is violated by some row
+--
+--   Some row already carries an action outside that list -- added through the
+--   Permission Catalogue screen, or by a migration whose seed drifted. This
+--   migration's business is adding one verb, not adjudicating values it did
+--   not create, and a deployment must not fail on the difference between a
+--   replay and the real thing. So the new constraint is the canonical list
+--   PLUS 'approve' PLUS whatever is already in the column, and anything in
+--   that third category is named in a WARNING so it is visible in the deploy
+--   log rather than silently enshrined.
+--
+--   NULL actions are untouched: a CHECK is satisfied by NULL, and 19 legacy
+--   pre-RBP permission rows have one.
 
-ALTER TABLE public.permissions DROP CONSTRAINT IF EXISTS permissions_action_check;
-ALTER TABLE public.permissions ADD CONSTRAINT permissions_action_check
-  CHECK (action IN ('view', 'create', 'edit', 'delete', 'history', 'lookup',
-                    'view_all_pending', 'edit_all_pending',
-                    'bulk_import', 'bulk_export',
-                    'view_inactive', 'reassign', 'approve'));
+DO $$
+DECLARE
+  v_canonical text[] := ARRAY['view','create','edit','delete','history','lookup',
+                              'view_all_pending','edit_all_pending',
+                              'bulk_import','bulk_export',
+                              'view_inactive','reassign','approve'];
+  v_extra     text[];
+  v_allowed   text[];
+BEGIN
+  SELECT COALESCE(array_agg(DISTINCT action), ARRAY[]::text[])
+    INTO v_extra
+  FROM   public.permissions
+  WHERE  action IS NOT NULL
+    AND  action <> ALL (v_canonical);
+
+  IF COALESCE(array_length(v_extra, 1), 0) > 0 THEN
+    RAISE WARNING 'MIG 732: permissions.action holds % value(s) outside the canonical '
+                  'set: %. Preserved rather than rejected -- this migration only adds '
+                  '''approve''. Worth checking whether they are intentional.',
+                  array_length(v_extra, 1), array_to_string(v_extra, ', ');
+  END IF;
+
+  v_allowed := v_canonical || v_extra;
+
+  EXECUTE 'ALTER TABLE public.permissions DROP CONSTRAINT IF EXISTS permissions_action_check';
+  EXECUTE format(
+    'ALTER TABLE public.permissions ADD CONSTRAINT permissions_action_check '
+    'CHECK (action = ANY (%L::text[]))', v_allowed);
+
+  RAISE NOTICE 'MIG 732: permissions_action_check now admits % value(s).',
+               array_length(v_allowed, 1);
+END $$;
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- PART 1 — the modules the policies have been asking for all along
