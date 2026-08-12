@@ -1162,22 +1162,29 @@ export default function MyTimesheet() {
         : `${blocked}.`, 'bad');
       return;
     }
-    const rows = clipboard.entries.map(e => ({
-      header_id:     header.id,
-      entry_date:    dateStr,
-      entry_kind:    e.entry_kind,
-      time_type_id:  e.time_type_id,
-      project_id:    e.project_id,
-      hours_minutes: e.hours_minutes,
-      notes:         e.notes,
-      activities:    e.activities,
-    }));
-    const { data, error: insErr } = await supabase.from('timesheet_entries').insert(rows).select('id');
-    if (insErr) { pushToast(insErr.message, 'bad'); return; }
-    await supabase.rpc('recalc_timesheet_recorded_minutes', { p_header_id: header.id });
+    // ONE RPC, ONE TRANSACTION, AND THE ROWS COME FROM THE DATABASE — mig 735.
+    // This used to build plain objects here and insert them straight into
+    // timesheet_entries, carrying `activities` (the parent's denormalised text[]
+    // of NAMES) and no timesheet_entry_activities rows at all. The pasted day
+    // then showed the right total against nothing: "Code Review — 1h" in the
+    // PDF and "Not itemised" in the summary. It also went round
+    // save_timesheet_entry, so the header-status check never ran on a paste,
+    // and the empty-day and future-date rules above were browser-only.
+    //
+    // The child rows were in memory the whole time — reloadEntries selects
+    // them — but copying a record's children out of a client cache is how this
+    // went wrong in the first place. The RPC reads them from the table.
+    const { data, error: rpcErr } = await supabase.rpc('paste_timesheet_day', {
+      p_header_id: header.id,
+      p_from_date: clipboard.from,
+      p_to_date:   dateStr,
+    });
+    if (rpcErr)    { pushToast(rpcErr.message, 'bad'); return; }
+    if (!data?.ok) { pushToast(data?.message ?? 'Could not paste that day.', 'bad'); return; }
+
     await reloadEntries();
-    pushToast(`Pasted into ${fmtChip(dateStr)} — ${rows.length} ${rows.length === 1 ? 'entry' : 'entries'}`,
-      'ok', (data ?? []).map(r => r.id));
+    pushToast(`Pasted into ${fmtChip(dateStr)} — ${data.created} ${data.created === 1 ? 'entry' : 'entries'}`,
+      'ok', (data.entry_ids ?? []) as string[]);
   }
 
   // ── Keyboard: C = create, D = copy mode, Esc = exit ───────────────────
