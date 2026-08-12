@@ -24,8 +24,8 @@ import type { ActivityHistoryItem }                   from './ActivityAutocomple
 import { ExportPDFButton }                            from './ExportPDF';
 import type { TimesheetExportData, ExportDay, ExportEntry }
                                                       from './ExportPDF/types';
-import { buildWeeks, buildProjects, buildActivityTotals, buildProjectActivities,
-         buildNonProjectTypes, entryMinutes }
+import { buildWeeks, buildProjects, buildProjectActivities,
+         buildNonProjectTypes, buildMonthSplit, entryMinutes }
                                                       from './ExportPDF/utils/dataTransforms';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -1245,6 +1245,11 @@ export default function MyTimesheet() {
         isHoliday,
         holidayName: holidayByDate[date] ?? null,
         isLeave:   dayEnts.some(e => e.entry_kind === 'leave'),
+        leaveMinutes: dayEnts.filter(e => e.entry_kind === 'leave')
+                             .reduce((s, e) => s + e.hours_minutes, 0),
+        // Computed from the schedule rather than inferred: a holiday only
+        // reduces a week's target if it fell on a day this schedule works.
+        holidayCosts: isHoliday && !!schedule && plannedForDay(dow, schedule) > 0,
         // A holiday outranks a weekend, exactly as the calendar cell does.
         isWeekend: !isHoliday && !!schedule && plannedForDay(dow, schedule) === 0,
       });
@@ -1325,12 +1330,12 @@ export default function MyTimesheet() {
       // the subtotal made AMPTJ read 41% on a report whose header said the month
       // was 80 hours -- 41% of something the reader could not see.
       projects:   buildProjects(expEntries, recorded),
-      activities: buildActivityTotals(expEntries, recorded),
       // Nested, and measured against project time rather than the month -- the
       // section states that denominator in its own heading, and the difference
       // from `recorded` is printed there as non-project attendance.
       projectActivities: buildProjectActivities(expEntries),
       nonProjectTypes:   buildNonProjectTypes(expEntries),
+      monthSplit:        buildMonthSplit(expEntries),
 
       // The HEADER stamp is what catches a deletion — no row survives to be
       // marked, so a report showing no marks is not a report showing no

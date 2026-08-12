@@ -1,9 +1,16 @@
-import { Page, View, Text } from '@react-pdf/renderer';
-import { styles, colors, rankColors, dayState } from '../utils/pdfStyles';
+import { Page, View, Text, Svg, Circle, Path } from '@react-pdf/renderer';
+import { styles, colors, rankColors } from '../utils/pdfStyles';
+
+/** Non-project time: a neutral ramp, deliberately quieter than the projects.
+ *  Leave is the exception — it keeps the tint the weekly bars use for it, so
+ *  a segment in a bar and a slice in the donut are visibly the same fact. */
+const NEUTRAL = ['#94A3B8', '#CBD5E1', '#B8C0CC', '#DDE3EA'];
+const LEAVE_BLUE = '#93C5FD';
 import { PDFHeader } from '../components/PDFHeader';
 import { PDFFooter } from '../components/PDFFooter';
 import { SectionHead } from '../components/SectionHead';
-import { fmtHM, fmtHMWide, fmtHours } from '../utils/dataTransforms';
+import { ApprovalStamp } from '../components/ApprovalStamp';
+import { fmtHM, fmtHMWide } from '../utils/dataTransforms';
 import type { TimesheetExportData } from '../types';
 
 /**
@@ -29,78 +36,174 @@ import type { TimesheetExportData } from '../types';
 export function Page3WeeklyProjects({ data }: { data: TimesheetExportData }) {
   const todayIso = data.generatedAt.slice(0, 10);
 
-  // Only weeks with hours are shown; a month opening or closing with an empty
-  // week would otherwise spend a card saying nothing.
-  const weeks = data.weeks.filter(w => w.total > 0);
-  // Bars and their planned ghosts share one scale, so a bar shorter than its
-  // ghost means exactly what it looks like.
-  const peak  = Math.max(1, ...weeks.map(w => Math.max(w.total, w.planned)));
-  // Capped at a quarter each: a month with two active weeks should not print two
-  // half-page bars, which reads as a chart of something else entirely.
-  const slotW = weeks.length ? `${100 / weeks.length}%` : '100%';
-
   const projTotal = data.projects.reduce((s, p) => s + p.minutes, 0);
-  // Hours recorded against no project at all — leave, training, anything the
-  // project chart cannot show.
-  const rest      = Math.max(0, data.recordedMinutes - projTotal);
 
   return (
     <Page size="A4" style={styles.page}>
-      <PDFHeader data={data} subtitle={`Weekly & Project Summary · ${data.periodLabel}`} />
+      <PDFHeader data={data} subtitle={`Summary & Approval · ${data.periodLabel}`} />
       <View style={styles.body}>
 
         <View style={styles.secWrap}>
-          <SectionHead>Weekly Hour Summary</SectionHead>
-          {weeks.length === 0 ? (
-            <Text style={styles.tdMute}>No hours recorded in this period.</Text>
+          {/* WEEKLY PROGRESS, one row per week — the same panel the employee
+              sees on screen, rather than a second vocabulary for the same four
+              facts. The tall bar cards this replaced showed only the weeks that
+              had hours in them, which meant the empty weeks a reviewer is
+              actually looking for were the ones it left out. */}
+          <SectionHead sub="Sun – Sat, matching the calendar above">Weekly Progress</SectionHead>
+          {data.weeks.length === 0 ? (
+            <Text style={styles.tdMute}>No weeks in this period.</Text>
           ) : (
-            <View style={styles.wkGrid}>
-              {weeks.map((w, i) => {
-                // A week is judged only once it is over. Week 2 of a month is
-                // not "short" on the 10th — most of it has not happened, and mig
-                // 729 forbids recording most types in advance anyway. Same
-                // reasoning as the calendar's `future` day state on page 1.
-                const done    = w.end <= todayIso;
-                const hasPlan = w.planned > 0;
-                const over    = hasPlan && w.total > w.planned;
-                const short   = hasPlan && done && w.total < w.planned;
+            <View>
+              {data.weeks.map((w, i) => {
+                const done  = w.end <= todayIso;
+                const start = w.start > todayIso;
+                const pct   = w.planned > 0 ? (w.total / w.planned) * 100 : 0;
+                const over  = w.planned > 0 && w.total > w.planned;
+                const work  = w.total - w.leave;
 
-                // The same three colours the calendar and the KPI tiles use:
+                // The fill is capped at the track and the overshoot named in the
+                // tag; work and leave then split that fill by their real share,
+                // so the two segments always sum to the bar and never to more.
+                const fill     = Math.min(100, pct);
+                const workPct  = w.total > 0 ? fill * (work / w.total)    : 0;
+                const leavePct = w.total > 0 ? fill * (w.leave / w.total) : 0;
 
-                // Amber is the ONLY colour on this report that means anything, and
-                // it means OVER. A short week stays blue: slate read as "switched
-                // off" rather than "under target", and the shortfall is already
-                // said twice — by the gap above the bar and by the caption.
-                const tone = over ? colors.amber : colors.blueMid;
+                // A week is judged only once it is over. Week 2 is not "short"
+                // on the 10th — most of it has not happened, and mig 729 forbids
+                // recording most types in advance anyway.
+                const tag = w.planned === 0 ? { t: 'Non-working',  bg: '#F3F4F6', fg: colors.ink3 }
+                          : start           ? { t: 'Not yet due',  bg: '#F3F4F6', fg: colors.ink3 }
+                          : over            ? { t: `Over by ${fmtHM(w.total - w.planned)}`,
+                                                                   bg: colors.amberLt, fg: '#92400E' }
+                          : !done           ? { t: 'In progress',  bg: colors.blueLt,  fg: colors.blue }
+                          : pct >= 100      ? { t: 'Complete',     bg: '#ECFDF5', fg: '#047857' }
+                          : pct > 0         ? { t: 'Partial',      bg: colors.amberLt, fg: '#92400E' }
+                          :                   { t: 'Nothing logged', bg: colors.amberLt, fg: '#92400E' };
 
-                const caption =
-                    over  ? `${fmtHM(w.total - w.planned)} beyond ${fmtHM(w.planned)} planned`
-                  : short ? `${fmtHM(w.planned - w.total)} short of ${fmtHM(w.planned)}`
-                  : !done ? 'hrs so far'
-                  : hasPlan ? `of ${fmtHM(w.planned)} planned`
-                  : 'hrs recorded';
+                const workCol = over ? '#F59E0B' : pct >= 100 ? '#10B981' : colors.blueMid;
 
                 return (
-                  <View key={w.label} style={{ ...styles.wkSlot, width: slotW, maxWidth: '25%' }}>
-                    <View style={styles.wkBox}>
-                      <Text style={styles.wkLbl}>WEEK {i + 1} · {w.label.toUpperCase()}</Text>
-                      <View style={styles.wkBarWrap}>
-                        {hasPlan && (
-                          <View style={{ ...styles.wkGhost, height: (w.planned / peak) * 62 }} />
-                        )}
-                        <View style={{
-                          ...styles.wkBar, backgroundColor: tone,
-                          // Floored at 6pt: a week with one hour in it should
-                          // still show a bar, not an invisible sliver.
-                          height: Math.max(6, (w.total / peak) * 62),
-                        }} />
-                      </View>
-                      <Text style={{ ...styles.wkVal, color: tone }}>{fmtHours(w.total)}</Text>
-                      <Text style={styles.wkSub}>{caption}</Text>
+                  <View key={w.start} style={i === 0 ? styles.wkRow1 : styles.wkRow} wrap={false}>
+                    <View style={{ width: 74 }}>
+                      <Text style={styles.wkName}>Week {i + 1}</Text>
+                      {/* Only holidays that actually cost this week hours. One
+                          on a weekend leaves the target untouched, and a note
+                          against an unchanged /40h explains nothing. */}
+                      {w.holidays > 0 && (
+                        <Text style={styles.wkHol}>
+                          {w.holidays} {w.holidays === 1 ? 'holiday' : 'holidays'}
+                        </Text>
+                      )}
                     </View>
+
+                    <View style={styles.wkTrack}>
+                      <View style={{ ...styles.wkFill, width: `${workPct}%`, backgroundColor: workCol }} />
+                      {/* The calendar's leave blue, lightened: same family,
+                          visibly subordinate — hours accounted for rather than
+                          hours worked. */}
+                      <View style={{ ...styles.wkFill, width: `${leavePct}%`, backgroundColor: '#93C5FD' }} />
+                    </View>
+
+                    <Text style={styles.wkHrs}>
+                      {w.total > 0 ? fmtHM(w.total) : '—'}
+                      <Text style={styles.wkPlan}> / {fmtHM(w.planned) === '—' ? '0h' : fmtHM(w.planned)}</Text>
+                    </Text>
+
+                    <View style={styles.wkTagWrap}>
+                      <Text style={{ ...styles.wkTag, backgroundColor: tag.bg, color: tag.fg }}>{tag.t}</Text>
+                    </View>
+
+                    <Text style={styles.wkDates}>{w.label}</Text>
                   </View>
                 );
               })}
+            </View>
+          )}
+        </View>
+
+        <View style={styles.secWrap}>
+          {/* THE WHOLE MONTH, projects and non-project time alike. The nested
+              breakdown below covers project time only — it has no home for
+              training or leave — so without this the report could be read end
+              to end without the word "leave" appearing anywhere but a KPI count.
+              Two blocks, two denominators, each stated in its own heading. */}
+          <SectionHead sub={`${fmtHM(data.recordedMinutes)} recorded · every hour, by project and type`}>
+            By Project &amp; Type
+          </SectionHead>
+          {data.monthSplit.length === 0 ? (
+            <Text style={styles.tdMute}>Nothing recorded in this period.</Text>
+          ) : (
+            <View style={styles.dnWrap}>
+              <Svg width={74} height={74} viewBox="0 0 42 42">
+                <Circle cx="21" cy="21" r="15.9155" fill="none" stroke="#EDEFF2" strokeWidth="5" />
+                {(() => {
+                  /* EXPLICIT ARCS, not a dash-array.
+                     The browser trick — circumference exactly 100 via
+                     r = 15.9155, dasharray "pct  100-pct", dashoffset a running
+                     total — is what the on-screen donut uses and it does not
+                     survive react-pdf. Its SVG renderer does not honour
+                     strokeDashoffset, so every slice started at the same angle
+                     and the ring came out part-filled with the colours stacked
+                     on top of each other. Rendering it is the only way that was
+                     ever going to be visible.
+
+                     An arc path is arithmetic we control: start angle, end
+                     angle, and the large-arc flag once a slice passes half. */
+                  const R = 15.9155, CX = 21, CY = 21;
+                  const at = (pct: number): [number, number] => {
+                    const a = (pct / 100) * 2 * Math.PI - Math.PI / 2;   // 12 o'clock
+                    return [CX + R * Math.cos(a), CY + R * Math.sin(a)];
+                  };
+
+                  let cum = 0, pi = 0, oi = 0;
+                  return data.monthSplit.map(sl => {
+                    const colour = sl.isLeave   ? LEAVE_BLUE
+                                 : sl.isProject ? rankColors[Math.min(pi++, rankColors.length - 1)]
+                                 :                NEUTRAL[Math.min(oi++, NEUTRAL.length - 1)];
+                    const from = cum;
+                    cum += sl.pct;
+
+                    // A single slice covering the whole month has no arc to
+                    // draw — its start and end are the same point, and the path
+                    // would render nothing at all.
+                    if (sl.pct >= 99.5) {
+                      return (
+                        <Circle key={sl.name} cx="21" cy="21" r="15.9155"
+                          fill="none" stroke={colour} strokeWidth="5" />
+                      );
+                    }
+                    if (sl.pct <= 0) return null;
+
+                    const [x0, y0] = at(from);
+                    const [x1, y1] = at(cum);
+                    const large    = sl.pct > 50 ? 1 : 0;
+                    return (
+                      <Path key={sl.name}
+                        d={`M ${x0.toFixed(3)} ${y0.toFixed(3)} A ${R} ${R} 0 ${large} 1 ${x1.toFixed(3)} ${y1.toFixed(3)}`}
+                        fill="none" stroke={colour} strokeWidth="5" />
+                    );
+                  });
+                })()}
+              </Svg>
+
+              <View style={styles.dnLeg}>
+                {(() => {
+                  let pi = 0, oi = 0;
+                  return data.monthSplit.map(sl => {
+                    const colour = sl.isLeave   ? LEAVE_BLUE
+                                 : sl.isProject ? rankColors[Math.min(pi++, rankColors.length - 1)]
+                                 :                NEUTRAL[Math.min(oi++, NEUTRAL.length - 1)];
+                    return (
+                      <View key={sl.name} style={styles.dnRow}>
+                        <View style={{ ...styles.dnDot, backgroundColor: colour }} />
+                        <Text style={sl.isProject ? styles.dnName : styles.dnNameQ}>{sl.name}</Text>
+                        <Text style={styles.dnHrs}>{fmtHM(sl.minutes)}</Text>
+                        <Text style={styles.dnPct}>{sl.pct}%</Text>
+                      </View>
+                    );
+                  });
+                })()}
+              </View>
             </View>
           )}
         </View>
@@ -182,54 +285,33 @@ export function Page3WeeklyProjects({ data }: { data: TimesheetExportData }) {
                   other non-project attendance are real hours; letting them fall
                   out of the bottom of a section headed "of 80h recorded" is how
                   a total stops adding up. No bar — it is not a project. */}
-              {/* WHAT THE CARDS ABOVE CANNOT SHOW, NAMED.
-                  This was one line reading "Non-project attendance" against a
-                  total — which is where a month's leave went to be anonymous.
-                  The hours were in Recorded, in the calendar and in the weekly
-                  bars, and the word "leave" appeared nowhere on this page.
-
-                  HOURS ONLY, no percentages. The shares above are of PROJECT
-                  time and these rows are by definition not project time, so
-                  their share could only be of the month. One column holding
-                  both gave 44 + 33 + 20 + 3 + 13 = 113, and a reader who adds a
-                  column and gets 113 is right to stop believing the rest. The
-                  hours close the gap on their own: project time in the heading,
-                  these rows, and the month total below. */}
-              {rest > 0 && (
-                <View style={styles.npWrap} wrap={false}>
-                  <Text style={styles.npHead}>NON-PROJECT ATTENDANCE</Text>
-                  {data.nonProjectTypes.map(t => (
-                    <View key={t.name} style={styles.npRow}>
-                      <View style={{
-                        ...styles.npDot,
-                        backgroundColor: t.isLeave ? dayState.leave.dot : colors.ink4,
-                      }} />
-                      <Text style={styles.npName}>{t.name}</Text>
-                      <Text style={styles.npHrs}>{fmtHMWide(t.minutes)}</Text>
-                    </View>
-                  ))}
-                  {/* Only if the named rows somehow fail to reach the gap —
-                      they are derived from the same entries, so this should
-                      never draw. An unexplained difference is worse than an
-                      ugly one. */}
-                  {rest - data.nonProjectTypes.reduce((s, t) => s + t.minutes, 0) > 0 && (
-                    <View style={styles.npRow}>
-                      <View style={{ ...styles.npDot, backgroundColor: colors.ink4 }} />
-                      <Text style={styles.npName}>Unaccounted</Text>
-                      <Text style={styles.npHrs}>
-                        {fmtHMWide(rest - data.nonProjectTypes.reduce((s, t) => s + t.minutes, 0))}
-                      </Text>
-                    </View>
-                  )}
-                </View>
-              )}
-
+              {/* The named non-project rows that used to sit here are now the
+                  donut above, which says the same thing with a share against
+                  the month. Two lists of Annual Leave and Training on one page
+                  is one list too many — the same mistake as the project table
+                  next to the project bars. */}
               <View style={styles.ltTotal}>
                 <Text style={styles.ltTotalL}>Month recorded</Text>
                 <Text style={styles.ltTotalV}>{fmtHM(data.recordedMinutes)}</Text>
               </View>
             </View>
           )}
+        </View>
+
+        {/* The approval block had a page to itself once the activity chart was
+            removed — a sheet carrying one strip and a footer. It closes this
+            page instead, which is where the totals it is signing off already
+            are. */}
+        {/* One unbreakable block. Split across a page boundary it produced the
+            worst of both: the stamp closing page 4 and "End of Report" sitting
+            alone on page 5.
+
+            The document-ID line that used to follow is gone — the fixed footer
+            prints the same id on every page and the header band prints the same
+            generation time, so it was the third copy of two facts. */}
+        <View wrap={false}>
+          <ApprovalStamp data={data} />
+          <Text style={styles.endLine}>— End of Report —</Text>
         </View>
 
       </View>

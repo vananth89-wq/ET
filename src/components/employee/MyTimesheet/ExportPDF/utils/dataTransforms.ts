@@ -1,6 +1,7 @@
 import type {
-  ExportDay, ExportEntry, ExportWeek, ExportProject, ExportActivityTotal,
+  ExportDay, ExportEntry, ExportWeek, ExportProject,
   ExportProjectActivity, ExportProjectBreakdown, ExportNonProjectType,
+  ExportMonthSplit,
 } from '../types';
 
 /**
@@ -80,6 +81,17 @@ export function fmtStamp(iso: string | null): string {
   return `${fmtDate(dt.toISOString().slice(0, 10))}, ${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`;
 }
 
+/** "16–22 Aug", or "30 Aug – 5 Sep" when the week straddles a month end. */
+function weekLabel(a: string, b: string): string {
+  if (a === b) return fmtDateShort(a);
+  const [, ma, da] = a.split('-').map(Number);
+  const [, mb, db] = b.split('-').map(Number);
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return ma === mb
+    ? `${da}–${db} ${MONTHS[ma - 1]}`
+    : `${da} ${MONTHS[ma - 1]} – ${db} ${MONTHS[mb - 1]}`;
+}
+
 /**
  * Weeks run Sunday-to-Saturday to match the on-screen calendar, and a week is
  * included only if it has at least one day inside the month — so a month never
@@ -95,12 +107,17 @@ export function buildWeeks(days: ExportDay[]): ExportWeek[] {
     const first = bucket[0];
     const last  = bucket[bucket.length - 1];
     weeks.push({
-      label:   `${fmtDateShort(first.date)} – ${fmtDateShort(last.date)}`,
+      // "16 Aug – 22 Aug" wrapped onto two lines in a 52pt column and pushed
+      // its row out of alignment. A week inside one month only needs the month
+      // once, which is also how the on-screen panel reads.
+      label:   weekLabel(first.date, last.date),
       start:   first.date,
       end:     last.date,
       days:    bucket.map(d => ({ dow: d.dow, minutes: d.minutes, planned: d.planned })),
       total:   bucket.reduce((s, d) => s + d.minutes, 0),
       planned: bucket.reduce((s, d) => s + d.planned, 0),
+      leave:   bucket.reduce((s, d) => s + (d.leaveMinutes ?? 0), 0),
+      holidays: bucket.filter(d => d.holidayCosts).length,
     });
     bucket = [];
   };
@@ -137,29 +154,6 @@ export function buildProjects(entries: ExportEntry[], denominator: number): Expo
       pctOfTotal: denominator ? (r.minutes / denominator) * 100 : 0,
       daysActive: r.days.size,
     }))
-    .sort((a, b) => b.minutes - a.minutes);
-}
-
-/**
- * Activity totals across the month. Falls back to the parent entry when an entry
- * has no activity rows — an entry written before per-activity hours existed still
- * has names on it, and dropping those would silently under-report the month.
- */
-export function buildActivityTotals(entries: ExportEntry[], denominator: number): ExportActivityTotal[] {
-  const byName = new Map<string, number>();
-  for (const e of entries) {
-    for (const a of e.activities) {
-      // A legacy entry carries names with no hours against them. Counting those
-      // as zero would put empty bars in the chart and imply a measurement that
-      // was never taken.
-      if (!a.name || a.minutes <= 0) continue;
-      byName.set(a.name, (byName.get(a.name) ?? 0) + a.minutes);
-    }
-  }
-  // Share of the MONTH, not of the itemised subtotal — same reasoning as
-  // buildProjects. The uncovered remainder is printed by the page.
-  return [...byName.entries()]
-    .map(([name, minutes]) => ({ name, minutes, pctOfTotal: denominator ? (minutes / denominator) * 100 : 0 }))
     .sort((a, b) => b.minutes - a.minutes);
 }
 
@@ -282,4 +276,42 @@ export function buildNonProjectTypes(entries: ExportEntry[]): ExportNonProjectTy
     else byType.set(key, { name: key, minutes: e.minutes, isLeave: e.kind === 'leave' });
   }
   return [...byType.values()].sort((a, b) => b.minutes - a.minutes);
+}
+
+/**
+ * The month split by project and by non-project time type — page 3's donut.
+ *
+ * Projects first, in size order, then the non-project types. The order is not
+ * cosmetic: the donut and its legend walk two separate palettes, and a
+ * non-project slice taking the next project colour would read as a project.
+ *
+ * Percentages use largest-remainder against the month, so the legend column
+ * totals 100 rather than the 99 or 102 that independent rounding produces.
+ */
+export function buildMonthSplit(entries: ExportEntry[]): ExportMonthSplit[] {
+  const proj  = new Map<string, number>();
+  const other = new Map<string, { minutes: number; isLeave: boolean }>();
+
+  for (const e of entries) {
+    if (e.minutes <= 0) continue;
+    if (e.project) { proj.set(e.project, (proj.get(e.project) ?? 0) + e.minutes); continue; }
+    const key = e.typeName || 'Other attendance';
+    const cur = other.get(key);
+    if (cur) { cur.minutes += e.minutes; cur.isLeave = cur.isLeave || e.kind === 'leave'; }
+    else other.set(key, { minutes: e.minutes, isLeave: e.kind === 'leave' });
+  }
+
+  const rows = [
+    ...[...proj.entries()]
+      .map(([name, minutes]) => ({ name, minutes, isLeave: false, isProject: true, pct: 0 }))
+      .sort((a, b) => b.minutes - a.minutes),
+    ...[...other.entries()]
+      .map(([name, r]) => ({ name, minutes: r.minutes, isLeave: r.isLeave, isProject: false, pct: 0 }))
+      .sort((a, b) => b.minutes - a.minutes),
+  ];
+
+  const total = rows.reduce((s, r) => s + r.minutes, 0);
+  const pcts  = wholePercents(rows.map(r => r.minutes), total);
+  rows.forEach((r, i) => { r.pct = pcts[i]; });
+  return rows;
 }

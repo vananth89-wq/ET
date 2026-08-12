@@ -259,7 +259,7 @@ export const styles = StyleSheet.create({
   ltHrs:     { fontSize: 9.5, fontFamily: 'Helvetica-Bold', color: colors.blueMid },
   ltPct:     { fontSize: 8.5, color: colors.ink3, textAlign: 'right' },
   ltTotal:   { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center',
-               paddingTop: 10, paddingHorizontal: 10 },
+               paddingTop: 7, paddingHorizontal: 10 },
   ltTotalL:  { fontSize: 8.5, color: colors.ink3, marginRight: 12 },
   ltTotalV:  { fontSize: 12, fontFamily: 'Helvetica-Bold', color: colors.ink },
   track:     { height: 7, backgroundColor: '#E6E8EC', borderRadius: 3.5 },
@@ -351,6 +351,39 @@ export const styles = StyleSheet.create({
   chgLegend: { flexDirection: 'row', alignItems: 'center', marginBottom: 7 },
   chgLegTxt: { fontSize: 7.5, color: colors.ink3 },
 
+  // ── Page 3: weekly progress, one row per week ─────────────────────────
+  // Mirrors the on-screen panel rather than inventing a second vocabulary for
+  // the same four facts. The tall bar cards it replaced showed only the weeks
+  // that had hours in them, so a month's empty weeks — the ones a reviewer is
+  // looking for — were the ones it left out.
+  // 3pt not 4: six rows at 4 cost the approval block its place on this page and
+  // sent it to a sheet of its own carrying one strip and a footer.
+  wkRow:     { flexDirection: 'row', alignItems: 'center', paddingVertical: 3,
+               borderTopWidth: 1, borderTopColor: '#F1F2F5' },
+  wkRow1:    { flexDirection: 'row', alignItems: 'center', paddingVertical: 3 },
+  wkName:    { width: 74, fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: colors.ink2 },
+  wkHol:     { fontSize: 7, color: '#7C3AED' },
+  wkTrack:   { flex: 1, height: 5, backgroundColor: '#F1F2F5', borderRadius: 3,
+               flexDirection: 'row', overflow: 'hidden', marginHorizontal: 10 },
+  wkFill:    { height: 5 },
+  wkHrs:     { width: 62, textAlign: 'right', fontSize: 8.5,
+               fontFamily: 'Helvetica-Bold', color: colors.ink2 },
+  wkPlan:    { fontSize: 8, color: colors.ink4, fontFamily: 'Helvetica' },
+  wkTag:     { fontSize: 7, fontFamily: 'Helvetica-Bold', paddingVertical: 1.5,
+               paddingHorizontal: 5, borderRadius: 3, overflow: 'hidden' },
+  wkTagWrap: { width: 66, alignItems: 'flex-end', marginLeft: 8 },
+  wkDates:   { width: 60, textAlign: 'right', fontSize: 7.5, color: colors.ink4, marginLeft: 6 },
+
+  // ── Page 3: the month donut ───────────────────────────────────────────
+  dnWrap:    { flexDirection: 'row', alignItems: 'center' },
+  dnLeg:     { flex: 1, marginLeft: 14 },
+  dnRow:     { flexDirection: 'row', alignItems: 'center', paddingVertical: 2 },
+  dnDot:     { width: 6, height: 6, borderRadius: 2, marginRight: 7 },
+  dnName:    { flex: 1, fontSize: 8.5, color: colors.ink2 },
+  dnNameQ:   { flex: 1, fontSize: 8.5, color: colors.ink3 },
+  dnHrs:     { fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: colors.ink, marginRight: 8 },
+  dnPct:     { width: 24, textAlign: 'right', fontSize: 8, color: colors.ink4 },
+
 
   docLine:   { textAlign: 'center', fontSize: 7, color: colors.ink4, marginTop: 5 },
 
@@ -414,10 +447,10 @@ export const styles = StyleSheet.create({
   // ── approval stamp ──────────────────────────────────────────────────
   stamp: {
     flexDirection: 'row', borderWidth: 1, borderColor: colors.border, borderStyle: 'solid',
-    borderRadius: 6, backgroundColor: colors.white, overflow: 'hidden', marginTop: 14,
+    borderRadius: 6, backgroundColor: colors.white, overflow: 'hidden', marginTop: 10,
   },
   stampAccent: { width: 4 },
-  stampBody:   { flexDirection: 'row', flex: 1, paddingVertical: 9, paddingHorizontal: 12, alignItems: 'center' },
+  stampBody:   { flexDirection: 'row', flex: 1, paddingVertical: 7, paddingHorizontal: 12, alignItems: 'center' },
   stampCol:    { paddingRight: 12 },
   stampDiv:    { width: 1, alignSelf: 'stretch', backgroundColor: colors.border, marginRight: 12 },
   stampLbl:    { fontSize: 6.5, color: colors.ink4, fontFamily: 'Helvetica-Bold', letterSpacing: 0.4 },
@@ -435,5 +468,5 @@ export const styles = StyleSheet.create({
     borderTopWidth: 0.5, borderTopColor: colors.border, borderTopStyle: 'solid', paddingTop: 6,
   },
   footerTxt: { fontSize: 6.5, color: colors.ink4 },
-  endLine:   { textAlign: 'center', fontSize: 8, color: colors.ink4, marginTop: 16 },
+  endLine:   { textAlign: 'center', fontSize: 8, color: colors.ink4, marginTop: 10 },
 });

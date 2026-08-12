@@ -41,6 +41,14 @@ export interface ExportDay {
   dow:       number;           // 0 = Sun
   minutes:   number;
   planned:   number;
+  /** Of `minutes`, how many are leave. Needed to split a week's bar: a week
+   *  spent entirely on annual leave otherwise reads 40h / 40h, complete, and
+   *  indistinguishable from a week of solid work. */
+  leaveMinutes: number;
+  /** A holiday that fell on a day this schedule would otherwise have worked —
+   *  the only kind that reduces a week's target and therefore the only kind
+   *  worth annotating. One landing on a Saturday costs nothing. */
+  holidayCosts: boolean;
   isHoliday: boolean;
   /** The holiday's name, so a day header can say WHICH holiday rather than
    *  just that the day was one. Null on every ordinary day. */
@@ -51,6 +59,10 @@ export interface ExportDay {
 
 export interface ExportWeek {
   label:   string;             // '4–10 Aug'
+  /** Minutes of the week's total that are leave. */
+  leave:    number;
+  /** Holidays that actually cost this week hours. */
+  holidays: number;
   /** ISO bounds. A week cannot be called "short" without knowing whether it has
    *  actually happened — see Page3, and the calendar's `future` day state. */
   start:   string;
@@ -111,11 +123,21 @@ export interface ExportNonProjectType {
   isLeave:  boolean;
 }
 
-export interface ExportActivityTotal {
-  name:       string;
-  minutes:    number;
-  pctOfTotal: number;
+/**
+ * The whole month split by project AND by non-project time type — the donut on
+ * page 3. Distinct from `projectActivities`, which covers project time only:
+ * this is the block that accounts for leave and training, and its slices sum to
+ * the month rather than to the project subtotal.
+ */
+export interface ExportMonthSplit {
+  name:     string;
+  minutes:  number;
+  /** Whole numbers totalling 100 across the set — largest-remainder. */
+  pct:      number;
+  isLeave:  boolean;
+  isProject: boolean;
 }
+
 
 export interface TimesheetExportData {
   // ── Employee ──────────────────────────────────────────────────────────
@@ -141,6 +163,8 @@ export interface TimesheetExportData {
   projectActivities: ExportProjectBreakdown[];
   /** What page 3's nested breakdown deliberately excludes, named. */
   nonProjectTypes: ExportNonProjectType[];
+  /** Page 3's donut: the whole month, projects and non-project types alike. */
+  monthSplit: ExportMonthSplit[];
 
   // ── KPIs, all pre-computed ────────────────────────────────────────────
   plannedMinutes:  number;
@@ -167,7 +191,6 @@ export interface TimesheetExportData {
   entries:    ExportEntry[];
   weeks:      ExportWeek[];
   projects:   ExportProject[];
-  activities: ExportActivityTotal[];
 
   // ── Approval ──────────────────────────────────────────────────────────
   submittedAt: string | null;
