@@ -10,7 +10,7 @@ import { PDFHeader } from '../components/PDFHeader';
 import { PDFFooter } from '../components/PDFFooter';
 import { SectionHead } from '../components/SectionHead';
 import { ApprovalStamp } from '../components/ApprovalStamp';
-import { fmtHM, fmtHMWide } from '../utils/dataTransforms';
+import { fmtHM, fmtHMWide, fmtDateShort } from '../utils/dataTransforms';
 import type { TimesheetExportData } from '../types';
 
 /**
@@ -36,6 +36,20 @@ import type { TimesheetExportData } from '../types';
 export function Page3WeeklyProjects({ data }: { data: TimesheetExportData }) {
   const todayIso = data.generatedAt.slice(0, 10);
 
+  /* Weeks that have not started say the same nothing each time, and on a report
+     produced early in the month that is half the block — three grey rows
+     reading "Not yet due". On screen they earn their place by lining up with
+     the calendar you are working in; a report is a statement about what
+     happened, so the tail collapses to one line that still carries the planned
+     hours it is deferring. */
+  const firstFuture = data.weeks.findIndex(w => w.start > todayIso && w.planned > 0);
+  const tailAllFuture = firstFuture >= 0
+    && data.weeks.slice(firstFuture).every(w => w.start > todayIso || w.planned === 0);
+  const collapseFrom = tailAllFuture && data.weeks.length - firstFuture >= 2 ? firstFuture : -1;
+  const shownWeeks   = collapseFrom >= 0 ? data.weeks.slice(0, collapseFrom) : data.weeks;
+  const deferred     = collapseFrom >= 0 ? data.weeks.slice(collapseFrom) : [];
+  const deferredPlan = deferred.reduce((s, w) => s + w.planned, 0);
+
   const projTotal = data.projects.reduce((s, p) => s + p.minutes, 0);
 
   return (
@@ -43,7 +57,7 @@ export function Page3WeeklyProjects({ data }: { data: TimesheetExportData }) {
       <PDFHeader data={data} subtitle={`Summary & Approval · ${data.periodLabel}`} />
       <View style={styles.body}>
 
-        <View style={styles.secWrap}>
+        <View style={styles.secGap}>
           {/* WEEKLY PROGRESS, one row per week — the same panel the employee
               sees on screen, rather than a second vocabulary for the same four
               facts. The tall bar cards this replaced showed only the weeks that
@@ -54,7 +68,7 @@ export function Page3WeeklyProjects({ data }: { data: TimesheetExportData }) {
             <Text style={styles.tdMute}>No weeks in this period.</Text>
           ) : (
             <View>
-              {data.weeks.map((w, i) => {
+              {shownWeeks.map((w, i) => {
                 const done  = w.end <= todayIso;
                 const start = w.start > todayIso;
                 const pct   = w.planned > 0 ? (w.total / w.planned) * 100 : 0;
@@ -117,18 +131,43 @@ export function Page3WeeklyProjects({ data }: { data: TimesheetExportData }) {
                   </View>
                 );
               })}
+
+              {deferred.length > 0 && (
+                <View style={styles.wkRow} wrap={false}>
+                  <Text style={{ ...styles.wkName, width: 74 }}>
+                    Weeks {collapseFrom + 1}–{data.weeks.length}
+                  </Text>
+                  <Text style={{ ...styles.wkDefer, flex: 1 }}>
+                    {/* From the DATE, not the label: splitting "16–22 Aug" on
+                        the dash gave "16 onwards" and dropped the month. */}
+                    not yet due · from {fmtDateShort(deferred[0].start)}
+                  </Text>
+                  <Text style={styles.wkHrs}>
+                    <Text style={styles.wkPlan}>— / {fmtHM(deferredPlan)}</Text>
+                  </Text>
+                  <View style={styles.wkTagWrap}>
+                    <Text style={{ ...styles.wkTag, backgroundColor: '#F3F4F6', color: colors.ink3 }}>
+                      Not yet due
+                    </Text>
+                  </View>
+                  <Text style={styles.wkDates}>{'\u00A0'}</Text>
+                </View>
+              )}
             </View>
           )}
         </View>
 
-        <View style={styles.secWrap}>
+        <View style={styles.secGap}>
           {/* THE WHOLE MONTH, projects and non-project time alike. The nested
               breakdown below covers project time only — it has no home for
               training or leave — so without this the report could be read end
               to end without the word "leave" appearing anywhere but a KPI count.
               Two blocks, two denominators, each stated in its own heading. */}
+          {/* "By Project & Type" sat directly above "By Project & Activity" —
+              two headings differing by one word, describing different things.
+              This one is the whole month; the one below is the project detail. */}
           <SectionHead sub={`${fmtHM(data.recordedMinutes)} recorded · every hour, by project and type`}>
-            By Project &amp; Type
+            Month Split
           </SectionHead>
           {data.monthSplit.length === 0 ? (
             <Text style={styles.tdMute}>Nothing recorded in this period.</Text>
@@ -186,6 +225,10 @@ export function Page3WeeklyProjects({ data }: { data: TimesheetExportData }) {
                 })()}
               </Svg>
 
+              {/* TWO COLUMNS. One column of seven rows left the names hard
+                  against the donut and the hours pinned to the far margin, with
+                  a hand's width of nothing in between — the single biggest
+                  reason this section read as sparse. */}
               <View style={styles.dnLeg}>
                 {(() => {
                   let pi = 0, oi = 0;
@@ -194,11 +237,13 @@ export function Page3WeeklyProjects({ data }: { data: TimesheetExportData }) {
                                  : sl.isProject ? rankColors[Math.min(pi++, rankColors.length - 1)]
                                  :                NEUTRAL[Math.min(oi++, NEUTRAL.length - 1)];
                     return (
-                      <View key={sl.name} style={styles.dnRow}>
-                        <View style={{ ...styles.dnDot, backgroundColor: colour }} />
-                        <Text style={sl.isProject ? styles.dnName : styles.dnNameQ}>{sl.name}</Text>
-                        <Text style={styles.dnHrs}>{fmtHM(sl.minutes)}</Text>
-                        <Text style={styles.dnPct}>{sl.pct}%</Text>
+                      <View key={sl.name} style={styles.dnCol}>
+                        <View style={styles.dnRow}>
+                          <View style={{ ...styles.dnDot, backgroundColor: colour }} />
+                          <Text style={sl.isProject ? styles.dnName : styles.dnNameQ}>{sl.name}</Text>
+                          <Text style={styles.dnHrs}>{fmtHM(sl.minutes)}</Text>
+                          <Text style={styles.dnPct}>{sl.pct}%</Text>
+                        </View>
                       </View>
                     );
                   });

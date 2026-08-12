@@ -176,6 +176,12 @@ export const styles = StyleSheet.create({
   secRule:   { borderBottomWidth: 1, borderBottomColor: colors.headRule, borderBottomStyle: 'solid',
                marginBottom: 11 },
   secWrap:   { marginBottom: 11 },
+  // The summary page only. 11pt between two charts is the same gap as the one
+  // INSIDE a chart, so nothing tells the eye where a section ends — but raising
+  // secWrap itself moved every section on every page and cost the document two
+  // pages, most of them on the info grid and the calendar, which are not
+  // charts and were never crowded.
+  secGap:    { marginBottom: 24 },
 
   // ── boxed info grid ─────────────────────────────────────────────────
   infoBox:   { borderWidth: 1, borderColor: colors.rule, borderStyle: 'solid', borderRadius: 7 },
@@ -373,10 +379,12 @@ export const styles = StyleSheet.create({
                paddingHorizontal: 5, borderRadius: 3, overflow: 'hidden' },
   wkTagWrap: { width: 66, alignItems: 'flex-end', marginLeft: 8 },
   wkDates:   { width: 60, textAlign: 'right', fontSize: 7.5, color: colors.ink4, marginLeft: 6 },
+  wkDefer:   { fontSize: 8, color: colors.ink4, marginHorizontal: 10 },
 
   // ── Page 3: the month donut ───────────────────────────────────────────
   dnWrap:    { flexDirection: 'row', alignItems: 'center' },
-  dnLeg:     { flex: 1, marginLeft: 14 },
+  dnLeg:     { flex: 1, marginLeft: 14, flexDirection: 'row', flexWrap: 'wrap' },
+  dnCol:     { width: '50%', paddingRight: 14 },
   dnRow:     { flexDirection: 'row', alignItems: 'center', paddingVertical: 2 },
   dnDot:     { width: 6, height: 6, borderRadius: 2, marginRight: 7 },
   dnName:    { flex: 1, fontSize: 8.5, color: colors.ink2 },
