@@ -2116,6 +2116,35 @@ export default function MyTimesheet() {
 
       {error && <div style={{ padding: '8px 24px' }}><ErrorBanner message={error} onRetry={loadPeriod} /></div>}
 
+      {/* No work schedule resolved — say so, at the top, without being clicked.
+          A month with no schedule renders as 31 identical grey cells: planned
+          hours sit at zero and every absence is refused by the entry trigger
+          with "Leave cannot be recorded on a non-working day", which names a
+          symptom and hides the cause. The employee cannot fix it themselves, so
+          the notice has to point at who can.
+
+          Deliberately not in the day panel next to lockReason: that one answers
+          "why is this day locked" for somebody who has already clicked into a
+          day. This answers "why is this whole month blank", and a blank month
+          gives nobody a reason to click. */}
+      {!loading && !error && header && !schedule && (
+        <div style={{ padding: '8px 24px' }}>
+          <div style={{
+            display: 'flex', gap: 10, alignItems: 'flex-start',
+            padding: '10px 14px', borderRadius: 8,
+            background: '#FFFBEB', border: '1px solid #FDE68A', color: '#92400E',
+          }}>
+            <i className="fa-solid fa-triangle-exclamation" style={{ marginTop: 2, flexShrink: 0 }} />
+            <div style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+              <strong style={{ fontWeight: 700 }}>No work schedule assigned.</strong>{' '}
+              Your timesheet cannot be filled in until HR assigns one. Until then every
+              day counts as non-working, so planned hours stay at zero and absences
+              cannot be recorded.
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Body ─────────────────────────────────────────────────────────── */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
 
