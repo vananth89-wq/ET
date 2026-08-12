@@ -40,7 +40,7 @@ export function Page1EmpInfo({ data }: { data: TimesheetExportData }) {
   // the stamp on the last page. They have to agree, or the reader picks the one
   // that suits them.
   const st = data.status === 'approved' && data.changedSinceApproval
-    ? { txt: 'Approved · changed since', tone: '#92400E' }
+    ? { txt: 'Edited after approval', tone: '#92400E' }
     : STATUS_TEXT[data.status];
 
   // "Today" comes from generatedAt rather than a fresh clock read, so every

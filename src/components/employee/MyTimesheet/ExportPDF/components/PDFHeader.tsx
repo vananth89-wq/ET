@@ -34,8 +34,12 @@ export function PDFHeader({ data, subtitle }: { data: TimesheetExportData; subti
   // a notice in the body of page 1 pushed the calendar legend onto a page of
   // its own the first time it was tried.
   const stale = data.status === 'approved' && data.changedSinceApproval;
+  // "APPROVED · CHANGED SINCE" left the sentence unfinished — since WHAT? The
+  // reader had to supply "since the approval", which is the work a status chip
+  // exists to save. This says what happened in the order it happened, and still
+  // carries the approval, because "after approval" implies there was one.
   const chip  = stale
-    ? { label: 'APPROVED · CHANGED SINCE', bg: '#FEF6DC', fg: '#92400E' }
+    ? { label: 'EDITED AFTER APPROVAL', bg: '#FEF6DC', fg: '#92400E' }
     : STATUS_CHIP[data.status];
   return (
     <View style={styles.headerBand} fixed>

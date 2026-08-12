@@ -30,7 +30,7 @@ export function ApprovalStamp({ data }: { data: TimesheetExportData }) {
   // The dot is a View, not a bullet character. react-pdf's built-in Helvetica
   // has no glyph for ● or ○ — they rendered as a zero-width box that collided
   // with the first letter of the label ("○NOT YET SUBMITTED").
-  const mark     = stale ? 'APPROVED · CHANGED'
+  const mark     = stale ? 'EDITED AFTER APPROVAL'
                  : approved ? 'APPROVED'
                  : data.status === 'to_be_approved' ? 'AWAITING APPROVAL'
                  : 'NOT YET SUBMITTED';
@@ -89,7 +89,7 @@ export function ApprovalStamp({ data }: { data: TimesheetExportData }) {
           <>
             <View style={styles.stampDiv} />
             <View style={styles.stampCol}>
-              <Text style={L}>SINCE APPROVAL</Text>
+              <Text style={L}>CHANGES</Text>
               {/* Zero marks with the header flag set means the change was a
                   deletion — nothing survives to carry a tag, so saying
                   "0 entries marked" would read as "nothing happened". */}

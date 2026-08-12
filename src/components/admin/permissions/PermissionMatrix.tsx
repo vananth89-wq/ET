@@ -64,10 +64,11 @@ const EV_GROUPS: MatrixGroup[] = [
       rowHint: "Employee's own expense reports — create, submit and track reimbursement claims" },
   ]},
   { groupLabel: 'Timesheet', rows: [
-    { code: 'timesheet', label: 'Timesheet', availableActions: ['view','edit','delete'],
+    { code: 'timesheet', label: 'Timesheet', availableActions: ['view','create','edit','delete'],
       rowHint: 'Timesheet access — scope controlled by Target Groups (Self = own only, All Employees = admin/manager view). Timesheets are auto-created monthly by the system.',
       actionHints: {
         view:   'See timesheet calendar and entries for employees in scope',
+        create: 'Open a month for the first time. The monthly header is created automatically when the screen loads, so grant this wherever Edit is granted — without it the Timesheet screen fails to load.',
         edit:   'Add and update time entries within the configured edit window',
         delete: 'Remove time entries within the configured edit window',
       },
@@ -152,7 +153,7 @@ const ADMIN_GROUPS: MatrixGroup[] = [
     { code: 'time_color_config',      label: 'Color config',       availableActions: ['view','edit'],
       rowHint: 'Customise the color palette for calendar day states, status badges and entry pills' },
     { code: 'time_edit_config',       label: 'Edit window config', availableActions: ['view','edit'],
-      rowHint: 'Set how many days back each role (employee / manager / HR) can edit timesheet entries' },
+      rowHint: 'Set how many months back each role (employee / manager / HR) can edit timesheet entries' },
     { code: 'time_submission_config', label: 'Submission config',  availableActions: ['view','create','edit','delete'],
       rowHint: 'Configure submission reminder notifications — timing, message template and channel' },
     { code: 'timesheet_reports',      label: 'Timesheet reports',  availableActions: ['view'],
