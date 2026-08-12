@@ -14,7 +14,7 @@ import { Svg, Path, Circle, Rect, Polyline, Polygon, Line } from '@react-pdf/ren
  */
 export type IconName =
   | 'clock' | 'trend' | 'gauge' | 'folder'
-  | 'calendar' | 'suitcase' | 'star' | 'over';
+  | 'calendar' | 'calendarCheck' | 'suitcase' | 'star' | 'over';
 
 export function KPIIcon({ name, color, size = 11 }: { name: IconName; color: string; size?: number }) {
   const S = { stroke: color, strokeWidth: 1.9, fill: 'none' } as const;
@@ -47,6 +47,15 @@ export function KPIIcon({ name, color, size = 11 }: { name: IconName; color: str
         <Line x1="3.5" y1="10" x2="20.5" y2="10" {...S} />
         <Line x1="8" y1="3" x2="8" y2="7" {...S} />
         <Line x1="16" y1="3" x2="16" y2="7" {...S} />
+      </>)}
+
+      {/* The calendar with a tick in it — days that HAVE time, next to the
+          plain calendar meaning days that were scheduled. Reusing one glyph for
+          both would have made two different facts look like the same one. */}
+      {name === 'calendarCheck' && (<>
+        <Rect x="3.5" y="5.5" width="17" height="15" rx="2" {...S} />
+        <Line x1="3.5" y1="10" x2="20.5" y2="10" {...S} />
+        <Polyline points="8,15 11,18 16,13" {...S} />
       </>)}
 
       {name === 'suitcase' && (<>

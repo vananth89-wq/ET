@@ -48,6 +48,16 @@ export function Page1EmpInfo({ data }: { data: TimesheetExportData }) {
   // straddles midnight mid-render would otherwise contradict itself.
   const todayIso = data.generatedAt.slice(0, 10);
 
+  // Days carrying time, counted as DAYS. data.entries would over-count: mig 726
+  // put several entries on one day, so a three-project Monday is one day here
+  // and three rows there.
+  const daysRecorded = data.monthDays.filter(d => d.minutes > 0).length;
+
+  // Has the month finished? Utilisation means one thing on a closed month and
+  // something much weaker on a live one, and the caption says which.
+  const lastDay        = data.monthDays[data.monthDays.length - 1]?.date ?? '';
+  const monthInProgress = !!lastDay && todayIso <= lastDay;
+
   const holidays = data.monthDays.filter(d => d.isHoliday).length;
   const overMins = data.overtimeMinutes;
 
@@ -69,29 +79,55 @@ export function Page1EmpInfo({ data }: { data: TimesheetExportData }) {
         <View style={styles.secWrap}>
           <SectionHead>Monthly Summary</SectionHead>
           <View style={styles.kpiGrid}>
+            {/* EIGHT TILES, FOUR ACROSS, TWO ROWS THAT EACH ANSWER ONE THING:
+                hours on the top row, days on the bottom. Read across rather
+                than hunting through eight unrelated boxes.
+
+                PROJECTS was dropped. A count of five said nothing once the
+                summary page began naming all five with their hours and shares —
+                it was earning its slot only while the report had no month-level
+                split at all. */}
             <KPICard label="Planned Hours"   value={fmtHours(data.plannedMinutes)}  caption="hrs this month" icon="clock"
                      tone={colors.blueMid} />
             <KPICard label="Recorded Hours"  value={fmtHours(data.recordedMinutes)} caption="hrs logged" icon="trend"
                      tone={colors.greenMid} />
+            {/* The mockup's tile here is OVERTIME. This system has no overtime
+                concept, calculation or approval path, so it reports the
+                measurement it can defend: hours beyond the DAY's schedule.
+                "day's" is load-bearing — this figure sits next to a month
+                running 99 hours under, and without that word the two read as a
+                contradiction. It is also the reason the figure was wrong once:
+                computed month-level as max(0, recorded - planned) it printed
+                zero while the calendar flagged a ten-hour Monday in amber. */}
+            <KPICard label="Over Planned"    value={fmtHours(overMins)}
+                     caption="hrs beyond the day's schedule" icon="over"
+                     tone={overMins > 0 ? colors.amber : colors.ink4} />
             {/* The mockup calls this "Attendance / completion rate". It is
-                recorded ÷ planned, which is a utilisation figure — calling it
+                recorded / planned, which is a utilisation figure — calling it
                 attendance would imply a presence measurement this system never
-                takes. */}
+                takes.
+
+                Mid-month the caption has to say so. 41% on the 12th is an
+                artefact of the month being a third over, not a measure of
+                anybody's output, and a reader handed it without that
+                qualification will draw the wrong conclusion. */}
             <KPICard label="Utilisation"     value={String(Math.round(data.utilisationPct))} unit="%"
-                     caption="of planned hours" icon="gauge" tone={colors.green} />
-            <KPICard label="Projects"        value={String(data.projects.length)}   caption="active this month" icon="folder"
+                     caption={monthInProgress ? 'of planned · month in progress' : 'of planned hours'}
+                     icon="gauge" tone={colors.green} />
+
+            <KPICard label="Working Days"    value={String(data.workingDays)}       caption="scheduled this month" icon="calendar"
                      tone={colors.blue} />
-            <KPICard label="Working Days"    value={String(data.workingDays)}       caption="scheduled days" icon="calendar"
-                     tone={colors.blue} />
+            {/* Hours alone cannot say this: 69 hours is nine long days or twenty
+                short ones, and those are different conversations. Counted as
+                DAYS, not entries — since mig 726 one day carries several, so
+                counting rows would read a three-project Monday as three days. */}
+            <KPICard label="Days Recorded"   value={String(daysRecorded)}
+                     caption="days with time against them" icon="calendarCheck"
+                     tone={colors.greenMid} />
             <KPICard label="Leave Days"      value={String(data.leaveDays)}         caption="days absent" icon="suitcase"
                      tone={colors.amber} />
             <KPICard label="Public Holidays" value={String(holidays)}               caption="days this month" icon="star"
                      tone={colors.greenMid} />
-            {/* The mockup's eighth tile is OVERTIME. This system has no overtime
-                concept, calculation or approval path, so the tile reports the
-                measurement it can defend: hours recorded beyond planned. */}
-            <KPICard label="Over Planned"    value={fmtHours(overMins)}             caption="hrs beyond schedule" icon="over"
-                     tone={overMins > 0 ? colors.amber : colors.ink4} />
           </View>
         </View>
 
