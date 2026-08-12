@@ -554,13 +554,31 @@ export default function MyTimesheet() {
     //    effective_to: 11 other queries in this codebase use the '9999-12-31'
     //    sentinel; this one query used .is(null). Accept both so a row written
     //    under either convention still resolves.
-    const { data: empRow } = await supabase
+    //    The column is dept_id. `department_id` is the name on timesheet_headers,
+    //    not here -- and PostgREST rejects the ENTIRE request when the select
+    //    list names a column that does not exist, so this query returned 400 on
+    //    every load for every user and empRow was always null.
+    //
+    //    It survived because of two things at once. The error was discarded, so
+    //    the 400 never reached the screen; and step 3 below reads
+    //    `hdr.work_schedule_id ?? empWsId`, so anyone whose header was created
+    //    while they already had a schedule never needed empWsId at all. Only an
+    //    employee whose header predates their schedule assignment falls through
+    //    to it -- and they get a month of non-working days with nothing to
+    //    explain it.
+    //
+    //    .order is not decoration either: two open-ended rows and .limit(1)
+    //    without it returns whichever the planner feels like.
+    const { data: empRow, error: empErr } = await supabase
       .from('employee_employment')
-      .select('work_schedule_id, holiday_calendar_id, department_id, departments(name)')
+      .select('work_schedule_id, holiday_calendar_id, dept_id, departments(name)')
       .eq('employee_id', employee.id)
       .or('effective_to.is.null,effective_to.eq.9999-12-31')
+      .order('effective_from', { ascending: false })
       .limit(1)
       .maybeSingle();
+
+    if (empErr) { setError(empErr.message); setLoading(false); return; }
 
     const empWsId = empRow?.work_schedule_id    ?? null;
     const empHcId = empRow?.holiday_calendar_id ?? null;
@@ -581,7 +599,7 @@ export default function MyTimesheet() {
       // 2a. Work schedule + holiday calendar come from the hoisted lookup above
       const wsId  = empWsId;
       const hcId  = empHcId;
-      const deptId   = empRow?.department_id ?? null;
+      const deptId   = empRow?.dept_id ?? null;
       const deptName = (empRow?.departments as any)?.name ?? null;
 
       // 2b. Resolve planned_minutes from work schedule
@@ -697,6 +715,27 @@ export default function MyTimesheet() {
     if (calId && hdr!.holiday_calendar_id !== calId) {
       await supabase.from('timesheet_headers').update({ holiday_calendar_id: calId }).eq('id', hdr!.id);
       hdr = { ...hdr!, holiday_calendar_id: calId } as typeof hdr;
+      setHeader(hdr as TimesheetHeader);
+    }
+
+    // 4c. Same repair for the schedule. A header created before the employee had
+    //     one stores NULL, and time_planned_minutes_for_date() -- which every
+    //     entry trigger consults -- resolves the schedule through the HEADER, not
+    //     through employment:
+    //
+    //       JOIN time_work_schedules ws ON ws.id = h.work_schedule_id
+    //
+    //     So without this the screen would show 8h working days from wsLive while
+    //     the database still scored every date at 0 and refused each absence with
+    //     "Leave cannot be recorded on a non-working day". A UI that disagrees
+    //     with its own triggers is worse than one that shows nothing.
+    //
+    //     Only fills a NULL. A header that already names a schedule is left
+    //     alone: re-assignment is mig 723's recalc trigger to handle, and racing
+    //     it from the client would just make the two disagree.
+    if (!hdr!.work_schedule_id && wsIdLive) {
+      await supabase.from('timesheet_headers').update({ work_schedule_id: wsIdLive }).eq('id', hdr!.id);
+      hdr = { ...hdr!, work_schedule_id: wsIdLive } as typeof hdr;
       setHeader(hdr as TimesheetHeader);
     }
 
