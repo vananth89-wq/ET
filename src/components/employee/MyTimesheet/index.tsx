@@ -1646,6 +1646,21 @@ export default function MyTimesheet() {
     const newEntries = await reloadEntries();
     await syncRecordedMinutes(header.id, newEntries);
 
+    // An append is not a create and must not pass for one. Mig 733 folds a
+    // second (day, type, project) into the entry already there -- summing an
+    // activity the entry already had -- so without a word the panel would just
+    // refresh and the employee would be left wondering where their hour went.
+    // The Create modal has reported its appends separately since mig 728; this
+    // is the same courtesy on the other button.
+    if (saveRes.appended) {
+      pushToast(
+        `Added to ${saveRes.label ?? 'the existing entry'} on ${fmtChip(selectedDate)}`
+        + ` \u2014 now ${fmtMins(saveRes.hours_minutes ?? 0)}`,
+        'ok',
+        saveRes.entry_id ? [saveRes.entry_id] : undefined,
+      );
+    }
+
     setSaving(false);
     cancelForm();
   }
