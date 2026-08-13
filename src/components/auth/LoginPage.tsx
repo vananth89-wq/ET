@@ -69,8 +69,19 @@ export default function LoginPage() {
       if (isExplicit) {
         navigate('/home', { replace: true });
       } else {
-        const from = (location.state as { from?: { pathname?: string } })?.from?.pathname;
-        navigate(from || '/home', { replace: true });
+        // pathname is not the whole address. ProtectedRoute remembers the FULL
+        // location it bounced from, and dropping .search here silently threw
+        // away every query string across a session restore: the timesheet's
+        // ?period=YYYY-MM, Add Employee's ?edit=, the inbox's ?tab=sent_back.
+        // On a hard refresh Supabase restores the session asynchronously, so
+        // this round trip runs on ordinary reloads, not just after a login --
+        // which is why it read as "refresh always lands on the current month".
+        const from = (location.state as
+          { from?: { pathname?: string; search?: string; hash?: string } })?.from;
+        const target = from?.pathname
+          ? `${from.pathname}${from.search ?? ''}${from.hash ?? ''}`
+          : '/home';
+        navigate(target, { replace: true });
       }
     }
   }, [session, navigate, location]);
