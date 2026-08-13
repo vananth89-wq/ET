@@ -15,6 +15,7 @@
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useSearchParams }                            from 'react-router-dom';
 import { useAuth }                                    from '../../../contexts/AuthContext';
 import { supabase }                                   from '../../../lib/supabase';
 import ErrorBanner                                    from '../../shared/ErrorBanner';
@@ -194,6 +195,29 @@ const MONTH_NAMES = [
 const DAY_ABBR = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
 function pad2(n: number) { return String(n).padStart(2, '0'); }
+
+/** `?period=YYYY-MM` -> {y, m}, or null for anything malformed. Strict on
+ *  purpose, and forgiving in what it does about it: a bad value falls back to
+ *  the current month rather than erroring, because in practice it is a stale
+ *  bookmark or a mistyped URL, not an attack. */
+function parsePeriod(raw: string | null): { y: number; m: number } | null {
+  if (!raw) return null;
+  const m = /^(\d{4})-(\d{2})$/.exec(raw);
+  if (!m) return null;
+  const y = Number(m[1]), mo = Number(m[2]);
+  if (mo < 1 || mo > 12 || y < 1970 || y > 2999) return null;
+  return { y, m: mo };
+}
+const periodKey = (y: number, m: number) => `${y}-${pad2(m)}`;
+
+/** How far ahead the calendar goes. Advance dating is a property of the TIME
+ *  TYPE (allows_future, mig 729) -- Training and planned leave may be dated
+ *  forward, project work may not -- and three months covers the furthest
+ *  anything is realistically scheduled. The point of a ceiling at all is that
+ *  the arrows should not take you somewhere nothing can ever be written: before
+ *  this, forty clicks reached 2030, and loadPeriod filed an empty header for
+ *  every month on the way. */
+const FUTURE_MONTHS = 3;
 
 // "2026-08-04" -> "4 Aug", for chips and toasts
 function fmtChip(iso: string) {
@@ -431,8 +455,19 @@ export default function MyTimesheet() {
 
   // Period
   const today = new Date();
-  const [year,  setYear]  = useState(today.getFullYear());
-  const [month, setMonth] = useState(today.getMonth() + 1);
+  // The month lives in the URL, not only in React state. Without it a refresh
+  // threw you back to the current month, Back never stepped through months, and
+  // no month could be bookmarked or sent to anyone. That bites hardest on the
+  // PREVIOUS month -- with a one-month edit window it is exactly where people go
+  // to finish things off, and it was the one they lost on every reload.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlSeed = parsePeriod(searchParams.get('period'));
+  const [year,  setYear]  = useState(urlSeed?.y ?? today.getFullYear());
+  const [month, setMonth] = useState(urlSeed?.m ?? today.getMonth() + 1);
+  /** Earliest month the employee may reach, as YYYY-MM -- their hire month.
+   *  NULL until the employment row loads, and NULL means NO floor: failing open
+   *  the way editFloor does, so a slow or refused read never traps someone. */
+  const [minPeriod, setMinPeriod] = useState<string | null>(null);
 
   // Employee metadata
   const [empCode, setEmpCode] = useState<string>('');
@@ -571,7 +606,7 @@ export default function MyTimesheet() {
     //    without it returns whichever the planner feels like.
     const { data: empRow, error: empErr } = await supabase
       .from('employee_employment')
-      .select('work_schedule_id, holiday_calendar_id, dept_id, departments(name)')
+      .select('work_schedule_id, holiday_calendar_id, dept_id, hire_date, departments(name)')
       .eq('employee_id', employee.id)
       .or('effective_to.is.null,effective_to.eq.9999-12-31')
       .order('effective_from', { ascending: false })
@@ -579,6 +614,11 @@ export default function MyTimesheet() {
       .maybeSingle();
 
     if (empErr) { setError(empErr.message); setLoading(false); return; }
+
+    // The hire month is the floor for navigation. Read from the same row rather
+    // than a second query -- it arrives one load late, which is why the clamp
+    // fails open until it does.
+    if (empRow?.hire_date) setMinPeriod(String(empRow.hire_date).slice(0, 7));
 
     const empWsId = empRow?.work_schedule_id    ?? null;
     const empHcId = empRow?.holiday_calendar_id ?? null;
@@ -1221,18 +1261,52 @@ export default function MyTimesheet() {
   // ── Period navigation ─────────────────────────────────────────────────
   function goToPeriod(y: number, m: number) {
     setYear(y); setMonth(m);
+    // replace, not push. Holding the arrow down should not bury the page the
+    // employee arrived from under a dozen history entries.
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.set('period', periodKey(y, m));
+      return next;
+    }, { replace: true });
     setSelectedDate(null); setPanelOpen(false);
     setSchedule(null); setHolidays([]);
     setAddingEntry(false); setEditingEntry(null);
     setForm(emptyForm); setFormErr('');
     setExpandedEntries(new Set());
   }
+  // Not memoised: `today` is a fresh Date every render, so a useMemo keyed on it
+  // would never hit. Two arithmetic ops, and Date handles the year rollover that
+  // a naive month + 3 gets wrong (Nov + 3 = Feb NEXT year).
+  const maxPeriod = (() => {
+    const d = new Date(today.getFullYear(), today.getMonth() + FUTURE_MONTHS, 1);
+    return periodKey(d.getFullYear(), d.getMonth() + 1);
+  })();
+  const curPeriod = periodKey(year, month);
+  const canPrev   = minPeriod == null || curPeriod > minPeriod;
+  const canNext   = curPeriod < maxPeriod;
+
   function prevMonth() {
+    if (!canPrev) return;
     month === 1 ? goToPeriod(year - 1, 12) : goToPeriod(year, month - 1);
   }
   function nextMonth() {
+    if (!canNext) return;
     month === 12 ? goToPeriod(year + 1, 1) : goToPeriod(year, month + 1);
   }
+
+  // A URL can name a month the arrows cannot reach -- a bookmark from March, a
+  // link shared before someone joined, an autocompleted address. Snap it into
+  // range rather than showing a month that will never hold anything. Runs once
+  // the floor is known; until then minPeriod is NULL and only the ceiling binds.
+  useEffect(() => {
+    if (curPeriod > maxPeriod) {
+      const d = new Date(today.getFullYear(), today.getMonth() + FUTURE_MONTHS, 1);
+      goToPeriod(d.getFullYear(), d.getMonth() + 1);
+    } else if (minPeriod && curPeriod < minPeriod) {
+      goToPeriod(Number(minPeriod.slice(0, 4)), Number(minPeriod.slice(5, 7)));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [curPeriod, minPeriod, maxPeriod]);
 
   // ── Export PDF — the month as a four-page report ──────────────────────
   /**
@@ -2002,13 +2076,15 @@ export default function MyTimesheet() {
 
         {/* Period nav + title row */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <button onClick={prevMonth} style={navBtnSt}>
+          <button onClick={prevMonth} disabled={!canPrev} style={{ ...navBtnSt, opacity: canPrev ? 1 : 0.35, cursor: canPrev ? 'pointer' : 'not-allowed' }}
+                  title={canPrev ? 'Previous month' : 'This is the first month of your employment'}>
             <i className="fa-solid fa-chevron-left" style={{ fontSize: 10 }} />
           </button>
           <h1 style={{ fontSize: 16, fontWeight: 700, color: '#111827', margin: 0, whiteSpace: 'nowrap' }}>
             Time Sheet for {MONTH_NAMES[month - 1]} 1 – {totalDays}, {year}
           </h1>
-          <button onClick={nextMonth} style={navBtnSt}>
+          <button onClick={nextMonth} disabled={!canNext} style={{ ...navBtnSt, opacity: canNext ? 1 : 0.35, cursor: canNext ? 'pointer' : 'not-allowed' }}
+                  title={canNext ? 'Next month' : `Timesheets open ${FUTURE_MONTHS} months ahead`}>
             <i className="fa-solid fa-chevron-right" style={{ fontSize: 10 }} />
           </button>
 
