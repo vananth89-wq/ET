@@ -1014,11 +1014,23 @@ export default function MyTimesheet() {
   // has also never been exercised in a browser; its first real test should not
   // be the harder version of the problem.
   function pasteBlockedReason(dateStr: string): string | null {
-    // Copy Day carries whatever types the source day held and cannot know that
-    // every one of them allows advance dating, so it stays strictly
-    // retrospective whatever the flags say. Consistent with its empty-days-only
-    // rule: Copy Day takes the narrow option every time.
-    if (dateStr > todayIso) return 'Attendance cannot be pasted into a future day';
+    // A future target is allowed when EVERY type on the copied day may be dated
+    // forward -- mig 737, and the same rule the day panel applies per entry via
+    // futureBlock. This used to refuse any future day outright, on the reasoning
+    // that Copy Day "cannot know" whether the types allow it. It can: the
+    // clipboard holds the entries and timeTypes carries allows_future.
+    //
+    // All-or-nothing, matching the RPC. Naming the offending types is what makes
+    // the refusal actionable -- "cannot paste into a future day" left the
+    // employee with no idea which entry was the problem.
+    if (dateStr > todayIso && clipboard) {
+      const blocking = Array.from(new Set(
+        clipboard.entries
+          .filter(e => !timeTypes.find(t => t.id === e.time_type_id)?.allows_future)
+          .map(e => timeTypes.find(t => t.id === e.time_type_id)?.name ?? 'That entry')
+      ));
+      if (blocking.length) return `${blocking.join(', ')} cannot be recorded in advance`;
+    }
     return dateBlockedReason(dateStr)
         ?? ((entriesByDate[dateStr] ?? []).length > 0 ? 'Already has attendance' : null);
   }
