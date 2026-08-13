@@ -2237,7 +2237,15 @@ export default function MyTimesheet() {
           "why is this day locked" for somebody who has already clicked into a
           day. This answers "why is this whole month blank", and a blank month
           gives nobody a reason to click. */}
-      {!loading && !error && header && !schedule && (
+      {/* `header?.period === this month`, not just `header`. goToPeriod clears
+          schedule synchronously, but loadPeriod -- and its setLoading(true) --
+          only runs in the effect AFTER that render. So there is exactly one
+          paint per month change where loading is still false from the previous
+          load, schedule is null, and header still belongs to the month we just
+          left. That painted this banner for a single frame on every navigation.
+          Tying it to the header actually being for the month on screen means it
+          can only appear once THIS month has loaded and genuinely has none. */}
+      {!loading && !error && header?.period === `${year}-${pad2(month)}-01` && !schedule && (
         <div style={{ padding: '8px 24px' }}>
           <div style={{
             display: 'flex', gap: 10, alignItems: 'flex-start',
