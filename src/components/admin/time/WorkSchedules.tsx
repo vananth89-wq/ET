@@ -28,6 +28,9 @@ interface WorkSchedule {
   code:              string;
   start_day_of_week: number; // 0=Sun … 6=Sat
   is_active:         boolean;
+  /** MIG 738 — hard ceiling on minutes recorded against one day, all entry
+   *  kinds counted. Null means the system default of 16h, NOT "no limit". */
+  max_daily_minutes: number | null;
   created_at:        string | null;
   updated_at:        string | null;
   creator:           any;
@@ -87,6 +90,7 @@ function emptyForm(startDay = 0): WorkSchedule {
     code: '',
     start_day_of_week: startDay,
     is_active: true,
+    max_daily_minutes: null,
     created_at: null,
     updated_at: null,
     creator: null,
@@ -113,7 +117,7 @@ export default function WorkSchedules() {
     setError(null);
     const { data: hdrs, error: e1 } = await supabase
       .from('time_work_schedules')
-      .select('id, name, code, start_day_of_week, is_active, created_at, updated_at, creator:profiles!created_by(employees!employee_id(name))')
+      .select('id, name, code, start_day_of_week, is_active, max_daily_minutes, created_at, updated_at, creator:profiles!created_by(employees!employee_id(name))')
       .order('name');
     if (e1) { setError(e1.message); setLoading(false); return; }
 
@@ -188,6 +192,10 @@ export default function WorkSchedules() {
       code:              form.code.trim(),
       start_day_of_week: form.start_day_of_week,
       is_active:         form.is_active,
+      // Sent even when null, which clears a previously set cap back to the
+      // default. Omitting the key means "leave it as it is" server-side, and
+      // this form always knows its own mind.
+      max_daily_minutes: form.max_daily_minutes,
       lines:             form.lines,
     };
 
@@ -344,6 +352,34 @@ export default function WorkSchedules() {
                   />
                   Active
                 </label>
+              </div>
+            </div>
+
+            {/* MIG 738 — the daily ceiling. Hours, not minutes: nobody sets a
+                limit of 947 minutes, and the column stores minutes so the
+                arithmetic matches planned_minutes beside it. */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+              <div className="form-group">
+                <label>Maximum Hours Per Day</label>
+                <input
+                  type="number" min={1} max={24} step={1}
+                  placeholder="16 (default)"
+                  value={form.max_daily_minutes == null ? '' : form.max_daily_minutes / 60}
+                  onChange={e => {
+                    const v = e.target.value.trim();
+                    const n = Number(v);
+                    setForm(p => ({
+                      ...p,
+                      max_daily_minutes: v === '' || !Number.isFinite(n) || n <= 0
+                        ? null
+                        : Math.min(24, Math.round(n)) * 60,
+                    }));
+                  }}
+                />
+                <small style={{ color: '#6B7280' }}>
+                  No entry can take a day past this, counting leave. Leave it blank for the
+                  standard 16 hours.
+                </small>
               </div>
             </div>
 

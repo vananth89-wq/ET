@@ -296,7 +296,11 @@ function getEntryBadge(ent: TimesheetEntry): { code: string; bg: string; color: 
 interface Toast {
   id:      number;
   msg:     string;
-  kind:    'ok' | 'bad';
+  // 'warn' is amber: the write SUCCEEDED and the employee should know
+  // something about it anyway — a day over the soft line (mig 738). Reporting
+  // that in the green toast would bury it; reporting it in the red one would
+  // say the save failed, which it did not.
+  kind:    'ok' | 'bad' | 'warn';
   undoIds?: string[];        // entry ids to delete if the user hits Undo
 }
 
@@ -893,7 +897,7 @@ export default function MyTimesheet() {
 
   // ── Toasts ────────────────────────────────────────────────────────────
   const toastSeq = useRef(0);
-  function pushToast(msg: string, kind: 'ok' | 'bad' = 'ok', undoIds?: string[]) {
+  function pushToast(msg: string, kind: 'ok' | 'bad' | 'warn' = 'ok', undoIds?: string[]) {
     const id = ++toastSeq.current;
     setToasts(t => [...t, { id, msg, kind, undoIds }]);
     setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), undoIds ? 7000 : 3800);
@@ -1181,6 +1185,20 @@ export default function MyTimesheet() {
       'ok',
       data.entry_ids,
     );
+
+    // MIG 738's soft line, per date. A second toast rather than a clause on the
+    // first: the green one is an Undo affordance and burying an amber fact in it
+    // makes the fact easy to miss and the Undo easy to hit by accident.
+    const longDays: string[] = Array.isArray(data.warned_dates) ? data.warned_dates : [];
+    if (longDays.length) {
+      pushToast(
+        longDays.length === 1
+          ? `${fmtChip(longDays[0])} is now more than 4 hours beyond its schedule.`
+          : `${longDays.length} days are now more than 4 hours beyond their schedule — `
+            + longDays.map(fmtChip).join(', '),
+        'warn',
+      );
+    }
   }
 
   // ── Copy Day ──────────────────────────────────────────────────────────
@@ -1753,6 +1771,12 @@ export default function MyTimesheet() {
         saveRes.entry_id ? [saveRes.entry_id] : undefined,
       );
     }
+
+    // MIG 738's soft line: the day is now more than 4h beyond its schedule.
+    // The save stood — this is the moment to say so, rather than leaving it to
+    // be discovered in a report by someone else. The hard 16h cap never gets
+    // here; it comes back as DAILY_CAP above and the form shows the message.
+    if (saveRes.warning) pushToast(saveRes.warning as string, 'warn');
 
     setSaving(false);
     cancelForm();
@@ -3086,7 +3110,8 @@ export default function MyTimesheet() {
         {toasts.map(t => (
           <div key={t.id} style={{
             display: 'flex', alignItems: 'center', gap: 12, borderRadius: 10, padding: '11px 14px',
-            fontSize: 13, color: '#fff', background: t.kind === 'bad' ? '#B42318' : '#111827',
+            fontSize: 13, color: '#fff',
+            background: t.kind === 'bad' ? '#B42318' : t.kind === 'warn' ? '#B45309' : '#111827',
             boxShadow: '0 10px 24px -6px rgba(16,24,40,0.35)', maxWidth: 520,
           }}>
             <span>{t.msg}</span>
