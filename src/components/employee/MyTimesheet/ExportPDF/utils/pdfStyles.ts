@@ -47,12 +47,17 @@ export const dayState = {
   // HOL purple. The calendar here briefly used green, which also collided with
   // the green page 2 gives non-project attendance.
   holiday: { bg: '#F1ECFD', border: '#DDD0F8', ink: '#5B21B6', dot: '#7C3AED', label: 'Holiday'      },
-  // Amber = OVER, and nothing else. It used to mean "leave" here and "short of
-  // plan" on page 3 while red meant over — one colour with two opposite senses
-  // and one sense with two colours. Nothing on the report is red now: recording
-  // more than planned is worth noticing, it is not an error.
+  // OVER is red. It used to be amber, on the reasoning that recording more than
+  // planned is worth noticing rather than an error — but amber is also what
+  // "short of plan" wears on page 3, and a single colour cannot mean both too
+  // much and too little. Red is the house signal for overtime, and it covers
+  // weekend and worked-holiday hours too: on a day with no plan, every hour
+  // recorded is beyond the schedule.
+  //
+  // Leave stays slate. It used to be amber, which put it in the same ink as
+  // over-plan — one colour with two opposite senses.
   leave:   { bg: '#EEF2F7', border: '#DDE3EB', ink: '#475569', dot: '#64748B', label: 'Leave'        },
-  over:    { bg: '#FEF6DC', border: '#F6E2A0', ink: '#92400E', dot: '#F59E0B', label: 'Over planned' },
+  over:    { bg: '#FDECEC', border: '#F7C9C9', ink: '#B91C1C', dot: '#DC2626', label: 'Over planned' },
   missing: { bg: '#FFF8EC', border: '#FAE2BE', ink: '#C2410C', dot: '#F97316', label: 'Missing'      },
   weekend: { bg: '#F7F8FA', border: '#EDEFF2', ink: '#9CA3AF', dot: '',        label: 'Weekend'      },
   // A working day still ahead of us is NOT missing and NOT a weekend. Mig 729

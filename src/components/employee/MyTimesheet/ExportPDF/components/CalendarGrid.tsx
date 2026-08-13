@@ -20,7 +20,11 @@ const DOW = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 function classify(d: ExportDay, todayIso: string): DayStateKey {
   if (d.isHoliday)           return 'holiday';
   if (d.isLeave)             return 'leave';
-  if (d.planned <= 0)        return d.minutes > 0 ? 'working' : 'weekend';
+  // Hours on a day with no plan are hours beyond the schedule — the same thing
+  // 'over' means on a working day, and what the OVER PLANNED KPI has always
+  // counted. This used to return 'working', which drew weekend overtime in the
+  // ordinary blue and made the grid disagree with the KPI above it.
+  if (d.planned <= 0)        return d.minutes > 0 ? 'over' : 'weekend';
   if (d.minutes > d.planned) return 'over';
   if (d.minutes > 0)         return 'working';
   return d.date <= todayIso ? 'missing' : 'future';
@@ -65,9 +69,11 @@ export function CalendarGrid({ days, todayIso }: { days: ExportDay[]; todayIso: 
         const done  = real.length > 0 && real[real.length - 1].date <= todayIso;
         const over  = planned > 0 && total > planned;
         const short = planned > 0 && done && total < planned;
-        // Same rule as the weekly cards: amber for over, ordinary ink for
-        // everything else. The '4h short' line below still says it.
-        const tone  = over ? '#92400E' : colors.ink2;
+        // Same rule as the weekly cards: RED for over, ordinary ink for
+        // everything else. The '4h short' line below still says it. Amber used
+        // to carry over-plan here while also carrying "Partial" on page 3 —
+        // one colour meaning both too much and too little.
+        const tone  = over ? '#B91C1C' : colors.ink2;
 
         return (
           <View key={ri} style={styles.calRowB} wrap={false}>
@@ -105,7 +111,7 @@ export function CalendarGrid({ days, todayIso }: { days: ExportDay[]; todayIso: 
                 <Text style={{ ...styles.calWkVal, color: tone }}>
                   {total > 0 ? fmtHM(total) : '—'}{planned > 0 ? ` / ${fmtHM(planned)}` : ''}
                 </Text>
-                {over  && <Text style={{ ...styles.calWkSub, color: '#92400E' }}>{fmtHM(total - planned)} over</Text>}
+                {over  && <Text style={{ ...styles.calWkSub, color: '#B91C1C' }}>{fmtHM(total - planned)} over</Text>}
                 {short && <Text style={{ ...styles.calWkSub, color: colors.ink4 }}>{fmtHM(planned - total)} short</Text>}
               </>)}
             </View>

@@ -2347,13 +2347,20 @@ export default function MyTimesheet() {
                   const pasteOk    = copyMode === 'paste' && !dateBlockedReason(dateStr);
                   const pasteNo    = copyMode === 'paste' && !pasteOk && clipboard?.from !== dateStr;
                   const isClipSrc  = clipboard?.from === dateStr;
+                  // Hours on a day with no plan — a weekend, or a public holiday
+                  // that was worked. Every one of those hours is time beyond the
+                  // schedule, which is the same thing "over" means on a working
+                  // day, so it carries the same red. This cell used to be blue on
+                  // the reasoning that there is no target to exceed; that reads as
+                  // "nothing to see" for the case most worth seeing, and it also
+                  // disagreed with the OVER PLANNED KPI, which has always counted
+                  // these hours (it sums each day's excess over ITS OWN plan).
+                  const offPlanWork = (isOffDay || isHoliday) && recorded > 0;
+
                   // On a worked holiday the schedule's planned hours are not a target,
                   // so show the bare total rather than an "x / 8h" shortfall.
-                  const metricColor = isHoliday          ? '#7C3AED'
-                                    // dayStatus() calls planned<=0 'done', which would
-                                    // paint weekend hours green as though a target had
-                                    // been met. There is no target on a day off.
-                                    : isOffDay           ? '#2563EB'
+                  const metricColor = offPlanWork        ? '#DC2626'
+                                    : isHoliday          ? '#7C3AED'
                                     : status === 'over'  ? '#DC2626'
                                     : status === 'done'  ? '#059669'
                                     : status === 'empty' ? '#D97706'
@@ -2361,11 +2368,11 @@ export default function MyTimesheet() {
 
                   // Bar segments — derived from the same `status` as the metric above
                   const segments: { w: number; c: string }[] =
-                      isHoliday          ? [{ w: 100, c: '#8B5CF6' }]
+                    // Red, full width, and ahead of the holiday branch: an
+                    // UNWORKED holiday is still purple, a worked one is overtime.
+                      offPlanWork        ? [{ w: 100, c: '#EF4444' }]
+                    : isHoliday          ? [{ w: 100, c: '#8B5CF6' }]
                     : leaveName          ? [{ w: 100, c: '#3B82F6' }]
-                    // Blue, full width: hours recorded against no target. Green here
-                    // would claim a plan was met that never existed.
-                    : isOffDay           ? [{ w: 100, c: '#3B82F6' }]
                     : status === 'over'  ? [{ w: (dayPlanned / recorded) * 100, c: '#10B981' },
                                             { w: 100 - (dayPlanned / recorded) * 100, c: '#EF4444' }]
                     : status === 'done'  ? [{ w: 100, c: '#10B981' }]
@@ -2389,7 +2396,7 @@ export default function MyTimesheet() {
                         isHoliday   ? `public holiday${holidayName ? ' — ' + holidayName : ''}${isOffDay ? ', non-working day' : ''}`
                         : leaveName ? leaveName
                         : isOffDay  ? (dayEnts.length > 0
-                            ? `${fmtDayHours(recorded, status)} logged, non-working day`
+                            ? `${fmtDayHours(recorded, status)} logged on a non-working day, all of it beyond the schedule`
                             : 'non-working day')
                         : `${fmtDayHours(recorded, status)} of ${Math.round(dayPlanned / 60)} hours logged`}`}
                       onMouseEnter={() => setHoverDate(dateStr)}

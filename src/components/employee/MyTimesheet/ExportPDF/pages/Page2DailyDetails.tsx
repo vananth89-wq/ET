@@ -56,11 +56,14 @@ function DayChip({ day, total }: { day: ExportDay | undefined; total: number }) 
   // everything this day has to say.
   if (planned <= 0 && total <= 0) return null;
 
-  // No planned hours means a weekend or a holiday — there is nothing to compare
-  // against, so comparing would invent a target. Weekend work is real work.
+  // No planned hours means a weekend or a holiday, so there is no "/ 8h" to
+  // print — but every hour on it is beyond the schedule, which is overtime, and
+  // it wears the same red the calendar cell and the summary table now give it.
+  // This chip used to be neutral grey, which said "unremarkable" about the one
+  // kind of day a reviewer most wants pointed out.
   if (planned <= 0) {
     return (
-      <Text style={{ ...styles.dayChip, color: colors.ink3, backgroundColor: colors.surface }}>
+      <Text style={{ ...styles.dayChip, color: '#B91C1C', backgroundColor: '#FDECEC' }}>
         {fmtHM(total)}
       </Text>
     );
@@ -70,8 +73,8 @@ function DayChip({ day, total }: { day: ExportDay | undefined; total: number }) 
   return (
     <Text style={{
       ...styles.dayChip,
-      color:           over ? '#92400E'    : colors.blue,
-      backgroundColor: over ? colors.amberLt : colors.blueLt,
+      color:           over ? '#B91C1C' : colors.blue,
+      backgroundColor: over ? '#FDECEC'  : colors.blueLt,
     }}>
       {fmtHM(total)} / {fmtHM(planned)}
     </Text>

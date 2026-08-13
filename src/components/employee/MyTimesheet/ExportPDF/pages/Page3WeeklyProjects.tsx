@@ -87,8 +87,11 @@ export function Page3WeeklyProjects({ data }: { data: TimesheetExportData }) {
                 // recording most types in advance anyway.
                 const tag = w.planned === 0 ? { t: 'Non-working',  bg: '#F3F4F6', fg: colors.ink3 }
                           : start           ? { t: 'Not yet due',  bg: '#F3F4F6', fg: colors.ink3 }
+                          // Red, not amber: overtime is the house red now, and
+                          // amber below still means "short". One colour cannot
+                          // mean both directions of the same miss.
                           : over            ? { t: `Over by ${fmtHM(w.total - w.planned)}`,
-                                                                   bg: colors.amberLt, fg: '#92400E' }
+                                                                   bg: '#FDECEC', fg: '#B91C1C' }
                           : !done           ? { t: 'In progress',  bg: colors.blueLt,  fg: colors.blue }
                           : pct >= 100      ? { t: 'Complete',     bg: '#ECFDF5', fg: '#047857' }
                           : pct > 0         ? { t: 'Partial',      bg: colors.amberLt, fg: '#92400E' }
