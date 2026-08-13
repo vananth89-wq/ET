@@ -39,6 +39,21 @@ export function fmtHMWide(minutes: number): string {
   return `${h}h ${String(m).padStart(2, '0')}m`;
 }
 
+/**
+ * "8:00" — the matrix cell form on the Summary report.
+ *
+ * A third format, and the narrowest of the three on purpose. fmtHM gives "8h"
+ * and fmtHMWide "8h 00m"; at ten columns across A4 a cell is about 44pt wide
+ * and "5h 45m" does not fit — it renders as "5h…", which is worse than useless
+ * in a column of figures someone is adding up. Clock notation says the same
+ * thing in four characters and stacks into a column that can be read down.
+ */
+export function fmtHMClock(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return `${h}:${String(m).padStart(2, '0')}`;
+}
+
 export function fmtHours(minutes: number): string {
   return (minutes / 60).toFixed(1);
 }

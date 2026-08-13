@@ -477,4 +477,84 @@ export const styles = StyleSheet.create({
   },
   footerTxt: { fontSize: 6.5, color: colors.ink4 },
   endLine:   { textAlign: 'center', fontSize: 8, color: colors.ink4, marginTop: 10 },
+
+  // ── summary matrix (page 2 of the Summary report) ───────────────────
+  // Deliberately borderless. The Detail report earns its boxes — each card is
+  // a discrete entry — but a 31-row grid with rules between every cell reads
+  // as a spreadsheet someone pasted into a report. Alignment and one hairline
+  // per row do the same work; see Page2Summary.
+  mxHero:     { flexDirection: 'row', alignItems: 'center', borderWidth: 1,
+                borderColor: '#E7EBF1', borderStyle: 'solid', borderRadius: 6,
+                paddingVertical: 8, marginBottom: 12 },
+  mxHeroCell: { paddingHorizontal: 14, borderRightWidth: 1, borderRightColor: '#EEF1F5',
+                borderRightStyle: 'solid' },
+  mxHeroLbl:  { fontSize: 5.8, fontFamily: 'Helvetica-Bold', color: '#94A0B0', letterSpacing: 0.9 },
+  mxHeroVal:  { fontSize: 14, fontFamily: 'Helvetica-Bold', color: colors.ink, marginTop: 2 },
+  mxHeroBar:  { flexGrow: 1, paddingHorizontal: 14 },
+  mxHeroCap:  { fontSize: 6.2, color: '#94A0B0', marginTop: 5 },
+
+  mxTrack:     { height: 5, backgroundColor: '#EEF1F5', borderRadius: 2.5 },
+  mxTrackFill: { height: 5, borderRadius: 2.5 },
+
+  mxHead:     { flexDirection: 'row', alignItems: 'flex-end', paddingBottom: 4,
+                borderBottomWidth: 1.2, borderBottomColor: '#0F172A', borderBottomStyle: 'solid' },
+  mxHeadDay:  { fontSize: 5.8, fontFamily: 'Helvetica-Bold', color: '#94A0B0', letterSpacing: 0.9 },
+  mxHeadCol:  { fontSize: 6.8, fontFamily: 'Helvetica-Bold', color: '#475569', textAlign: 'right' },
+  mxHeadMeta: { fontSize: 5.8, fontFamily: 'Helvetica-Bold', color: '#94A0B0', letterSpacing: 0.9,
+                textAlign: 'right' },
+  mxDot:      { width: 4, height: 4, borderRadius: 2, marginBottom: 2.5 },
+
+  mxRow:      { flexDirection: 'row', alignItems: 'center',
+                borderBottomWidth: 0.5, borderBottomColor: '#F2F4F7', borderBottomStyle: 'solid' },
+  mxDow:      { fontSize: 6.6, marginRight: 3 },
+  mxDayNum:   { fontSize: 7.4 },
+  mxTag:      { fontSize: 5.4, fontFamily: 'Helvetica-Bold', marginLeft: 5,
+                paddingHorizontal: 3, paddingVertical: 1, borderRadius: 2 },
+  mxCell:     { fontSize: 7.4, textAlign: 'right', paddingRight: 6 },
+  mxTotal:    { fontSize: 7.4, fontFamily: 'Helvetica-Bold', textAlign: 'right', paddingRight: 6 },
+
+  mxBand:     { flexDirection: 'row', alignItems: 'center',
+                borderBottomWidth: 0.5, borderBottomColor: '#EDF0F4', borderBottomStyle: 'solid' },
+  mxBandLead: { fontSize: 5.8, fontFamily: 'Helvetica-Bold', letterSpacing: 0.9 },
+  mxBandTxt:  { fontSize: 5.8, textAlign: 'center', letterSpacing: 1.4 },
+
+  mxWeek:     { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F4F7FE',
+                borderTopWidth: 0.7, borderTopColor: '#C9D8F6', borderTopStyle: 'solid',
+                borderBottomWidth: 0.7, borderBottomColor: '#C9D8F6', borderBottomStyle: 'solid' },
+  mxWeekLbl:  { fontSize: 7.4, fontFamily: 'Helvetica-Bold', color: colors.blueMid },
+  mxWeekRange:{ fontSize: 6, color: '#8FA6DC' },
+  mxWeekTot:  { fontSize: 7.4, fontFamily: 'Helvetica-Bold', color: colors.blue,
+                textAlign: 'right', paddingRight: 6 },
+
+  mxMonth:     { flexDirection: 'row', alignItems: 'center', backgroundColor: '#101F49' },
+  mxMonthLbl:  { fontSize: 6.6, fontFamily: 'Helvetica-Bold', color: '#9FB4E8', letterSpacing: 1.1 },
+  mxMonthCell: { fontSize: 7.6, fontFamily: 'Helvetica-Bold', color: colors.white,
+                 textAlign: 'right', paddingRight: 6 },
+  mxMonthTot:  { fontSize: 9, fontFamily: 'Helvetica-Bold', color: colors.white,
+                 textAlign: 'right', paddingRight: 6 },
+
+  mxPips:     { flexDirection: 'row', marginRight: 5 },
+  mxPip:      { width: 2.2, height: 6, borderRadius: 0.8, marginRight: 0.9 },
+  mxCmpVal:   { fontSize: 7.4, fontFamily: 'Helvetica-Bold', textAlign: 'right' },
+
+  mxKey:      { flexDirection: 'row', marginTop: 9 },
+  mxKeyItem:  { flexDirection: 'row', alignItems: 'center', marginRight: 12 },
+  mxKeyDot:   { width: 3.6, height: 3.6, borderRadius: 1.8, marginRight: 3.5 },
+  mxKeyTxt:   { fontSize: 5.8, color: '#98A2AE' },
 });
+
+/**
+ * Green / amber / red, and nothing else.
+ *
+ * A separate map from `dayState` on purpose. dayState answers "what KIND of day
+ * is this" — holiday, leave, weekend — for the calendar; this answers "did the
+ * hours meet the target". The calendar deliberately has nothing red on it,
+ * because on that page over-recording is worth noticing rather than an error.
+ * On the summary table the same fact is one of three verdicts in a single
+ * column, and needs its own third colour.
+ */
+export const matrixTone = {
+  met:   '#047857',
+  short: '#B45309',
+  over:  '#B91C1C',
+} as const;
