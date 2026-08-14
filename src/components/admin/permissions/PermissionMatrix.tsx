@@ -158,6 +158,17 @@ const ADMIN_GROUPS: MatrixGroup[] = [
       rowHint: 'Configure submission reminder notifications — timing, message template and channel' },
     { code: 'timesheet_reports',      label: 'Timesheet reports',  availableActions: ['view'],
       rowHint: 'Access timesheet reporting and analytics pages — utilisation, missing timesheets, department summaries' },
+    // MIG 739. The permission has existed since 732 and App.tsx has always
+    // gated the Timesheet Admin nav item and /admin/time/timesheets on it —
+    // but this matrix never offered the module, so there was no way to grant
+    // it and the screen was reachable only by super-admins, who bypass
+    // user_can() entirely. A route gated on a permission no screen can grant
+    // is the same defect as section N of the test plan, one layer up.
+    { code: 'timesheet_admin',        label: 'Timesheet admin',    availableActions: ['view'],
+      rowHint: 'Open the Timesheet Admin screen — every employee\u2019s sheet for a period, across the org',
+      actionHints: {
+        view: 'Gates the Timesheet Admin nav item and /admin/time/timesheets. Grant it to whoever runs the month-end close.',
+      } },
   ]},
   { groupLabel: 'Employee', rows: [
     { code: 'hire_employee', label: 'Hire employee', availableActions: ['view','create','edit','delete','history'],
