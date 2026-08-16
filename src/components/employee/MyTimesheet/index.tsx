@@ -1625,12 +1625,18 @@ export default function MyTimesheet() {
     : '';
 
   // Why it is locked, in the employee's words, for the panel notice.
-  const lockReason = pending
-    ? 'Waiting for approval — withdraw it to make changes.'
-    : monthClosed
-      ? `This month is closed for editing. The earliest month you can still change is ${
-          editFloor ? `${MONTH_NAMES[Number(editFloor.slice(5, 7)) - 1]} ${editFloor.slice(0, 4)}` : '—'}.`
-      : '';
+  // Three locks now, and they have three different answers. Permission goes
+  // first: when you may only read, the month's status and the edit window are
+  // beside the point — telling somebody to "withdraw it to make changes" when
+  // they could not change it either way is worse than saying nothing.
+  const lockReason = !mayEdit
+    ? 'You have view-only access to this timesheet.'
+    : pending
+      ? 'Waiting for approval — withdraw it to make changes.'
+      : monthClosed
+        ? `This month is closed for editing. The earliest month you can still change is ${
+            editFloor ? `${MONTH_NAMES[Number(editFloor.slice(5, 7)) - 1]} ${editFloor.slice(0, 4)}` : '—'}.`
+        : '';
 
   const dayEntries = selectedDate ? (entriesByDate[selectedDate] ?? []) : [];
 
@@ -2199,9 +2205,6 @@ export default function MyTimesheet() {
                 READ ONLY
               </span>
             )}
-            <a href="/my-timesheet" style={{ marginLeft: 'auto', color: '#1D4ED8', fontWeight: 600 }}>
-              ← Return to your timesheet
-            </a>
           </div>
         )}
 
@@ -2279,7 +2282,7 @@ export default function MyTimesheet() {
               pointer events on a disabled control, so a tooltip attached to it
               never appears — which would leave a greyed-out button with no
               explanation at all. */}
-          {editable && isSelf && (
+          {editable && (
             <span title={submitBlocked || undefined} style={{ display: 'inline-flex' }}>
             <button
               onClick={() => setConfirmSubmit(true)}
@@ -2301,7 +2304,7 @@ export default function MyTimesheet() {
 
           {/* The way out of Pending Approval. Without it, submitting is still a
               one-way door — which is the bug this whole change exists to fix. */}
-          {pending && isSelf && (
+          {pending && mayEdit && (
             <button
               onClick={() => setConfirmWithdraw(true)}
               style={{
@@ -2647,9 +2650,17 @@ export default function MyTimesheet() {
                           : (dateStr > todayIso && !timeTypes.some(t => t.allows_future)) ? null
                           : dayEnts.length === 0 ? (
                           <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            {/* The one write affordance that was not gated: an
+                                empty day still said "＋ Add time" on hover in a
+                                read-only month. Nothing could actually be
+                                written — the panel shows the lock notice
+                                instead of a form — but inviting a click that
+                                leads to a refusal is the same class of mistake
+                                as offering a View Timesheet button that leads
+                                to one. */}
                             <span style={{
                               fontSize: 11, fontWeight: 600, color: '#98A2B3',
-                              opacity: (isHovered || isSelected) ? 1 : 0,
+                              opacity: (editable && (isHovered || isSelected)) ? 1 : 0,
                               transition: 'opacity 0.12s ease',
                             }}>
                               ＋ Add time
