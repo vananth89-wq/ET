@@ -1497,7 +1497,10 @@ export default function MyTimesheet() {
     ).length;
 
     return {
-      employeeName:    employee?.name ?? '—',
+      // The SUBJECT's name, not the viewer's. This is the line that would have
+      // put "Vijey Ananth" on the cover of a PDF of Harikrishnan's month —
+      // a document someone signs, with the wrong person on it.
+      employeeName:    subjectName || employee?.name || '—',
       employeeCode:    empCode || '—',
       department,
       holidayCalendar: calendarName,
@@ -2315,7 +2318,7 @@ export default function MyTimesheet() {
 
         {/* Stats row */}
         <div style={{ display: 'flex', gap: 28, marginTop: 10, flexWrap: 'wrap' }}>
-          <Stat label="Employee" value={employee?.name ?? '—'} bold />
+          <Stat label="Employee" value={subjectName || employee?.name || '—'} bold />
           {schedule && (
             <Stat label="Work Schedule" value={`${schedule.name} (${schedule.code})`} />
           )}
