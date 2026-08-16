@@ -193,6 +193,21 @@ export default function EmployeeSearchBox() {
     navigate(`/profile/${employeeId}`);
   }, [addEntry, navigate]);
 
+  /**
+   * The second destination on an employee row. Deliberately does NOT record a
+   * "recently viewed" entry — that list is about profiles, and a manager
+   * checking six timesheets would flush it.
+   *
+   * No period on the URL: the page opens on the current month by itself, and
+   * pinning one here would make a bookmarked search result age badly.
+   */
+  const navigate_to_timesheet = useCallback((employeeId: string) => {
+    setQuery('');
+    setOpen(false);
+    setOverlayOpen(false);
+    navigate(`/timesheet/${employeeId}`);
+  }, [navigate]);
+
   const navigate_to_module = useCallback((mod: AdminModule) => {
     setQuery('');
     setOpen(false);
@@ -214,7 +229,15 @@ export default function EmployeeSearchBox() {
       case 'Enter':
         if (highlightIdx >= 0) {
           if (highlightIdx < dropItems.length) {
-            navigate_to(dropItems[highlightIdx].employee_id, dropItems[highlightIdx]);
+            const row = dropItems[highlightIdx];
+            // Shift+Enter is the keyboard route to the timesheet. The button on
+            // the row is mouse-only by design — see SearchResultRow.
+            if (e.shiftKey && 'can_view_timesheet' in row && row.can_view_timesheet) {
+              e.preventDefault();
+              navigate_to_timesheet(row.employee_id);
+            } else {
+              navigate_to(row.employee_id, row);
+            }
           } else {
             const mod = adminModules[highlightIdx - dropItems.length];
             if (mod) navigate_to_module(mod);
@@ -328,6 +351,7 @@ export default function EmployeeSearchBox() {
                 highlightIdx={highlightIdx}
                 optionId={optionId}
                 onSelect={navigate_to}
+                onOpenTimesheet={navigate_to_timesheet}
                 onHighlight={setHighlightIdx}
                 adminModules={adminModules}
                 employeeCount={dropItems.length}
@@ -421,6 +445,7 @@ export default function EmployeeSearchBox() {
               highlightIdx={highlightIdx}
               optionId={optionId}
               onSelect={navigate_to}
+              onOpenTimesheet={navigate_to_timesheet}
               onHighlight={setHighlightIdx}
               adminModules={adminModules}
               employeeCount={dropItems.length}
@@ -451,6 +476,7 @@ interface DropdownContentProps {
   highlightIdx:    number;
   optionId:        (idx: number) => string;
   onSelect:        (id: string, entry: EmployeeSearchResult | RecentlyViewedEntry) => void;
+  onOpenTimesheet: (employeeId: string) => void;
   onHighlight:     (idx: number) => void;
   adminModules:    AdminModule[];
   employeeCount:   number;
@@ -460,7 +486,7 @@ interface DropdownContentProps {
 function DropdownContent({
   showRecent, recentEntries, results, loading, error, query,
   highlightIdx, optionId, onSelect, onHighlight,
-  adminModules, employeeCount, onSelectModule,
+  adminModules, employeeCount, onSelectModule, onOpenTimesheet,
 }: DropdownContentProps) {
   if (showRecent) {
     return (
@@ -515,6 +541,12 @@ function DropdownContent({
               isHighlighted={highlightIdx === i}
               onClick={() => onSelect(r.employee_id, r)}
               onMouseEnter={() => onHighlight(i)}
+              // Only where the database says the caller may open it. The row
+              // appearing at all is governed by employee_search.view, which is
+              // a different grant entirely.
+              onOpenTimesheet={r.can_view_timesheet
+                ? () => onOpenTimesheet(r.employee_id)
+                : undefined}
             />
           ))}
         </>

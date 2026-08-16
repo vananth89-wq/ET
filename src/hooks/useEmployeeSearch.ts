@@ -20,6 +20,23 @@ export interface EmployeeSearchResult {
   manager_id:    string | null;
   avatar_url:    string | null;
   similarity:    number;
+  /**
+   * MIG 740. Whether the SIGNED-IN user may open this person's timesheet, and
+   * whether they may change it — user_can('timesheet', …, this employee),
+   * evaluated per row by the RPC.
+   *
+   * It cannot be worked out in the browser. The client permission list is flat:
+   * it knows you hold `timesheet.view`, not that the grant is scoped to your
+   * direct reports. And the search scope is a DIFFERENT grant from the
+   * timesheet scope — HR Analyst searches the whole org and holds no timesheet
+   * permission at all — so a row appearing here says nothing about access to
+   * the sheet behind it.
+   *
+   * Optional so a client running against a pre-740 database degrades to "no
+   * button" rather than a type error.
+   */
+  can_view_timesheet?: boolean;
+  can_edit_timesheet?: boolean;
 }
 
 interface UseEmployeeSearchResult {

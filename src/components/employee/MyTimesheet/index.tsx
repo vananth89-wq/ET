@@ -15,7 +15,7 @@
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { useSearchParams }                            from 'react-router-dom';
+import { useParams, useSearchParams }                 from 'react-router-dom';
 import { useAuth }                                    from '../../../contexts/AuthContext';
 import { supabase }                                   from '../../../lib/supabase';
 import ErrorBanner                                    from '../../shared/ErrorBanner';
@@ -457,6 +457,41 @@ async function loadLogoDataUrl(): Promise<string | null> {
 export default function MyTimesheet() {
   const { employee } = useAuth();
 
+  // ── Whose timesheet is this? ─────────────────────────────────────────────
+  // /my-timesheet has no param and means "mine". /timesheet/:employeeId means
+  // somebody else's, reached from the header search. Everything below reads
+  // `subjectId`; `employee.id` now only answers "who is looking".
+  //
+  // The database decides what looking gets you. `access` comes from
+  // time_timesheet_access (mig 740) which is user_can() per employee, so the
+  // page cannot disagree with RLS or with the write RPCs — and an administrator
+  // changing a permission set or a target group is reflected on the next load
+  // with no deploy. Nothing here branches on "is this person a manager".
+  const { employeeId: routeEmployeeId } = useParams<{ employeeId?: string }>();
+  const subjectId = routeEmployeeId ?? employee?.id ?? '';
+  const isSelf    = !routeEmployeeId || routeEmployeeId === employee?.id;
+
+  const [subjectName, setSubjectName] = useState('');
+  const [access, setAccess] = useState<{
+    can_view: boolean; can_edit: boolean; can_delete: boolean; can_create: boolean;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!subjectId) return;
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase.rpc('time_timesheet_access', { p_employee_id: subjectId });
+      if (!cancelled) setAccess(data as any);
+    })();
+    return () => { cancelled = true; };
+  }, [subjectId]);
+
+  // Until the answer arrives, assume the historic behaviour for your own sheet
+  // and assume nothing for anyone else's. Defaulting the other way would flash
+  // a read-only calendar at every employee opening their own month.
+  const mayEdit = access ? access.can_edit : isSelf;
+  const mayView = access ? access.can_view : isSelf;
+
   // Period
   const today = new Date();
   // The month lives in the URL, not only in React state. Without it a refresh
@@ -561,24 +596,24 @@ export default function MyTimesheet() {
 
   // ── Fetch employee code + reference data once ───────────────────────────
   useEffect(() => {
-    if (!employee?.id) return;
+    if (!subjectId) return;
     (async () => {
       const [empRes, ttRes, prRes, actRes] = await Promise.all([
-        supabase.from('employees').select('employee_id').eq('id', employee.id).single(),
+        supabase.from('employees').select('employee_id, name').eq('id', subjectId).single(),
         supabase.from('time_types').select('id, name, code, category, requires_project, allows_half_day, allows_future, is_active').eq('is_active', true).eq('is_system_managed', false).order('category').order('name'),
         supabase.from('projects').select('id, name, active, start_date, end_date').eq('active', true).order('name'),
-        supabase.rpc('get_employee_activities', { p_employee_id: employee.id }),
+        supabase.rpc('get_employee_activities', { p_employee_id: subjectId }),
       ]);
-      if (empRes.data) setEmpCode(empRes.data.employee_id ?? '');
+      if (empRes.data) { setEmpCode(empRes.data.employee_id ?? ''); setSubjectName((empRes.data as any).name ?? ''); }
       if (ttRes.data)  setTimeTypes(ttRes.data as TimeType[]);
       if (prRes.data)  setProjects(prRes.data as Project[]);
       if (actRes.data) setActivityHistory(actRes.data as ActivityHistoryItem[]);
     })();
-  }, [employee?.id]);
+  }, [subjectId]);
 
   // ── Load / auto-create header + entries for the period ─────────────────
   const loadPeriod = useCallback(async () => {
-    if (!employee?.id || !empCode) return;
+    if (!subjectId || !empCode) return;
     setLoading(true);
     setError(null);
 
@@ -611,7 +646,7 @@ export default function MyTimesheet() {
     const { data: empRow, error: empErr } = await supabase
       .from('employee_employment')
       .select('work_schedule_id, holiday_calendar_id, dept_id, hire_date, departments(name)')
-      .eq('employee_id', employee.id)
+      .eq('employee_id', subjectId)
       .or('effective_to.is.null,effective_to.eq.9999-12-31')
       .order('effective_from', { ascending: false })
       .limit(1)
@@ -631,13 +666,24 @@ export default function MyTimesheet() {
     let { data: hdr, error: hErr } = await supabase
       .from('timesheet_headers')
       .select('id, employee_id, period, external_code, status, work_schedule_id, holiday_calendar_id, planned_minutes, recorded_minutes, submitted_at, approved_at, content_changed_at')
-      .eq('employee_id', employee.id)
+      .eq('employee_id', subjectId)
       .eq('period', periodDate)
       .maybeSingle();
 
     if (hErr) { setError(hErr.message); setLoading(false); return; }
 
     let headerId: string;
+
+    // Opening a month with no header creates one — right for the employee's own
+    // visit, wrong for anybody else's. Nothing reads empty headers today, but
+    // the moment a "who hasn't submitted" report exists, every manager who ever
+    // glanced at a month becomes a false positive in it. Viewing reads.
+    if (!hdr && !isSelf) {
+      setHeader(null);
+      setEntries([]);
+      setLoading(false);
+      return;
+    }
 
     if (!hdr) {
       // 2a. Work schedule + holiday calendar come from the hoisted lookup above
@@ -684,7 +730,7 @@ export default function MyTimesheet() {
       const { data: created, error: cErr } = await supabase
         .from('timesheet_headers')
         .insert({
-          employee_id:         employee.id,
+          employee_id:         subjectId,
           period:              periodDate,
           external_code:       externalCode,
           status:              'to_be_submitted',
@@ -817,7 +863,7 @@ export default function MyTimesheet() {
     if (eErr) { setError(eErr.message); setLoading(false); return; }
     setEntries((ents ?? []) as unknown as TimesheetEntry[]);
     setLoading(false);
-  }, [employee?.id, empCode, year, month]);
+  }, [subjectId, empCode, year, month]);
 
   useEffect(() => {
     if (empCode) loadPeriod();
@@ -843,7 +889,7 @@ export default function MyTimesheet() {
   // replaces it with the real row, server id and true usage_count included.
   function noteActivitiesUsed(names: string[]) {
     const clean = names.map(n => n.trim()).filter(Boolean);
-    if (!clean.length || !employee?.id) return;
+    if (!clean.length || !subjectId) return;
 
     // Optimistic. Build new objects rather than mutating the ones in state —
     // `[...prev]` copies the array, not the items inside it.
@@ -869,7 +915,7 @@ export default function MyTimesheet() {
 
     // Reconcile. Deliberately not gated on data?.ok — record_activity_usages
     // returns ok:true unconditionally, so the guard only ever hid real errors.
-    const empId = employee.id;
+    const empId = subjectId;
     supabase
       .rpc('record_activity_usages', { p_employee_id: empId, p_activity_names: clean })
       .then(() =>
@@ -1541,7 +1587,11 @@ export default function MyTimesheet() {
   const monthStart   = isoDate(year, month, 1);
   const monthClosed  = editFloor != null && monthStart < editFloor;
   const pending      = status === 'to_be_approved';
-  const editable     = !pending && !monthClosed;
+  // mayEdit is user_can('timesheet','edit', subject) — see the top of this
+  // component. For your own sheet it is the ESS grant and nothing changes; for
+  // someone else's it is whatever the administrator configured, read fresh on
+  // every load.
+  const editable     = !pending && !monthClosed && mayEdit;
 
   // ── Is there anything to resubmit? (mig 731) ─────────────────────────
   // Only asked of an APPROVED month. A month that has never been filed always
@@ -1797,9 +1847,10 @@ export default function MyTimesheet() {
 
   // ── Activity favourite toggle ────────────────────────────────────────
   async function handleFavoriteToggle(name: string, _currentIsFav: boolean): Promise<{ ok: boolean; message?: string }> {
-    if (!employee?.id) return { ok: false, message: 'Not logged in.' };
+    if (!subjectId) return { ok: false, message: 'Not logged in.' };
+    // The subject's list, not the viewer's — the panel above it is theirs.
     const { data } = await supabase.rpc('toggle_activity_favorite', {
-      p_employee_id:   employee.id,
+      p_employee_id:   subjectId,
       p_activity_name: name,
     });
     if (data?.ok) {
@@ -2087,6 +2138,29 @@ export default function MyTimesheet() {
   }
 
 
+  // ── Refused, and said so ───────────────────────────────────────────────
+  // RLS would return nothing and the page would render an empty month, which
+  // reads as "this person recorded no time" — the opposite of the truth. Only
+  // shown once the answer is IN: `access === null` still means "asking".
+  if (!isSelf && access && !mayView) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                    height: '100vh', background: '#F9FAFB', gap: 12, padding: 24, textAlign: 'center' }}>
+        <i className="fa-regular fa-eye-slash" style={{ fontSize: 28, color: '#9CA3AF' }} />
+        <div style={{ fontSize: 16, fontWeight: 700, color: '#111827' }}>
+          You do not have access to this timesheet
+        </div>
+        <div style={{ fontSize: 13, color: '#6B7280', maxWidth: 420 }}>
+          Your permissions cover a different set of employees. An administrator can
+          change that in Security → Permission Matrix.
+        </div>
+        <a href="/my-timesheet" style={{ marginTop: 4, color: '#1D4ED8', fontWeight: 600, fontSize: 13 }}>
+          ← Return to your timesheet
+        </a>
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', background: '#F9FAFB' }}>
 
@@ -2097,6 +2171,36 @@ export default function MyTimesheet() {
         <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 6, letterSpacing: '0.02em' }}>
           My Profile &nbsp;/&nbsp; Time Sheet
         </div>
+
+        {/* Whose sheet this is. Same shape as the profile page's viewing
+            banner, so the two read as one product. Only ever shown when you
+            are looking at somebody else — your own timesheet says nothing,
+            because it has nothing to say. */}
+        {!isSelf && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+            background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 9,
+            padding: '10px 14px', marginBottom: 14, fontSize: 13,
+          }}>
+            <i className="fa-regular fa-eye" style={{ color: '#2563EB' }} />
+            <span style={{ color: '#1E3A8A' }}>
+              Viewing&nbsp;&nbsp;<b>{empCode}</b>
+              {subjectName ? <> &nbsp;·&nbsp; <b>{subjectName}</b></> : null}
+            </span>
+            {!mayEdit && (
+              <span style={{
+                fontSize: 11, fontWeight: 700, letterSpacing: 0.3,
+                background: '#E5E7EB', color: '#374151',
+                borderRadius: 5, padding: '2px 8px',
+              }}>
+                READ ONLY
+              </span>
+            )}
+            <a href="/my-timesheet" style={{ marginLeft: 'auto', color: '#1D4ED8', fontWeight: 600 }}>
+              ← Return to your timesheet
+            </a>
+          </div>
+        )}
 
         {/* Period nav + title row */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
@@ -2172,7 +2276,7 @@ export default function MyTimesheet() {
               pointer events on a disabled control, so a tooltip attached to it
               never appears — which would leave a greyed-out button with no
               explanation at all. */}
-          {editable && (
+          {editable && isSelf && (
             <span title={submitBlocked || undefined} style={{ display: 'inline-flex' }}>
             <button
               onClick={() => setConfirmSubmit(true)}
@@ -2194,7 +2298,7 @@ export default function MyTimesheet() {
 
           {/* The way out of Pending Approval. Without it, submitting is still a
               one-way door — which is the bug this whole change exists to fix. */}
-          {pending && (
+          {pending && isSelf && (
             <button
               onClick={() => setConfirmWithdraw(true)}
               style={{

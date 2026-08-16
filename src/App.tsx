@@ -695,7 +695,7 @@ function AppShell() {
   const isEmployeeMode = /^\/profile(\/[^/]+)?$/.test(loc.pathname);
   const isHomePage     = loc.pathname === '/home';
   const isAdminArea    = loc.pathname === '/admin' || loc.pathname.startsWith('/admin/');
-  const isFullPage     = ['/org-chart', '/expense', '/my-timesheet', '/workflow/my-requests', '/workflow/inbox', '/workflow/delegations', '/workflow/review'].some(
+  const isFullPage     = ['/org-chart', '/expense', '/my-timesheet', '/timesheet/', '/workflow/my-requests', '/workflow/inbox', '/workflow/delegations', '/workflow/review'].some(
     p => loc.pathname === p || loc.pathname.startsWith(p + '/')
   );
   const hideSidebar    = isEmployeeMode || isHomePage || isFullPage || isAdminArea;
@@ -743,6 +743,11 @@ export default function App() {
           </ProtectedRoute>
         } />
         <Route path="/my-timesheet"         element={<MyTimesheet />} />
+        {/* Somebody else's, reached from the header search. No permission on the
+            route itself: MyTimesheet asks time_timesheet_access for THIS
+            employee and refuses in place, because access here is per-employee
+            and a route guard can only ask the flat "do you hold it at all". */}
+        <Route path="/timesheet/:employeeId" element={<MyTimesheet />} />
         <Route path="/expense/report/:id"   element={
           <ProtectedRoute requiredPermission="expense_reports.view">
             <ReportDetail />

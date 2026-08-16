@@ -18,6 +18,8 @@ interface SearchResultRowProps {
   isHighlighted: boolean;
   onClick:     () => void;
   onMouseEnter?: () => void;
+  /** Present only when the signed-in user may open this person's timesheet. */
+  onOpenTimesheet?: () => void;
 }
 
 export default function SearchResultRow({
@@ -26,6 +28,7 @@ export default function SearchResultRow({
   isHighlighted,
   onClick,
   onMouseEnter,
+  onOpenTimesheet,
 }: SearchResultRowProps) {
   const name   = data.full_name;
   const code   = data.employee_code;
@@ -49,6 +52,9 @@ export default function SearchResultRow({
       aria-selected={isHighlighted}
       onClick={onClick}
       onMouseEnter={onMouseEnter}
+      aria-label={onOpenTimesheet
+        ? `${data.full_name} — Enter to open profile, Shift+Enter for timesheet`
+        : undefined}
       style={{
         display:     'flex',
         alignItems:  'center',
@@ -94,6 +100,37 @@ export default function SearchResultRow({
           </div>
         )}
       </div>
+
+      {/* Second destination on the same row. The name still goes to the
+          profile; this goes to their timesheet.
+
+          aria-hidden with tabIndex -1 on purpose: the row is role="option"
+          inside a listbox, and a focusable control nested in an option is
+          invalid ARIA that screen readers cannot reach anyway. The keyboard
+          route is Shift+Enter, announced in the row's aria-label above, which
+          keeps the listbox semantics intact.
+
+          stopPropagation, or clicking it would ALSO fire the row and navigate
+          to the profile a moment later. */}
+      {onOpenTimesheet && (
+        <button
+          type="button"
+          tabIndex={-1}
+          aria-hidden="true"
+          onClick={e => { e.stopPropagation(); onOpenTimesheet(); }}
+          title="Open this employee's timesheet"
+          style={{
+            flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 5,
+            padding: '4px 9px', borderRadius: 6, cursor: 'pointer',
+            border: '1px solid #C7D6FF', background: isHighlighted ? '#FFFFFF' : '#F5F8FF',
+            color: '#2563EB', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap',
+          }}
+        >
+          <i className="fa-regular fa-calendar-days" style={{ fontSize: 10 }} />
+          View Timesheet
+          <span aria-hidden="true">&rarr;</span>
+        </button>
+      )}
     </div>
   );
 }
