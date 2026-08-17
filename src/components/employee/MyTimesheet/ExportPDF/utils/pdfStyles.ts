@@ -42,28 +42,37 @@ export const colors = {
  * cell already shows on screen.
  */
 export const dayState = {
-  working: { bg: '#F4F8FF', border: '#DAE6FA', ink: '#1E40AF', dot: '#2563EB', label: 'Working'      },
-  // Purple, matching getEntryBadge() in MyTimesheet — the app has always drawn
-  // HOL purple. The calendar here briefly used green, which also collided with
-  // the green page 2 gives non-project attendance.
-  holiday: { bg: '#F1ECFD', border: '#DDD0F8', ink: '#5B21B6', dot: '#7C3AED', label: 'Holiday'      },
-  // OVER is red. It used to be amber, on the reasoning that recording more than
-  // planned is worth noticing rather than an error — but amber is also what
-  // "short of plan" wears on page 3, and a single colour cannot mean both too
-  // much and too little. Red is the house signal for overtime, and it covers
-  // weekend and worked-holiday hours too: on a day with no plan, every hour
-  // recorded is beyond the schedule.
+  // Matched EXACTLY to the approval screens (workflow/timesheet/TimesheetReview
+  // .tsx -> CELL_STYLE). One vocabulary, one palette: the approver reviewing a
+  // month and the employee who filed it must not see two colour languages.
   //
-  // Leave stays slate. It used to be amber, which put it in the same ink as
-  // over-plan — one colour with two opposite senses.
-  leave:   { bg: '#EEF2F7', border: '#DDE3EB', ink: '#475569', dot: '#64748B', label: 'Leave'        },
-  over:    { bg: '#FDECEC', border: '#F7C9C9', ink: '#B91C1C', dot: '#DC2626', label: 'Over planned' },
-  missing: { bg: '#FFF8EC', border: '#FAE2BE', ink: '#C2410C', dot: '#F97316', label: 'Missing'      },
-  weekend: { bg: '#F7F8FA', border: '#EDEFF2', ink: '#9CA3AF', dot: '',        label: 'Weekend'      },
+  // A day is judged against ITS OWN planned hours, never a literal 8 -- a 4h
+  // day with 6h recorded is over, not short.
+  onPlan:    { bg: '#EFF8E4', border: '#D7EBC2', ink: '#3F6212', dot: '#65A30D', bw: 1, label: 'On plan'      },
+  underPlan: { bg: '#FEF7E8', border: '#FBE3B4', ink: '#B45309', dot: '#F0A020', bw: 1, label: 'Under plan'   },
+  // OVER is red, and it covers weekend and worked-holiday hours too: on a day
+  // with no plan, every hour recorded is beyond the schedule.
+  over:      { bg: '#FDEEEF', border: '#FBD5D8', ink: '#B91C1C', dot: '#DC2626', bw: 1, label: 'Over planned' },
+  // MISSING is the only state separated on LIGHTNESS rather than hue: white,
+  // ringed in charcoal. It is the state a reader must FIND rather than compare,
+  // and lightness is the one channel neither colour blindness nor a mono
+  // printer takes away. It used to be amber, which sat 1.8 dE from over-plan
+  // red under deuteranopia -- the two states that must never be confused were
+  // the two closest on the page.
+  missing:   { bg: '#FFFFFF', border: '#48505F', ink: '#48505F', dot: '#48505F', bw: 2, label: 'Missing'      },
+  // Leave takes the violet, holiday the blue. Holiday is company-wide and
+  // predictable; leave belongs to the person and is what a reader acts on.
+  leave:     { bg: '#F4EFFE', border: '#E4D9FC', ink: '#5B21B6', dot: '#7C3AED', bw: 1, label: 'Leave'        },
+  holiday:   { bg: '#EEF3FD', border: '#DCE6FA', ink: '#1F3B73', dot: '#2B54CE', bw: 1, label: 'Holiday'      },
+  weekend:   { bg: '#F4F6F9', border: '#EDF0F5', ink: '#8A93A0', dot: '',        bw: 1, label: 'Weekend'      },
   // A working day still ahead of us is NOT missing and NOT a weekend. Mig 729
   // forbids recording most types in advance, so colouring it as a gap would be
   // scolding someone for obeying the rules.
-  future:  { bg: '#FFFFFF', border: '#EFF1F4', ink: '#C4C9D0', dot: '',        label: 'Not yet due'  },
+  future:    { bg: '#FCFDFE', border: '#F1F4F8', ink: '#B0B9C6', dot: '',        bw: 1, label: 'Not yet due'  },
+  // NOT a calendar state any more -- classify() never returns it, so it never
+  // reaches the legend. It survives only as the project accent on page 2
+  // (accentFor), which is a per-ENTRY vocabulary rather than a per-day one.
+  working:   { bg: '#F4F8FF', border: '#DAE6FA', ink: '#1E40AF', dot: '#2563EB', bw: 1, label: 'Working'      },
 } as const;
 export type DayStateKey = keyof typeof dayState;
 
@@ -117,8 +126,9 @@ export const styles = StyleSheet.create({
   dayHead:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
                 marginTop: 13, marginBottom: 5 },
   dayName:    { fontSize: 10, fontFamily: 'Helvetica-Bold', color: colors.ink },
-  dayTag:     { fontSize: 7, fontFamily: 'Helvetica-Bold', color: '#5B21B6',
-                backgroundColor: '#F1ECFD', paddingHorizontal: 6, paddingVertical: 2,
+  // The holiday-name chip. Blue, because HOLIDAY is blue everywhere now.
+  dayTag:     { fontSize: 7, fontFamily: 'Helvetica-Bold', color: '#1F3B73',
+                backgroundColor: '#EEF3FD', paddingHorizontal: 6, paddingVertical: 2,
                 borderRadius: 7, marginLeft: 7 },
   dayChip:    { fontSize: 7.5, fontFamily: 'Helvetica-Bold', paddingHorizontal: 8,
                 paddingVertical: 3, borderRadius: 8 },
@@ -559,7 +569,7 @@ export const styles = StyleSheet.create({
  * column, and needs its own third colour.
  */
 export const matrixTone = {
-  met:   '#047857',
+  met:   '#3F6212',
   short: '#B45309',
   over:  '#B91C1C',
 } as const;

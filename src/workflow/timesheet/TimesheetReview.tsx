@@ -61,12 +61,12 @@ export function TsKpiTiles({ month }: { month: MonthModel }) {
   const tiles: [string, string, string, string | number, string][] = [
     ['Planned hours',   'fa-clock',                  '#2F6BE8', (month.planned  / 60).toFixed(1), 'hrs this month'],
     ['Recorded hours',  'fa-arrow-trend-up',         '#12A594', (month.recorded / 60).toFixed(1), 'hrs logged'],
-    ['Over planned',    'fa-arrow-up-from-bracket',  '#F0A020', (month.over     / 60).toFixed(1), "hrs beyond the day's schedule"],
+    ['Over planned',    'fa-arrow-up-from-bracket',  '#DC2626', (month.over     / 60).toFixed(1), "hrs beyond the day's schedule"],
     ['Utilisation',     'fa-chart-pie',              '#147A5C', `${month.utilisation}%`,          'of planned'],
     ['Working days',    'fa-calendar',               '#2A4A9E', month.workingDays,                'scheduled this month'],
     ['Days recorded',   'fa-calendar-check',         '#12A594', month.daysRecorded,               'days with time against them'],
-    ['Leave days',      'fa-folder-open',            '#F0A020', month.leaveDays,                  'days absent'],
-    ['Public holidays', 'fa-star',                   '#16A34A', month.holidayCount,               'days this month'],
+    ['Leave days',      'fa-folder-open',            '#7C3AED', month.leaveDays,                  'days absent'],
+    ['Public holidays', 'fa-star',                   '#2B54CE', month.holidayCount,               'days this month'],
   ];
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 9, marginBottom: 16 }}>
@@ -128,14 +128,28 @@ export function TsExceptionChips({ month }: { month: MonthModel }) {
 
 // ── calendar ─────────────────────────────────────────────────────────────────
 
-const CELL_STYLE: Record<string, { bg: string; bd: string; num: string; hrs: string; dot: string | null }> = {
-  work:    { bg: '#EEF3FD', bd: '#DCE6FA', num: '#1F3B73', hrs: '#2B54CE', dot: '#2B54CE' },
-  leave:   { bg: '#EFF6FF', bd: '#D8E7FB', num: '#1E40AF', hrs: '#3B82F6', dot: '#93C5FD' },
-  holiday: { bg: '#F4EFFE', bd: '#E4D9FC', num: '#5B21B6', hrs: '#7C3AED', dot: '#7C3AED' },
-  over:    { bg: '#FDEEEF', bd: '#FBD5D8', num: '#B91C1C', hrs: '#B91C1C', dot: '#DC2626' },
-  missing: { bg: '#FEF7E8', bd: '#FBE3B4', num: '#B45309', hrs: '#B45309', dot: '#F0A020' },
-  weekoff: { bg: '#F4F6F9', bd: '#EDF0F5', num: '#B7BFCC', hrs: '#B7BFCC', dot: null },
-  future:  { bg: '#FCFDFE', bd: '#F1F4F8', num: '#CBD3DE', hrs: '#CBD3DE', dot: null },
+// Calendar palette. The same eight states, the same values, are in the PDF
+// report (ExportPDF/utils/pdfStyles.ts -> dayState) so that an approver and the
+// employee looking at the same month never see two different colour languages.
+//
+// HOLIDAY wears the blue and LEAVE the violet. Holiday is company-wide and
+// predictable; leave belongs to the person and is the one an approver reads.
+//
+// MISSING is the only state separated on LIGHTNESS rather than hue: white,
+// ringed in charcoal. It is the state an approver must FIND rather than
+// compare, and lightness is the one channel no colour vision type and no
+// printer loses. It used to be amber -- 1.8 dE from over-plan red under
+// deuteranopia, so the two states that must never be confused were the two
+// closest on the page.
+const CELL_STYLE: Record<string, { bg: string; bd: string; bw: number; num: string; hrs: string; dot: string | null }> = {
+  met:     { bg: '#EFF8E4', bd: '#D7EBC2', bw: 1, num: '#3F6212', hrs: '#3F6212', dot: '#65A30D' },
+  short:   { bg: '#FEF7E8', bd: '#FBE3B4', bw: 1, num: '#B45309', hrs: '#B45309', dot: '#F0A020' },
+  over:    { bg: '#FDEEEF', bd: '#FBD5D8', bw: 1, num: '#B91C1C', hrs: '#B91C1C', dot: '#DC2626' },
+  missing: { bg: '#FFFFFF', bd: '#48505F', bw: 2, num: '#48505F', hrs: '#48505F', dot: '#48505F' },
+  leave:   { bg: '#F4EFFE', bd: '#E4D9FC', bw: 1, num: '#5B21B6', hrs: '#7C3AED', dot: '#7C3AED' },
+  holiday: { bg: '#EEF3FD', bd: '#DCE6FA', bw: 1, num: '#1F3B73', hrs: '#2B54CE', dot: '#2B54CE' },
+  weekoff: { bg: '#F4F6F9', bd: '#EDF0F5', bw: 1, num: '#8A93A0', hrs: '#8A93A0', dot: null },
+  future:  { bg: '#FCFDFE', bd: '#F1F4F8', bw: 1, num: '#B0B9C6', hrs: '#B0B9C6', dot: null },
 };
 
 function cellVariant(d: MonthDay): keyof typeof CELL_STYLE {
@@ -144,7 +158,10 @@ function cellVariant(d: MonthDay): keyof typeof CELL_STYLE {
   if (d.kind === 'missing') return 'missing';
   if (d.kind === 'weekoff') return 'weekoff';
   if (d.kind === 'leave')   return 'leave';
-  if (d.recorded > 0)       return 'work';
+  // A day is judged against ITS OWN planned hours, not a literal 8 -- a 4h day
+  // with 6h recorded is over, not short. model.ts already computes `tone` that
+  // way; this only reads it.
+  if (d.recorded > 0)       return d.tone === 'short' ? 'short' : 'met';
   return 'future';
 }
 
@@ -159,8 +176,8 @@ export function TsCalendar({ month }: { month: MonthModel }) {
   for (let i = 0; i < cells.length; i += 7) rows.push(cells.slice(i, i + 7));
 
   const legend: [string, keyof typeof CELL_STYLE][] = [
-    ['Working', 'work'], ['Leave', 'leave'], ['Holiday', 'holiday'],
-    ['Over planned', 'over'], ['Missing', 'missing'], ['Week off', 'weekoff'], ['Not yet due', 'future'],
+    ['On plan', 'met'], ['Under plan', 'short'], ['Over planned', 'over'], ['Missing', 'missing'],
+    ['Leave', 'leave'], ['Holiday', 'holiday'], ['Week off', 'weekoff'], ['Not yet due', 'future'],
   ];
 
   return (
@@ -193,7 +210,7 @@ export function TsCalendar({ month }: { month: MonthModel }) {
                     <td key={ci} style={{ width: '12.4%', verticalAlign: 'top' }}>
                       <div style={{
                         borderRadius: 9, padding: '8px 10px 10px', minHeight: 58, position: 'relative',
-                        background: v.bg, border: `1px solid ${v.bd}`,
+                        background: v.bg, border: `${v.bw}px solid ${v.bd}`, boxSizing: 'border-box',
                       }}>
                         <div style={{ fontSize: 13, fontWeight: 700, lineHeight: 1, color: v.num }}>{d.day}</div>
                         {d.kind === 'holiday' ? (
@@ -246,7 +263,7 @@ export function TsCalendar({ month }: { month: MonthModel }) {
           return (
             <span key={label} style={{
               fontSize: 10, fontWeight: 600, borderRadius: 20, padding: '3px 11px',
-              background: v.bg, border: `1px solid ${v.bd}`, color: v.hrs,
+              background: v.bg, border: `${v.bw}px solid ${v.bd}`, color: v.hrs,
             }}>{label}</span>
           );
         })}
@@ -258,15 +275,15 @@ export function TsCalendar({ month }: { month: MonthModel }) {
 // ── matrix: one row skeleton for every day of the month ──────────────────────
 
 const TONE_COLOR: Record<string, string> = {
-  met: '#16A34A', short: '#D97706', over: '#DC2626', none: '#CBD5E1',
+  met: '#65A30D', short: '#F0A020', over: '#DC2626', none: '#CBD5E1',
 };
 
 const ROW_TINT: Record<DayTintKey, { bg: string; dow: string; num: string }> = {
-  work:    { bg: 'transparent', dow: '#8A97A9', num: '#1F3B73' },
-  weekoff: { bg: '#F7F9FC',     dow: '#B4BDC9', num: '#8794A6' },
-  holiday: { bg: '#FAF7FE',     dow: '#AE94DD', num: '#6D28D9' },
-  missing: { bg: '#FEF5F5',     dow: '#E0A0A0', num: '#B91C1C' },
-  future:  { bg: '#FDFEFF',     dow: '#CBD3DE', num: '#AEB8C6' },
+  work:    { bg: 'transparent', dow: '#8A97A9', num: '#334155' },
+  weekoff: { bg: '#F7F9FC',     dow: '#B4BDC9', num: '#8A93A0' },
+  holiday: { bg: '#F5F8FE',     dow: '#9DB6DE', num: '#1F3B73' },
+  missing: { bg: '#FFFFFF',     dow: '#9AA1AC', num: '#48505F' },
+  future:  { bg: '#FDFEFF',     dow: '#CBD3DE', num: '#B0B9C6' },
 };
 type DayTintKey = 'work' | 'weekoff' | 'holiday' | 'missing' | 'future';
 
@@ -284,12 +301,12 @@ function DayTag({ d }: { d: MonthDay }) {
     textTransform: 'uppercase', borderRadius: 3, padding: '1px 6px', marginLeft: 8, verticalAlign: 1,
   };
   if (d.kind === 'holiday')
-    return <span style={{ ...base, background: '#F1E9FD', color: '#7C3AED', textTransform: 'none',
+    return <span style={{ ...base, background: '#EEF3FD', color: '#1F3B73', textTransform: 'none',
                           letterSpacing: '0.01em', fontSize: 9, fontWeight: 600 }}>{d.holidayName}</span>;
-  if (d.kind === 'missing') return <span style={{ ...base, background: '#FEE2E2', color: '#B91C1C' }}>Missing</span>;
-  if (d.planned === 0)      return <span style={{ ...base, background: '#EDF0F5', color: '#8794A6' }}>Week off</span>;
-  if (d.kind === 'future')  return <span style={{ ...base, background: '#F4F6F9', color: '#B4BDC9' }}>Not due</span>;
-  if (d.kind === 'leave')   return <span style={{ ...base, background: '#E4EFFD', color: '#2563EB' }}>Leave</span>;
+  if (d.kind === 'missing') return <span style={{ ...base, background: '#F2F3F5', color: '#48505F' }}>Missing</span>;
+  if (d.planned === 0)      return <span style={{ ...base, background: '#EDF0F5', color: '#8A93A0' }}>Week off</span>;
+  if (d.kind === 'future')  return <span style={{ ...base, background: '#F4F6F9', color: '#B0B9C6' }}>Not due</span>;
+  if (d.kind === 'leave')   return <span style={{ ...base, background: '#F4EFFE', color: '#7C3AED' }}>Leave</span>;
   return null;
 }
 
@@ -423,8 +440,9 @@ export function TsMatrix({ month }: { month: MonthModel }) {
       </div>
       <div style={{ display: 'flex', gap: 15, alignItems: 'center', padding: '7px 11px', background: '#FCFDFE',
                     borderTop: '1px solid #F1F4F8', fontSize: 9.5, color: '#94A3B8', flexWrap: 'wrap' }}>
-        {([['Met', '#16A34A'], ['Short', '#D97706'], ['Over', '#DC2626'], ['Missing', '#B91C1C'],
-           ['Holiday', '#8B5CF6'], ['Week off', '#94A3B8'], ['Not due', '#CBD5E1']] as [string, string][]).map(([l, c]) => (
+        {([['Met', '#65A30D'], ['Short', '#F0A020'], ['Over', '#DC2626'], ['Missing', '#48505F'],
+           ['Leave', '#7C3AED'], ['Holiday', '#2B54CE'], ['Week off', '#8A93A0'],
+           ['Not due', '#B0B9C6']] as [string, string][]).map(([l, c]) => (
           <span key={l}><b style={{ color: c, fontSize: 11 }}>•</b> {l}</span>
         ))}
         <span style={{ marginLeft: 'auto' }}>every day of the month · h:mm</span>
@@ -658,14 +676,14 @@ export function TsDailyDetail({ month, payload, changedOnly }: {
             </div>
 
             {d.kind === 'missing' && !d.removed.length ? (
-              <div style={{ border: '1px dashed #FBD5D8', background: '#FEF6F6', borderRadius: 7,
-                            padding: '9px 12px', fontSize: 12, color: '#B91C1C', fontWeight: 600 }}>
+              <div style={{ border: '1px dashed #C9CDD5', background: '#FAFBFC', borderRadius: 7,
+                            padding: '9px 12px', fontSize: 12, color: '#48505F', fontWeight: 600 }}>
                 <i className="fas fa-circle-exclamation" style={{ marginRight: 7 }} />
                 No entry recorded — {hLabel(d.planned)} was scheduled.
               </div>
             ) : d.kind === 'holiday' && !d.entries.length ? (
-              <div style={{ border: '1px dashed #E4D9FC', background: '#FAF7FE', borderRadius: 7,
-                            padding: '9px 12px', fontSize: 12, color: '#6D28D9', fontWeight: 600 }}>
+              <div style={{ border: '1px dashed #DCE6FA', background: '#F5F8FE', borderRadius: 7,
+                            padding: '9px 12px', fontSize: 12, color: '#1F3B73', fontWeight: 600 }}>
                 <i className="fas fa-star" style={{ marginRight: 7 }} />{d.holidayName}
               </div>
             ) : (

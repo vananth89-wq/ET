@@ -26,7 +26,7 @@ function classify(d: ExportDay, todayIso: string): DayStateKey {
   // ordinary blue and made the grid disagree with the KPI above it.
   if (d.planned <= 0)        return d.minutes > 0 ? 'over' : 'weekend';
   if (d.minutes > d.planned) return 'over';
-  if (d.minutes > 0)         return 'working';
+  if (d.minutes > 0)         return d.minutes < d.planned ? 'underPlan' : 'onPlan';
   return d.date <= todayIso ? 'missing' : 'future';
 }
 
@@ -91,7 +91,7 @@ export function CalendarGrid({ days, todayIso }: { days: ExportDay[]; todayIso: 
               const delta = key === 'over' ? d.minutes - d.planned : 0;
               return (
                 <View key={ci} style={styles.calSlot}>
-                  <View style={{ ...styles.calBox, backgroundColor: st.bg, borderColor: st.border }}>
+                  <View style={{ ...styles.calBox, backgroundColor: st.bg, borderColor: st.border, borderWidth: st.bw }}>
                     <Text style={{ ...styles.calDayB, color: st.ink }}>{d.day}</Text>
                     {caption ? <Text style={{ ...styles.calHrsB, color: st.ink }}>{caption}</Text> : null}
                     {delta > 0
