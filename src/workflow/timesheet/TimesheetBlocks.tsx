@@ -113,20 +113,29 @@ export function TimesheetFullReview({ headerId }: { headerId: string }) {
     padding: '16px 18px', marginBottom: 16, boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
   };
 
+  // A SEGMENTED CONTROL, not underlined text. The underline version read as a
+  // heading rather than a control -- an approver landing here could not see
+  // that "Daily detail" was somewhere they could go. A raised pill inside a
+  // sunken track says "these are two positions of one switch" before anyone
+  // reads the labels, and the inactive half still looks pressable.
   const tabBtn = (key: 'summary' | 'detail', label: string, icon: string, badge?: string) => {
     const on = tab === key;
     return (
       <button
         key={key}
         onClick={() => setTab(key)}
+        aria-pressed={on}
         style={{
-          padding: '8px 18px', border: 'none', background: 'none', cursor: 'pointer',
-          fontSize: 13, fontWeight: on ? 700 : 500, color: on ? '#2B54CE' : '#6B7280',
-          borderBottom: `2px solid ${on ? '#2B54CE' : 'transparent'}`, marginBottom: -1,
-          display: 'flex', alignItems: 'center', gap: 7,
+          padding: '7px 16px', cursor: 'pointer', borderRadius: 7,
+          fontSize: 13, fontWeight: on ? 700 : 600,
+          color: on ? '#1F3B73' : '#5B6472',
+          background: on ? '#FFFFFF' : 'transparent',
+          border: `1px solid ${on ? '#DCE6FA' : 'transparent'}`,
+          boxShadow: on ? '0 1px 2px rgba(16,24,40,0.10)' : 'none',
+          display: 'flex', alignItems: 'center', gap: 7, transition: 'background 120ms ease',
         }}
       >
-        <i className={`fas ${icon}`} style={{ fontSize: 11 }} />{label}
+        <i className={`fas ${icon}`} style={{ fontSize: 11, color: on ? '#2B54CE' : '#8A93A0' }} />{label}
         {badge && (
           <span style={{ fontSize: 10, fontWeight: 700, background: '#FEF3C7', color: '#92400E',
                          borderRadius: 10, padding: '1px 7px' }}>{badge}</span>
@@ -137,12 +146,14 @@ export function TimesheetFullReview({ headerId }: { headerId: string }) {
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: 2, alignItems: 'center',
-                    borderBottom: '1px solid #E5E7EB', marginBottom: 16 }}>
-        {tabBtn('summary', 'Summary', 'fa-chart-simple')}
-        {tabBtn('detail', 'Daily detail', 'fa-list-ul',
-                month.changedCount ? `${month.changedCount} changed` : undefined)}
-        <div style={{ marginLeft: 'auto', paddingBottom: 6 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+        <div style={{ display: 'inline-flex', gap: 3, padding: 3, borderRadius: 9,
+                      background: '#EEF1F6', border: '1px solid #E1E6EF' }}>
+          {tabBtn('summary', 'Summary', 'fa-chart-simple')}
+          {tabBtn('detail', 'Daily detail', 'fa-list-ul',
+                  month.changedCount ? `${month.changedCount} changed` : undefined)}
+        </div>
+        <div style={{ marginLeft: 'auto' }}>
           <TimesheetLinkButton
             employeeId={payload.header.employee_id}
             period={payload.header.period?.slice(0, 7)}
