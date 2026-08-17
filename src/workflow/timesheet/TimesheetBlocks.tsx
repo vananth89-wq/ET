@@ -21,6 +21,7 @@ import {
   TsCalendar, TsMatrix, TsWeeklyProgress, TsMonthSplit, TsByProject, TsDailyDetail,
 } from './TimesheetReview';
 import { hLabel } from './model';
+import { TimesheetLinkButton } from './TimesheetLinkButton';
 import { TsDecisionPrep } from './TsDecisionPrep';
 
 // ── shared states ────────────────────────────────────────────────────────────
@@ -141,10 +142,19 @@ export function TimesheetFullReview({ headerId }: { headerId: string }) {
           six sections of tables they have to scroll back up from. */}
       <TsDecisionPrep month={month} />
 
-      <div style={{ display: 'flex', gap: 2, borderBottom: '1px solid #E5E7EB', marginBottom: 16 }}>
+      <div style={{ display: 'flex', gap: 2, alignItems: 'center',
+                    borderBottom: '1px solid #E5E7EB', marginBottom: 16 }}>
         {tabBtn('summary', 'Summary', 'fa-chart-simple')}
         {tabBtn('detail', 'Daily detail', 'fa-list-ul',
                 month.changedCount ? `${month.changedCount} changed` : undefined)}
+        <div style={{ marginLeft: 'auto', paddingBottom: 6 }}>
+          <TimesheetLinkButton
+            employeeId={payload.header.employee_id}
+            period={payload.header.period?.slice(0, 7)}
+            personName={payload.employee?.name}
+            compact
+          />
+        </div>
       </div>
 
       {tab === 'summary' ? (

@@ -35,6 +35,7 @@ import { useCurrencies }    from '../../hooks/useCurrencies';
 import { COUNTRIES }        from '../../components/admin/AddEmployee';
 import { validateIdentityNumber } from '../../utils/validateIdentity';
 import { TimesheetEnrichment }    from '../timesheet/TimesheetBlocks';
+import { TimesheetLinkButton }    from '../timesheet/TimesheetLinkButton';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -2868,11 +2869,21 @@ function DetailPanel({
                 {' · '}{fmtDate(task.taskCreatedAt)}
               </div>
             </div>
-            {fullViewRoute && (
-              <button onClick={() => navigate(fullViewRoute)} className="wfi-full-view-btn">
-                Open Full View <i className="fas fa-arrow-up-right-from-square" style={{ fontSize: 10 }} />
-              </button>
-            )}
+            <div style={{ display: 'flex', gap: 7, alignItems: 'center', flexShrink: 0 }}>
+              {task.moduleCode === 'timesheet' && (
+                <TimesheetLinkButton
+                  employeeId={task.metadata?.employee_id as string | undefined}
+                  period={task.metadata?.period as string | undefined}
+                  personName={(task.metadata?.employee_name as string | undefined)
+                              ?? task.subjectEmployeeName ?? task.submittedByName}
+                />
+              )}
+              {fullViewRoute && (
+                <button onClick={() => navigate(fullViewRoute)} className="wfi-full-view-btn">
+                  Open Full View <i className="fas fa-arrow-up-right-from-square" style={{ fontSize: 10 }} />
+                </button>
+              )}
+            </div>
           </div>
           <div className="wfi-badge-row">
             {resolvedAmount !== undefined && (
