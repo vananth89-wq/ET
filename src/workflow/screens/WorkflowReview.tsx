@@ -15,6 +15,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useApproverReportDetail } from '../hooks/useApproverReportDetail';
 import { useWorkflowInstance }      from '../hooks/useWorkflowInstance';
 import { useWorkflowTasks }         from '../hooks/useWorkflowTasks';
+import { TimesheetFullReview }  from '../timesheet/TimesheetBlocks';
 import { WorkflowTimeline }         from '../components/WorkflowTimeline';
 import { WorkflowStatusBadge }      from '../components/WorkflowStatusBadge';
 import { usePermissions }           from '../../hooks/usePermissions';
@@ -128,6 +129,8 @@ interface ActionBarProps {
   error:                  string | null;
   onApprove:              () => void;
   onReject:               () => void;
+  /** Timesheets are approved or sent back — never rejected, never edited. */
+  moduleCode?:            string;
   mode:                   'idle' | 'reassign' | 'return_init' | 'return_prev';
   onModeChange:           (m: 'idle' | 'reassign' | 'return_init' | 'return_prev') => void;
   onConfirmSecondary:     () => void;
@@ -148,7 +151,7 @@ interface ActionBarProps {
 
 function ActionBar({
   taskId: _taskId, stepOrder, comment, onCommentChange, loading, error,
-  onApprove, onReject, mode, onModeChange, onConfirmSecondary,
+  onApprove, onReject, mode, onModeChange, onConfirmSecondary, moduleCode,
   reassignTarget, onReassignTargetChange, onUpdate, isHireEditMode,
   isSavingHireEdits, onCancelHireEdit, isInitiator, onResubmit, onWithdraw,
 }: ActionBarProps) {
@@ -284,8 +287,19 @@ function ActionBar({
             </button>
           )}
 
-          {/* Reject — approver only */}
-          {!isInitiator && (
+          {/* Reject — approver only, and never for a timesheet. A month has a
+              true value; "not yet recorded correctly" is what send back is for.
+              wf_reject refuses this module outright (mig 742), so offering the
+              button would only produce an error the approver cannot act on. */}
+          {!isInitiator && moduleCode === 'timesheet' && (
+            <button onClick={() => onModeChange('return_init')}
+              disabled={loading || comment.length >= NOTE_HARD}
+              className="wfr-btn-sendback"
+              style={{ cursor: (loading || comment.length >= NOTE_HARD) ? 'not-allowed' : 'pointer' }}>
+              <i className="fas fa-rotate-left" /> Send back for correction
+            </button>
+          )}
+          {!isInitiator && moduleCode !== 'timesheet' && (
             <button onClick={onReject}
               disabled={loading || comment.length >= NOTE_HARD || !!isHireEditMode}
               title={isHireEditMode ? 'Save or cancel your edits before rejecting' : undefined}
@@ -921,6 +935,7 @@ export default function WorkflowReview() {
   // get_employee_hire_review returns structured sections so WorkflowReview can
   // render them dynamically without hardcoding fields.
   const isHireModule = moduleCode === 'employee_hire';
+  const isTimesheetModule = moduleCode === 'timesheet';
   type HireField   = { label: string; value: string; raw_value?: string | null; key?: string; editable?: boolean; input_type?: string; required?: boolean };
   type HireSection = { section: string; fields: HireField[]; attachments?: Record<string, unknown>[] };
   const [hireSections,    setHireSections]    = useState<HireSection[]>([]);
@@ -1732,6 +1747,7 @@ export default function WorkflowReview() {
     error:                  actionError,
     onApprove:              handleApprove,
     onReject:               handleReject,
+    moduleCode,
     mode,
     onModeChange:           setMode,
     onConfirmSecondary:     handleConfirmSecondary,
@@ -1872,6 +1888,11 @@ export default function WorkflowReview() {
             <strong>Could not load report</strong>
             <p style={{ margin: '8px 0 0' }}>{error}</p>
           </div>
+        )}
+
+        {/* ── Timesheet Review (module_code = timesheet, mig 742) ─────────── */}
+        {isTimesheetModule && recordId && (
+          <TimesheetFullReview headerId={recordId} />
         )}
 
         {/* ── Employee Hire Review (module_code = employee_hire) ──────────── */}
@@ -3715,14 +3736,14 @@ export default function WorkflowReview() {
 
       {/* ── Bottom action bar — always anchored at bottom ────────────────── */}
       {/* Show for approvers (myTask) OR for initiators viewing a sent-back hire */}
-      {(myTask || isInitiator) && (detail || (isHireModule && hireSections.length > 0) || (isProfileBankModule && (bankProposedItems.length > 0 || bankCurrentItems.length > 0)) || isProfileDependentsModule || isJobRelationshipsModule || isProfileEducationModule || isTerminationModule) && (
+      {(myTask || isInitiator) && (detail || (isHireModule && hireSections.length > 0) || (isProfileBankModule && (bankProposedItems.length > 0 || bankCurrentItems.length > 0)) || isProfileDependentsModule || isJobRelationshipsModule || isProfileEducationModule || isTerminationModule || isTimesheetModule) && (
         <div className="wfr-action-bar-wrapper">
           <ActionBar {...actionBarProps} />
         </div>
       )}
 
       {/* No task — read-only notice */}
-      {!isInitiator && !myTask && !loading && (detail || (isHireModule && hireSections.length > 0) || (isProfileBankModule && (bankProposedItems.length > 0 || bankCurrentItems.length > 0)) || isProfileDependentsModule || isJobRelationshipsModule || isProfileEducationModule || isTerminationModule) && (
+      {!isInitiator && !myTask && !loading && (detail || (isHireModule && hireSections.length > 0) || (isProfileBankModule && (bankProposedItems.length > 0 || bankCurrentItems.length > 0)) || isProfileDependentsModule || isJobRelationshipsModule || isProfileEducationModule || isTerminationModule || isTimesheetModule) && (
         <div className="wfr-readonly-notice">
           <i className="fas fa-circle-info" />
           {isHireModule

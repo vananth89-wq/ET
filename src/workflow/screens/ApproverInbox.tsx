@@ -34,6 +34,7 @@ import { useEmployees }     from '../../hooks/useEmployees';
 import { useCurrencies }    from '../../hooks/useCurrencies';
 import { COUNTRIES }        from '../../components/admin/AddEmployee';
 import { validateIdentityNumber } from '../../utils/validateIdentity';
+import { TimesheetEnrichment }    from '../timesheet/TimesheetBlocks';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -501,11 +502,23 @@ function PanelActionBar({
             style={{ background: loading ? '#9CA3AF' : '#16A34A', cursor: loading ? 'not-allowed' : 'pointer' }}>
             {loading ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-check" />} Approve
           </button>
-          <button onClick={handleReject} disabled={loading}
-            className="wfi-action-reject-btn"
-            style={{ background: loading ? '#9CA3AF' : '#DC2626', cursor: loading ? 'not-allowed' : 'pointer' }}>
-            <i className="fas fa-times" /> Reject
-          </button>
+          {/* A timesheet is never rejected — a month has a true value and the
+              only question is whether it is recorded correctly yet. Send back
+              takes the slot, as a first-class button rather than a menu item.
+              wf_reject also refuses this module outright (mig 742). */}
+          {task.moduleCode === 'timesheet' ? (
+            <button onClick={() => setMode('return_init')} disabled={loading}
+              className="wfi-action-sendback-btn"
+              style={{ cursor: loading ? 'not-allowed' : 'pointer' }}>
+              <i className="fas fa-rotate-left" /> Send back for correction
+            </button>
+          ) : (
+            <button onClick={handleReject} disabled={loading}
+              className="wfi-action-reject-btn"
+              style={{ background: loading ? '#9CA3AF' : '#DC2626', cursor: loading ? 'not-allowed' : 'pointer' }}>
+              <i className="fas fa-times" /> Reject
+            </button>
+          )}
           {onUpdate && (
             <button onClick={onUpdate} disabled={loading}
               className="wfi-action-update-btn"
@@ -542,7 +555,11 @@ function PanelActionBar({
                 <button
                   className="wfi-more-item wfi-more-item--sendback"
                   onClick={() => { setMode('return_init'); setShowMore(false); }}
-                  style={{ borderBottom: task.stepOrder > 1 ? '1px solid #F3F4F6' : 'none' }}
+                  style={{
+                    borderBottom: task.stepOrder > 1 ? '1px solid #F3F4F6' : 'none',
+                    // already a top-level button for timesheets
+                    display: task.moduleCode === 'timesheet' ? 'none' : undefined,
+                  }}
                   onMouseEnter={e => (e.currentTarget.style.background = '#FFFBEB')}
                   onMouseLeave={e => (e.currentTarget.style.background = 'none')}
                 >
@@ -826,6 +843,7 @@ function ExpenseEnrichment({
 
 const MODULE_LABELS: Record<string, string> = {
   expense_reports:           'Expense Reports',
+  timesheet:                 'Timesheet',
   time_off:                  'Time Off',
   employee_hire:             'New Employee Hire',
   profile_personal:          'Personal Info',
@@ -875,6 +893,12 @@ function getPortletName(
     const label = MODULE_LABELS[moduleCode] ?? moduleCode.replace(/_/g, ' ');
     const displayName = subjectEmployeeName ?? submittedByName;
     return displayName ? `${displayName} — ${label}` : label;
+  }
+  if (moduleCode === 'timesheet') {
+    const who   = (metadata?.employee_name as string | undefined) ?? subjectEmployeeName ?? submittedByName;
+    const when  = (metadata?.period_label as string | undefined) ?? (metadata?.period as string | undefined);
+    if (who && when) return `${who} — Timesheet ${when}`;
+    return who ? `${who} — Timesheet` : 'Timesheet';
   }
   const metaName = metadata?.name as string | undefined;
   if (metaName) return metaName;
@@ -2560,7 +2584,7 @@ function DetailPanel({
   const extraMeta = Object.entries(task.metadata ?? {}).filter(([k]) => !META_HEADER_KEYS.has(k));
   // WorkflowReview handles expense_reports, employee_hire, and profile_employment
   // (full-page review surface). Other profile modules use inline edit (Pattern B).
-  const FULL_REVIEW_MODULES = new Set(['expense_reports', 'employee_hire', 'profile_employment', 'termination', 'termination_reversal']);
+  const FULL_REVIEW_MODULES = new Set(['expense_reports', 'employee_hire', 'profile_employment', 'termination', 'termination_reversal', 'timesheet']);
   const fullViewRoute = FULL_REVIEW_MODULES.has(task.moduleCode) ? `/workflow/review/${task.recordId}` : null;
 
   const [participantsOpen, setParticipantsOpen] = useState(false);
@@ -2662,7 +2686,7 @@ function DetailPanel({
     'profile_education',
   ]);
   const returnTo = fullViewRoute ?? `/workflow/inbox?task=${task.taskId}`;
-  const handlePanelUpdate = task.stepAllowEdit && can(editPermCode)
+  const handlePanelUpdate = task.moduleCode !== 'timesheet' && task.stepAllowEdit && can(editPermCode)
     ? // Hire module: editing happens in WorkflowReview's inline mode — navigate there directly
       (task.moduleCode === 'employee_hire' && fullViewRoute)
       ? () => navigate(`${fullViewRoute}?edit=1`)
@@ -2909,6 +2933,12 @@ function DetailPanel({
         {task.moduleCode === 'employee_hire' && (
           <HireEnrichment recordId={task.recordId} />
         )}
+        {task.moduleCode === 'timesheet' && (
+          <TimesheetEnrichment
+            headerId={task.recordId}
+            onOpenFull={() => fullViewRoute && navigate(fullViewRoute)}
+          />
+        )}
         {(task.moduleCode === 'termination' || task.moduleCode === 'termination_reversal') && (
           <TerminationEnrichment
             recordId={task.recordId}
@@ -3140,6 +3170,9 @@ function SentBackDetailPanel({ item, onUpdate, onRespond, onWithdraw, onAfterAct
         )}
         {item.moduleCode === 'employee_hire' && (
           <HireEnrichment recordId={item.recordId} />
+        )}
+        {item.moduleCode === 'timesheet' && (
+          <TimesheetEnrichment headerId={item.recordId} />
         )}
         {(item.moduleCode === 'termination' || item.moduleCode === 'termination_reversal') && (
           <TerminationEnrichment recordId={item.recordId} metadata={item.metadata ?? {}} />
