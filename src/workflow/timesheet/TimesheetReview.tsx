@@ -11,7 +11,7 @@
 
 import React from 'react';
 import { hm, hLabel } from './model';
-import type { MonthModel, MonthDay, TsPayload, Exception } from './model';
+import type { MonthModel, MonthDay, TsPayload, TsPayloadEntry, Exception } from './model';
 
 // ── shared bits ──────────────────────────────────────────────────────────────
 
@@ -328,15 +328,16 @@ export function TsMatrix({ month }: { month: MonthModel }) {
               {month.columns.map(c => (
                 <th key={c.key} style={{ background: '#fff', borderBottom: '1.5px solid #DDE4EF', padding: '5px 3px 6px',
                                          fontSize: 9.5, fontWeight: 700, color: '#64748B', textTransform: 'uppercase',
-                                         letterSpacing: '0.055em', verticalAlign: 'bottom' }}>
+                                         letterSpacing: '0.055em', verticalAlign: 'bottom', textAlign: 'center' }}>
                   <span style={{ display: 'block', width: 5, height: 5, borderRadius: '50%', margin: '0 auto 3px', background: c.color }} />
                   {c.label}
                 </th>
               ))}
               <th style={{ background: '#fff', borderBottom: '1.5px solid #DDE4EF', padding: '5px 3px 6px', fontSize: 9.5,
-                           fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase' }}>Total</th>
+                           fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', textAlign: 'center' }}>Total</th>
               <th style={{ background: '#fff', borderBottom: '1.5px solid #DDE4EF', padding: '5px 8px 6px 3px', fontSize: 9.5,
-                           fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', width: 70 }}>Complete</th>
+                           fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', width: 70,
+                           textAlign: 'center' }}>Complete</th>
             </tr>
           </thead>
           <tbody>
@@ -588,10 +589,17 @@ export function TsDailyDetail({ month, payload, changedOnly }: {
     changedOnly ? d.changed
                 : (d.entries.length > 0 || d.removed.length > 0 || d.kind === 'missing' || d.kind === 'holiday'));
 
-  const colorFor = (d: MonthDay, e: typeof d.entries[number]) => {
-    const key = e.entry_kind === 'project' && e.project_id ? `p:${e.project_id}`
-      : e.time_type_id ? `t:${e.time_type_id}` : 'other';
-    return month.columns.find(c => c.key === key)?.color ?? '#94A3B8';
+  // Must key exactly as model.ts columnFor does, or an entry's stripe points at
+  // a column that is not its own. Two copies of this rule is one too many, but
+  // the alternative is exporting the keying function and threading the model
+  // into a leaf that only needs a colour.
+  const colorFor = (_d: MonthDay, e: TsPayloadEntry) => {
+    const key = e.entry_kind === 'holiday' ? null
+      : e.entry_kind === 'leave' ? 'leave'
+      : e.project_id   ? `p:${e.project_id}`
+      : e.time_type_id ? `t:${e.time_type_id}`
+      : 'other';
+    return (key && month.columns.find(c => c.key === key)?.color) || '#94A3B8';
   };
 
   return (

@@ -13,6 +13,11 @@
  * employee must be reading the same month.
  */
 
+// The Summary report's own label heuristic, imported rather than reimplemented
+// so the screen and the PDF cannot drift on how AMPTJ, WISAYAH and QCC print.
+import { displayLabel } from '../../components/employee/MyTimesheet/ExportPDF/utils/summaryMatrix';
+export { displayLabel };
+
 // ── Payload shape (mirrors time_approval_payload, mig 742) ───────────────────
 
 export interface TsPayloadEntry {
@@ -92,6 +97,10 @@ export interface MonthColumn {
   color: string;
   /** Leave and other absence types sort to the right of real project work. */
   isAbsence: boolean;
+  /** Backed by a project rather than a bare time type. "By project & activity"
+   *  and the donut's project palette both need this — without it, Training
+   *  reads as a project because it merely is not an absence. */
+  isProject: boolean;
 }
 
 export interface MonthDay {
@@ -172,7 +181,18 @@ const PALETTE = [
   '#2F6BE8', '#7C4DE0', '#0E9F6E', '#F0A020', '#DB2777',
   '#0891B2', '#65A30D', '#9333EA', '#E11D48', '#0F766E',
 ];
-const ABSENCE_COLOR = '#93C5FD';
+const ABSENCE_COLOR     = '#93C5FD';
+/** Bare time types — Training, Induction — are not projects and must not take a
+ *  project's colour, or the donut invites the wrong reading. */
+const NON_PROJECT_COLOR = '#94A3B8';
+
+/**
+ * ALLCAPS project codes are shouted; words are not.
+ *
+ * Re-exported from the Summary report's own helper rather than reimplemented,
+ * so the screen and the PDF cannot drift on how AMPTJ, WISAYAH and QCC print.
+ */
+
 
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -205,34 +225,61 @@ export function buildMonth(p: TsPayload, now: Date = new Date()): MonthModel {
   const holidayByDate = new Map(p.holidays.map(h => [h.date, h.name]));
 
   // ── columns ────────────────────────────────────────────────────────────────
-  // A column is a project, or a non-project time type. Holiday entries are days,
-  // not columns. Ordered by total time so the month's real work reads first.
-  const colTotals = new Map<string, { label: string; isAbsence: boolean; minutes: number }>();
-  const columnFor = (e: TsPayloadEntry): { key: string; label: string; isAbsence: boolean } | null => {
+  // Deliberately identical to ExportPDF/utils/summaryMatrix.ts columnFor(). This
+  // table is the Summary report on screen; if the two disagree about what a
+  // column is, one of them is lying to an approver.
+  //
+  // entry_kind is NOT consulted for the project test, and that is the whole
+  // point. Migration 705 made project and time-type entries mutually exclusive;
+  // 715 relaxed the constraint so a time type with requires_project carries a
+  // project too, and 719 records the convention that followed -- "an absence is
+  // 'leave', everything else is 'time_type' (a project entry is 'time_type'
+  // with BOTH ids set)". Nothing writes entry_kind = 'project' any more, so
+  // testing for it collapsed every project into one column named after its
+  // time type: a month of AMPTJ, Wisayah and QCC printed as a single "Work".
+  //
+  // All leave collapses into ONE column, matching the report: four columns
+  // saying "not at work" crowd out the projects, which are what the table
+  // exists to show. Page 3 of the export still names each leave type.
+  const colTotals = new Map<string, { label: string; isAbsence: boolean; isProject: boolean; minutes: number }>();
+  const columnFor = (e: TsPayloadEntry): { key: string; label: string; isAbsence: boolean; isProject: boolean } | null => {
     if (e.entry_kind === 'holiday') return null;
-    if (e.entry_kind === 'project' && e.project_id) {
-      return { key: `p:${e.project_id}`, label: e.project_name ?? 'Project', isAbsence: false };
-    }
-    if (e.time_type_id) {
-      return { key: `t:${e.time_type_id}`, label: e.time_type_name ?? 'Time type',
-               isAbsence: e.entry_kind === 'leave' };
-    }
-    return { key: 'other', label: 'Other', isAbsence: false };
+    if (e.entry_kind === 'leave')   return { key: 'leave', label: 'Leave', isAbsence: true,  isProject: false };
+    if (e.project_id)               return { key: `p:${e.project_id}`,
+                                             label: e.project_name ?? 'Project',
+                                             isAbsence: false, isProject: true };
+    if (e.time_type_id)             return { key: `t:${e.time_type_id}`,
+                                             label: e.time_type_name ?? 'Time type',
+                                             isAbsence: false, isProject: false };
+    return { key: 'other', label: 'Other', isAbsence: false, isProject: false };
   };
 
   p.entries.forEach(e => {
     const c = columnFor(e);
     if (!c) return;
-    const cur = colTotals.get(c.key) ?? { label: c.label, isAbsence: c.isAbsence, minutes: 0 };
+    const cur = colTotals.get(c.key)
+             ?? { label: c.label, isAbsence: c.isAbsence, isProject: c.isProject, minutes: 0 };
     cur.minutes += e.hours_minutes;
     colTotals.set(c.key, cur);
   });
 
+  // Projects first in size order, then bare time types, then leave last. The
+  // palette walks projects only, so a Training column cannot take a colour an
+  // approver would read as a project.
+  let projectIdx = 0;
   const columns: MonthColumn[] = [...colTotals.entries()]
-    .sort((a, b) => (Number(a[1].isAbsence) - Number(b[1].isAbsence)) || (b[1].minutes - a[1].minutes))
-    .map(([key, v], i) => ({
-      key, label: v.label, isAbsence: v.isAbsence,
-      color: v.isAbsence ? ABSENCE_COLOR : PALETTE[i % PALETTE.length],
+    .sort((a, b) =>
+      (Number(a[1].isAbsence) - Number(b[1].isAbsence)) ||
+      (Number(b[1].isProject) - Number(a[1].isProject)) ||
+      (b[1].minutes - a[1].minutes))
+    .map(([key, v]) => ({
+      key,
+      label: displayLabel(v.label),
+      isAbsence: v.isAbsence,
+      isProject: v.isProject,
+      color: v.isAbsence  ? ABSENCE_COLOR
+           : v.isProject  ? PALETTE[projectIdx++ % PALETTE.length]
+                          : NON_PROJECT_COLOR,
     }));
 
   // ── days ───────────────────────────────────────────────────────────────────
@@ -368,8 +415,11 @@ export function buildMonth(p: TsPayload, now: Date = new Date()): MonthModel {
   const overCapDays = cap ? days.filter(d => d.recorded > cap) : [];
 
   // ── by project & activity ─────────────────────────────────────────────────
+  // isProject, not !isAbsence: before the columnFor fix a bare time type such as
+  // Training satisfied "not an absence" and was listed here as though it were a
+  // project, with an activity breakdown it can never have.
   const byProject = columns
-    .filter(c => !c.isAbsence && byColumn[c.key])
+    .filter(c => c.isProject && byColumn[c.key])
     .map(c => {
       const acts = new Map<string, number>();
       const dayset = new Set<string>();
