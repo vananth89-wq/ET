@@ -31,6 +31,23 @@ export interface TsPayloadEntry {
   updated_at:             string;
   /** 'ADDED' | 'EDITED' when the row post-dates the last approval, else null. */
   changed_after_approval: 'ADDED' | 'EDITED' | null;
+  /** Minutes as at the last approval, when this entry has changed since (mig 743). */
+  previous_hours_minutes: number | null;
+}
+
+/** An entry that no longer exists, recovered from timesheet_entry_audit. */
+export interface TsRemoved {
+  id:             string;
+  entry_id:       string;
+  entry_date:     string;
+  entry_kind:     string;
+  hours_minutes:  number;
+  notes:          string | null;
+  activities:     string[];
+  project_name:   string | null;
+  time_type_name: string | null;
+  removed_at:     string;
+  removed_by:     string | null;
 }
 
 export interface TsPayload {
@@ -59,6 +76,8 @@ export interface TsPayload {
               lines: { day_number: number; planned_minutes: number }[] } | null;
   holidays: { date: string; name: string }[];
   entries:  TsPayloadEntry[];
+  /** Deleted since the last approval. Empty before mig 743 deploys. */
+  removed:  TsRemoved[];
   deletions_visible: boolean;
 }
 
@@ -87,7 +106,9 @@ export interface MonthDay {
   kind:      DayKind;
   tone:      Tone;
   holidayName: string | null;
-  /** Any entry on this day recorded since the last approval. */
+  /** Entries deleted from this day since the last approval. */
+  removed:   TsRemoved[];
+  /** Any entry on this day added, edited or deleted since the last approval. */
   changed:   boolean;
 }
 
@@ -105,7 +126,7 @@ export interface MonthWeek {
 }
 
 export interface Exception {
-  id:    'changed' | 'missing' | 'weekoff' | 'overday' | 'overcap' | 'leave' | 'inprogress';
+  id:    'changed' | 'removed' | 'missing' | 'weekoff' | 'overday' | 'overcap' | 'leave' | 'inprogress';
   tone:  'red' | 'amber' | 'blue' | 'violet';
   icon:  string;
   /** Short label for the chip. */
@@ -136,6 +157,9 @@ export interface MonthModel {
                   rows: { label: string; minutes: number; unitemised: boolean }[] }[];
   exceptions:   Exception[];
   changedCount: number;
+  removedCount: number;
+  /** Minutes that were signed off and are no longer on the sheet. */
+  removedMinutes: number;
   isReapproval: boolean;
   /** Last day of the month that has already happened; 0 when the month is over. */
   todayDay:     number;
@@ -219,6 +243,16 @@ export function buildMonth(p: TsPayload, now: Date = new Date()): MonthModel {
     entriesByDate.set(e.entry_date, list);
   });
 
+  // Removals are attached to the day they were taken from, so the daily detail
+  // shows the gap where the hours used to be rather than in a separate list the
+  // approver has to reconcile by date themselves.
+  const removedByDate = new Map<string, TsRemoved[]>();
+  (p.removed ?? []).forEach(r => {
+    const list = removedByDate.get(r.entry_date) ?? [];
+    list.push(r);
+    removedByDate.set(r.entry_date, list);
+  });
+
   // "Today" only bites inside this month. A past month has nothing not-yet-due;
   // a future month has nothing missing.
   const monthStart = first;
@@ -269,11 +303,14 @@ export function buildMonth(p: TsPayload, now: Date = new Date()): MonthModel {
       tone = 'over';
     }
 
+    const removedHere = removedByDate.get(key) ?? [];
+
     days.push({
       date: key, day: d, dow, dowLabel: DOW[dow],
       planned, recorded, byColumn, entries: es, kind, tone,
       holidayName,
-      changed: es.some(e => !!e.changed_after_approval),
+      removed: removedHere,
+      changed: es.some(e => !!e.changed_after_approval) || removedHere.length > 0,
     });
   }
 
@@ -367,7 +404,23 @@ export function buildMonth(p: TsPayload, now: Date = new Date()): MonthModel {
   const notDue       = nDays - todayDay;
   const list = (ds: MonthDay[]) => ds.map(d => d.day).join(', ');
 
+  const removedList    = p.removed ?? [];
+  const removedMinutes = removedList.reduce((a, r) => a + r.hours_minutes, 0);
+  const removedDays    = [...new Set(removedList.map(r => Number(r.entry_date.slice(8, 10))))].sort((a, b) => a - b);
+
   const exceptions: Exception[] = [];
+
+  // Loudest first, and above the changed-entry line: everything else on this
+  // list is visible somewhere in the tables below. A removal is the one thing
+  // that is only knowable from here.
+  if (removedList.length) exceptions.push({
+    id: 'removed', tone: 'red', icon: 'fa-trash-can', checkable: true,
+    text: `${removedList.length} ${removedList.length === 1 ? 'entry' : 'entries'} removed — ${removedDays.join(', ')}`,
+    detail: `${removedList.length} ${removedList.length === 1 ? 'entry' : 'entries'} totalling ` +
+            `${hLabel(removedMinutes)} ${removedList.length === 1 ? 'was' : 'were'} deleted after the last approval ` +
+            `(${removedDays.join(', ')}) — the hours are no longer on this sheet`,
+  });
+
   if (isReapproval) exceptions.push({
     id: 'changed', tone: 'amber', icon: 'fa-pen', checkable: true,
     text: `${changedCount} entries changed since the last approval`,
@@ -421,5 +474,6 @@ export function buildMonth(p: TsPayload, now: Date = new Date()): MonthModel {
     workingDays, daysRecorded, leaveDays,
     holidayCount: p.holidays.length,
     byColumn, byProject, exceptions, changedCount, isReapproval, todayDay,
+    removedCount: removedList.length, removedMinutes,
   };
 }

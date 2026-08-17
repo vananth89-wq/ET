@@ -581,7 +581,8 @@ export function TsDailyDetail({ month, payload, changedOnly }: {
   month: MonthModel; payload: TsPayload; changedOnly: boolean;
 }) {
   const shown = month.days.filter(d =>
-    changedOnly ? d.changed : (d.entries.length > 0 || d.kind === 'missing' || d.kind === 'holiday'));
+    changedOnly ? d.changed
+                : (d.entries.length > 0 || d.removed.length > 0 || d.kind === 'missing' || d.kind === 'holiday'));
 
   const colorFor = (d: MonthDay, e: typeof d.entries[number]) => {
     const key = e.entry_kind === 'project' && e.project_id ? `p:${e.project_id}`
@@ -601,10 +602,17 @@ export function TsDailyDetail({ month, payload, changedOnly }: {
               {new Date(payload.header.last_approved_at).toLocaleString('en-GB',
                 { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}.
             </div>
-            {!payload.deletions_visible && (
+            {payload.deletions_visible ? (
+              month.removedCount > 0 && (
+                <div style={{ fontSize: 11.5, color: '#78350F', marginTop: 2, lineHeight: 1.5 }}>
+                  {month.removedCount} {month.removedCount === 1 ? 'entry has' : 'entries have'} been
+                  removed since then, totalling {hLabel(month.removedMinutes)} — shown struck through
+                  on the day they were taken from.
+                </div>
+              )
+            ) : (
               <div style={{ fontSize: 11.5, color: '#78350F', marginTop: 2, lineHeight: 1.5 }}>
-                Deleted entries cannot be shown — there is no entry-level audit trail, so an entry
-                removed after approval leaves nothing to report.
+                Deleted entries cannot be shown — this sheet predates the entry audit trail.
               </div>
             )}
           </div>
@@ -637,7 +645,7 @@ export function TsDailyDetail({ month, payload, changedOnly }: {
                              background: pill.bg, color: pill.fg }}>{pill.text}</span>
             </div>
 
-            {d.kind === 'missing' ? (
+            {d.kind === 'missing' && !d.removed.length ? (
               <div style={{ border: '1px dashed #FBD5D8', background: '#FEF6F6', borderRadius: 7,
                             padding: '9px 12px', fontSize: 12, color: '#B91C1C', fontWeight: 600 }}>
                 <i className="fas fa-circle-exclamation" style={{ marginRight: 7 }} />
@@ -682,15 +690,67 @@ export function TsDailyDetail({ month, payload, changedOnly }: {
                         <div style={{ fontSize: 11, color: '#94A3B8', fontStyle: 'italic', marginTop: 3 }}>{e.notes}</div>
                       )}
                     </div>
-                    <div style={{ width: 70, textAlign: 'right', fontSize: 13, fontWeight: 800, color: '#1F2937',
-                                  fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
-                      {hLabel(e.hours_minutes)}
+                    <div style={{ width: 78, textAlign: 'right', flexShrink: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 800, color: '#1F2937',
+                                    fontVariantNumeric: 'tabular-nums' }}>
+                        {hLabel(e.hours_minutes)}
+                      </div>
+                      {e.previous_hours_minutes != null && e.previous_hours_minutes !== e.hours_minutes && (
+                        <div style={{ fontSize: 10.5, color: '#B45309', marginTop: 2,
+                                      fontVariantNumeric: 'tabular-nums' }}>
+                          was {hLabel(e.previous_hours_minutes)}
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
+                {/* What is no longer here. Struck through and dimmed, on the day
+                    it came off, so the absence is as legible as the presence. */}
+                {d.removed.map(r => (
+                  <div key={r.id} style={{
+                    display: 'flex', border: '1px dashed #FBD5D8', borderLeft: '3px solid #DC2626',
+                    borderRadius: 7, padding: '9px 12px', marginBottom: 7, background: '#FEF6F6',
+                    alignItems: 'flex-start',
+                  }}>
+                    <div style={{ width: 160, flexShrink: 0 }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 700, color: '#991B1B',
+                                    textDecoration: 'line-through' }}>
+                        {r.project_name ?? r.time_type_name ?? '—'}
+                      </div>
+                      <span style={{ display: 'inline-block', fontSize: 8.5, fontWeight: 800,
+                                     letterSpacing: '0.07em', borderRadius: 3, padding: '1px 5px', marginTop: 5,
+                                     background: '#FEE2E2', color: '#B91C1C' }}>
+                        REMOVED
+                      </span>
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      {(r.activities ?? []).length
+                        ? r.activities.map((a, i) => (
+                            <div key={i} style={{ fontSize: 12, color: '#B08585', padding: '1px 0',
+                                                  textDecoration: 'line-through' }}>{a}</div>
+                          ))
+                        : <div style={{ fontSize: 12, color: '#D9AFAF' }}>—</div>}
+                      <div style={{ fontSize: 11, color: '#B08585', marginTop: 3 }}>
+                        Deleted {new Date(r.removed_at).toLocaleString('en-GB',
+                          { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                        {r.removed_by ? ` by ${r.removed_by}` : ''}
+                      </div>
+                    </div>
+                    <div style={{ width: 70, textAlign: 'right', fontSize: 13, fontWeight: 800, color: '#B91C1C',
+                                  fontVariantNumeric: 'tabular-nums', flexShrink: 0, textDecoration: 'line-through' }}>
+                      {hLabel(r.hours_minutes)}
+                    </div>
+                  </div>
+                ))}
+
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 14, alignItems: 'center',
                               background: '#F2F6FD', borderRadius: 7, padding: '8px 14px', fontSize: 11,
                               fontWeight: 700, color: '#3E5A8C', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                  {d.removed.length > 0 && (
+                    <span style={{ color: '#B91C1C', letterSpacing: 0, textTransform: 'none', fontWeight: 600 }}>
+                      was {hLabel(d.recorded + d.removed.reduce((a, r) => a + r.hours_minutes, 0))} before removals
+                    </span>
+                  )}
                   Daily total <b style={{ fontSize: 14, color: '#1F3B73', letterSpacing: 0 }}>{hLabel(d.recorded)}</b>
                 </div>
               </>
