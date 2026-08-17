@@ -39,6 +39,7 @@ import React, {
 import { supabase }        from '../../../lib/supabase';
 import ErrorBanner         from '../../shared/ErrorBanner';
 import { usePermissions }  from '../../../hooks/usePermissions';
+import { REPORT_PERMISSION_MODULES, reportActionLabel } from '../reports/registry';
 
 // ─── Layout config ────────────────────────────────────────────────────────────
 
@@ -156,8 +157,10 @@ const ADMIN_GROUPS: MatrixGroup[] = [
       rowHint: 'Set how many months back each role (employee / manager / HR) can edit timesheet entries' },
     { code: 'time_submission_config', label: 'Submission config',  availableActions: ['view','create','edit','delete'],
       rowHint: 'Configure submission reminder notifications — timing, message template and channel' },
-    { code: 'timesheet_reports',      label: 'Timesheet reports',  availableActions: ['view'],
-      rowHint: 'Access timesheet reporting and analytics pages — utilisation, missing timesheets, department summaries' },
+    // timesheet_reports used to sit here. It is a reporting gate, not a Time
+    // Management config screen, so it now lives in the Reports band at the
+    // bottom of this matrix alongside reports_admin — declared once, in
+    // src/components/admin/reports/registry.ts.
     // MIG 739. The permission has existed since 732 and App.tsx has always
     // gated the Timesheet Admin nav item and /admin/time/timesheets on it —
     // but this matrix never offered the module, so there was no way to grant
@@ -268,7 +271,9 @@ const TOGGLE_GROUPS: ToggleGroup[] = [
   ]},
 ];
 
-const REPORTS_CODE = 'reports_admin';
+// The Reports band is driven by REPORT_PERMISSION_MODULES in the report
+// registry, so a new report's permission appears here the moment it is
+// declared — no second list to forget.
 
 // ─── Target population config ─────────────────────────────────────────────────
 
@@ -1643,23 +1648,43 @@ export default function PermissionMatrix() {
                             </button>
                           </td>
                         </tr>
-                        {reportsOpen && allPerms.filter(p => p.code.startsWith(REPORTS_CODE + '.')).map(p => (
-                          <tr key={p.id} style={{ borderBottom: '0.5px solid #F1F5F9' }}>
-                            <td colSpan={6} style={{ padding: '5px 14px 5px 36px' }}>
-                              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: canEdit ? 'pointer' : 'default', fontSize: 12, color: '#4B5563', opacity: canEdit ? 1 : 0.6 }}>
-                                <input type="checkbox" checked={grantedIds.has(p.id)}
-                                  onChange={() => {
-                                    if (!canEdit) return;
-                                    setGrantedIds(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; });
-                                    setDirty(true);
-                                  }}
-                                  disabled={!canEdit}
-                                  style={{ width: 14, height: 14, accentColor: '#1D4ED8', cursor: canEdit ? 'pointer' : 'not-allowed' }} />
-                                {p.code.endsWith('.view') ? 'Access reports' : 'Generate & export reports'}
-                              </label>
-                            </td>
-                          </tr>
-                        ))}
+                        {reportsOpen && REPORT_PERMISSION_MODULES.map(mod => {
+                          const perms = allPerms
+                            .filter(p => p.code.startsWith(mod.code + '.'))
+                            .sort((a, b) => a.code.localeCompare(b.code));
+                          return (
+                            <tr key={mod.code} style={{ borderBottom: '0.5px solid #F1F5F9' }}>
+                              <td colSpan={6} style={{ padding: '8px 14px 10px 36px' }}>
+                                <div style={{ fontSize: 12.5, fontWeight: 600, color: '#374151' }}>{mod.label}</div>
+                                <div style={{ fontSize: 11, color: '#9CA3AF', margin: '2px 0 7px', fontWeight: 400, maxWidth: 760 }}>
+                                  {mod.hint}
+                                </div>
+                                {perms.length === 0 ? (
+                                  <span style={{ fontSize: 11, color: '#B45309', background: '#FFFBEB', border: '0.5px solid #FDE68A', borderRadius: 4, padding: '2px 7px' }}>
+                                    <i className="fa-solid fa-triangle-exclamation" style={{ marginRight: 5 }} />
+                                    <code style={{ fontSize: 11 }}>{mod.code}</code> is not in the permission catalog on this environment — nothing to grant yet.
+                                  </span>
+                                ) : (
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 20px' }}>
+                                    {perms.map(p => (
+                                      <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: canEdit ? 'pointer' : 'default', fontSize: 12, color: '#4B5563', opacity: canEdit ? 1 : 0.6 }}>
+                                        <input type="checkbox" checked={grantedIds.has(p.id)}
+                                          onChange={() => {
+                                            if (!canEdit) return;
+                                            setGrantedIds(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; });
+                                            setDirty(true);
+                                          }}
+                                          disabled={!canEdit}
+                                          style={{ width: 14, height: 14, accentColor: '#1D4ED8', cursor: canEdit ? 'pointer' : 'not-allowed' }} />
+                                        {reportActionLabel(p.action ?? p.code.split('.').pop() ?? null)}
+                                      </label>
+                                    ))}
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
