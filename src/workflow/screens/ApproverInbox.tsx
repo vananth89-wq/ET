@@ -2564,6 +2564,22 @@ const META_HEADER_KEYS = new Set(['name', 'total_amount', 'currency_code', 'stat
   'termination_id', 'reversal_reason',
 ]);
 
+/** Keys a module puts in workflow metadata for its own purposes and does NOT
+ *  want dumped into the header meta row.
+ *
+ *  The meta row renders every surviving metadata key as a labelled chip, which
+ *  works while metadata holds two or three human facts. Timesheets carry seven
+ *  — the task card needs the period and the totals to be readable in a queue of
+ *  identically-named tasks — and the header filled up with PERIOD LABEL,
+ *  EXTERNAL CODE and PLANNED MINUTES 10080. All of it is either already in the
+ *  panel title or rendered properly, in hours, by TimesheetEnrichment. */
+const MODULE_META_HIDDEN: Record<string, Set<string>> = {
+  timesheet: new Set([
+    'employee_name', 'period', 'period_label',
+    'planned_minutes', 'recorded_minutes', 'external_code',
+  ]),
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // To Approve tab — Detail Panel
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2581,7 +2597,16 @@ function DetailPanel({
   const navigate = useNavigate();
   const { can } = usePermissions();
   const wf = useWorkflowInstance(task.moduleCode, task.recordId);
-  const extraMeta = Object.entries(task.metadata ?? {}).filter(([k]) => !META_HEADER_KEYS.has(k));
+  const extraMeta = Object.entries(task.metadata ?? {})
+    .filter(([k]) => !META_HEADER_KEYS.has(k))
+    .filter(([k]) => !MODULE_META_HIDDEN[task.moduleCode]?.has(k));
+  // Lifted out of TimesheetEnrichment once the payload lands.
+  const [tsMeta, setTsMeta] = useState<{ managerName: string | null; periodLabel: string | null } | null>(null);
+  // DetailPanel is not keyed on the task, so it does not remount when the
+  // approver picks the next one — without this, the header would keep showing
+  // the previous employee's manager until the new payload arrived. Showing the
+  // wrong person's name for half a second is worse than showing none.
+  useEffect(() => { setTsMeta(null); }, [task.taskId]);
   // WorkflowReview handles expense_reports, employee_hire, and profile_employment
   // (full-page review surface). Other profile modules use inline edit (Pattern B).
   const FULL_REVIEW_MODULES = new Set(['expense_reports', 'employee_hire', 'profile_employment', 'termination', 'termination_reversal', 'timesheet']);
@@ -2867,6 +2892,9 @@ function DetailPanel({
             <MetaItem label="Step"     value={`${task.stepOrder} — ${task.stepName}`} />
             <MetaItem label="Workflow" value={task.templateName} />
             <MetaItem label="Module"   value={MODULE_LABELS[task.moduleCode] ?? task.moduleCode.replace(/_/g, ' ')} />
+            {task.moduleCode === 'timesheet' && tsMeta?.managerName && (
+              <MetaItem label="Manager" value={tsMeta.managerName} />
+            )}
             {!task.moduleCode.startsWith('profile_') && extraMeta.map(([k, v]) => (
               <MetaItem key={k} label={k.replace(/_/g, ' ')} value={String(v)} />
             ))}
@@ -2937,6 +2965,7 @@ function DetailPanel({
           <TimesheetEnrichment
             headerId={task.recordId}
             onOpenFull={() => fullViewRoute && navigate(fullViewRoute)}
+            onMetaResolved={setTsMeta}
           />
         )}
         {(task.moduleCode === 'termination' || task.moduleCode === 'termination_reversal') && (

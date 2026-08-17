@@ -14,7 +14,7 @@
  * button cannot appear; these components do not add one back.
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useTimesheetApproval } from './useTimesheetApproval';
 import {
   TsSectionHead, TsEmployeeStrip, TsKpiTiles, TsExceptionChips,
@@ -51,11 +51,22 @@ function Refused({ message }: { message: string }) {
 
 // ── inbox panel ──────────────────────────────────────────────────────────────
 
-export function TimesheetEnrichment({ headerId, onOpenFull }: {
+export function TimesheetEnrichment({ headerId, onOpenFull, onMetaResolved }: {
   headerId: string;
   onOpenFull?: () => void;
+  /** Lifts the facts the panel header wants but cannot reach — the payload is
+   *  loaded here, and a second query from the header would be a second gate. */
+  onMetaResolved?: (meta: { managerName: string | null; periodLabel: string | null }) => void;
 }) {
   const { payload, month, loading, error } = useTimesheetApproval(headerId);
+
+  const managerName = payload?.employee?.manager_name ?? null;
+  const periodLabel = month?.periodLabel ?? null;
+  useEffect(() => {
+    if (onMetaResolved && (managerName || periodLabel)) {
+      onMetaResolved({ managerName, periodLabel });
+    }
+  }, [managerName, periodLabel]);
 
   if (loading)          return <Loading />;
   if (error || !month || !payload) return <Refused message={error ?? 'This timesheet could not be loaded.'} />;
