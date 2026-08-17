@@ -691,6 +691,33 @@ tbody tr:last-child {
     border-bottom: none;
 }
 
+/* ── Timesheet approval tables ────────────────────────────────────────────
+   These two tables (the calendar overview and the day x project matrix) are
+   laid out entirely by the components that own them: every colour, padding and
+   border is decided per cell from the month model. The global bare-element
+   rules above are built for data grids -- a navy thead, a card shadow, 12/16px
+   cell padding and a row hover -- and all four fight that layout. The navy
+   thead in particular wins outright, because the background sits on <thead>
+   and the components only ever style <th>.
+
+   Resetting once here is better than defending in every cell: a component that
+   has to restate `background: transparent` forty times will miss the
+   forty-first, which is exactly how the calendar ended up with a navy header
+   bar nobody designed. */
+.ts-plain,
+.ts-plain table {
+  background: transparent;
+  border-radius: 0;
+  box-shadow: none;
+  overflow: visible;
+}
+.ts-plain thead            { background: transparent; }
+.ts-plain thead th         { padding: 0; color: inherit; font-size: inherit;
+                             font-weight: inherit; letter-spacing: normal; }
+.ts-plain tbody tr         { border-bottom: none; transition: none; }
+.ts-plain tbody tr:hover   { background: transparent; }
+.ts-plain tbody td         { padding: 0; font-size: inherit; color: inherit; }
+
 .no-data {
     text-align: center;
     color: #999;

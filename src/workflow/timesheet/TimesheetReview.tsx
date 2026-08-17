@@ -165,15 +165,18 @@ export function TsCalendar({ month }: { month: MonthModel }) {
 
   return (
     <>
-      <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 5, marginBottom: 6 }}>
+      <table className="ts-plain"
+             style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 5, marginBottom: 6 }}>
         <thead>
           <tr>
             {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
-              <th key={d} style={{ fontSize: 9.5, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase',
-                                   letterSpacing: '0.09em', paddingBottom: 2, textAlign: 'center' }}>{d}</th>
+              <th key={d} style={{ fontSize: 10, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase',
+                                   letterSpacing: '0.12em', padding: '0 0 6px', textAlign: 'center',
+                                   background: 'transparent' }}>{d}</th>
             ))}
-            <th style={{ fontSize: 9.5, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase',
-                         letterSpacing: '0.09em', textAlign: 'right', paddingRight: 4 }}>Week</th>
+            <th style={{ fontSize: 10, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase',
+                         letterSpacing: '0.12em', padding: '0 4px 6px 0', textAlign: 'right',
+                         background: 'transparent' }}>Week</th>
           </tr>
         </thead>
         <tbody>
@@ -189,10 +192,10 @@ export function TsCalendar({ month }: { month: MonthModel }) {
                   return (
                     <td key={ci} style={{ width: '12.4%', verticalAlign: 'top' }}>
                       <div style={{
-                        borderRadius: 7, padding: '6px 7px 7px', minHeight: 46, position: 'relative',
+                        borderRadius: 9, padding: '8px 10px 10px', minHeight: 58, position: 'relative',
                         background: v.bg, border: `1px solid ${v.bd}`,
                       }}>
-                        <div style={{ fontSize: 12, fontWeight: 700, lineHeight: 1, color: v.num }}>{d.day}</div>
+                        <div style={{ fontSize: 13, fontWeight: 700, lineHeight: 1, color: v.num }}>{d.day}</div>
                         {d.kind === 'holiday' ? (
                           <div style={{ fontSize: 10.5, marginTop: 3, fontWeight: 700, color: v.hrs }}>HOL</div>
                         ) : d.kind === 'missing' ? (
@@ -210,8 +213,8 @@ export function TsCalendar({ month }: { month: MonthModel }) {
                           </>
                         ) : null}
                         {v.dot && (
-                          <span style={{ position: 'absolute', bottom: 6, left: '50%', transform: 'translateX(-50%)',
-                                         width: 5, height: 5, borderRadius: '50%', background: v.dot }} />
+                          <span style={{ position: 'absolute', bottom: 8, left: '50%', transform: 'translateX(-50%)',
+                                         width: 6, height: 6, borderRadius: '50%', background: v.dot }} />
                         )}
                       </div>
                     </td>
@@ -315,7 +318,8 @@ export function TsMatrix({ month }: { month: MonthModel }) {
   return (
     <div style={{ border: '1px solid #E8EDF5', borderRadius: 8, overflow: 'hidden', marginBottom: 16, background: '#fff' }}>
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontVariantNumeric: 'tabular-nums', minWidth: 520 }}>
+        <table className="ts-plain"
+               style={{ width: '100%', borderCollapse: 'collapse', fontVariantNumeric: 'tabular-nums', minWidth: 520 }}>
           <thead>
             <tr>
               <th style={{ textAlign: 'left', paddingLeft: 11, width: 172, background: '#fff',
