@@ -22,7 +22,6 @@ import {
 } from './TimesheetReview';
 import { hLabel } from './model';
 import { TimesheetLinkButton } from './TimesheetLinkButton';
-import { TsDecisionPrep } from './TsDecisionPrep';
 
 // ── shared states ────────────────────────────────────────────────────────────
 
@@ -138,10 +137,6 @@ export function TimesheetFullReview({ headerId }: { headerId: string }) {
 
   return (
     <div>
-      {/* The numbers and the exceptions, where the approver lands — not below
-          six sections of tables they have to scroll back up from. */}
-      <TsDecisionPrep month={month} />
-
       <div style={{ display: 'flex', gap: 2, alignItems: 'center',
                     borderBottom: '1px solid #E5E7EB', marginBottom: 16 }}>
         {tabBtn('summary', 'Summary', 'fa-chart-simple')}
