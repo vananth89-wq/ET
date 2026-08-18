@@ -388,7 +388,7 @@ single most common bug in enterprise grids.
 
 ---
 
-## 3. Schema additions — migration 746
+## 3. Schema additions — migration 747
 
 Two columns block two personas.
 
@@ -1154,7 +1154,7 @@ in de-emphasis gray).
 | Field | Source | Note |
 |---|---|---|
 | Hours | recorded | |
-| Budget | `projects.budget_hours` (mig 746) | Blank, not zero, when unset |
+| Budget | `projects.budget_hours` (mig 747) | Blank, not zero, when unset |
 | Consumed % | hours ÷ budget | Meter against the budget track; **no percentage at all when budget is null**, rather than a fake denominator |
 | Billable % | `project_type = billable` share | |
 | Contributors | distinct employees who logged time | |
@@ -1214,8 +1214,8 @@ leadership report and an employee-grain version is Utilisation.
 | Leave | `time_types.category = absence`, leave types | |
 | Holiday | system-generated holiday rows | |
 | Training | attendance type `TRN` | Called out separately — it is capacity spent on purpose |
-| Billable | `project_type = billable` | mig 746 |
-| Internal | `project_type = internal` | mig 746 |
+| Billable | `project_type = billable` | mig 747 |
+| Internal | `project_type = internal` | mig 747 |
 | Overhead | `project_type = overhead` + untagged attendance | |
 | **Capacity %** | (planned − leave − holiday) ÷ planned | What was *available* |
 | **Productive %** | billable ÷ available | What was *used well* |
@@ -1230,7 +1230,7 @@ exactly six.
 
 This is the report leadership opens most and the one the original design missed
 entirely. It is also almost free: every input already exists except the `project_type`
-split, which mig 746 adds.
+split, which mig 747 adds.
 
 ## 11. Executive Dashboard
 
