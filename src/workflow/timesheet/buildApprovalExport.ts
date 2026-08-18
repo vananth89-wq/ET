@@ -57,6 +57,8 @@ export async function buildApprovalExportData(p: TsPayload): Promise<TimesheetEx
     (e.activity_rows?.length
       ? e.activity_rows.map(a => ({ name: a.name, minutes: a.minutes }))
       : (e.activities ?? []).filter(Boolean).map(n => ({ name: n, minutes: 0 })));
+  // NOTE: the zero-minute fallback above is for DISPLAY only. Never hand the
+  // result to entryMinutes() -- see the call below.
 
   const rows: AssembleRow[] = (p.entries ?? []).map(e => {
     const acts = activitiesOf(e);
@@ -65,7 +67,14 @@ export async function buildApprovalExportData(p: TsPayload): Promise<TimesheetEx
       kind:       kindOf(e),
       typeName:   e.time_type_name ?? (e.entry_kind === 'holiday' ? 'Holiday' : '—'),
       project:    e.project_name ?? null,
-      minutes:    entryMinutes(e.hours_minutes, acts),
+      // entryMinutes() treats ANY non-empty activity list as the source of
+      // truth and sums it. `acts` is a DISPLAY list: for a pre-727 entry it
+      // holds the legacy names at minutes 0, so passing it here summed to zero
+      // and threw the parent's real hours away -- the entry printed as a dash
+      // and the day and month totals on page 2 silently lost those hours while
+      // page 1's calendar, which reads rawMinutes, still showed them. Pass only
+      // GENUINE rows; absent ones must fall through to the parent.
+      minutes:    entryMinutes(e.hours_minutes, e.activity_rows ?? null),
       rawMinutes: e.hours_minutes,
       notes:      e.notes,
       activities: acts,
