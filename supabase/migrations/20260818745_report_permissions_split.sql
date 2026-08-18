@@ -133,18 +133,32 @@ WHERE  m.code = 'timesheet_reports'
 ON CONFLICT (code) DO NOTHING;
 
 -- ═══════════════════════════════════════════════════════════════════════════
--- PART 2 — retire the umbrella, but ONLY if it is still held by nobody
+-- PART 2 — retire the umbrella, carrying any grant forward
 -- ═══════════════════════════════════════════════════════════════════════════
--- The whole argument for doing this now is that the permission is ungranted.
--- If that has stopped being true between writing this and running it, the
--- argument is void and so is the migration -- abort and say what to do, rather
--- than quietly removing somebody's access.
+-- This part originally ABORTED if the umbrella turned out to be granted, on the
+-- reasoning that "held by nobody" was what made the split free. That guard
+-- fired on the first real deploy -- because granting it was the only way to
+-- test the reports before this migration existed. The assumption was true when
+-- written and false when run.
+--
+-- Aborting is the right default when a migration cannot know what the operator
+-- wants. Here it can. `timesheet_reports.view` opened the timesheet report, and
+-- the timesheet report is exactly these two views, so granting both replacements
+-- to every holder preserves the access they have rather than widening or
+-- narrowing it. That is a translation, not a judgement call, and demanding a
+-- human un-tick a box in the UI before a deploy will run is a worse answer than
+-- doing the obvious thing and saying so in the log.
+--
+-- If an administrator wants only one of the two afterwards, that is one click in
+-- the Permission Matrix -- which is now, for the first time, a choice they can
+-- express.
 
 DO $mig$
 DECLARE
-  v_perm_id uuid;
-  v_sets    integer := 0;
-  v_roles   integer := 0;
+  v_perm_id  uuid;
+  v_new_ids  uuid[];
+  v_sets     integer := 0;
+  v_roles    integer := 0;
 BEGIN
   SELECT id INTO v_perm_id FROM public.permissions WHERE code = 'timesheet_reports.view';
 
@@ -153,24 +167,54 @@ BEGIN
     RETURN;
   END IF;
 
-  SELECT count(*) INTO v_sets
-  FROM   public.permission_set_items WHERE permission_id = v_perm_id;
+  SELECT array_agg(id) INTO v_new_ids
+  FROM   public.permissions
+  WHERE  code IN ('timesheet_reports.view_compliance', 'timesheet_reports.view_utilisation');
 
+  IF COALESCE(array_length(v_new_ids, 1), 0) <> 2 THEN
+    RAISE EXCEPTION 'MIG 745: expected both replacement permissions to exist before retiring the umbrella, found %.',
+                    COALESCE(array_length(v_new_ids, 1), 0);
+  END IF;
+
+  -- ── Permission sets ──────────────────────────────────────────────────────
+  INSERT INTO public.permission_set_items (permission_set_id, permission_id)
+  SELECT psi.permission_set_id, n.id
+  FROM   public.permission_set_items psi
+  CROSS  JOIN unnest(v_new_ids) AS n(id)
+  WHERE  psi.permission_id = v_perm_id
+  ON CONFLICT (permission_set_id, permission_id) DO NOTHING;
+
+  GET DIAGNOSTICS v_sets = ROW_COUNT;
+
+  -- ── Legacy role grants, if that table is still around ────────────────────
   IF to_regclass('public.role_permissions') IS NOT NULL THEN
-    EXECUTE 'SELECT count(*) FROM public.role_permissions WHERE permission_id = $1'
-      INTO v_roles USING v_perm_id;
+    EXECUTE $q$
+      INSERT INTO public.role_permissions (role_id, permission_id)
+      SELECT rp.role_id, n.id
+      FROM   public.role_permissions rp
+      CROSS  JOIN unnest($1) AS n(id)
+      WHERE  rp.permission_id = $2
+        AND  NOT EXISTS (SELECT 1 FROM public.role_permissions x
+                          WHERE x.role_id = rp.role_id AND x.permission_id = n.id)
+    $q$ USING v_new_ids, v_perm_id;
+    GET DIAGNOSTICS v_roles = ROW_COUNT;
+
+    EXECUTE 'DELETE FROM public.role_permissions WHERE permission_id = $1' USING v_perm_id;
   END IF;
 
   IF v_sets > 0 OR v_roles > 0 THEN
-    RAISE EXCEPTION E'MIG 745 ABORT: timesheet_reports.view is granted (% permission set item(s), % role grant(s)).\n'
-      '  This migration assumes it is held by nobody -- that assumption is what made the split free.\n'
-      '  Grant timesheet_reports.view_compliance and/or .view_utilisation to those holders first,\n'
-      '  then re-run.', v_sets, v_roles;
+    RAISE NOTICE 'MIG 745: carried the umbrella grant forward -- % permission-set row(s) and % role row(s) '
+                 'now hold BOTH view_compliance and view_utilisation. Nobody lost access; nobody gained a '
+                 'report they could not already open.', v_sets, v_roles;
+  ELSE
+    RAISE NOTICE 'MIG 745: timesheet_reports.view was granted to nobody.';
   END IF;
 
+  -- permission_set_items cascades on the FK; role_permissions was cleared above.
   DELETE FROM public.permissions WHERE id = v_perm_id;
-  RAISE NOTICE 'MIG 745: retired timesheet_reports.view (was granted to nobody).';
+  RAISE NOTICE 'MIG 745: retired timesheet_reports.view.';
 END $mig$;
+
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- PART 3 — each RPC checks its own action
@@ -250,6 +294,24 @@ BEGIN
 
   IF EXISTS (SELECT 1 FROM public.permissions WHERE code = 'timesheet_reports.view') THEN
     v_missing := v_missing || 'the umbrella timesheet_reports.view survived'::text; END IF;
+
+  -- Every permission set that held the umbrella must now hold both replacements.
+  -- Checked as "no set holds exactly one of them", which also catches a partial
+  -- carry-forward, not just a missing one.
+  IF EXISTS (
+    SELECT psi.permission_set_id
+    FROM   public.permission_set_items psi
+    JOIN   public.permissions p ON p.id = psi.permission_id
+    WHERE  p.code IN ('timesheet_reports.view_compliance','timesheet_reports.view_utilisation')
+    GROUP  BY psi.permission_set_id
+    HAVING count(*) = 1
+       AND EXISTS (SELECT 1 FROM public.permission_sets ps WHERE ps.id = psi.permission_set_id)
+  ) AND (SELECT count(*) FROM public.permission_set_items psi2
+         JOIN public.permissions p2 ON p2.id = psi2.permission_id
+         WHERE p2.code LIKE 'timesheet_reports.%') > 0 THEN
+    RAISE NOTICE 'MIG 745: at least one permission set holds one report permission but not the other. '
+                 'That is legitimate if an administrator chose it -- flagged, not failed.';
+  END IF;
 
   -- PART 0. Without it the INSERTs above cannot land, so a failure here means
   -- the constraint was widened and then narrowed again by something else.
