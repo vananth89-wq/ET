@@ -43,6 +43,66 @@
 BEGIN;
 
 -- ═══════════════════════════════════════════════════════════════════════════
+-- PART 0 — widen permissions_action_check FIRST
+-- ═══════════════════════════════════════════════════════════════════════════
+-- `permissions.action` is an enumerated allow-list, not free text. Every
+-- migration that introduces a verb has had to widen it first -- 147 for
+-- 'lookup', 217 for 'view_all_pending', 359 for the bulk verbs, 570 for
+-- 'reassign', 732 for 'approve'. This one adds four report verbs and must do
+-- the same. Omitting it is why the first attempt at this migration failed on
+-- Dev with SQLSTATE 23514 at the very first INSERT.
+--
+-- The mechanism is lifted verbatim from 732, including its reasoning: the new
+-- constraint is the canonical list PLUS the new verbs PLUS whatever is already
+-- in the column, so a replay against a database carrying a value this migration
+-- did not create cannot fail on a difference it has no business adjudicating.
+-- Anything in that third category is named in a WARNING rather than silently
+-- enshrined. NULL actions are untouched -- a CHECK is satisfied by NULL, and
+-- legacy pre-RBP rows have one.
+--
+-- All four report verbs go in, including the two whose reports are not built.
+-- A CHECK value is not a grantable permission: it is invisible to an
+-- administrator and does nothing until a row uses it. That is a different thing
+-- from seeding a permission an admin can grant that has no screen behind it,
+-- which PART 1 deliberately does not do.
+
+DO $mig$
+DECLARE
+  v_canonical text[] := ARRAY['view','create','edit','delete','history','lookup',
+                              'view_all_pending','edit_all_pending',
+                              'bulk_import','bulk_export',
+                              'view_inactive','reassign','approve',
+                              'view_compliance','view_utilisation',
+                              'view_capacity','view_analytics'];
+  v_extra     text[];
+  v_allowed   text[];
+BEGIN
+  SELECT COALESCE(array_agg(DISTINCT action), ARRAY[]::text[])
+    INTO v_extra
+  FROM   public.permissions
+  WHERE  action IS NOT NULL
+    AND  action <> ALL (v_canonical);
+
+  IF COALESCE(array_length(v_extra, 1), 0) > 0 THEN
+    RAISE WARNING 'MIG 745: permissions.action holds % value(s) outside the canonical '
+                  'set: %. Preserved rather than rejected -- this migration only adds '
+                  'the four report verbs. Worth checking whether they are intentional.',
+                  array_length(v_extra, 1), array_to_string(v_extra, ', ');
+  END IF;
+
+  v_allowed := v_canonical || v_extra;
+
+  EXECUTE 'ALTER TABLE public.permissions DROP CONSTRAINT IF EXISTS permissions_action_check';
+  EXECUTE format(
+    'ALTER TABLE public.permissions ADD CONSTRAINT permissions_action_check '
+    'CHECK (action = ANY (%L::text[]))', v_allowed);
+
+  RAISE NOTICE 'MIG 745: permissions_action_check now admits % value(s).',
+               array_length(v_allowed, 1);
+END $mig$;
+
+
+-- ═══════════════════════════════════════════════════════════════════════════
 -- PART 1 — the two new permissions
 -- ═══════════════════════════════════════════════════════════════════════════
 
@@ -190,6 +250,16 @@ BEGIN
 
   IF EXISTS (SELECT 1 FROM public.permissions WHERE code = 'timesheet_reports.view') THEN
     v_missing := v_missing || 'the umbrella timesheet_reports.view survived'::text; END IF;
+
+  -- PART 0. Without it the INSERTs above cannot land, so a failure here means
+  -- the constraint was widened and then narrowed again by something else.
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'permissions_action_check'
+      AND pg_get_constraintdef(oid) LIKE '%view_compliance%'
+      AND pg_get_constraintdef(oid) LIKE '%view_utilisation%'
+  ) THEN
+    v_missing := v_missing || 'permissions_action_check does not admit the report verbs'::text; END IF;
 
   FOR v_src IN
     SELECT pg_get_functiondef(p.oid) FROM pg_proc p
