@@ -564,6 +564,48 @@ CREATE INDEX idx_ee_emp_effective      ON employee_employment (employee_id, effe
 `timesheet_headers` already has `UNIQUE (employee_id, period)` — leading with
 `employee_id`, which does not serve a report that filters on `period` first.
 
+### 4.4b MEASURED — Phase A results (mig 746, 2026-08-18)
+
+Run against Postgres 16 with a stand-in schema, 10,004 employees, 42/42 behaviour
+tests passing before and after.
+
+| Case | Before | After | |
+|---|---|---|---|
+| **Scoped** (a manager's team, 1 month) | 1,381 ms | **15 ms** | ~90× |
+| Unscoped, 1 month, 10k employees | 1,685 ms | **438 ms** | ~4× |
+| Unscoped, 12 months, 120,046 rows | 4,586 ms | 3,494 ms | 1.3× |
+
+The scoped case is the one that matters most — most report users are scoped to a team
+or a department, and that path is now effectively instant.
+
+**Most of the original cost was not the query.** `EXPLAIN (ANALYZE)` on the real call
+showed 1,607 ms total of which **JIT compilation was 1,570 ms**: Postgres compiled 104
+functions to accelerate about 24 ms of actual execution. The trigger is estimate
+inflation, not a bad plan — `generate_series` and any set-returning function default to
+an estimated 1,000 rows, so the planner prices the period cross join at millions of
+rows and the total cost lands far above `jit_above_cost`. `SET jit = 'off'` on the two
+report functions removes it; PART 5 of the migration asserts the setting survives, so a
+later `CREATE OR REPLACE` that drops it fails the deploy rather than quietly costing a
+second and a half per screen.
+
+Two smaller wins in the same migration: the ten separate `count(*)` scans of the
+filtered set became one pass with `FILTER` (1,485 ms → 1,052 ms on a 30k skeleton), and
+`time_submission_due_date()` moved from once per row to once per period.
+
+**What is still open.** The unscoped 12-month case is 3.5 s here, which extrapolates to
+roughly 17 s at 50,000 employees. That residue is the full-set summary, and it is
+deliberate — §2.6 requires totals over everything so the footer does not lie at page
+two. Removing it needs one of:
+
+1. **Split the summary from the rows** — two requests, grid renders immediately, KPI
+   band fills a moment later. What most enterprise grids do, and the cheapest.
+2. **Cache the summary** per (filters, period) for a short TTL.
+3. **Serve the unfiltered case from the nightly rollup** in §4.5 and compute live only
+   when filters narrow the set.
+
+Option 1 first. It is a frontend change plus an RPC split, and it makes the expensive
+part asynchronous rather than trying to make it cheap.
+
 ### 4.5 Rollups and caching
 
 The Executive Dashboard cannot be computed live. Twelve months of org-wide compliance
