@@ -16,8 +16,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../../../lib/supabase';
 import MSDropdown from './MSDropdown';
-import { Kpi, MonthRange, Pager, ReportHeader, ReportStatus, ScopeBadge } from './reportControls';
-import { currentMonthInput, exportXlsx, fmtDate, fmtHM, fromMonthInput, toDecimalHours, useReportRpc } from './reportShared';
+import { Kpi, MonthRange, Pager, ReportStatus, ScopeBadge } from './reportControls';
+import { exportXlsx, fmtDate, fmtHM, fromMonthInput, toDecimalHours, useReportRpc } from './reportShared';
+import type { ReportTabProps } from './reportShared';
 
 interface Activity { id: string; activity_name: string; hours_minutes: number; display_order: number; }
 interface Row {
@@ -83,14 +84,17 @@ function useFilterOptions() {
   return { emps, depts, projs, types };
 }
 
-export default function TimesheetUtilisation({ onBack }: { onBack: () => void }) {
+export default function TimesheetUtilisation({ shared, setShared }: ReportTabProps) {
   const { emps, depts, projs, types } = useFilterOptions();
   const { data, loading, error, run } = useReportRpc<Payload>('timesheet_report_utilisation');
 
-  const [from, setFrom]     = useState(currentMonthInput());
-  const [to, setTo]         = useState(currentMonthInput());
-  const [selEmp, setEmp]    = useState<string[]>([]);
-  const [selDept, setDept]  = useState<string[]>([]);
+  // Period, employee and department live in the shell so they survive a tab
+  // switch. Everything below them is only meaningful here.
+  const { from, to, employees: selEmp, depts: selDept } = shared;
+  const setFrom = useCallback((v: string)   => setShared({ from: v }),      [setShared]);
+  const setTo   = useCallback((v: string)   => setShared({ to: v }),        [setShared]);
+  const setEmp  = useCallback((v: string[]) => setShared({ employees: v }), [setShared]);
+  const setDept = useCallback((v: string[]) => setShared({ depts: v }),     [setShared]);
   const [selProj, setProj]  = useState<string[]>([]);
   const [selType, setType]  = useState<string[]>([]);
   const [selCat, setCat]    = useState<string[]>([]);
@@ -127,12 +131,16 @@ export default function TimesheetUtilisation({ onBack }: { onBack: () => void })
   useEffect(() => { run(filtersRef.current); }, [page, pageSize, run]);
 
   const apply = useCallback(() => { setPage(1); run({ ...filters, page: 1 }); }, [filters, run]);
+  // Reset clears this tab's filters but LEAVES the shared period, employee and
+  // department alone. They are the context you switched tabs carrying; wiping
+  // them from inside one tab would undo the other tab's screen too.
   const reset = useCallback(() => {
-    setEmp([]); setDept([]); setProj([]); setType([]); setCat([]); setStat([]); setSys(false);
-    setFrom(currentMonthInput()); setTo(currentMonthInput()); setPage(1);
-    run({ period_from: fromMonthInput(currentMonthInput()), period_to: fromMonthInput(currentMonthInput()),
+    setProj([]); setType([]); setCat([]); setStat([]); setSys(false); setPage(1);
+    run({ period_from: fromMonthInput(from), period_to: fromMonthInput(to),
+          ...(selEmp.length  ? { employee_ids: selEmp } : {}),
+          ...(selDept.length ? { dept_ids: selDept }    : {}),
           page: 1, page_size: pageSize });
-  }, [run, pageSize]);
+  }, [run, pageSize, from, to, selEmp, selDept]);
 
   /**
    * Export pulls the WHOLE filtered set, not the page. A spreadsheet that
@@ -175,9 +183,7 @@ export default function TimesheetUtilisation({ onBack }: { onBack: () => void })
     ? `${Math.round((t.recorded_minutes / t.planned_minutes) * 100)}%` : '—';
 
   return (
-    <div className="er-page">
-      <ReportHeader icon="fa-chart-simple" title="Timesheet Utilisation" onBack={onBack} />
-
+    <>
       <div className="er-toolbar">
         <div className="er-filters-row">
           <MonthRange from={from} to={to} onFrom={setFrom} onTo={setTo} />
@@ -318,6 +324,6 @@ export default function TimesheetUtilisation({ onBack }: { onBack: () => void })
           Total recorded: <strong>{fmtHM(t?.recorded_minutes)}</strong>
         </div>
       </div>
-    </div>
+    </>
   );
 }

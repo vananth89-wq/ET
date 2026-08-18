@@ -55,6 +55,33 @@ export function lastMonthInput(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
+// ─── Filters shared across the tabs of one report ────────────────────────────
+
+/**
+ * The filters that mean the same thing on every tab, so they survive a switch.
+ *
+ * This is the whole reason the two timesheet views are tabs rather than two
+ * catalog rows: you filter Compliance to Engineering for July, see who is
+ * missing, then switch to Utilisation to look at where that team's hours went.
+ * If the period and the department reset on the way across, the tab has bought
+ * nothing over two separate reports.
+ *
+ * Filters that only one tab has -- project, time type, overdue-only -- stay
+ * local to it and reset on switch, which is correct: they have no meaning on
+ * the other side.
+ */
+export interface SharedReportFilters {
+  from:      string;      // '2026-07', as <input type="month"> wants it
+  to:        string;
+  employees: string[];
+  depts:     string[];
+}
+
+export interface ReportTabProps {
+  shared:    SharedReportFilters;
+  setShared: (patch: Partial<SharedReportFilters>) => void;
+}
+
 // ─── Calling a report RPC ────────────────────────────────────────────────────
 
 export interface RpcState<T> { data: T | null; loading: boolean; error: string | null; }

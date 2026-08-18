@@ -54,22 +54,13 @@ export const REPORTS: ReportDef[] = [
     Component:   lazy(() => import('./ExpenseReport')),
   },
   {
-    code:        'timesheet-utilisation',
-    name:        'Timesheet Utilisation',
-    description: 'Where the recorded hours went — by employee, project and time type, with the activity breakdown behind each entry. Planned vs recorded. Exports to Excel.',
-    icon:        'fa-chart-simple',
+    code:        'timesheet',
+    name:        'Timesheet Report',
+    description: 'Two views of one month. Compliance: who has and has not submitted, including employees who logged nothing at all. Utilisation: where the recorded hours went, by employee, project and activity. Exports to Excel.',
+    icon:        'fa-clock',
     permission:  'timesheet_reports.view',
     active:      true,
-    Component:   lazy(() => import('./TimesheetUtilisation')),
-  },
-  {
-    code:        'timesheet-compliance',
-    name:        'Timesheet Compliance',
-    description: 'Who has and has not submitted, per month — including employees who logged nothing at all, and those with no work schedule assigned. Exports to Excel.',
-    icon:        'fa-clipboard-check',
-    permission:  'timesheet_reports.view',
-    active:      true,
-    Component:   lazy(() => import('./TimesheetCompliance')),
+    Component:   lazy(() => import('./TimesheetReport')),
   },
 ];
 

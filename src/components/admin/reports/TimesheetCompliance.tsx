@@ -25,8 +25,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../../../lib/supabase';
 import MSDropdown from './MSDropdown';
-import { Kpi, MonthRange, Pager, ReportHeader, ReportStatus, ScopeBadge } from './reportControls';
-import { exportXlsx, fmtDate, fmtHM, fmtPeriod, fromMonthInput, lastMonthInput, toDecimalHours, useReportRpc } from './reportShared';
+import { Kpi, MonthRange, Pager, ReportStatus, ScopeBadge } from './reportControls';
+import { exportXlsx, fmtDate, fmtHM, fmtPeriod, fromMonthInput, toDecimalHours, useReportRpc } from './reportShared';
+import type { ReportTabProps } from './reportShared';
 
 interface Row {
   employee_id: string; employee_name: string; employee_code: string;
@@ -92,18 +93,18 @@ function useFilterOptions() {
   return { emps, depts };
 }
 
-export default function TimesheetCompliance({ onBack }: { onBack: () => void }) {
+export default function TimesheetCompliance({ shared, setShared }: ReportTabProps) {
   const { emps, depts } = useFilterOptions();
   const { data, loading, error, run } = useReportRpc<Payload>('timesheet_report_compliance');
 
-  // Defaults to LAST month, not this one. The current month is not late yet,
-  // so opening on it shows a screen of red that means nothing.
-  const lastMonth = useMemo(() => lastMonthInput(), []);
-
-  const [from, setFrom]      = useState(lastMonth);
-  const [to, setTo]          = useState(lastMonth);
-  const [selEmp, setEmp]     = useState<string[]>([]);
-  const [selDept, setDept]   = useState<string[]>([]);
+  // Period, employee and department live in the shell so they survive a tab
+  // switch -- including the last-month default, which is set there once for
+  // both tabs rather than argued about twice.
+  const { from, to, employees: selEmp, depts: selDept } = shared;
+  const setFrom = useCallback((v: string)   => setShared({ from: v }),      [setShared]);
+  const setTo   = useCallback((v: string)   => setShared({ to: v }),        [setShared]);
+  const setEmp  = useCallback((v: string[]) => setShared({ employees: v }), [setShared]);
+  const setDept = useCallback((v: string[]) => setShared({ depts: v }),     [setShared]);
   const [selState, setState] = useState<string[]>([]);
   const [onlyLate, setLate]  = useState(false);
   const [page, setPage]      = useState(1);
@@ -130,11 +131,15 @@ export default function TimesheetCompliance({ onBack }: { onBack: () => void }) 
   useEffect(() => { run(filtersRef.current); }, [page, pageSize, run]);
 
   const apply = useCallback(() => { setPage(1); run({ ...filters, page: 1 }); }, [filters, run]);
+  // Clears this tab's filters only. The shared period, employee and department
+  // are the context carried across the tabs and are left as they are.
   const reset = useCallback(() => {
-    setEmp([]); setDept([]); setState([]); setLate(false);
-    setFrom(lastMonth); setTo(lastMonth); setPage(1);
-    run({ period_from: fromMonthInput(lastMonth), period_to: fromMonthInput(lastMonth), page: 1, page_size: pageSize });
-  }, [run, pageSize, lastMonth]);
+    setState([]); setLate(false); setPage(1);
+    run({ period_from: fromMonthInput(from), period_to: fromMonthInput(to),
+          ...(selEmp.length  ? { employee_ids: selEmp } : {}),
+          ...(selDept.length ? { dept_ids: selDept }    : {}),
+          page: 1, page_size: pageSize });
+  }, [run, pageSize, from, to, selEmp, selDept]);
 
   const [exporting, setExporting] = useState(false);
   const doExport = useCallback(async () => {
@@ -185,9 +190,7 @@ export default function TimesheetCompliance({ onBack }: { onBack: () => void }) 
   const s = data?.summary;
 
   return (
-    <div className="er-page">
-      <ReportHeader icon="fa-clipboard-check" title="Timesheet Compliance" onBack={onBack} />
-
+    <>
       <div className="er-toolbar">
         <div className="er-filters-row">
           <MonthRange from={from} to={to} onFrom={setFrom} onTo={setTo} />
@@ -321,6 +324,6 @@ export default function TimesheetCompliance({ onBack }: { onBack: () => void }) 
           {s?.overdue ? <strong style={{ color: '#B91C1C' }}>{s.overdue} overdue</strong> : 'Nothing overdue'}
         </div>
       </div>
-    </div>
+    </>
   );
 }
