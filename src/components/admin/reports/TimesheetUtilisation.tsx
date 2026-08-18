@@ -16,7 +16,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../../../lib/supabase';
 import MSDropdown from './MSDropdown';
-import { Kpi, MonthRange, Pager, ReportStatus, ScopeBadge } from './reportControls';
+import { Kpi, MonthRange, Pager, PendingFilters, ReportStatus, ScopeBadge } from './reportControls';
 import { exportXlsx, fmtDate, fmtHM, fromMonthInput, toDecimalHours, useReportRpc } from './reportShared';
 import type { ReportTabProps } from './reportShared';
 
@@ -122,24 +122,53 @@ export default function TimesheetUtilisation({ shared, setShared }: ReportTabPro
 
   // Paging re-runs immediately; filter edits wait for Apply, so a half-built
   // filter never triggers a query.
+  // Same pending-filter signal as Compliance. This tab has more filters, not
+  // fewer, so it needs it more -- and a report that tells you filters are
+  // waiting on one tab and stays silent on the other is the inconsistency this
+  // whole module was reorganised to avoid.
+  //
+  // Compared as a serialised key rather than field by field: this toolbar has
+  // seven controls and a hand-written comparison would fall out of step with
+  // them the first time an eighth is added.
+  const filterKey = useMemo(() => {
+    const { page: _p, page_size: _s, ...rest } = filters as Record<string, unknown>;
+    void _p; void _s;
+    return JSON.stringify(rest);
+  }, [filters]);
+  const [appliedKey, setAppliedKey] = useState<string | null>(null);
+  const pending = appliedKey !== null && appliedKey !== filterKey;
+
   // Filters are read through a ref so this effect can declare every
   // dependency it actually has. Editing a filter must NOT fire a query --
   // that waits for Apply -- but changing the page or the page size must,
   // and both are covered by this one effect, which also runs on mount.
   const filtersRef = useRef(filters);
   filtersRef.current = filters;
-  useEffect(() => { run(filtersRef.current); }, [page, pageSize, run]);
+  const keyRef = useRef(filterKey);
+  keyRef.current = filterKey;
+  useEffect(() => {
+    run(filtersRef.current);
+    setAppliedKey(keyRef.current);
+  }, [page, pageSize, run]);
 
-  const apply = useCallback(() => { setPage(1); run({ ...filters, page: 1 }); }, [filters, run]);
+  const apply = useCallback(() => {
+    setPage(1); run({ ...filters, page: 1 }); setAppliedKey(filterKey);
+  }, [filters, run, filterKey]);
   // Reset clears this tab's filters but LEAVES the shared period, employee and
   // department alone. They are the context you switched tabs carrying; wiping
   // them from inside one tab would undo the other tab's screen too.
   const reset = useCallback(() => {
     setProj([]); setType([]); setCat([]); setStat([]); setSys(false); setPage(1);
-    run({ period_from: fromMonthInput(from), period_to: fromMonthInput(to),
-          ...(selEmp.length  ? { employee_ids: selEmp } : {}),
-          ...(selDept.length ? { dept_ids: selDept }    : {}),
-          page: 1, page_size: pageSize });
+    const next: Record<string, unknown> = {
+      period_from: fromMonthInput(from), period_to: fromMonthInput(to),
+      ...(selEmp.length  ? { employee_ids: selEmp } : {}),
+      ...(selDept.length ? { dept_ids: selDept }    : {}),
+      page: 1, page_size: pageSize,
+    };
+    run(next);
+    const { page: _p, page_size: _s, ...rest } = next;
+    void _p; void _s;
+    setAppliedKey(JSON.stringify(rest));
   }, [run, pageSize, from, to, selEmp, selDept]);
 
   /**
@@ -207,6 +236,7 @@ export default function TimesheetUtilisation({ shared, setShared }: ReportTabPro
           <button className="er-reset-btn" type="button" onClick={reset}>
             <i className="fa-solid fa-rotate-left" /> Reset
           </button>
+          <PendingFilters show={pending} onApply={apply} />
           <div style={{ flex: 1 }} />
           <ScopeBadge scope={data?.scope} />
           <span className="er-row-count">{data?.total_rows ?? 0} rows</span>

@@ -3,7 +3,7 @@
  * plain helpers live in reportShared.ts so Fast Refresh keeps working.
  */
 
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 
 export function MonthRange({ from, to, onFrom, onTo }: {
   from: string; to: string; onFrom: (v: string) => void; onTo: (v: string) => void;
@@ -87,15 +87,82 @@ export function ReportStatus({ loading, error, empty, emptyText }: {
   return null;
 }
 
-/** One KPI tile. Value is pre-formatted — this does not know what it is showing. */
-export function Kpi({ label, value, tone }: { label: string; value: string; tone?: string }) {
-  return (
-    <div style={{ background: '#fff', borderRadius: 10, padding: '12px 16px', minWidth: 128,
-                  boxShadow: '0 2px 10px rgba(24,52,91,0.07)', flex: '0 0 auto' }}>
+/**
+ * One KPI tile. Value is pre-formatted — this does not know what it is showing.
+ *
+ * Give it `onClick` and it becomes a filter: see the number, get the rows, one
+ * click. A tile you cannot click is a number the reader then has to reproduce by
+ * hand with the filter controls, and it looks pressable either way — so a
+ * non-interactive tile reads as broken rather than as absent.
+ *
+ * `active` marks the tile whose filter is currently applied, and clicking it
+ * again is expected to clear that filter — so the ring is a toggle state, not
+ * just a highlight.
+ */
+export function Kpi({ label, value, tone, onClick, active, hint }: {
+  label: string; value: string; tone?: string;
+  onClick?: () => void; active?: boolean; hint?: string;
+}) {
+  const body = (
+    <>
       <div style={{ fontSize: 20, fontWeight: 700, color: tone || '#18345B', lineHeight: 1.2 }}>{value}</div>
       <div style={{ fontSize: 11, color: '#7A8CA6', marginTop: 3,
                     textTransform: 'uppercase', letterSpacing: '.05em' }}>{label}</div>
-    </div>
+    </>
+  );
+
+  const base: CSSProperties = {
+    background: '#fff', borderRadius: 10, padding: '12px 16px', minWidth: 128,
+    boxShadow: active ? '0 0 0 2px #2B54CE, 0 2px 10px rgba(24,52,91,0.10)'
+                      : '0 2px 10px rgba(24,52,91,0.07)',
+    flex: '0 0 auto',
+  };
+
+  if (!onClick) return <div style={base}>{body}</div>;
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={!!active}
+      title={hint ?? (active ? `Showing only ${label.toLowerCase()} — click to clear`
+                             : `Show only ${label.toLowerCase()}`)}
+      style={{
+        ...base,
+        border: `1px solid ${active ? '#2B54CE' : 'transparent'}`,
+        textAlign: 'left', cursor: 'pointer', font: 'inherit',
+        transition: 'box-shadow 120ms ease, transform 120ms ease',
+      }}
+      onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-1px)'; }}
+      onMouseLeave={e => { e.currentTarget.style.transform = ''; }}
+    >
+      {body}
+    </button>
+  );
+}
+
+/**
+ * Says out loud that the controls no longer match what is on screen.
+ *
+ * Filters deliberately wait for Apply so a half-built multi-select does not fire
+ * a query per tick — but without this, a report showing stale rows beside changed
+ * controls is indistinguishable from a report that ignored you.
+ */
+export function PendingFilters({ show, onApply }: { show: boolean; onApply: () => void }) {
+  if (!show) return null;
+  return (
+    <button
+      type="button"
+      onClick={onApply}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer',
+        fontSize: 11.5, fontWeight: 600, color: '#92400E', background: '#FFFBEB',
+        border: '1px solid #FDE68A', borderRadius: 6, padding: '4px 9px', whiteSpace: 'nowrap',
+      }}
+    >
+      <i className="fa-solid fa-circle-exclamation" />
+      Filters changed — Apply to update
+    </button>
   );
 }
 

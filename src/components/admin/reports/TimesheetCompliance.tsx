@@ -25,7 +25,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../../../lib/supabase';
 import MSDropdown from './MSDropdown';
-import { Kpi, MonthRange, Pager, ReportStatus, ScopeBadge } from './reportControls';
+import { Kpi, MonthRange, Pager, PendingFilters, ReportStatus, ScopeBadge } from './reportControls';
 import { exportXlsx, fmtDate, fmtHM, fmtPeriod, fromMonthInput, toDecimalHours, useReportRpc } from './reportShared';
 import type { ReportTabProps } from './reportShared';
 
@@ -110,17 +110,68 @@ export default function TimesheetCompliance({ shared, setShared }: ReportTabProp
   const [page, setPage]      = useState(1);
   const [pageSize, setSize]  = useState(50);
 
-  const filters = useMemo(() => {
+  // Everything that has actually been sent. Kept beside the live control values
+  // so the screen can say when the two have diverged, and so a KPI tile knows
+  // whether ITS filter is the one currently in force rather than one the user
+  // has half-selected and not applied.
+  const [applied, setApplied] = useState<{ states: string[]; overdue: boolean }>(
+    { states: [], overdue: false });
+
+  /** The one place a request payload is built. Apply, Reset and a KPI click all
+   *  go through it, so they cannot disagree about what a filter set means. */
+  const payload = useCallback((o?: {
+    states?: string[]; overdue?: boolean; page?: number; pageSize?: number;
+  }): Record<string, unknown> => {
+    const st = o?.states  ?? selState;
+    const od = o?.overdue ?? onlyLate;
     const f: Record<string, unknown> = {
       period_from: fromMonthInput(from), period_to: fromMonthInput(to),
-      page, page_size: pageSize,
+      page: o?.page ?? page, page_size: o?.pageSize ?? pageSize,
     };
-    if (selEmp.length)   f.employee_ids = selEmp;
-    if (selDept.length)  f.dept_ids     = selDept;
-    if (selState.length) f.states       = selState;
-    if (onlyLate)        f.only_overdue = true;
+    if (selEmp.length)  f.employee_ids = selEmp;
+    if (selDept.length) f.dept_ids     = selDept;
+    if (st.length)      f.states       = st;
+    if (od)             f.only_overdue = true;
     return f;
   }, [from, to, selEmp, selDept, selState, onlyLate, page, pageSize]);
+
+  const filters = useMemo(() => payload(), [payload]);
+
+  const send = useCallback((o?: Parameters<typeof payload>[0]) => {
+    setApplied({ states: o?.states ?? selState, overdue: o?.overdue ?? onlyLate });
+    run(payload(o));
+  }, [payload, run, selState, onlyLate]);
+
+  /**
+   * A KPI tile IS a filter. Clicking one applies it immediately — the whole
+   * point is to collapse "read a number, then reproduce it with the controls"
+   * into one action. Clicking the active tile clears it.
+   */
+  const kpiFilter = useCallback((next: { states?: string[]; overdue?: boolean }) => {
+    const wantStates  = next.states  ?? [];
+    const wantOverdue = next.overdue ?? false;
+    const isActive =
+      wantOverdue ? applied.overdue
+                  : applied.states.length === wantStates.length &&
+                    wantStates.every(x => applied.states.includes(x)) &&
+                    wantStates.length > 0;
+    const states  = isActive ? [] : wantStates;
+    const overdue = isActive ? false : wantOverdue;
+    setState(states); setLate(overdue); setPage(1);
+    send({ states, overdue, page: 1 });
+  }, [applied, send]);
+
+  /** Is this tile's filter the one currently in force? */
+  const isOn = useCallback((state?: string, overdue?: boolean) => {
+    if (overdue) return applied.overdue;
+    if (!state)  return false;
+    return applied.states.length === 1 && applied.states[0] === state && !applied.overdue;
+  }, [applied]);
+
+  const pending =
+    selState.length !== applied.states.length ||
+    !selState.every(x => applied.states.includes(x)) ||
+    onlyLate !== applied.overdue;
 
   // Filters are read through a ref so this effect can declare every
   // dependency it actually has. Editing a filter must NOT fire a query --
@@ -130,16 +181,13 @@ export default function TimesheetCompliance({ shared, setShared }: ReportTabProp
   filtersRef.current = filters;
   useEffect(() => { run(filtersRef.current); }, [page, pageSize, run]);
 
-  const apply = useCallback(() => { setPage(1); run({ ...filters, page: 1 }); }, [filters, run]);
+  const apply = useCallback(() => { setPage(1); send({ page: 1 }); }, [send]);
   // Clears this tab's filters only. The shared period, employee and department
   // are the context carried across the tabs and are left as they are.
   const reset = useCallback(() => {
     setState([]); setLate(false); setPage(1);
-    run({ period_from: fromMonthInput(from), period_to: fromMonthInput(to),
-          ...(selEmp.length  ? { employee_ids: selEmp } : {}),
-          ...(selDept.length ? { dept_ids: selDept }    : {}),
-          page: 1, page_size: pageSize });
-  }, [run, pageSize, from, to, selEmp, selDept]);
+    send({ states: [], overdue: false, page: 1 });
+  }, [send]);
 
   const [exporting, setExporting] = useState(false);
   const doExport = useCallback(async () => {
@@ -211,6 +259,7 @@ export default function TimesheetCompliance({ shared, setShared }: ReportTabProp
           <button className="er-reset-btn" type="button" onClick={reset}>
             <i className="fa-solid fa-rotate-left" /> Reset
           </button>
+          <PendingFilters show={pending} onApply={apply} />
           <div style={{ flex: 1 }} />
           <ScopeBadge scope={data?.scope} />
           <span className="er-row-count">{data?.total_rows ?? 0} rows</span>
@@ -222,13 +271,27 @@ export default function TimesheetCompliance({ shared, setShared }: ReportTabProp
 
       {data && (
         <div style={{ display: 'flex', gap: 12, padding: '16px 20px 4px', flexWrap: 'wrap' }}>
-          <Kpi label="Expected"        value={String(s?.expected ?? 0)} />
-          <Kpi label="Not started"     value={String(s?.not_started ?? 0)}     tone={s?.not_started ? '#991B1B' : undefined} />
-          <Kpi label="To be submitted" value={String(s?.to_be_submitted ?? 0)} />
-          <Kpi label="To be approved"  value={String(s?.to_be_approved ?? 0)} />
-          <Kpi label="Approved"        value={String(s?.approved ?? 0)}        tone="#166534" />
-          <Kpi label="Overdue"         value={String(s?.overdue ?? 0)}         tone={s?.overdue ? '#DC2626' : undefined} />
-          <Kpi label="Not configured"  value={String(s?.not_configured ?? 0)}  tone={s?.not_configured ? '#92400E' : undefined} />
+          {/* Expected is the only tile that is NOT a filter: it counts four states
+              at once, so "click to see them" is just the unfiltered view. It
+              clears instead, which is the useful action from anywhere else. */}
+          <Kpi label="Expected" value={String(s?.expected ?? 0)}
+               onClick={() => kpiFilter({})}
+               hint="Everyone who could have submitted. Click to clear all state filters." />
+          <Kpi label="Not started"     value={String(s?.not_started ?? 0)}
+               tone={s?.not_started ? '#991B1B' : undefined}
+               active={isOn('not_started')}     onClick={() => kpiFilter({ states: ['not_started'] })} />
+          <Kpi label="To be submitted" value={String(s?.to_be_submitted ?? 0)}
+               active={isOn('to_be_submitted')} onClick={() => kpiFilter({ states: ['to_be_submitted'] })} />
+          <Kpi label="To be approved"  value={String(s?.to_be_approved ?? 0)}
+               active={isOn('to_be_approved')}  onClick={() => kpiFilter({ states: ['to_be_approved'] })} />
+          <Kpi label="Approved"        value={String(s?.approved ?? 0)} tone="#166534"
+               active={isOn('approved')}        onClick={() => kpiFilter({ states: ['approved'] })} />
+          <Kpi label="Overdue"         value={String(s?.overdue ?? 0)}
+               tone={s?.overdue ? '#DC2626' : undefined}
+               active={isOn(undefined, true)}   onClick={() => kpiFilter({ overdue: true })} />
+          <Kpi label="Not configured"  value={String(s?.not_configured ?? 0)}
+               tone={s?.not_configured ? '#92400E' : undefined}
+               active={isOn('not_configured')}  onClick={() => kpiFilter({ states: ['not_configured'] })} />
         </div>
       )}
 
@@ -262,7 +325,7 @@ export default function TimesheetCompliance({ shared, setShared }: ReportTabProp
                 <th className="er-th-amt" style={{ whiteSpace: 'nowrap' }}>Recorded</th>
                 <th className="er-th-amt" style={{ whiteSpace: 'nowrap' }}>Variance</th>
                 <th style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>Days</th>
-                <th style={{ whiteSpace: 'nowrap' }}>Due</th>
+                <th style={{ whiteSpace: 'nowrap', minWidth: 152 }}>Due</th>
                 <th style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>Changes</th>
               </tr>
             </thead>
@@ -285,12 +348,27 @@ export default function TimesheetCompliance({ shared, setShared }: ReportTabProp
                     {r.variance_minutes > 0 ? '+' : ''}{fmtHM(r.variance_minutes)}
                   </td>
                   <td style={{ textAlign: 'center' }}>{r.days_with_entries}</td>
-                  <td style={{ whiteSpace: 'nowrap' }}>
-                    {fmtDate(r.due_date)}
-                    {r.is_overdue && (
-                      <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: '#B91C1C',
-                                     background: '#FEE2E2', borderRadius: 4, padding: '1px 5px' }}>
-                        {r.days_past_due}d late
+                  {/* `.er-table td` clips with text-overflow: ellipsis, and the
+                      "Nd late" chip is the most important signal in the row — so
+                      the column carries a min-width and the contents sit in a
+                      nowrap flex line rather than relying on the cell to size
+                      itself. A truncated warning is worse than no warning.
+
+                      An employee with no work schedule has no deadline. Showing
+                      one contradicts the banner directly above, which says this
+                      is a configuration gap and not lateness. */}
+                  <td style={{ whiteSpace: 'nowrap', overflow: 'visible' }}>
+                    {r.state === 'not_configured' ? (
+                      <span style={{ color: '#94A3B8' }} title="No work schedule, so no deadline applies.">—</span>
+                    ) : (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+                        {fmtDate(r.due_date)}
+                        {r.is_overdue && (
+                          <span style={{ fontSize: 10, fontWeight: 700, color: '#B91C1C',
+                                         background: '#FEE2E2', borderRadius: 4, padding: '1px 5px' }}>
+                            {r.days_past_due}d late
+                          </span>
+                        )}
                       </span>
                     )}
                   </td>
