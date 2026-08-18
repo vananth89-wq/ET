@@ -1,47 +1,66 @@
 /**
  * AdminReports — the report catalog at /admin/reports.
  *
- * Thin by design: it lists whatever `REPORTS` declares and renders the one you
- * pick. All report-specific code lives in ./reports/<Report>.tsx.
+ * Thin by design: it lists what `REPORTS` declares and frames the one you pick.
+ * All report-specific code lives in ./reports/.
  *
- * Route gate: reports_admin.view (App.tsx). Each row carries its own gate on
- * top of that, and a row you cannot open is shown locked rather than hidden —
- * an administrator on this screen needs to see that the report exists and which
- * permission unlocks it.
+ * Route gate: reports_admin.view (App.tsx). Each VIEW inside a report carries
+ * its own permission (mig 745), so the row adapts to what the caller can
+ * actually open rather than promising a choice they do not have.
+ *
+ * A row you cannot open is shown LOCKED, not hidden. An administrator on this
+ * screen needs to see that the report exists and which permission unlocks it;
+ * hiding it turns a permissions question into a "is it broken?" question.
  */
 
 import { Suspense, useMemo, useState } from 'react';
 import { usePermissions } from '../../hooks/usePermissions';
 import { REPORTS } from './reports/registry';
-import type { ReportDef } from './reports/registry';
+import type { ReportDef, ReportView } from './reports/registry';
+import ReportFrame from './reports/ReportFrame';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Catalog
-// ─────────────────────────────────────────────────────────────────────────────
+interface Row {
+  report:    ReportDef;
+  permitted: ReportView[];
+  /** What the row calls itself: the report, or the single view the caller has. */
+  title:     string;
+  icon:      string;
+  blurb:     string;
+}
 
 export default function AdminReports() {
   const { can } = usePermissions();
   const [search, setSearch] = useState('');
-  const [activeCode, setActiveCode] = useState<string | null>(null);
+  const [openCode, setOpenCode] = useState<string | null>(null);
 
-  const rows = useMemo(() => {
+  const rows = useMemo<Row[]>(() => {
     const q = search.trim().toLowerCase();
     return REPORTS
       .filter(r => r.active)
-      .filter(r => !q
-        || r.name.toLowerCase().includes(q)
-        || r.description.toLowerCase().includes(q)
-        || r.permission.toLowerCase().includes(q));
-  }, [search]);
+      .map(r => {
+        const permitted = r.views.filter(v => can(v.permission));
+        const solo = permitted.length === 1 && r.views.length > 1 ? permitted[0] : null;
+        const single = r.views.length === 1 ? r.views[0] : null;
+        return {
+          report:    r,
+          permitted,
+          title:     solo?.name ?? r.name,
+          icon:      solo?.icon ?? r.icon,
+          blurb:     solo?.description ?? single?.description ?? r.description,
+        };
+      })
+      .filter(row => !q
+        || row.title.toLowerCase().includes(q)
+        || row.blurb.toLowerCase().includes(q)
+        || row.report.views.some(v => v.permission.toLowerCase().includes(q)
+                                   || v.name.toLowerCase().includes(q)));
+  }, [search, can]);
 
-  const active: ReportDef | undefined = activeCode
-    ? REPORTS.find(r => r.code === activeCode)
-    : undefined;
+  const open = openCode ? rows.find(r => r.report.code === openCode) : undefined;
 
-  // Re-check the gate at render time, not just at click time — a permission can
-  // change under a long-lived tab, and the catalog is not a security boundary.
-  if (active && can(active.permission)) {
-    const Report = active.Component;
+  // Re-checked at render, not just at click: a permission can change under a
+  // long-lived tab, and the catalog is not a security boundary — the RPCs are.
+  if (open && open.permitted.length > 0) {
     return (
       <Suspense fallback={
         <div style={{ padding: 48, textAlign: 'center', color: '#94a3b8' }}>
@@ -49,7 +68,7 @@ export default function AdminReports() {
           Loading report…
         </div>
       }>
-        <Report onBack={() => setActiveCode(null)} />
+        <ReportFrame report={open.report} views={open.permitted} onBack={() => setOpenCode(null)} />
       </Suspense>
     );
   }
@@ -96,43 +115,63 @@ export default function AdminReports() {
               </tr>
             </thead>
             <tbody>
-              {rows.map(rpt => {
-                const allowed = can(rpt.permission);
+              {rows.map(row => {
+                const allowed = row.permitted.length > 0;
+                const total   = row.report.views.length;
                 return (
-                  <tr key={rpt.code} className="rpt-list-row" style={allowed ? undefined : { opacity: 0.62 }}>
+                  <tr key={row.report.code} className="rpt-list-row"
+                      style={allowed ? undefined : { opacity: 0.62 }}>
                     <td>
                       <div className="rpt-name-cell">
-                        <div className="rpt-name-icon"><i className={`fa-solid ${rpt.icon}`} /></div>
-                        <div className="rpt-name-text">{rpt.name}</div>
+                        <div className="rpt-name-icon"><i className={`fa-solid ${row.icon}`} /></div>
+                        <div className="rpt-name-text">{row.title}</div>
                       </div>
                     </td>
                     <td className="rpt-list-td-desc">
-                      <span className="rpt-card-desc">{rpt.description}</span>
+                      <span className="rpt-card-desc">{row.blurb}</span>
                     </td>
                     <td>
-                      <span
-                        className="rpt-role-badge"
-                        title="The permission that unlocks this report. Grant it under Security → Permission Matrix → Reports."
-                        style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 11, textTransform: 'none' }}
-                      >
-                        {rpt.permission}
-                      </span>
+                      {/* Every permission that opens something here, so an
+                          administrator can read off exactly what to grant. */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                        {row.report.views.map(v => (
+                          <span
+                            key={v.code}
+                            className="rpt-role-badge"
+                            title={total > 1
+                              ? `${v.name} — grant under Security → Permission Matrix → Reports.`
+                              : 'Grant under Security → Permission Matrix.'}
+                            style={{
+                              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                              fontSize: 11, textTransform: 'none', whiteSpace: 'nowrap',
+                              opacity: can(v.permission) ? 1 : 0.55,
+                            }}
+                          >
+                            {v.permission}
+                          </span>
+                        ))}
+                      </div>
                     </td>
                     <td>
                       <span className={`rpt-list-status ${allowed ? 'rpt-list-status-active' : 'rpt-list-status-inactive'}`}>
                         <i className={`fa-solid ${allowed ? 'fa-circle-check' : 'fa-lock'}`} />
-                        {' '}{allowed ? 'Granted' : 'Not granted'}
+                        {' '}
+                        {!allowed
+                          ? 'Not granted'
+                          : total > 1
+                            ? `${row.permitted.length} of ${total} views`
+                            : 'Granted'}
                       </span>
                     </td>
                     <td className="rpt-list-td-action">
                       {allowed ? (
-                        <button className="rpt-list-view-btn" onClick={() => setActiveCode(rpt.code)}>
+                        <button className="rpt-list-view-btn" onClick={() => setOpenCode(row.report.code)}>
                           View <i className="fa-solid fa-arrow-right" />
                         </button>
                       ) : (
                         <span
                           className="rpt-list-status rpt-list-status-inactive"
-                          title={`Ask an administrator to grant ${rpt.permission}.`}
+                          title={`Ask an administrator to grant ${row.report.views.map(v => v.permission).join(' or ')}.`}
                           style={{ cursor: 'default' }}
                         >
                           No access

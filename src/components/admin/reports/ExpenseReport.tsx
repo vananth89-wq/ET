@@ -254,7 +254,11 @@ function Charts({ rows, viewCcy, rates }: ChartsProps) {
 // Expense Report Detail (Panel 2) — line-item analytics
 // ─────────────────────────────────────────────────────────────────────────────
 
-function ExpenseReportDetail({ onBack }: { onBack: () => void }) {
+// Declares no props, deliberately. Every view is handed the shared filters, but
+// expense line items are filtered by expense date and currency rather than by a
+// timesheet month, so this one has no use for them — and a component that takes
+// fewer props than it is given still satisfies the view contract.
+function ExpenseReportDetail() {
   const { reports: allReports }  = useExpenseData();
   const { employees: supabaseEmps } = useEmployees();
   const { departments: supabaseDepts } = useDepartments();
@@ -483,17 +487,7 @@ function ExpenseReportDetail({ onBack }: { onBack: () => void }) {
   }, [filtered]);
 
   return (
-    <div className="er-page">
-      {/* Detail header */}
-      <div className="rpt-detail-header">
-        <button className="rpt-back-btn" onClick={onBack}>
-          <i className="fa-solid fa-arrow-left" /> Back to Reports
-        </button>
-        <h2 className="rpt-detail-title" style={{ margin: 0 }}>
-          <i className="fa-solid fa-file-invoice-dollar" /> Expense Report
-        </h2>
-      </div>
-
+    <>
       {/* Sticky toolbar */}
       <div className="er-toolbar" id="er-toolbar">
         {/* Row 1: search + multi-selects + date ranges */}
@@ -668,7 +662,7 @@ function ExpenseReportDetail({ onBack }: { onBack: () => void }) {
           <span>Total: <strong>{sym} {fmtNum(footerTotal)}</strong></span>
         </div>
       </div>
-    </div>
+    </>
   );
 }
 

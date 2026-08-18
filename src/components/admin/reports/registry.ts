@@ -1,46 +1,53 @@
 /**
  * Report registry — the one place a report is declared.
  *
- * Adding a report means adding one entry here. That entry drives:
- *   • the row in /admin/reports (name, description, icon, access state)
- *   • which component the catalog renders when you click View
- *   • nothing else — the permission itself lives in the RBP catalog, seeded
- *     by a migration, and is only *referenced* here.
+ * A report has one or more VIEWS. Each view carries its own permission, which
+ * is the point: Compliance and Utilisation are opened by different people, and
+ * one permission covering both is a coarse grant chosen for convenience.
  *
- * Components are wrapped in React.lazy so importing this file costs nothing.
- * That matters: PermissionMatrix imports REPORT_PERMISSION_MODULES from here
- * and must not pull recharts into the security screen's bundle.
+ * The catalog reads this and renders adaptively (see AdminReports):
+ *   0 permitted views → the row is shown locked, naming what to grant
+ *   1 permitted view  → the row takes THAT view's name and opens straight into
+ *                       it, with no tab strip. A segmented control containing
+ *                       one segment is a control that lies about having a choice
+ *   2+ permitted      → the report's name, and tabs for the permitted views
  *
- * WHAT THIS REPLACED
- *   The catalog used to be a hardcoded array with a `roles: ['admin','finance']`
- *   field that gated nothing, an `active` flag nothing could change, a
- *   `lastUpdated` string literal, and descriptions edited into localStorage
- *   where only the editing browser could see them. At one report that reads as
- *   a tidy screen; at two it is a table making false claims about itself.
+ * Components are wrapped in React.lazy on purpose: PermissionMatrix imports
+ * REPORT_PERMISSION_MODULES from this file and must not pull recharts, xlsx or
+ * a report screen into the security screen's bundle.
  */
 
 import { lazy } from 'react';
 import type { ComponentType, LazyExoticComponent } from 'react';
+import type { ReportTabProps } from './reportShared';
 
-/** Every report screen receives exactly this. */
-export interface ReportProps { onBack: () => void; }
+export type ReportViewProps = ReportTabProps;
 
-export interface ReportDef {
-  /** Stable slug. Used as the catalog key — do not rename a shipped one. */
+export interface ReportView {
+  /** Stable slug, unique within its report. */
   code: string;
   name: string;
-  description: string;
-  /** Font Awesome 6 solid icon class. */
   icon: string;
   /**
-   * The permission key that gates this row AND the report behind it.
-   * A user without it sees the row locked, not hidden — so an administrator
-   * looking at this screen can tell what to grant.
+   * The permission that gates this view AND the RPC behind it.
+   * Hiding a tab is cosmetic — the server function checks the same key,
+   * because PostgREST is reachable with a token and no UI.
    */
   permission: string;
+  /** Shown in the catalog when this is the only view the caller can open. */
+  description?: string;
+  Component: LazyExoticComponent<ComponentType<ReportViewProps>>;
+}
+
+export interface ReportDef {
+  code: string;
+  /** Used when the caller can open more than one view. */
+  name: string;
+  description: string;
+  icon: string;
   /** false parks a report in the tree without exposing it. */
   active: boolean;
-  Component: LazyExoticComponent<ComponentType<ReportProps>>;
+  views: ReportView[];
 }
 
 export const REPORTS: ReportDef[] = [
@@ -49,18 +56,41 @@ export const REPORTS: ReportDef[] = [
     name:        'Expense Report',
     description: 'Every expense line item across the organisation, with project, department, status and currency breakdowns. Exports to CSV.',
     icon:        'fa-file-invoice-dollar',
-    permission:  'expense_reports.view',
     active:      true,
-    Component:   lazy(() => import('./ExpenseReport')),
+    views: [
+      {
+        code:       'expense',
+        name:       'Expense Report',
+        icon:       'fa-file-invoice-dollar',
+        permission: 'expense_reports.view',
+        Component:  lazy(() => import('./ExpenseReport')),
+      },
+    ],
   },
   {
     code:        'timesheet',
     name:        'Timesheet Report',
     description: 'Two views of one month. Compliance: who has and has not submitted, including employees who logged nothing at all. Utilisation: where the recorded hours went, by employee, project and activity. Exports to Excel.',
     icon:        'fa-clock',
-    permission:  'timesheet_reports.view',
     active:      true,
-    Component:   lazy(() => import('./TimesheetReport')),
+    views: [
+      {
+        code:        'compliance',
+        name:        'Timesheet Compliance',
+        icon:        'fa-clipboard-check',
+        permission:  'timesheet_reports.view_compliance',
+        description: 'Who has and has not submitted, per month — including employees who logged nothing at all, and those with no work schedule assigned. Exports to Excel.',
+        Component:   lazy(() => import('./TimesheetCompliance')),
+      },
+      {
+        code:        'utilisation',
+        name:        'Timesheet Utilisation',
+        icon:        'fa-chart-simple',
+        permission:  'timesheet_reports.view_utilisation',
+        description: 'Where the recorded hours went — by employee, project and time type, with the activity breakdown behind each entry. Planned vs recorded. Exports to Excel.',
+        Component:   lazy(() => import('./TimesheetUtilisation')),
+      },
+    ],
   },
 ];
 
@@ -68,17 +98,15 @@ export const REPORTS: ReportDef[] = [
 // Permission modules shown in the Reports band of the permission matrix
 // ─────────────────────────────────────────────────────────────────────────────
 /**
- * These are the modules that exist ONLY to gate reporting, so the Reports band
- * is where an administrator expects to find them.
+ * Modules that exist ONLY to gate reporting, so the Reports band is where an
+ * administrator expects to find them. The band renders whatever actions the RBP
+ * catalog actually holds for each module, so migration 745's split from one
+ * `.view` into `.view_compliance` + `.view_utilisation` needed no change here.
  *
- * `expense_reports` is deliberately NOT here. It also gates the employee-facing
- * /expenses routes, so it belongs in the main module matrix where it already
- * has a row — listing it twice would let one screen silently disagree with the
- * other about what is granted.
- *
- * The band lists whatever actions the RBP catalog actually holds for each
- * module. It does not invent them, so a module with only `.view` shows one
- * checkbox rather than a row of dashes.
+ * `expense_reports` is deliberately NOT listed. It also gates the
+ * employee-facing /expenses routes, so it belongs in the main module matrix
+ * where it already has a row — listing it twice would let one screen silently
+ * disagree with the other about what is granted.
  */
 export interface ReportPermissionModule {
   code:  string;
@@ -95,17 +123,21 @@ export const REPORT_PERMISSION_MODULES: ReportPermissionModule[] = [
   {
     code:  'timesheet_reports',
     label: 'Timesheet reports',
-    hint:  'Timesheet utilisation and submission-compliance reports — hours by project, planned vs recorded, and who has not submitted.',
+    hint:  'One grant per report. Which EMPLOYEES appear inside them is decided separately, by the Timesheet view target population.',
   },
 ];
 
 /** Human label for a single permission action inside the Reports band. */
 export function reportActionLabel(action: string | null): string {
   switch (action) {
-    case 'view':   return 'Access';
-    case 'create': return 'Generate & export';
-    case 'edit':   return 'Configure';
-    case 'delete': return 'Delete';
-    default:       return action ?? 'Access';
+    case 'view':             return 'Access';
+    case 'view_compliance':  return 'Compliance report';
+    case 'view_utilisation': return 'Utilisation report';
+    case 'view_capacity':    return 'Workforce capacity report';
+    case 'view_analytics':   return 'Executive dashboard';
+    case 'create':           return 'Generate & export';
+    case 'edit':             return 'Configure';
+    case 'delete':           return 'Delete';
+    default:                 return action ?? 'Access';
   }
 }
