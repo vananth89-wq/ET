@@ -119,7 +119,10 @@ export function CalendarGrid({ days, todayIso }: { days: ExportDay[]; todayIso: 
         );
       })}
 
-      <View style={styles.legend}>
+      {/* wrap={false} so the legend can never be SPLIT across pages. A single
+          orphaned pill on an otherwise blank page reads as a broken report; the
+          whole row moving together is at worst ugly. */}
+      <View style={styles.legend} wrap={false}>
         {(Object.keys(dayState) as DayStateKey[]).filter(k => present.has(k)).map(k => (
           <View key={k} style={{
             ...styles.legendPill,

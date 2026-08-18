@@ -245,11 +245,15 @@ export const styles = StyleSheet.create({
   // The legend IS the swatch: each pill is painted in the state it names, in the
   // same fill and border the grid uses. A grey chip beside a coloured square
   // asks the reader to match two things; this one is the thing.
-  legend:    { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginTop: 9 },
-  legendPill:{ flexDirection: 'row', alignItems: 'center', marginRight: 9, marginBottom: 4,
-               paddingVertical: 3.5, paddingHorizontal: 9, borderRadius: 10,
+  // TIGHTENED for the EIGHTH state. Splitting on-plan from under-plan added a
+  // pill, the row gained a line, and page 1 -- which has been at its ceiling
+  // since the KPI tiles landed -- pushed the last pill onto a page of its own.
+  // Page 1 has no spare height, so the pills give up the width instead.
+  legend:    { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginTop: 8 },
+  legendPill:{ flexDirection: 'row', alignItems: 'center', marginRight: 6, marginBottom: 3.5,
+               paddingVertical: 3, paddingHorizontal: 7, borderRadius: 9,
                borderWidth: 1, borderStyle: 'solid' },
-  legendTx:  { fontSize: 8, fontFamily: 'Helvetica-Bold', letterSpacing: 0.2 },
+  legendTx:  { fontSize: 7.5, fontFamily: 'Helvetica-Bold', letterSpacing: 0.15 },
 
   // ── weekly cards with a vertical bar ────────────────────────────────
   wkGrid:    { flexDirection: 'row', marginHorizontal: -4 },
