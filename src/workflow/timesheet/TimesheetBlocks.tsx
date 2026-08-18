@@ -21,6 +21,8 @@ import {
   TsCalendar, TsMatrix, TsWeeklyProgress, TsMonthSplit, TsByProject, TsDailyDetail,
 } from './TimesheetReview';
 import { hLabel } from './model';
+import { ExportPDFButton } from '../../components/employee/MyTimesheet/ExportPDF';
+import { buildApprovalExportData } from './buildApprovalExport';
 import { TimesheetLinkButton } from './TimesheetLinkButton';
 
 // ── shared states ────────────────────────────────────────────────────────────
@@ -104,6 +106,10 @@ export function TimesheetFullReview({ headerId }: { headerId: string }) {
   const { payload, month, loading, error } = useTimesheetApproval(headerId);
   const [tab, setTab] = useState<'summary' | 'detail'>('summary');
   const [changedOnly, setChangedOnly] = useState(false);
+  // ExportPDFButton wants a toast channel and the workflow area has none, so
+  // this is the whole of it: one line under the tabs that clears itself. A
+  // failed export must say so somewhere -- silence would read as a dead button.
+  const [note, setNote] = useState<{ msg: string; bad: boolean } | null>(null);
 
   if (loading)          return <Loading />;
   if (error || !month || !payload) return <Refused message={error ?? 'This timesheet could not be loaded.'} />;
@@ -153,7 +159,16 @@ export function TimesheetFullReview({ headerId }: { headerId: string }) {
           {tabBtn('detail', 'Daily detail', 'fa-list-ul',
                   month.changedCount ? `${month.changedCount} changed` : undefined)}
         </div>
-        <div style={{ marginLeft: 'auto' }}>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+          {/* The SAME report the employee can export, assembled by the same
+              function -- see buildApprovalExport.ts. */}
+          <ExportPDFButton
+            getData={() => buildApprovalExportData(payload)}
+            onToast={(msg, kind) => {
+              setNote({ msg, bad: kind === 'bad' });
+              window.setTimeout(() => setNote(null), 4000);
+            }}
+          />
           <TimesheetLinkButton
             employeeId={payload.header.employee_id}
             period={payload.header.period?.slice(0, 7)}
@@ -162,6 +177,13 @@ export function TimesheetFullReview({ headerId }: { headerId: string }) {
           />
         </div>
       </div>
+
+      {note && (
+        <div style={{ marginTop: -8, marginBottom: 12, fontSize: 12, fontWeight: 600,
+                      color: note.bad ? '#B91C1C' : '#3F6212' }}>
+          {note.msg}
+        </div>
+      )}
 
       {tab === 'summary' ? (
         <>

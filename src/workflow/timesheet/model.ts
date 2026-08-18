@@ -26,7 +26,10 @@ export interface TsPayloadEntry {
   entry_kind:             'project' | 'time_type' | 'holiday' | 'leave';
   hours_minutes:          number;
   notes:                  string | null;
+  /** Names only. Kept for anything already reading it; MIG 745 added the split. */
   activities:             string[];
+  /** MIG 745: the same activities WITH their minutes. Absent on an older API. */
+  activity_rows?:         { name: string; minutes: number }[] | null;
   project_id:             string | null;
   project_name:           string | null;
   time_type_id:           string | null;
@@ -49,6 +52,8 @@ export interface TsRemoved {
   hours_minutes:  number;
   notes:          string | null;
   activities:     string[];
+  /** MIG 745. Always minutes 0 -- a deleted entry's activity rows went with it. */
+  activity_rows?: { name: string; minutes: number }[] | null;
   project_name:   string | null;
   time_type_name: string | null;
   removed_at:     string;
@@ -71,6 +76,8 @@ export interface TsPayload {
     workflow_instance_id: string | null;
     department_name:      string | null;
     country_code:         string | null;
+    /** MIG 745. The stamp that catches a deletion, which leaves no row to mark. */
+    content_changed_at?:  string | null;
     last_approved_at:     string | null;
   };
   employee: { id: string; name: string | null; employee_code: string | null;

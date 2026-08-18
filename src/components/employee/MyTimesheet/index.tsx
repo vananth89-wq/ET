@@ -23,11 +23,14 @@ import ActivityAutocomplete                           from './ActivityAutocomple
 import SummarySection                                 from './SummarySection';
 import type { ActivityHistoryItem }                   from './ActivityAutocomplete';
 import { ExportPDFButton }                            from './ExportPDF';
-import type { TimesheetExportData, ExportDay, ExportEntry }
-                                                      from './ExportPDF/types';
-import { buildWeeks, buildProjects, buildProjectActivities,
-         buildNonProjectTypes, buildMonthSplit, entryMinutes }
-                                                      from './ExportPDF/utils/dataTransforms';
+import { assembleExportData }                         from './ExportPDF/assemble';
+import type { AssembleRow }                           from './ExportPDF/assemble';
+import type { TimesheetExportData }                    from './ExportPDF/types';
+// buildWeeks / buildProjects / buildProjectActivities / buildNonProjectTypes /
+// buildMonthSplit moved behind assembleExportData -- this page no longer derives
+// any part of the report itself, so an approver's copy cannot diverge from it.
+import { entryMinutes }                               from './ExportPDF/utils/dataTransforms';
+import { loadLogoDataUrl }                            from './ExportPDF/logo';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -430,29 +433,6 @@ function HolidayCard({ name, plannedMinutes }: { name: string; plannedMinutes: n
  * session already has credentials, also leaves the downloaded PDF
  * self-contained.
  */
-async function loadLogoDataUrl(): Promise<string | null> {
-  try {
-    let src = '/logo.png';
-    const { data: theme } = await supabase.rpc('get_theme_settings');
-    if (theme?.nav_logo) src = theme.nav_logo as string;
-
-    const res = await fetch(src);
-    if (!res.ok) return null;
-    const blob = await res.blob();
-    // A 404 handled by the SPA shell returns index.html with a 200. Without
-    // this check that HTML would be handed to react-pdf as an "image".
-    if (!blob.type.startsWith('image/')) return null;
-
-    return await new Promise<string | null>(resolve => {
-      const fr = new FileReader();
-      fr.onload  = () => resolve(typeof fr.result === 'string' ? fr.result : null);
-      fr.onerror = () => resolve(null);
-      fr.readAsDataURL(blob);
-    });
-  } catch {
-    return null;
-  }
-}
 
 export default function MyTimesheet() {
   const { employee } = useAuth();
@@ -1427,45 +1407,19 @@ export default function MyTimesheet() {
       /* labels only -- every number below is already in hand */
     }
 
-    // ── The month grid ──────────────────────────────────────────────────
-    const monthDays: ExportDay[] = [];
-    for (let d = 1; d <= totalDays; d++) {
-      const date      = isoDate(year, month, d);
-      const dow       = new Date(year, month - 1, d).getDay();
-      const dayEnts   = entriesByDate[date] ?? [];
-      const isHoliday = !!holidayByDate[date];
-      monthDays.push({
-        date, day: d, dow,
-        minutes:   dayEnts.reduce((s, e) => s + e.hours_minutes, 0),
-        planned:   plannedFor(date),
-        isHoliday,
-        holidayName: holidayByDate[date] ?? null,
-        isLeave:   dayEnts.some(e => e.entry_kind === 'leave'),
-        leaveMinutes: dayEnts.filter(e => e.entry_kind === 'leave')
-                             .reduce((s, e) => s + e.hours_minutes, 0),
-        // Computed from the schedule rather than inferred: a holiday only
-        // reduces a week's target if it fell on a day this schedule works.
-        holidayCosts: isHoliday && !!schedule && plannedForDay(dow, schedule) > 0,
-        // A holiday outranks a weekend, exactly as the calendar cell does.
-        isWeekend: !isHoliday && !!schedule && plannedForDay(dow, schedule) === 0,
-      });
-    }
+    // ── Hand the rows to the shared assembler ───────────────────────────
+    // Everything below this line used to live here and now lives in
+    // ExportPDF/assemble.ts, because an approver reviewing this month has to be
+    // able to produce THE SAME document from a different data source. What is
+    // left here is the part that is genuinely this page's: turning the rows it
+    // already loaded into the neutral shape the assembler reads.
+    const rows: AssembleRow[] = entries.map(e => {
+      const t    = Array.isArray(e.time_types) ? e.time_types[0] : e.time_types;
+      const p    = Array.isArray(e.projects)   ? e.projects[0]   : e.projects;
+      const acts = (e.timesheet_entry_activities ?? []) as TimesheetEntryActivity[];
 
-    // ── The rows ────────────────────────────────────────────────────────
-    // Marks are only meaningful against an approval. A sheet that has never
-    // been approved has nothing for its rows to post-date, and one waiting on
-    // an approver carries no approved_at at all.
-    const apprAt = header.status === 'approved' ? header.approved_at : null;
-
-    const expEntries: ExportEntry[] = entries.map(e => {
-      const t         = Array.isArray(e.time_types) ? e.time_types[0] : e.time_types;
-      const p         = Array.isArray(e.projects)   ? e.projects[0]   : e.projects;
-      const rows      = (e.timesheet_entry_activities ?? []) as TimesheetEntryActivity[];
-      const dow       = new Date(`${e.entry_date}T00:00:00`).getDay();
-      const isHoliday = !!holidayByDate[e.entry_date];
-
-      const activities = rows.length
-        ? [...rows].sort((a, b) => a.display_order - b.display_order)
+      const activities = acts.length
+        ? [...acts].sort((a, b) => a.display_order - b.display_order)
             .map(r => ({ name: r.activity_name, minutes: r.hours_minutes }))
         // A pre-727 entry has names and no split. Reported at zero minutes so
         // the name still appears in the Activities column while the totals
@@ -1473,86 +1427,49 @@ export default function MyTimesheet() {
         : (e.activities ?? []).filter(Boolean).map(n => ({ name: n, minutes: 0 }));
 
       return {
-        date:      e.entry_date,
-        dayLabel:  DAY_ABBR[dow],
-        kind:      e.entry_kind === 'leave' ? 'leave' : e.entry_kind === 'holiday' ? 'holiday' : 'work',
-        typeName:  t?.name ?? (e.entry_kind === 'holiday' ? 'Holiday' : '—'),
-        project:   p?.name ?? null,
-        minutes:   entryMinutes(e.hours_minutes, rows.map(r => ({ minutes: r.hours_minutes }))),
-        notes:     e.notes,
+        date:       e.entry_date,
+        kind:       e.entry_kind === 'leave' ? 'leave' : e.entry_kind === 'holiday' ? 'holiday' : 'work',
+        typeName:   t?.name ?? (e.entry_kind === 'holiday' ? 'Holiday' : '—'),
+        project:    p?.name ?? null,
+        minutes:    entryMinutes(e.hours_minutes, acts.map(r => ({ minutes: r.hours_minutes }))),
+        rawMinutes: e.hours_minutes,
+        notes:      e.notes,
         activities,
-        isHoliday,
-        isWeekend: !isHoliday && !!schedule && plannedForDay(dow, schedule) === 0,
-        changeMark: changeMarkFor(e, apprAt),
+        changeMark: changeMarkFor(e, header.status === 'approved' ? header.approved_at : null),
       };
     });
 
-    // ── KPIs ────────────────────────────────────────────────────────────
-    const recorded = entries.reduce((s, e) => s + e.hours_minutes, 0);
-    const planned  = header.planned_minutes;
-    // "Present" counts days carrying real attendance -- neither leave nor the
-    // system-generated holiday row. A day of leave is accounted for, not worked.
-    const daysPresent = monthDays.filter(d =>
-      (entriesByDate[d.date] ?? []).some(e => e.entry_kind !== 'leave' && e.entry_kind !== 'holiday')
-    ).length;
-
-    return {
-      // The SUBJECT's name, not the viewer's. This is the line that would have
-      // put "Vijey Ananth" on the cover of a PDF of Harikrishnan's month —
-      // a document someone signs, with the wrong person on it.
-      employeeName:    subjectName || employee?.name || '—',
-      employeeCode:    empCode || '—',
-      department,
-      holidayCalendar: calendarName,
-      manager:         managerName,
-      workSchedule:    schedule ? `${schedule.name} (${schedule.code})` : '—',
-      periodLabel:     `1 – ${totalDays} ${MONTH_NAMES[month - 1]} ${year}`,
-      monthSlug:       `${MONTH_NAMES[month - 1].slice(0, 3)}${year}`,
-      status:          header.status,
-
-      plannedMinutes:  planned,
-      recordedMinutes: recorded,
-      // Beyond the DAY's planned hours, summed -- not the month-level shortfall.
-      // A month 120 hours short overall would otherwise report zero while the
-      // calendar on page 1 sits there flagging a 10-hour Monday in red.
-      overtimeMinutes: monthDays.reduce((s, d) => s + Math.max(0, d.minutes - d.planned), 0),
-      leaveDays:       monthDays.filter(d => d.isLeave).length,
-      workingDays:     monthDays.filter(d => d.planned > 0).length,
-      daysPresent,
-      utilisationPct:  planned > 0 ? (recorded / planned) * 100 : 0,
-      varianceMinutes: recorded - planned,
-
-      monthDays,
-      entries:    expEntries,
-      weeks:      buildWeeks(monthDays),
-      // Shares are of the MONTH, not of each chart's own subtotal. Dividing by
-      // the subtotal made AMPTJ read 41% on a report whose header said the month
-      // was 80 hours -- 41% of something the reader could not see.
-      projects:   buildProjects(expEntries, recorded),
-      // Nested, and measured against project time rather than the month -- the
-      // section states that denominator in its own heading, and the difference
-      // from `recorded` is printed there as non-project attendance.
-      projectActivities: buildProjectActivities(expEntries),
-      nonProjectTypes:   buildNonProjectTypes(expEntries),
-      monthSplit:        buildMonthSplit(expEntries),
-
-      // The HEADER stamp is what catches a deletion — no row survives to be
-      // marked, so a report showing no marks is not a report showing no
-      // changes. The count below can therefore be lower than the truth, and
-      // the stamp says "deletions only" when it is zero.
-      changedSinceApproval: !!apprAt
-        && !!header.content_changed_at
-        && Date.parse(header.content_changed_at) > Date.parse(apprAt),
-      changedEntryCount: expEntries.filter(x => x.changeMark).length,
-
-      submittedAt: header.submitted_at,
-      approvedAt:  header.approved_at,
-      referenceId: header.external_code,
-
-      generatedAt: new Date().toISOString(),
-      documentId:  header.id,
+    return assembleExportData({
+      year, month, totalDays,
+      plannedForDate: plannedFor,
+      plannedForDow:  dow => (schedule ? plannedForDay(dow, schedule) : 0),
+      hasSchedule:    !!schedule,
+      holidayByDate,
+      rows,
+      header: {
+        id:               header.id,
+        status:           header.status,
+        plannedMinutes:   header.planned_minutes,
+        recordedMinutes:  entries.reduce((s2, e) => s2 + e.hours_minutes, 0),
+        submittedAt:      header.submitted_at,
+        approvedAt:       header.approved_at,
+        contentChangedAt: header.content_changed_at,
+        referenceId:      header.external_code,
+      },
+      labels: {
+        // The SUBJECT's name, not the viewer's. This is the line that would have
+        // put "Vijey Ananth" on the cover of a PDF of Harikrishnan's month —
+        // a document someone signs, with the wrong person on it.
+        employeeName:    subjectName || employee?.name || '—',
+        employeeCode:    empCode || '—',
+        department,
+        holidayCalendar: calendarName,
+        manager:         managerName,
+        workSchedule:    schedule ? `${schedule.name} (${schedule.code})` : '—',
+      },
       logoDataUrl: await logoPromise,
-    };
+      generatedAt: new Date().toISOString(),
+    });
   }
 
   // ── Derived: entries indexed by date ─────────────────────────────────
