@@ -26,10 +26,9 @@
 --   text "{{approver_name}}", which is worse than not mentioning the approver.
 --
 -- Tagging : rows go in workflow_template_notifications, keyed on the workflow
---   template VERSION, resolved by module_code rather than a hardcoded template
---   code so this does not depend on what the template happens to be named.
---   EVERY version carrying module_code = 'timesheet' is tagged, so a month
---   already in flight on an older version gets the new wording too.
+--   template VERSION, resolved through workflow_assignments -- the same route
+--   submit_timesheet takes. NOT through workflow_templates.module_code, which
+--   mig 504118 decoupled from routing on purpose.
 --
 -- Depends on : 748 (workflow_template_notifications + resolution),
 --              742 (timesheet registered, metadata populated)
@@ -58,53 +57,78 @@ ON CONFLICT (code) DO UPDATE
       body_tmpl  = EXCLUDED.body_tmpl;
 
 
--- ── 2. Tag them to every timesheet workflow version ──────────────────────────
+-- ── 2. Tag them to whichever workflow timesheets actually use ────────────────
+-- Resolved through workflow_assignments, NOT workflow_templates.module_code.
+-- Mig 504118 decoupled a template from the module it serves precisely so one
+-- template can be reused; the routing lives in the assignment. An earlier draft
+-- of this migration matched on workflow_templates.module_code = 'timesheet' and
+-- found nothing, because that column says what the template was authored for,
+-- not what submits through it. submit_timesheet resolves the same way, via
+-- resolve_workflow_for_submission('timesheet', ...).
+--
+-- Every template referenced by a timesheet assignment is tagged, active or not:
+-- an assignment switched back on later should not come back wordless.
 INSERT INTO workflow_template_notifications
   (template_id, event_code, notification_template_id)
-SELECT t.id, m.event_code, n.id
-FROM   workflow_templates t
+SELECT DISTINCT wa.wf_template_id, m.event_code, n.id
+FROM   workflow_assignments wa
 JOIN   (VALUES
           ('wf.task_assigned',          'timesheet.task_assigned'),
           ('wf.completed',              'timesheet.completed'),
           ('wf.clarification_requested','timesheet.clarification_requested')
        ) AS m(event_code, tmpl_code) ON true
 JOIN   workflow_notification_templates n ON n.code = m.tmpl_code
-WHERE  t.module_code = 'timesheet'
+WHERE  wa.module_code = 'timesheet'
 ON CONFLICT (template_id, event_code) DO UPDATE
   SET notification_template_id = EXCLUDED.notification_template_id,
       updated_at               = now();
 
 
 -- ── Assertions ───────────────────────────────────────────────────────────────
--- The tag rows depend on a timesheet workflow template EXISTING. If none does,
--- the INSERT above quietly writes nothing and the wording never reaches anyone,
--- which would look exactly like success.
+-- Deployable to an environment where nobody has configured timesheet approval
+-- yet -- UAT and Prod will hit exactly that. So "no assignment" is a NOTICE, not
+-- a failure: the wording is written and waits to be tagged.
+--
+-- What IS a failure is an assignment existing and the tags not landing, because
+-- that means this query is wrong again and the wording would silently never
+-- reach anyone -- which looks identical to success from the deploy log.
 DO $chk$
 DECLARE
-  v_versions int;
-  v_tags     int;
+  v_words int;
+  v_tpls  int;
+  v_tags  int;
 BEGIN
-  SELECT count(*) INTO v_versions
-  FROM   workflow_templates WHERE module_code = 'timesheet';
+  SELECT count(*) INTO v_words
+  FROM   workflow_notification_templates
+  WHERE  code LIKE 'timesheet.%';
 
-  IF v_versions = 0 THEN
-    RAISE EXCEPTION
-      'mig 749 assert: no workflow_templates row with module_code = timesheet — '
-      'the wording was written but could not be tagged to anything';
+  IF v_words <> 3 THEN
+    RAISE EXCEPTION 'mig 749 assert: expected 3 timesheet.* templates, found %', v_words;
+  END IF;
+
+  SELECT count(DISTINCT wa.wf_template_id) INTO v_tpls
+  FROM   workflow_assignments wa
+  WHERE  wa.module_code = 'timesheet';
+
+  IF v_tpls = 0 THEN
+    RAISE NOTICE
+      'mig 749: wording written, but no workflow is assigned to timesheets yet — '
+      'tag the events once an assignment exists';
+    RETURN;
   END IF;
 
   SELECT count(*) INTO v_tags
   FROM   workflow_template_notifications wtn
-  JOIN   workflow_templates t ON t.id = wtn.template_id
-  WHERE  t.module_code = 'timesheet';
+  WHERE  wtn.template_id IN (SELECT wf_template_id FROM workflow_assignments
+                             WHERE module_code = 'timesheet')
+    AND  wtn.event_code IN ('wf.task_assigned','wf.completed','wf.clarification_requested');
 
-  IF v_tags <> v_versions * 3 THEN
+  IF v_tags <> v_tpls * 3 THEN
     RAISE EXCEPTION
-      'mig 749 assert: expected % tags (% versions x 3 events), found %',
-      v_versions * 3, v_versions, v_tags;
+      'mig 749 assert: expected % tags (% template(s) x 3 events), found %',
+      v_tpls * 3, v_tpls, v_tags;
   END IF;
 
-  RAISE NOTICE 'mig 749: % timesheet workflow version(s) tagged, % rows',
-    v_versions, v_tags;
+  RAISE NOTICE 'mig 749: % workflow template(s) tagged, % rows', v_tpls, v_tags;
 END
 $chk$;
