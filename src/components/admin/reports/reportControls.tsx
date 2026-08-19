@@ -100,15 +100,43 @@ export function ReportStatus({ loading, error, empty, emptyText }: {
  * again is expected to clear that filter — so the ring is a toggle state, not
  * just a highlight.
  */
-export function Kpi({ label, value, tone, onClick, active, hint }: {
+export function Kpi({ label, value, tone, onClick, active, hint, swatch, caption }: {
   label: string; value: string; tone?: string;
   onClick?: () => void; active?: boolean; hint?: string;
+  /**
+   * A visible line under the label, for when the NUMBER is not self-describing
+   * -- most often to name the denominator of a rate, or to say why a tile reads
+   * as a dash. This is deliberately not `hint`: a tooltip that has to be
+   * hovered to discover the figure is misleading is not a correction, because
+   * the reader who misreads it is exactly the one who will not hover.
+   */
+  caption?: string;
+  /**
+   * The colour this state occupies in the status bar. Passing it turns the tile
+   * into that bar's LEGEND — a labelled swatch beside the count.
+   *
+   * Tiles that are not bar segments (Expected, Overdue) must NOT pass one. The
+   * absence of a square is the signal that they cut across the states rather
+   * than being one, and giving Overdue a red square would claim it owns the red
+   * segment, which it does not.
+   */
+  swatch?: string;
 }) {
   const body = (
     <>
       <div style={{ fontSize: 20, fontWeight: 700, color: tone || '#18345B', lineHeight: 1.2 }}>{value}</div>
-      <div style={{ fontSize: 11, color: '#7A8CA6', marginTop: 3,
-                    textTransform: 'uppercase', letterSpacing: '.05em' }}>{label}</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
+        {swatch && (
+          <span aria-hidden="true"
+                style={{ width: 9, height: 9, borderRadius: 2, background: swatch, flex: '0 0 9px' }} />
+        )}
+        <span style={{ fontSize: 11, color: '#7A8CA6',
+                       textTransform: 'uppercase', letterSpacing: '.05em' }}>{label}</span>
+      </div>
+      {caption && (
+        <div style={{ fontSize: 11, color: '#8A97A8', marginTop: 5, maxWidth: 200,
+                      lineHeight: 1.35, textTransform: 'none', letterSpacing: 0 }}>{caption}</div>
+      )}
     </>
   );
 
@@ -315,7 +343,15 @@ export function BarRows({ title, data, format, note }: {
   );
 }
 
-export interface StackRow { label: string; a: number; b: number; }
+export interface StackRow {
+  label: string; a: number; b: number;
+  /**
+   * The bucket covers fewer days than the others -- a part-week at the edge of
+   * a reporting period. Its bar is SHORT BY CONSTRUCTION, so the label is
+   * de-emphasised to stop it being read as a fall in recording.
+   */
+  muted?: boolean;
+}
 
 /**
  * Stacked bars, two series. A legend is always present for two or more series,
@@ -324,9 +360,10 @@ export interface StackRow { label: string; a: number; b: number; }
  * Segments are separated by a 2px surface gap rather than a border — a stroke
  * drawn around a mark reads as part of the mark.
  */
-export function StackedBars({ title, data, aLabel, bLabel, format }: {
+export function StackedBars({ title, data, aLabel, bLabel, format, note }: {
   title: string; data: StackRow[]; aLabel: string; bLabel: string;
   format: (v: number) => string;
+  note?: string;
 }) {
   const max = Math.max(1, ...data.map(d => d.a + d.b));
 
@@ -355,7 +392,8 @@ export function StackedBars({ title, data, aLabel, bLabel, format }: {
              style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {data.map(d => (
             <div key={d.label} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{ width: 92, flex: '0 0 92px', fontSize: 12, color: '#41464d',
+              <div style={{ width: 106, flex: '0 0 106px', fontSize: 12,
+                            color: d.muted ? '#9CA3AF' : '#41464d',
                             whiteSpace: 'nowrap' }}>{d.label}</div>
               <div style={{ flex: 1, minWidth: 0, height: 10, display: 'flex', gap: 2 }}>
                 <div title={`${aLabel} ${format(d.a)}`}
@@ -373,6 +411,7 @@ export function StackedBars({ title, data, aLabel, bLabel, format }: {
           ))}
         </div>
       )}
+      {note && <div style={{ fontSize: 10.5, color: '#9CA3AF', marginTop: 9 }}>{note}</div>}
     </div>
   );
 }

@@ -1061,6 +1061,38 @@ post-727 project entry twice.
 
 Each clickable, each filtering the table.
 
+### 8.1b Planned has no project dimension — SHIPPED (mig 752 + UI)
+
+`timesheet_headers.planned_minutes` is **one figure per employee per month**. There is
+no planned-by-project value anywhere in the schema, and there cannot be one until
+`projects.budget_hours` (§3) exists.
+
+That matters because the two halves of the ratio are drawn from different sets:
+
+| | Source CTE | Narrowed by project / time type / category? |
+|---|---|---|
+| `recorded_minutes` | `ent` — the entry set | **Yes** |
+| `planned_minutes` | `hdr` — the header set | **No** |
+
+So with a single project selected, the tile divided one project's hours by *every
+in-scope employee's whole-month capacity* — reported as 29% in a case where the same
+hours were 35% of the capacity of the five people who actually worked on it, and
+neither figure was utilisation of anything.
+
+**Decision: suppress, do not approximate.** When a project, time type or category
+filter is applied, **Planned** and **Recording rate** both render as `—` with a caption
+naming the reason. The considered alternative — narrowing the denominator to the
+employees present in `ent`, giving a "share of capacity" — was rejected: it is a better
+approximation of a question nobody asked. A team can spend 35% of its month on a
+project that is 200% over budget, and the number that answers the real question is
+`hours ÷ projects.budget_hours`, which belongs in §9 next to the budget.
+
+This follows the rule §9 already sets for the project health strip: *no percentage at
+all when the denominator is null, rather than a fake denominator.*
+
+**Recorded is not suppressed.** Under a project filter it is exactly right, and it is
+the most useful figure on the screen.
+
 ### 8.2 Charts — two, both from server aggregates
 
 Charts here read a `breakdowns` block returned by the RPC over the **whole filtered
@@ -1079,6 +1111,26 @@ describes the report — which is why the shipped screen currently has no charts
 
 **Chart 2 — Billable / Internal / Overhead / Absence by week.** Stacked horizontal
 bar, four segments, categorical slots 1–4, 2px surface gap between segments.
+
+Shipped today as Attendance / Absence (two segments); the four-way split needs §3.
+
+**Buckets are clipped to the reported period (mig 752).** `date_trunc('week', …)`
+returns the Monday of the ISO week, so July 2026 produced a first bucket labelled
+`w/c 29-Jun` holding 1–5 Jul and a last one labelled `w/c 27-Jul` holding 27–31 Jul.
+Both read as full weeks, so every month appeared to open and close with a collapse in
+recording. The hours were always correct — `hdr` bounds them — and only the label lied.
+Buckets now carry `week_start`, `week_end` and `partial`, are labelled as day ranges
+(`1–5 Jul`), and part-weeks are greyed.
+
+**Empty weeks are zero bars, not gaps.** `GROUP BY` only emits weeks that have rows, so
+a week nobody recorded in vanished and its neighbours closed up. A missing bar reads as
+*no data collected*; a zero bar reads as *nothing was recorded* — opposite findings, and
+the second is the actionable one. `bd_week` is now a generated spine of every week in
+the range, LEFT JOINed to what was recorded. Same argument as the vanishing zero slice
+in §6.
+
+Over a 12-month range this returns ~53 buckets. The chart should switch to months
+beyond a threshold; not yet built.
 
 - Four series is the point where direct labels become mandatory — yellow now sits
   beside orange.

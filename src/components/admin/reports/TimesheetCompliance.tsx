@@ -27,7 +27,8 @@ import { supabase } from '../../../lib/supabase';
 import MSDropdown from './MSDropdown';
 import { Kpi, Meter, MonthRange, Pager, PendingFilters, ReportStatus, ScopeBadge, StatusBar }
   from './reportControls';
-import { exportXlsx, fmtDate, fmtHM, fmtPeriod, fromMonthInput, toDecimalHours, useReportRpc } from './reportShared';
+import { STATE_FILL, exportXlsx, fmtDate, fmtHM, fmtPeriod, fromMonthInput, toDecimalHours, useReportRpc }
+  from './reportShared';
 import type { ReportTabProps } from './reportShared';
 
 interface Row {
@@ -288,20 +289,37 @@ export default function TimesheetCompliance({ shared, setShared }: ReportTabProp
           <Kpi label="Expected" value={String(s?.expected ?? 0)}
                onClick={() => kpiFilter({})}
                hint="Everyone who could have submitted. Click to clear all state filters." />
+          {/* Each state tile carries the swatch AND the number in that state's bar
+              colour, so the strip below is decodable without a separate legend.
+              Before this the two disagreed: "to be submitted" and "to be
+              approved" had no colour at all, and "not configured" was brown on
+              the tile and grey in the bar. */}
           <Kpi label="Not started"     value={String(s?.not_started ?? 0)}
-               tone={s?.not_started ? '#991B1B' : undefined}
+               tone={s?.not_started ? STATE_FILL.not_started : undefined}
+               swatch={STATE_FILL.not_started}
                active={isOn('not_started')}     onClick={() => kpiFilter({ states: ['not_started'] })} />
           <Kpi label="To be submitted" value={String(s?.to_be_submitted ?? 0)}
+               tone={s?.to_be_submitted ? STATE_FILL.to_be_submitted : undefined}
+               swatch={STATE_FILL.to_be_submitted}
                active={isOn('to_be_submitted')} onClick={() => kpiFilter({ states: ['to_be_submitted'] })} />
           <Kpi label="To be approved"  value={String(s?.to_be_approved ?? 0)}
+               tone={s?.to_be_approved ? STATE_FILL.to_be_approved : undefined}
+               swatch={STATE_FILL.to_be_approved}
                active={isOn('to_be_approved')}  onClick={() => kpiFilter({ states: ['to_be_approved'] })} />
-          <Kpi label="Approved"        value={String(s?.approved ?? 0)} tone="#166534"
+          <Kpi label="Approved"        value={String(s?.approved ?? 0)}
+               tone={s?.approved ? STATE_FILL.approved : undefined}
+               swatch={STATE_FILL.approved}
                active={isOn('approved')}        onClick={() => kpiFilter({ states: ['approved'] })} />
+          {/* No swatch: overdue cuts ACROSS not-started and to-be-submitted
+              rather than being a band of its own. A red square here would claim
+              it owns the red band. */}
           <Kpi label="Overdue"         value={String(s?.overdue ?? 0)}
-               tone={s?.overdue ? '#DC2626' : undefined}
+               tone={s?.overdue ? '#d03b3b' : undefined}
+               hint="Not a band in the bar — overdue cuts across Not started and To be submitted."
                active={isOn(undefined, true)}   onClick={() => kpiFilter({ overdue: true })} />
           <Kpi label="Not configured"  value={String(s?.not_configured ?? 0)}
-               tone={s?.not_configured ? '#92400E' : undefined}
+               tone={s?.not_configured ? STATE_FILL.not_configured : undefined}
+               swatch={STATE_FILL.not_configured}
                active={isOn('not_configured')}  onClick={() => kpiFilter({ states: ['not_configured'] })} />
         </div>
       )}

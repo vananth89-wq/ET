@@ -32,6 +32,22 @@ export function fmtDate(v: string | null | undefined): string {
   return `${String(d.getDate()).padStart(2, '0')}-${MONTHS[d.getMonth()]}-${d.getFullYear()}`;
 }
 
+/**
+ * "1-5 Jul" / "29 Jun - 5 Jul". Used for buckets whose bounds are clipped to a
+ * reporting period, where a start-of-week label no longer tells you how much
+ * week you are looking at.
+ */
+export function fmtDayRange(a: string, b: string | null | undefined): string {
+  const d1 = new Date(a.slice(0, 10) + 'T00:00:00');
+  if (isNaN(d1.getTime())) return String(a);
+  if (!b) return `${d1.getDate()} ${MONTHS[d1.getMonth()]}`;
+  const d2 = new Date(b.slice(0, 10) + 'T00:00:00');
+  if (isNaN(d2.getTime())) return `${d1.getDate()} ${MONTHS[d1.getMonth()]}`;
+  return d1.getMonth() === d2.getMonth()
+    ? `${d1.getDate()}\u2013${d2.getDate()} ${MONTHS[d2.getMonth()]}`
+    : `${d1.getDate()} ${MONTHS[d1.getMonth()]} \u2013 ${d2.getDate()} ${MONTHS[d2.getMonth()]}`;
+}
+
 export function fmtPeriod(v: string | null | undefined): string {
   if (!v) return '—';
   const d = new Date(v.slice(0, 10) + 'T00:00:00');

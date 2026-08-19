@@ -7,10 +7,19 @@
  * so adding both together counts the same hours twice. The RPC returns the
  * parent figure and nests the children; this screen must not sum the children.
  *
- * NO CHARTS, deliberately. The RPC paginates, so anything drawn from `rows`
- * would describe the current page while looking like it describes the report.
- * Whole-set breakdowns belong in the RPC; until they are there, the KPI strip
- * (which the RPC does compute over everything) is the honest summary.
+ * CHARTS COME FROM `breakdowns`, NEVER FROM `rows`. The RPC paginates, so
+ * anything drawn from the row set would describe fifty entries while looking
+ * like it describes the report. Migs 750 and 752 compute the breakdowns over
+ * the whole filtered set, which is what makes the charts safe to draw at all.
+ *
+ * PLANNED IS NOT PROJECT-SHAPED. `planned_minutes` is one figure per employee
+ * per month, so no project, time type or category filter can narrow it. When
+ * one of those is applied, Recorded follows the filter and Planned does not,
+ * and dividing one by the other produces a percentage of an unrelated whole.
+ * Both Planned and the rate are suppressed in that case rather than shown
+ * against a denominator nobody asked for. The number people actually want --
+ * hours against a project budget -- needs `projects.budget_hours` and belongs
+ * in the Project Summary report.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -18,7 +27,8 @@ import { supabase } from '../../../lib/supabase';
 import MSDropdown from './MSDropdown';
 import { BarRows, Kpi, MonthRange, Pager, PendingFilters, ReportStatus, ScopeBadge, StackedBars }
   from './reportControls';
-import { exportXlsx, fmtDate, fmtHM, fromMonthInput, toDecimalHours, useReportRpc } from './reportShared';
+import { exportXlsx, fmtDate, fmtDayRange, fmtHM, fromMonthInput, toDecimalHours, useReportRpc }
+  from './reportShared';
 import type { ReportTabProps } from './reportShared';
 
 interface Activity { id: string; activity_name: string; hours_minutes: number; display_order: number; }
@@ -35,7 +45,11 @@ interface Breakdowns {
   by_project: { project_id: string | null; label: string; minutes: number }[];
   other_minutes: number;
   other_projects: number;
-  by_week: { week_start: string; attendance_minutes: number; absence_minutes: number }[];
+  // week_end and partial arrive with mig 752. Optional because the frontend
+  // deploys through Vercel and the migration through Actions, so this bundle
+  // can be live against a database that has not run 752 yet.
+  by_week: { week_start: string; week_end?: string; partial?: boolean;
+             attendance_minutes: number; absence_minutes: number }[];
 }
 interface Payload {
   ok: boolean; page: number; page_size: number; total_rows: number;
@@ -145,6 +159,20 @@ export default function TimesheetUtilisation({ shared, setShared }: ReportTabPro
   }, [filters]);
   const [appliedKey, setAppliedKey] = useState<string | null>(null);
   const pending = appliedKey !== null && appliedKey !== filterKey;
+
+  // Project, time type and category filter ENTRIES; everything else filters
+  // HEADERS. Planned lives on the header, so only these three can pull Recorded
+  // away from Planned and leave the ratio measuring nothing.
+  //
+  // Read from appliedKey rather than from the controls: this describes the
+  // numbers currently on screen, not the ones the toolbar would fetch next.
+  const entryFiltered = useMemo(() => {
+    if (!appliedKey) return false;
+    try {
+      const f = JSON.parse(appliedKey) as Record<string, unknown>;
+      return !!(f.project_ids || f.time_type_ids || f.categories);
+    } catch { return false; }
+  }, [appliedKey]);
 
   // Filters are read through a ref so this effect can declare every
   // dependency it actually has. Editing a filter must NOT fire a query --
@@ -256,9 +284,17 @@ export default function TimesheetUtilisation({ shared, setShared }: ReportTabPro
 
       {data && (
         <div style={{ display: 'flex', gap: 12, padding: '16px 20px 4px', flexWrap: 'wrap' }}>
-          <Kpi label="Recorded"    value={fmtHM(t?.recorded_minutes)} />
-          <Kpi label="Planned"     value={fmtHM(t?.planned_minutes)} />
-          <Kpi label="Utilisation" value={util} tone="#0F766E" />
+          <Kpi label="Recorded" value={fmtHM(t?.recorded_minutes)}
+               caption={entryFiltered ? 'Hours matching the current filter' : undefined} />
+          <Kpi label="Planned" value={entryFiltered ? '\u2014' : fmtHM(t?.planned_minutes)}
+               caption={entryFiltered
+                 ? 'Planned hours are set per employee per month, never per project. Clear the project, time type and category filters to see them.'
+                 : undefined} />
+          <Kpi label="Recording rate" value={entryFiltered ? '\u2014' : util}
+               tone={entryFiltered ? undefined : '#0F766E'}
+               caption={entryFiltered
+                 ? 'Needs a planned figure to divide by. Project budgets live in the Project Summary report.'
+                 : 'Recorded against planned, for everyone in scope'} />
           <Kpi label="Entries"     value={String(t?.entry_count ?? 0)} />
           <Kpi label="Employees"   value={String(t?.employee_count ?? 0)} />
           <Kpi label="Projects"    value={String(t?.project_count ?? 0)} />
@@ -285,14 +321,25 @@ export default function TimesheetUtilisation({ shared, setShared }: ReportTabPro
                 : []),
             ]}
           />
+          {/* Buckets are clipped to the reported period by mig 752, so a bar
+              labelled 1-5 Jul holds exactly those days. Part-weeks at the
+              edges are short by construction and are greyed rather than left
+              to read as a collapse in recording. Weeks with nothing recorded
+              come back as zero bars, not as gaps. */}
           <StackedBars
             title="By week"
             aLabel="Attendance" bLabel="Absence"
             format={fmtHM}
+            note={data.breakdowns.by_week.some(w => w.partial)
+              ? 'Greyed weeks are part-weeks at the edge of the period \u2014 fewer days, not less recording.'
+              : undefined}
             data={data.breakdowns.by_week.map(w => ({
-              label: `w/c ${fmtDate(w.week_start).slice(0, 6)}`,
+              label: w.week_end
+                ? fmtDayRange(w.week_start, w.week_end)
+                : `w/c ${fmtDate(w.week_start).slice(0, 6)}`,
               a: w.attendance_minutes,
               b: w.absence_minutes,
+              muted: !!w.partial,
             }))}
           />
         </div>
