@@ -41,6 +41,24 @@ const C = {
   purpleL: '#F5F3FF',
 };
 
+// ─── Instance-scoped notification events ──────────────────────────────────────
+// These fire against the RUN, not against any one step, so no step can own their
+// wording — by the time `wf.completed` is queued there is no next step left to
+// read a template from. They are bound per template VERSION in
+// workflow_template_notifications; an unbound event falls through to the module
+// prefix and then to the generic wf.* wording (mig 748).
+const INSTANCE_EVENTS: { code: string; label: string; who: string; hint: string }[] = [
+  { code: 'wf.task_assigned',             label: 'Task assigned',          who: 'Approver',   hint: 'When a step lands in an approver’s queue. An individual step can still override this on its own Notification dropdown.' },
+  { code: 'wf.completed',                 label: 'Fully approved',         who: 'Requester',  hint: 'When the last step approves and the run finishes.' },
+  { code: 'wf.rejected',                  label: 'Rejected',               who: 'Requester',  hint: 'When an approver rejects the request.' },
+  { code: 'wf.returned_to_previous_step', label: 'Returned',               who: 'Requester',  hint: 'When an approver sends the request back a step.' },
+  { code: 'wf.clarification_requested',   label: 'Clarification asked',    who: 'Requester',  hint: 'When an approver asks the requester a question.' },
+  { code: 'wf.clarification_submitted',   label: 'Clarification answered', who: 'Approver',   hint: 'When the requester replies to that question.' },
+  { code: 'wf.withdrawn',                 label: 'Withdrawn',              who: 'Approver',   hint: 'When the requester withdraws a request already in flight.' },
+  { code: 'wf.sla_reminder',              label: 'SLA reminder',           who: 'Approver',   hint: 'The nudge sent once a step passes its reminder threshold.' },
+  { code: 'wf.sla_escalation',            label: 'SLA escalation',         who: 'Escalation', hint: 'Sent to the escalation contact once a step breaches its SLA.' },
+];
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface UserOption {
@@ -474,6 +492,11 @@ export default function WorkflowTemplates() {
   // Notification templates for step template dropdown (loaded once on mount)
   const [notifTemplates, setNotifTemplates] = useState<NotifTemplate[]>([]);
 
+  // Instance-scoped notification bindings for the selected template version.
+  // Map: event_code -> notification_template_id
+  const [tplNotifs,      setTplNotifs]      = useState<Map<string, string>>(new Map());
+  const [tplNotifsBusy,  setTplNotifsBusy]  = useState<string | null>(null);
+
   // Condition counts per step (shown as chips on step cards)
   const [conditionCounts, setConditionCounts] = useState<Map<string, number>>(new Map());
 
@@ -661,10 +684,60 @@ export default function WorkflowTemplates() {
     setLoadingSteps(false);
   }, []);
 
+  // ── Instance-scoped notification bindings ───────────────────────────────────
+  const loadTplNotifs = useCallback(async (templateId: string) => {
+    const { data, error } = await supabase
+      .from('workflow_template_notifications')
+      .select('event_code, notification_template_id')
+      .eq('template_id', templateId);
+
+    if (error) { showToast('err', error.message); return; }
+
+    const m = new Map<string, string>();
+    (data ?? []).forEach((r: { event_code: string; notification_template_id: string }) => {
+      m.set(r.event_code, r.notification_template_id);
+    });
+    setTplNotifs(m);
+  }, []);
+
+  // Clearing a binding DELETES the row rather than storing a null: absent means
+  // "fall through to the module prefix, then to the generic wf.* wording", which
+  // is exactly what 748 resolves. A null row would be a fourth state to explain.
+  async function setTplNotif(eventCode: string, notifId: string) {
+    if (!selectedId) return;
+    setTplNotifsBusy(eventCode);
+
+    if (!notifId) {
+      const { error } = await supabase
+        .from('workflow_template_notifications')
+        .delete()
+        .eq('template_id', selectedId)
+        .eq('event_code', eventCode);
+
+      setTplNotifsBusy(null);
+      if (error) { showToast('err', error.message); return; }
+      setTplNotifs(prev => { const m = new Map(prev); m.delete(eventCode); return m; });
+      showToast('ok', 'Reverted to the system default wording.');
+      return;
+    }
+
+    const { error } = await supabase
+      .from('workflow_template_notifications')
+      .upsert(
+        { template_id: selectedId, event_code: eventCode, notification_template_id: notifId, updated_at: new Date().toISOString() },
+        { onConflict: 'template_id,event_code' },
+      );
+
+    setTplNotifsBusy(null);
+    if (error) { showToast('err', error.message); return; }
+    setTplNotifs(prev => { const m = new Map(prev); m.set(eventCode, notifId); return m; });
+    showToast('ok', 'Notification wording updated.');
+  }
+
   useEffect(() => {
-    if (selectedId) loadSteps(selectedId);
-    else setSteps([]);
-  }, [selectedId, loadSteps]);
+    if (selectedId) { loadSteps(selectedId); loadTplNotifs(selectedId); }
+    else { setSteps([]); setTplNotifs(new Map()); }
+  }, [selectedId, loadSteps, loadTplNotifs]);
 
   const selected = templates.find(t => t.id === selectedId) ?? null;
 
@@ -1554,6 +1627,117 @@ export default function WorkflowTemplates() {
                   </div>
                 </div>
               )}
+            </div>
+
+            {/* ── Notifications ─────────────────────────────────────────────── */}
+            <div style={{
+              background: '#fff', borderRadius: 10, border: `1px solid ${C.border}`,
+              padding: '20px 24px', marginTop: 20,
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <h3 style={{ fontSize: 14, fontWeight: 700, color: C.navy, margin: 0 }}>
+                  Notifications
+                  {tplNotifs.size > 0 && (
+                    <span style={{
+                      marginLeft: 8, fontSize: 11, fontWeight: 600, color: C.blue,
+                      background: C.blueL, borderRadius: 10, padding: '1px 8px',
+                    }}>
+                      {tplNotifs.size} customised
+                    </span>
+                  )}
+                </h3>
+              </div>
+
+              <p style={{ fontSize: 12, color: C.muted, margin: '0 0 16px', lineHeight: 1.5 }}>
+                Wording for the events this workflow raises. These fire against the request as a
+                whole, not against any one step — by the time a request is fully approved there is
+                no step left to take the wording from. Anything left on <em>System Default</em>
+                sends the generic message.
+              </p>
+
+              {notifTemplates.length === 0 ? (
+                <div style={{
+                  padding: '8px 12px', borderRadius: 6,
+                  background: C.amberL, border: '1px solid #FDE68A',
+                  fontSize: 12, color: C.amber, display: 'flex', alignItems: 'center', gap: 7,
+                }}>
+                  <i className="fas fa-triangle-exclamation" />
+                  No notification templates exist yet. Create them under Notifications first.
+                </div>
+              ) : (
+                <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, overflow: 'hidden' }}>
+                  {(() => {
+                    // Any code already bound but not in the curated list still gets a row,
+                    // so a binding written by a migration can never become invisible here.
+                    const known = new Set(INSTANCE_EVENTS.map(e => e.code));
+                    const extras = [...tplNotifs.keys()]
+                      .filter(code => !known.has(code))
+                      .sort()
+                      .map(code => ({ code, label: code.replace(/^wf\./, '').replace(/_/g, ' '), who: '—', hint: 'Bound outside this screen.' }));
+                    return [...INSTANCE_EVENTS, ...extras];
+                  })().map((ev, i) => {
+                    const current = tplNotifs.get(ev.code) ?? '';
+                    return (
+                      <div
+                        key={ev.code}
+                        style={{
+                          display: 'flex', alignItems: 'flex-start', gap: 16,
+                          padding: '12px 14px',
+                          borderTop: i === 0 ? 'none' : `1px solid ${C.border}`,
+                          background: current ? C.blueL : '#fff',
+                        }}
+                      >
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                            <span style={{ fontSize: 13, fontWeight: 600, color: C.text, textTransform: 'capitalize' }}>
+                              {ev.label}
+                            </span>
+                            <span style={{
+                              fontSize: 10, fontWeight: 600, color: C.muted, background: C.bg,
+                              border: `1px solid ${C.border}`, borderRadius: 4, padding: '1px 6px',
+                            }}>
+                              <i className="fas fa-user" style={{ marginRight: 4, fontSize: 9 }} />
+                              {ev.who}
+                            </span>
+                            <code style={{ fontSize: 10, color: C.faint, fontFamily: 'monospace' }}>{ev.code}</code>
+                          </div>
+                          <p style={{ margin: '3px 0 0', fontSize: 11, color: C.muted, lineHeight: 1.45 }}>
+                            {ev.hint}
+                          </p>
+                        </div>
+
+                        <div style={{ width: 300, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <select
+                            value={current}
+                            disabled={tplNotifsBusy === ev.code}
+                            onChange={e => setTplNotif(ev.code, e.target.value)}
+                            style={{ ...iStyle, flex: 1, fontSize: 12, padding: '6px 8px' }}
+                          >
+                            <option value="">System Default</option>
+                            {notifTemplates.map(t => (
+                              <option key={t.id} value={t.id}>{t.name} ({t.code})</option>
+                            ))}
+                          </select>
+                          <i
+                            className={tplNotifsBusy === ev.code ? 'fas fa-spinner fa-spin' : 'fas fa-check'}
+                            style={{
+                              fontSize: 11, width: 12, flexShrink: 0,
+                              color: tplNotifsBusy === ev.code ? C.blue : C.green,
+                              visibility: tplNotifsBusy === ev.code || current ? 'visible' : 'hidden',
+                            }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              <p style={{ fontSize: 11, color: C.faint, margin: '12px 0 0', lineHeight: 1.5 }}>
+                <i className="fas fa-circle-info" style={{ marginRight: 5 }} />
+                Bindings belong to this version of the template. Copying it to a new version copies
+                them too, so rewording v2 leaves live v1 requests untouched.
+              </p>
             </div>
           </>
         )}
