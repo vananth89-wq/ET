@@ -82,6 +82,33 @@ export interface ReportTabProps {
   setShared: (patch: Partial<SharedReportFilters>) => void;
 }
 
+/**
+ * STATUS PALETTE FOR MARKS — validated, not chosen.
+ *
+ * These are for FILLS (bar segments, meter). They are NOT the chip tints, which
+ * are pale backgrounds behind dark text and measure 1.07–1.22:1 against white —
+ * fine behind a label, far too weak to be a shape.
+ *
+ * Derived from the reference status scale and then run through the palette
+ * validator on a white surface. The obvious choice — reusing each chip's dark
+ * text colour — FAILED: `#991B1B` red against `#B45309` amber is ΔE 12.7 in
+ * normal vision, under the 15 floor, so two adjacent segments would have been
+ * hard to tell apart for everyone, not just under CVD. The amber below is the
+ * warning hue at its dark step, which clears 3:1 as a mark and puts that pair
+ * at ΔE 16.9 normal / 10.2 deuteranopia.
+ *
+ *   worst adjacent CVD ΔE 10.2 · normal-vision ΔE 16.9 · all four ≥ 3:1
+ *
+ * Re-run `validate_palette.js` before changing any of them.
+ */
+export const STATE_FILL: Record<string, string> = {
+  not_started:     '#d03b3b',
+  to_be_submitted: '#c98500',
+  to_be_approved:  '#2a78d6',
+  approved:        '#0ca30c',
+  not_configured:  '#6B7280',   // out of the pipeline entirely, so neutral, not a severity
+};
+
 // ─── Calling a report RPC ────────────────────────────────────────────────────
 
 export interface RpcState<T> { data: T | null; loading: boolean; error: string | null; }

@@ -25,7 +25,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../../../lib/supabase';
 import MSDropdown from './MSDropdown';
-import { Kpi, MonthRange, Pager, PendingFilters, ReportStatus, ScopeBadge } from './reportControls';
+import { Kpi, Meter, MonthRange, Pager, PendingFilters, ReportStatus, ScopeBadge, StatusBar }
+  from './reportControls';
 import { exportXlsx, fmtDate, fmtHM, fmtPeriod, fromMonthInput, toDecimalHours, useReportRpc } from './reportShared';
 import type { ReportTabProps } from './reportShared';
 
@@ -277,6 +278,13 @@ export default function TimesheetCompliance({ shared, setShared }: ReportTabProp
           {/* Expected is the only tile that is NOT a filter: it counts four states
               at once, so "click to see them" is just the unfiltered view. It
               clears instead, which is the useful action from anywhere else. */}
+          {/* Payroll readiness is the single number this report exists to answer
+              and was not on screen anywhere. A ratio against a target is a
+              meter — not a two-slice pie. */}
+          <Meter label="Payroll ready"
+                 value={s?.approved ?? 0}
+                 of={s?.expected ?? 0}
+                 caption="Approved timesheets, of those expected this period" />
           <Kpi label="Expected" value={String(s?.expected ?? 0)}
                onClick={() => kpiFilter({})}
                hint="Everyone who could have submitted. Click to clear all state filters." />
@@ -296,6 +304,24 @@ export default function TimesheetCompliance({ shared, setShared }: ReportTabProp
                tone={s?.not_configured ? '#92400E' : undefined}
                active={isOn('not_configured')}  onClick={() => kpiFilter({ states: ['not_configured'] })} />
         </div>
+      )}
+
+      {/* Part-to-whole in 12px. The tiles above are its legend: same colours,
+          with labels and counts, so nothing here depends on hue alone. Clicking
+          a segment filters exactly as its tile does. */}
+      {data && s && (
+        <StatusBar
+          total={(s.expected ?? 0) + (s.not_configured ?? 0)}
+          activeKey={applied.states.length === 1 ? applied.states[0] : null}
+          onSelect={key => kpiFilter({ states: [key] })}
+          segments={[
+            { key: 'not_started',     label: 'Not started',     value: s.not_started ?? 0 },
+            { key: 'to_be_submitted', label: 'To be submitted', value: s.to_be_submitted ?? 0 },
+            { key: 'to_be_approved',  label: 'To be approved',  value: s.to_be_approved ?? 0 },
+            { key: 'approved',        label: 'Approved',        value: s.approved ?? 0 },
+            { key: 'not_configured',  label: 'Not configured',  value: s.not_configured ?? 0 },
+          ]}
+        />
       )}
 
       {!!s?.not_configured && (

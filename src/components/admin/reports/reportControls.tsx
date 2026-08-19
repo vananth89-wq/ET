@@ -4,6 +4,7 @@
  */
 
 import type { CSSProperties, ReactNode } from 'react';
+import { STATE_FILL } from './reportShared';
 
 export function MonthRange({ from, to, onFrom, onTo }: {
   from: string; to: string; onFrom: (v: string) => void; onTo: (v: string) => void;
@@ -138,6 +139,241 @@ export function Kpi({ label, value, tone, onClick, active, hint }: {
     >
       {body}
     </button>
+  );
+}
+
+
+export interface StatusSegment { key: string; label: string; value: number; }
+
+/**
+ * One thin stacked bar: the part-to-whole a pie would claim to give, in ~12px
+ * instead of ~200, and readable at a glance.
+ *
+ * Why not a pie: 4 against 5 is ten degrees of arc — unreadable without labels,
+ * at which point the labels are doing the work — and a zero slice vanishes,
+ * silently deleting the fact that nobody is waiting on a manager. This bar
+ * simply omits zero segments too, but the KPI tiles above it still show the 0,
+ * which is where that fact belongs.
+ *
+ * Colour is never the only channel: the tiles directly above carry the same
+ * colours WITH labels and counts, every segment has a tooltip, and the table
+ * below is the full text view.
+ *
+ * Segments are separated by a 2px surface GAP, not by borders — a stroke around
+ * a mark reads as part of the mark.
+ */
+export function StatusBar({ segments, total, onSelect, activeKey }: {
+  segments: StatusSegment[];
+  total: number;
+  onSelect?: (key: string) => void;
+  activeKey?: string | null;
+}) {
+  const shown = segments.filter(s => s.value > 0);
+  if (!total || shown.length === 0) return null;
+
+  const summary = shown.map(s => `${s.label} ${s.value}`).join(', ');
+
+  return (
+    <div style={{ padding: '4px 20px 0' }}>
+      <div
+        role="img"
+        aria-label={`Timesheet states across ${total} employees: ${summary}.`}
+        style={{ display: 'flex', gap: 2, height: 12, borderRadius: 6, overflow: 'hidden' }}
+      >
+        {shown.map(seg => {
+          const pct = (seg.value / total) * 100;
+          const dim = activeKey != null && activeKey !== seg.key;
+          const style: CSSProperties = {
+            width: `${pct}%`, minWidth: 3, background: STATE_FILL[seg.key] ?? '#94A3B8',
+            opacity: dim ? 0.32 : 1, border: 'none', padding: 0,
+            cursor: onSelect ? 'pointer' : 'default',
+            transition: 'opacity 120ms ease',
+          };
+          const title = `${seg.label}: ${seg.value} of ${total} (${pct.toFixed(0)}%)`;
+          return onSelect
+            ? <button key={seg.key} type="button" title={title} aria-label={title}
+                      onClick={() => onSelect(seg.key)} style={style} />
+            : <div key={seg.key} title={title} style={style} />;
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A single ratio against a target. A meter, not a two-slice pie.
+ *
+ * The fill takes a status colour because here the colour genuinely MEANS
+ * good or bad — that is what the status scale is reserved for. The number and
+ * the caption carry it too, so nothing depends on hue alone.
+ */
+export function Meter({ label, value, of, caption, good = 95, fair = 80 }: {
+  label: string; value: number; of: number; caption?: string;
+  good?: number; fair?: number;
+}) {
+  const pct = of > 0 ? (value / of) * 100 : 0;
+  const fill = pct >= good ? '#0ca30c' : pct >= fair ? '#c98500' : '#d03b3b';
+  return (
+    <div style={{ background: '#fff', borderRadius: 10, padding: '12px 16px', minWidth: 210,
+                  boxShadow: '0 2px 10px rgba(24,52,91,0.07)', flex: '0 0 auto' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+        <div style={{ fontSize: 20, fontWeight: 700, color: fill, lineHeight: 1.2 }}>
+          {of > 0 ? `${Math.round(pct)}%` : '—'}
+        </div>
+        <div style={{ fontSize: 12, color: '#7A8CA6' }}>{value} of {of}</div>
+      </div>
+      <div style={{ fontSize: 11, color: '#7A8CA6', margin: '3px 0 7px',
+                    textTransform: 'uppercase', letterSpacing: '.05em' }}>{label}</div>
+      <div role="img" aria-label={`${label}: ${value} of ${of}, ${Math.round(pct)} percent.`}
+           style={{ height: 6, borderRadius: 3, background: '#EEF1F6', overflow: 'hidden' }}>
+        <div style={{ width: `${Math.min(100, pct)}%`, height: '100%', background: fill }} />
+      </div>
+      {caption && <div style={{ fontSize: 10.5, color: '#9CA3AF', marginTop: 5 }}>{caption}</div>}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Charts — hand-built, no charting library
+// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Two bar charts do not justify pulling recharts in: that is a 397 kB chunk for
+ * marks a handful of divs draw exactly. Plain HTML also prints properly, scales
+ * with the container, and gives direct control over the 2px surface gaps and
+ * the label rules below — all of which a chart library fights you on.
+ *
+ * SERIES COLOURS come from the validated categorical palette (slots 1 and 2).
+ * They are NOT the status scale used by StatusBar: status colours mean
+ * good/bad and are reserved for that. A series colour means identity.
+ */
+const SERIES_1 = '#2a78d6';
+const SERIES_2 = '#eb6834';
+
+export interface BarDatum { label: string; value: number; muted?: boolean; }
+
+/**
+ * Horizontal bars, ONE hue, nominal categories.
+ *
+ * Horizontal because project names are long — vertical forces rotated labels,
+ * which fail both readability and screen readers.
+ *
+ * One hue for every bar, deliberately: colouring bars darker-where-bigger
+ * re-encodes what bar length already shows and burns the only free channel on
+ * information the chart is already carrying. A value ramp on nominal categories
+ * is a documented anti-pattern, not a style choice.
+ */
+export function BarRows({ title, data, format, note }: {
+  title: string;
+  data: BarDatum[];
+  format: (v: number) => string;
+  note?: string;
+}) {
+  const max = Math.max(1, ...data.map(d => d.value));
+  const total = data.reduce((a, d) => a + d.value, 0);
+
+  return (
+    <div style={{ background: '#fff', borderRadius: 10, padding: '14px 16px 12px',
+                  boxShadow: '0 2px 10px rgba(24,52,91,0.07)', minWidth: 0 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: '#7A8CA6',
+                    textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 10 }}>
+        {title}
+      </div>
+      {data.length === 0 ? (
+        <div style={{ fontSize: 12, color: '#94A3B8', padding: '8px 0' }}>Nothing recorded.</div>
+      ) : (
+        <div role="img"
+             aria-label={`${title}. ${data.map(d => `${d.label} ${format(d.value)}`).join('; ')}.`}
+             style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {data.map(d => (
+            <div key={d.label} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div title={d.label}
+                   style={{ width: 132, flex: '0 0 132px', fontSize: 12, color: '#41464d',
+                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {d.label}
+              </div>
+              <div style={{ flex: 1, minWidth: 0, height: 10, background: '#F1F4F9', borderRadius: 5 }}>
+                <div style={{ width: `${(d.value / max) * 100}%`, height: '100%', borderRadius: 5,
+                              background: d.muted ? '#B6C2D4' : SERIES_1, minWidth: 2 }} />
+              </div>
+              {/* Value on every row is legible here because there are at most a
+                  dozen. It is a table with bars, not a plot with a number on
+                  every point. */}
+              <div style={{ width: 78, flex: '0 0 78px', textAlign: 'right', fontSize: 12,
+                            color: '#41464d', fontVariantNumeric: 'tabular-nums' }}>
+                {format(d.value)}
+              </div>
+              <div style={{ width: 40, flex: '0 0 40px', textAlign: 'right', fontSize: 11, color: '#9CA3AF',
+                            fontVariantNumeric: 'tabular-nums' }}>
+                {total > 0 ? `${Math.round((d.value / total) * 100)}%` : ''}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {note && <div style={{ fontSize: 10.5, color: '#9CA3AF', marginTop: 9 }}>{note}</div>}
+    </div>
+  );
+}
+
+export interface StackRow { label: string; a: number; b: number; }
+
+/**
+ * Stacked bars, two series. A legend is always present for two or more series,
+ * so identity never rests on colour alone.
+ *
+ * Segments are separated by a 2px surface gap rather than a border — a stroke
+ * drawn around a mark reads as part of the mark.
+ */
+export function StackedBars({ title, data, aLabel, bLabel, format }: {
+  title: string; data: StackRow[]; aLabel: string; bLabel: string;
+  format: (v: number) => string;
+}) {
+  const max = Math.max(1, ...data.map(d => d.a + d.b));
+
+  return (
+    <div style={{ background: '#fff', borderRadius: 10, padding: '14px 16px 12px',
+                  boxShadow: '0 2px 10px rgba(24,52,91,0.07)', minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between',
+                    gap: 12, marginBottom: 10, flexWrap: 'wrap' }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: '#7A8CA6',
+                      textTransform: 'uppercase', letterSpacing: '.05em' }}>{title}</div>
+        <div style={{ display: 'flex', gap: 12, fontSize: 11, color: '#41464d' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <span style={{ width: 9, height: 9, borderRadius: 2, background: SERIES_1 }} />{aLabel}
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <span style={{ width: 9, height: 9, borderRadius: 2, background: SERIES_2 }} />{bLabel}
+          </span>
+        </div>
+      </div>
+      {data.length === 0 ? (
+        <div style={{ fontSize: 12, color: '#94A3B8', padding: '8px 0' }}>Nothing recorded.</div>
+      ) : (
+        <div role="img"
+             aria-label={`${title}. ${data.map(d =>
+               `${d.label}: ${aLabel} ${format(d.a)}, ${bLabel} ${format(d.b)}`).join('; ')}.`}
+             style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {data.map(d => (
+            <div key={d.label} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ width: 92, flex: '0 0 92px', fontSize: 12, color: '#41464d',
+                            whiteSpace: 'nowrap' }}>{d.label}</div>
+              <div style={{ flex: 1, minWidth: 0, height: 10, display: 'flex', gap: 2 }}>
+                <div title={`${aLabel} ${format(d.a)}`}
+                     style={{ width: `${(d.a / max) * 100}%`, background: SERIES_1,
+                              borderRadius: '5px 0 0 5px', minWidth: d.a > 0 ? 2 : 0 }} />
+                <div title={`${bLabel} ${format(d.b)}`}
+                     style={{ width: `${(d.b / max) * 100}%`, background: SERIES_2,
+                              borderRadius: '0 5px 5px 0', minWidth: d.b > 0 ? 2 : 0 }} />
+              </div>
+              <div style={{ width: 78, flex: '0 0 78px', textAlign: 'right', fontSize: 12,
+                            color: '#41464d', fontVariantNumeric: 'tabular-nums' }}>
+                {format(d.a + d.b)}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

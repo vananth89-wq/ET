@@ -16,7 +16,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../../../lib/supabase';
 import MSDropdown from './MSDropdown';
-import { Kpi, MonthRange, Pager, PendingFilters, ReportStatus, ScopeBadge } from './reportControls';
+import { BarRows, Kpi, MonthRange, Pager, PendingFilters, ReportStatus, ScopeBadge, StackedBars }
+  from './reportControls';
 import { exportXlsx, fmtDate, fmtHM, fromMonthInput, toDecimalHours, useReportRpc } from './reportShared';
 import type { ReportTabProps } from './reportShared';
 
@@ -30,10 +31,17 @@ interface Row {
   category: string | null; hours_minutes: number; notes: string | null;
   is_system_generated: boolean; activities: Activity[];
 }
+interface Breakdowns {
+  by_project: { project_id: string | null; label: string; minutes: number }[];
+  other_minutes: number;
+  other_projects: number;
+  by_week: { week_start: string; attendance_minutes: number; absence_minutes: number }[];
+}
 interface Payload {
   ok: boolean; page: number; page_size: number; total_rows: number;
   totals: { recorded_minutes: number; planned_minutes: number; entry_count: number;
             employee_count: number; project_count: number };
+  breakdowns?: Breakdowns;
   scope: { mode?: string; employee_count?: number | null };
   rows: Row[];
 }
@@ -254,6 +262,39 @@ export default function TimesheetUtilisation({ shared, setShared }: ReportTabPro
           <Kpi label="Entries"     value={String(t?.entry_count ?? 0)} />
           <Kpi label="Employees"   value={String(t?.employee_count ?? 0)} />
           <Kpi label="Projects"    value={String(t?.project_count ?? 0)} />
+        </div>
+      )}
+
+      {/* Fed from `breakdowns`, which mig 750 computes over the WHOLE filtered
+          set. Drawn from `rows` these would describe fifty entries while
+          looking like they describe the report — which is why this screen
+          shipped without charts until the RPC could answer properly. */}
+      {!loading && !error && data?.breakdowns && data.total_rows > 0 && (
+        <div style={{ display: 'grid', gap: 12, padding: '4px 20px 0',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(330px, 1fr))' }}>
+          <BarRows
+            title="Hours by project"
+            format={fmtHM}
+            note={data.breakdowns.other_projects > 0
+              ? `“Other” folds ${data.breakdowns.other_projects} further project${data.breakdowns.other_projects === 1 ? '' : 's'}. Filter by project to see them individually.`
+              : undefined}
+            data={[
+              ...data.breakdowns.by_project.map(b => ({ label: b.label, value: b.minutes })),
+              ...(data.breakdowns.other_minutes > 0
+                ? [{ label: 'Other', value: data.breakdowns.other_minutes, muted: true }]
+                : []),
+            ]}
+          />
+          <StackedBars
+            title="By week"
+            aLabel="Attendance" bLabel="Absence"
+            format={fmtHM}
+            data={data.breakdowns.by_week.map(w => ({
+              label: `w/c ${fmtDate(w.week_start).slice(0, 6)}`,
+              a: w.attendance_minutes,
+              b: w.absence_minutes,
+            }))}
+          />
         </div>
       )}
 
