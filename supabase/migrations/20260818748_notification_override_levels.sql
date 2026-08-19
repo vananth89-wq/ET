@@ -54,8 +54,7 @@
 -- Depends on : 427030 (workflow core + templates), 427032 (code,version unique),
 --              501093 (workflow_steps.notification_template_id),
 --              505133 (wf_notifications RLS convention),
---              519250 (wf_queue_notification + module-prefix resolution),
---              630650 (wf_copy_template)
+--              519250 (wf_queue_notification + module-prefix resolution)
 
 -- ── 1. Where instance-scoped wording lives ───────────────────────────────────
 -- Keyed on template_id, which IS the version row. Cloning a template to v2 and
@@ -231,53 +230,24 @@ END
 $mig$;
 
 
--- ── 3. A clone must carry its wording ────────────────────────────────────────
--- wf_copy_template copies steps. Without this it would copy the steps and drop
--- the instance-scoped wording, so v2 would silently revert to "Request fully
--- approved" the first time anyone cloned a template to make a small change.
-DO $cp$
-DECLARE
-  v_src  text;
-  v_new  text;
-  v_hits int;
-  a_tail CONSTANT text := '  RETURN v_new_template_id;';
-  n_tail CONSTANT text :=
-    '  -- MIG 748: carry instance-scoped notification wording to the new version.' || chr(10) ||
-    '  INSERT INTO workflow_template_notifications' || chr(10) ||
-    '    (template_id, event_code, notification_template_id)' || chr(10) ||
-    '  SELECT v_new_template_id, wtn.event_code, wtn.notification_template_id' || chr(10) ||
-    '  FROM   workflow_template_notifications wtn' || chr(10) ||
-    '  WHERE  wtn.template_id = p_template_id' || chr(10) ||
-    '  ON CONFLICT (template_id, event_code) DO NOTHING;' || chr(10) ||
-    '' || chr(10) ||
-    '  RETURN v_new_template_id;';
-BEGIN
-  SELECT pg_get_functiondef(p.oid) INTO v_src
-  FROM   pg_proc p
-  JOIN   pg_namespace n ON n.oid = p.pronamespace
-  WHERE  n.nspname = 'public' AND p.proname = 'wf_copy_template';
-
-  IF v_src IS NULL THEN
-    RAISE NOTICE 'mig 748: wf_copy_template not found — skipping clone patch';
-    RETURN;
-  END IF;
-
-  IF position('MIG 748' IN v_src) > 0 THEN
-    RAISE NOTICE 'mig 748: wf_copy_template already patched';
-    RETURN;
-  END IF;
-
-  v_hits := (length(v_src) - length(replace(v_src, a_tail, ''))) / length(a_tail);
-  IF v_hits <> 1 THEN
-    RAISE EXCEPTION 'mig 748: wf_copy_template return anchor matched % times, expected 1', v_hits;
-  END IF;
-
-  v_new := replace(v_src, a_tail, n_tail);
-  EXECUTE v_new;
-  RAISE NOTICE 'mig 748: wf_copy_template now carries notification overrides';
-END
-$cp$;
-
+-- ── 3. Cloning a template does NOT yet carry its wording ─────────────────────
+-- Deliberately left out of this migration.
+--
+-- wf_copy_template copies steps, and ought to copy these rows too, or cloning a
+-- template to v2 silently reverts its wording to the generic text. But that
+-- function has been REPLACED WHOLESALE three times (650 -> 651 -> 652), so an
+-- in-place patch here is the exact pattern this repo keeps getting bitten by:
+-- the next full rewrite drops it without a word. It also cannot be verified
+-- against a stand-in schema -- the first attempt asserted an anchor that does
+-- not exist in the live function, which returns jsonb and names its variable
+-- v_new_tpl_id, and the assertion correctly refused rather than half-applying.
+--
+-- It belongs in its own migration as a full CREATE OR REPLACE built from 652,
+-- which is how every previous change to that function was made.
+--
+-- Until then: cloning a workflow template starts its notification overrides
+-- empty, and the clone falls back to the generic wf.* wording. Visible and
+-- recoverable -- re-tag the events on the new version -- rather than silent.
 
 -- ── Assertions ───────────────────────────────────────────────────────────────
 -- Two in-place patches on functions this migration does not own. A silent no-op
