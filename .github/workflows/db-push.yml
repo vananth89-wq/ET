@@ -57,7 +57,13 @@ env:
   # a new release shipped mid-afternoon and CI picked it up on its own.
   # Set this to the version the last green run installed (read it from that
   # run's "Install Supabase CLI" step), then bump it deliberately.
-  SUPABASE_CLI_VERSION: latest
+  # PINNED, not "latest". Resolving "latest" makes setup-cli call the GitHub
+  # releases API on every run; that call is unauthenticated, shares the runner
+  # pool's 60/hour budget, and failed a deploy on 18 Aug 2026 with
+  # "Failed to resolve latest Supabase CLI release: rate limit exceeded".
+  # An explicit version skips the lookup entirely. 2.109.1 is what Vj runs
+  # locally, so CI and the laptop cannot drift apart.
+  SUPABASE_CLI_VERSION: 2.109.1
 
 jobs:
   # ── Determine which env to target based on branch ──────────────────────────
