@@ -270,7 +270,10 @@ export default function TimesheetCompliance({ shared, setShared }: ReportTabProp
       </div>
 
       {data && (
-        <div style={{ display: 'flex', gap: 12, padding: '16px 20px 4px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 12, padding: '16px 20px 4px', flexWrap: 'wrap',
+                      alignItems: 'stretch' }}
+             role="group"
+             aria-label="Counts for the whole period. Selecting one filters the table below.">
           {/* Expected is the only tile that is NOT a filter: it counts four states
               at once, so "click to see them" is just the unfiltered view. It
               clears instead, which is the useful action from anywhere else. */}
@@ -398,8 +401,13 @@ export default function TimesheetCompliance({ shared, setShared }: ReportTabProp
                                           borderRadius: '0 0 12px 12px' }}>
         <Pager page={page} pageSize={pageSize} total={data?.total_rows ?? 0}
                onPage={setPage} onPageSize={setSize} />
+        {/* Since mig 747 the summary counts the PERIOD, not the filtered rows —
+            so this has to say which, or it reads as "9 of the 4 rows above are
+            overdue" the moment a tile filter is on. */}
         <div style={{ fontSize: 12, color: '#4a5568' }}>
-          {s?.overdue ? <strong style={{ color: '#B91C1C' }}>{s.overdue} overdue</strong> : 'Nothing overdue'}
+          {s?.overdue
+            ? <><strong style={{ color: '#B91C1C' }}>{s.overdue} overdue</strong> this period</>
+            : 'Nothing overdue this period'}
         </div>
       </div>
     </>
