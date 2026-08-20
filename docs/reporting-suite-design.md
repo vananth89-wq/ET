@@ -428,6 +428,36 @@ internal, `P003` overhead — never on the label, which admins may rename. Opaqu
 codes are the price of following the convention, and the same price every
 `D001` and `T001` in this database already pays.
 
+### 3a. Which of these fields are mandatory, and why they differ
+
+**Project Type is required when creating a project, and not when editing one.**
+Whoever creates a project knows whether it is billable, and that is the only
+cheap moment to capture it — left optional it stays `Not classified` forever and
+billable utilisation is quietly computed over a partial portfolio. Blocking an
+*edit*, though, means someone extending an end date must classify a project
+whose commercial arrangement they may know nothing about, and they will pick
+something to clear the dialog. A required field that manufactures guesses is
+worse than an optional one that leaves honest blanks, and the report is already
+built to show the blank.
+
+**Reporting Manager is not required, in either case.** The asymmetry is the
+point: it is a *security* column. No manager grants nobody PM access — it fails
+closed. A guessed manager grants real access to the wrong person — it fails
+open. Projects also routinely exist before a delivery lead is assigned, so a
+mandatory field would have no honest answer at creation time. The gap is made
+visible instead of blocking: the list shows `None`, and Project Summary reports
+"4 of 19 projects have no reporting manager". Require it at the point it
+actually matters — when someone asks for PM access to that project.
+
+**The general rule:** mandatory is right for a descriptive field with a knowable
+answer, and wrong for a field where a placeholder grants something real.
+
+**Enforced in the form, not with `NOT NULL`.** The existing projects are all
+unclassified, so a `NOT NULL` column would need a backfill, and a backfill would
+have to guess — the exact fabrication §3 removed. `NULL` must also stay
+representable for §9.1. `Projects.tsx` is the only writer to the table, so a
+form-level rule is sufficient and reversible.
+
 **`project_type` is nullable with no default — a correction to this document's
 first draft**, which specified `NOT NULL DEFAULT 'billable'`. That default would
 classify every existing project as billable and put "Billable utilisation 100%" in

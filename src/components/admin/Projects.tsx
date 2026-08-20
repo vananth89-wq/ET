@@ -84,6 +84,8 @@ export default function Projects() {
   const { getValues: getPicklistValues } = usePicklistValues();
   const typeOptions = getPicklistValues(PROJECT_TYPE_PICKLIST);
 
+  const unclassified = projects.filter(p => !p.projectTypeId).length;
+
   // Load in-use project IDs from line_items table once on mount
   useEffect(() => {
     let mounted = true;
@@ -130,6 +132,31 @@ export default function Projects() {
     // gets a field error rather than a Postgres constraint message.
     if (budget !== '' && !(Number(budget) > 0)) {
       errs.budget = 'Budget hours must be greater than zero, or left blank.';
+    }
+
+    /**
+     * Project type is required when CREATING, and deliberately not when editing.
+     *
+     * Whoever creates a project knows whether it is billable, and that is the
+     * only cheap moment to capture it — left optional it stays "Not classified"
+     * forever and billable utilisation is quietly computed over a partial
+     * portfolio. But blocking an EDIT would mean someone extending an end date
+     * has to classify a project whose commercial arrangement they may know
+     * nothing about, and they will pick something to get past the dialog. A
+     * required field that manufactures guesses is worse than an optional one
+     * that leaves honest blanks — the report is built to show the blank.
+     *
+     * Reporting Manager stays optional in both cases, and that asymmetry is the
+     * point: it is a SECURITY column. No manager grants nobody PM access and
+     * fails closed; a guessed manager grants real access to the wrong person
+     * and fails open. Projects also routinely exist before a lead is assigned.
+     *
+     * Enforced here rather than with NOT NULL: the existing projects are all
+     * unclassified, a backfill would have to guess, and the reports need NULL
+     * to stay representable.
+     */
+    if (editId === null && projType === '') {
+      errs.projType = 'Choose a project type. This drives billable utilisation.';
     }
     if (Object.keys(errs).length > 0) { setFormErrors(errs); return; }
     setFormErrors({});
@@ -303,17 +330,26 @@ export default function Projects() {
             </div>
           </div>
           <div className="rd-form-row">
-            <div className="form-group" style={{ flex: 1 }}>
-              <label>Project Type</label>
-              <select value={projType} onChange={e => setProjType(e.target.value)}>
+            <div className={`form-group${formErrors.projType ? ' form-group--error' : ''}`} style={{ flex: 1 }}>
+              <label>Project Type {editId === null && <span style={{ color: '#D92D20' }}>*</span>}</label>
+              <select
+                value={projType}
+                onChange={e => { setProjType(e.target.value); setFormErrors(p => ({ ...p, projType: '' })); }}
+              >
                 <option value="">Not classified</option>
                 {typeOptions.map(o => <option key={o.id} value={o.id}>{o.value}</option>)}
               </select>
-              <small style={{ color: '#8A97A8', marginTop: 4, display: 'block' }}>
-                {typeOptions.length === 0
-                  ? 'No values yet — add them under Reference Data → PROJECT_TYPE.'
-                  : 'Maintained in Reference Data → PROJECT_TYPE.'}
-              </small>
+              {formErrors.projType ? (
+                <small className="field-error" style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 }}>
+                  <i className="fa-solid fa-circle-exclamation" /> {formErrors.projType}
+                </small>
+              ) : (
+                <small style={{ color: '#8A97A8', marginTop: 4, display: 'block' }}>
+                  {typeOptions.length === 0
+                    ? 'No values yet — add them under Reference Data → PROJECT_TYPE.'
+                    : 'Maintained in Reference Data → PROJECT_TYPE.'}
+                </small>
+              )}
             </div>
             <div className="form-group" style={{ flex: 1 }}>
               <label>Reporting Manager</label>
@@ -362,6 +398,22 @@ export default function Projects() {
           </div>
         </form>
       </div>
+
+      {/* Existing projects predate the type field and can only be classified by
+          hand — a migration would have to guess, which is the thing 754 removed.
+          This line is the worklist for that pass, and it disappears when the
+          work is done rather than sitting there as permanent chrome. */}
+      {!loading && unclassified > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12,
+                      padding: '10px 14px', borderRadius: 8, background: '#FFFAEB',
+                      border: '1px solid #FEDF89', fontSize: 13, color: '#8a5a00' }}>
+          <i className="fa-solid fa-circle-info" />
+          <span>
+            <strong>{unclassified}</strong> of {projects.length} project{projects.length === 1 ? '' : 's'}
+            {' '}not classified. Billable utilisation will exclude {unclassified === 1 ? 'it' : 'them'} until a type is set.
+          </span>
+        </div>
+      )}
 
       {/* ── Table ────────────────────────────────────────────────────────────── */}
       <div className="er-table-wrap" style={{ overflow: 'hidden', maxWidth: '100%' }}>
