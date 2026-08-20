@@ -13,11 +13,27 @@
 --             different, so whichever arrives tells you unambiguously which
 --             level resolved.
 --
+-- Why the code carries 'task' :
+--             NotificationConfig.getCategory() derives the Task / SLA /
+--             Approval / Returned / Admin / General chips from substrings of
+--             the code -- there is no category column. A code without one of
+--             those substrings lands in General, which is wrong for an
+--             assignment message and makes it invisible under the Task filter.
+--             'timesheet.hr_task_assigned' sorts under Task, next to the
+--             template it is meant to be compared with.
+--
 -- Placeholders : same constraint as 749 -- only what submit_timesheet (mig 742)
 --             puts in workflow_instances.metadata is substitutable. This uses
 --             employee_name and period_label only. planned_minutes and
 --             recorded_minutes are again avoided: they are raw integers and
 --             would render "4560" where a reader expects "76 h".
+--
+--             NOTE the token list shown on the Notifications screen is the
+--             GENERIC workflow vocabulary -- approver_name, submitter_name,
+--             record_label, reason. None of those exist in timesheet instance
+--             metadata, so a timesheet template that uses one renders the
+--             literal braces. docs/notification_checks.sql Q5 catches exactly
+--             this.
 --
 -- DELIBERATELY NOT BOUND to any step. The binding is
 --             workflow_steps.notification_template_id, and setting it from a
@@ -25,8 +41,8 @@
 --             that the dropdown in the step editor writes it and that
 --             wf_queue_notification then reads it. A migration that quietly did
 --             the binding would make a broken dropdown look like a working one.
---             Bind it in the UI: Workflow Templates -> TIMESHEET -> Edit step 1
---             -> Notification -> "timesheet.hr_review".
+--             Bind it in the UI: Workflow -> Templates -> TIMESHEET -> Edit
+--             step 1 -> Notification -> timesheet.hr_task_assigned.
 --
 -- Precedence this exercises (wf_queue_notification, patched by 748) :
 --             1. step      workflow_steps.notification_template_id
@@ -45,7 +61,7 @@
 
 INSERT INTO workflow_notification_templates (code, title_tmpl, body_tmpl)
 VALUES
-  ('timesheet.hr_review',
+  ('timesheet.hr_task_assigned',
    'HR review: {{employee_name}} — {{period_label}} timesheet',
    'A timesheet is waiting on HR. Open the month to see it day by day, '
    'including anything recorded beyond plan, then approve it or send it back '
@@ -65,14 +81,14 @@ DECLARE
 BEGIN
   SELECT count(*) INTO v_n
   FROM   workflow_notification_templates
-  WHERE  code = 'timesheet.hr_review';
+  WHERE  code = 'timesheet.hr_task_assigned';
 
   IF v_n <> 1 THEN
-    RAISE EXCEPTION 'mig 753 assert: timesheet.hr_review not present after insert';
+    RAISE EXCEPTION 'mig 753 assert: timesheet.hr_task_assigned not present after insert';
   END IF;
 
   RAISE NOTICE
-    'mig 753: timesheet.hr_review authored — bind it to a step in the UI to test '
-    'step-level precedence';
+    'mig 753: timesheet.hr_task_assigned authored — bind it to a step in the UI '
+    'to test step-level precedence';
 END
 $chk$;
