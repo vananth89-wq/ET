@@ -1,4 +1,26 @@
--- Migration : 20260820758_business_email_is_the_login.sql
+-- Migration : 20260820761_business_email_is_the_login.sql
+--
+-- Renumbered : was 20260820758, which never reached any database. That version
+--              had already been recorded by
+--              20260820758_project_type_follows_the_house_rules.sql, so
+--              `supabase db push` treated this file as applied and skipped it
+--              WITHOUT SAYING SO. The run went red for an unrelated reason and
+--              the skip was invisible underneath it. Confirmed after the fact
+--              from supabase_migrations.schema_migrations, which named 758 as
+--              project_type.
+--
+-- 759 IS FOLDED IN, deliberately. 759 replaced trg_employee_email_change and
+--              claim_email_change_token with unqualified pgcrypto calls, and it
+--              DID apply. Re-issuing this file with the original
+--              `extensions.digest(...)` bodies would quietly revert it -- a
+--              CREATE OR REPLACE built from an older file undoing a later patch,
+--              which is the defect behind migrations 734, 736 and 737 and is
+--              written up in the timesheet test plan. So the bodies below carry
+--              759's unqualified calls, and the assertion at the foot proves
+--              pgcrypto resolves before anything depends on it.
+--
+--              The result is order-independent: 759 then 761, or 761 alone on a
+--              fresh database, both end with the same function bodies.
 -- Purpose   : Make employees.business_email the system of record for a person's
 --             login, with the new address verified before it takes effect.
 --
@@ -156,14 +178,14 @@ BEGIN
   SET    status = 'superseded', resolved_at = now()
   WHERE  employee_id = NEW.id AND status = 'pending';
 
-  v_token := encode(extensions.gen_random_bytes(32), 'hex');
+  v_token := encode(gen_random_bytes(32), 'hex');
 
   INSERT INTO employee_email_changes
     (employee_id, profile_id, old_email, new_email, token_hash,
      requested_by, expires_at)
   VALUES
     (NEW.id, v_profile_id, v_auth_email, NEW.business_email,
-     encode(extensions.digest(v_token, 'sha256'), 'hex'),
+     encode(digest(v_token, 'sha256'), 'hex'),
      auth.uid(), v_expires)
   RETURNING id INTO v_change_id;
 
@@ -274,9 +296,9 @@ BEGIN
       '17 2 * * *',
       $job$SELECT public.expire_employee_email_changes();$job$
     );
-    RAISE NOTICE 'mig 758: expiry job scheduled daily at 02:17 UTC';
+    RAISE NOTICE 'mig 761: expiry job scheduled daily at 02:17 UTC';
   ELSE
-    RAISE NOTICE 'mig 758: pg_cron not enabled — expiry must be run manually';
+    RAISE NOTICE 'mig 761: pg_cron not enabled — expiry must be run manually';
   END IF;
 END
 $cron$;
@@ -296,7 +318,7 @@ SECURITY DEFINER
 SET search_path = public, extensions
 AS $fn$
 DECLARE
-  v_hash text := encode(extensions.digest(p_token, 'sha256'), 'hex');
+  v_hash text := encode(digest(p_token, 'sha256'), 'hex');
 BEGIN
   RETURN QUERY
   SELECT c.id, c.profile_id, c.new_email, e.name
@@ -347,7 +369,7 @@ BEGIN
     AND  NOT tgisinternal;
 
   IF v_n <> 1 THEN
-    RAISE EXCEPTION 'mig 758 assert: trigger not attached to employees';
+    RAISE EXCEPTION 'mig 761 assert: trigger not attached to employees';
   END IF;
 
   SELECT count(*) INTO v_n
@@ -358,7 +380,7 @@ BEGIN
 
   IF v_n <> 0 THEN
     RAISE EXCEPTION
-      'mig 758 assert: % write policy(ies) on employee_email_changes — the audit '
+      'mig 761 assert: % write policy(ies) on employee_email_changes — the audit '
       'must not be writable from the client', v_n;
   END IF;
 
@@ -367,10 +389,30 @@ BEGIN
 
   IF v_n = 0 THEN
     RAISE WARNING
-      'mig 758: supabase_functions_url is empty in app_config — verification '
+      'mig 761: supabase_functions_url is empty in app_config — verification '
       'emails will be skipped until it is set';
   END IF;
 
-  RAISE NOTICE 'mig 758: business_email now drives the login, verified before it takes effect';
+  -- Prove the primitives resolve, rather than discovering it when an
+  -- administrator saves a form and the trigger throws into their face.
+  DECLARE
+    v_probe text;
+  BEGIN
+    -- Under the FUNCTIONS' search_path, not this session's. Without this the
+    -- probe fails on any database where pgcrypto sits in extensions and the
+    -- deploy session's path is bare public -- i.e. it would abort a migration
+    -- that was about to work perfectly.
+    EXECUTE 'SET LOCAL search_path = public, extensions';
+    SELECT encode(digest(encode(gen_random_bytes(8), 'hex'), 'sha256'), 'hex') INTO v_probe;
+    IF v_probe IS NULL OR length(v_probe) <> 64 THEN
+      RAISE EXCEPTION 'mig 761 assert: pgcrypto did not produce a sha256 digest';
+    END IF;
+  EXCEPTION WHEN undefined_function OR invalid_schema_name THEN
+    RAISE EXCEPTION
+      'mig 761 assert: pgcrypto is not reachable from search_path — no email '
+      'change could ever be issued or confirmed on this database';
+  END;
+
+  RAISE NOTICE 'mig 761: business_email now drives the login, verified before it takes effect';
 END
 $chk$;
