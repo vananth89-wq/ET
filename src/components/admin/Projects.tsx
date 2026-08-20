@@ -1,7 +1,9 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import WorkflowGateBanner from '../../workflow/components/WorkflowGateBanner';
 import { useProjects } from '../../hooks/useProjects';
+import { usePicklistValues } from '../../hooks/usePicklistValues';
+import ManagerAutocomplete from './ManagerAutocomplete';
 import ConfirmationModal from '../shared/ConfirmationModal';
 import ErrorBanner from '../shared/ErrorBanner';
 import type { Project } from '../../hooks/useProjects';
@@ -17,21 +19,22 @@ function getStatus(startDate: string, endDate: string): 'Active' | 'Upcoming' | 
   return 'Active';
 }
 
-const TYPE_OPTIONS = [
-  { value: 'billable', label: 'Billable' },
-  { value: 'internal', label: 'Internal' },
-  { value: 'overhead', label: 'Overhead' },
-] as const;
-
 /**
- * "Not classified" is shown plainly rather than assumed to be billable.
- * A project silently defaulted to billable turns up in Finance's billable
- * utilisation as if somebody had decided it, which is the whole reason
- * projects.project_type is nullable (mig 754).
+ * The project types are NOT hard-coded here. They are the PROJECT_TYPE picklist
+ * (mig 755), so adding "Pre-sales" is an admin editing Reference Data rather
+ * than a migration and a deploy — the same treatment every other
+ * classification in Prowess gets.
+ *
+ * "Not classified" is shown plainly rather than assumed to be billable. A
+ * project silently defaulted to billable turns up in Finance's billable
+ * utilisation as if somebody had decided it, which is why the column is
+ * nullable (mig 754).
  */
-function TypeCell({ value }: { value: string | null }) {
-  if (!value) return <span style={{ color: '#9CA3AF' }}>Not classified</span>;
-  return <>{TYPE_OPTIONS.find(o => o.value === value)?.label ?? value}</>;
+const PROJECT_TYPE_PICKLIST = 'PROJECT_TYPE';
+
+function TypeCell({ label }: { label: string | null }) {
+  if (!label) return <span style={{ color: '#9CA3AF' }}>Not classified</span>;
+  return <>{label}</>;
 }
 
 function StatusBadge({ status }: { status: 'Active' | 'Upcoming' | 'Closed' }) {
@@ -53,7 +56,8 @@ export default function Projects() {
   const [startDate, setStartDate] = useState('');
   const [endDate,   setEndDate]   = useState('');
   const [projType,  setProjType]  = useState('');
-  const [managerId, setManagerId] = useState('');
+  const [managerId, setManagerId] = useState<string | null>(null);
+  const [managerNm, setManagerNm] = useState<string | null>(null);
   const [budget,    setBudget]    = useState('');
   const [editId,    setEditId]    = useState<string | null>(null);
   const [saving,    setSaving]    = useState(false);
@@ -76,39 +80,9 @@ export default function Projects() {
 
   const nameRef = useRef<HTMLInputElement>(null);
 
-  /**
-   * Candidates for the reporting manager. Active employees, PLUS anyone already
-   * recorded as a manager who has since gone inactive — without the second set,
-   * opening such a project for edit would show an empty picker and quietly
-   * clear the manager on save.
-   */
-  const [people, setPeople] = useState<{ id: string; label: string; inactive: boolean }[]>([]);
-  useEffect(() => {
-    let mounted = true;
-    const t = setTimeout(async () => {
-      const { data } = await supabase
-        .from('employees')
-        .select('id, name, employee_id, status')
-        .order('name');
-      if (!mounted || !data) return;
-      const held = new Set(projects.map(p => p.managerId).filter(Boolean) as string[]);
-      setPeople(
-        data
-          .filter(r => r.status === 'Active' || held.has(r.id))
-          .map(r => ({
-            id: r.id,
-            label: `${r.name} (${r.employee_id})${r.status === 'Active' ? '' : ' — inactive'}`,
-            inactive: r.status !== 'Active',
-          }))
-      );
-    }, 0);
-    return () => { mounted = false; clearTimeout(t); };
-  }, [projects]);
-
-  const managerName = useCallback(
-    (id: string | null) => (id ? people.find(p => p.id === id)?.label ?? '—' : null),
-    [people],
-  );
+  // Project types come from Reference Data, not from this file.
+  const { getValues: getPicklistValues } = usePicklistValues();
+  const typeOptions = getPicklistValues(PROJECT_TYPE_PICKLIST);
 
   // Load in-use project IDs from line_items table once on mount
   useEffect(() => {
@@ -136,7 +110,7 @@ export default function Projects() {
 
   function resetForm() {
     setName(''); setStartDate(''); setEndDate('');
-    setProjType(''); setManagerId(''); setBudget('');
+    setProjType(''); setManagerId(null); setManagerNm(null); setBudget('');
     setEditId(null);
     setFormErrors({});
   }
@@ -206,9 +180,9 @@ export default function Projects() {
    */
   function optionalFields() {
     return {
-      project_type: projType  === '' ? null : projType,
-      manager_id:   managerId === '' ? null : managerId,
-      budget_hours: budget    === '' ? null : Number(budget),
+      project_type_id: projType === '' ? null : projType,
+      manager_id:      managerId,
+      budget_hours:    budget   === '' ? null : Number(budget),
     };
   }
 
@@ -216,8 +190,9 @@ export default function Projects() {
     setName(p.name);
     setStartDate(p.startDate);
     setEndDate(p.endDate);
-    setProjType(p.projectType ?? '');
-    setManagerId(p.managerId ?? '');
+    setProjType(p.projectTypeId ?? '');
+    setManagerId(p.managerId);
+    setManagerNm(p.managerName);
     setBudget(p.budgetHours === null ? '' : String(p.budgetHours));
     setEditId(p.id);
     setFormErrors({});
@@ -332,20 +307,23 @@ export default function Projects() {
               <label>Project Type</label>
               <select value={projType} onChange={e => setProjType(e.target.value)}>
                 <option value="">Not classified</option>
-                {TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                {typeOptions.map(o => <option key={o.id} value={o.id}>{o.value}</option>)}
               </select>
               <small style={{ color: '#8A97A8', marginTop: 4, display: 'block' }}>
-                Drives billable utilisation. Left unclassified until someone decides.
+                {typeOptions.length === 0
+                  ? 'No values yet — add them under Reference Data → PROJECT_TYPE.'
+                  : 'Maintained in Reference Data → PROJECT_TYPE.'}
               </small>
             </div>
             <div className="form-group" style={{ flex: 1 }}>
               <label>Reporting Manager</label>
-              <select value={managerId} onChange={e => setManagerId(e.target.value)}>
-                <option value="">None</option>
-                {people.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
-              </select>
+              <ManagerAutocomplete
+                valueId={managerId}
+                valueName={managerNm}
+                onChange={(id, nm) => { setManagerId(id); setManagerNm(nm); }}
+              />
               <small style={{ color: '#8A97A8', marginTop: 4, display: 'block' }}>
-                The manager this project reports into.
+                The manager this project reports into. Type to search; must be an employee.
               </small>
             </div>
             <div className={`form-group${formErrors.budget ? ' form-group--error' : ''}`} style={{ flex: 1 }}>
@@ -421,8 +399,14 @@ export default function Projects() {
                     <td><strong>{p.name}</strong></td>
                     <td>{p.startDate}</td>
                     <td>{p.endDate}</td>
-                    <td><TypeCell value={p.projectType} /></td>
-                    <td>{managerName(p.managerId) ?? <span style={{ color: '#9CA3AF' }}>None</span>}</td>
+                    <td><TypeCell label={p.projectTypeName} /></td>
+                    <td>{p.managerName
+                      ?? (p.managerId
+                        /* A manager is set but the embed came back empty — the
+                           caller cannot read that employee. Saying "None" here
+                           would report the opposite of the truth. */
+                        ? <span style={{ color: '#9CA3AF' }} title="You do not have access to this employee">Restricted</span>
+                        : <span style={{ color: '#9CA3AF' }}>None</span>)}</td>
                     <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
                       {p.budgetHours === null
                         ? <span style={{ color: '#9CA3AF' }}>—</span>

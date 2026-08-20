@@ -402,6 +402,19 @@ ALTER TABLE projects
 CREATE INDEX idx_projects_manager ON projects (manager_id) WHERE manager_id IS NOT NULL;
 ```
 
+**`project_type` moved to the picklist system in 20260819755.** The CHECK
+allow-list above made the set of project types a schema fact: adding "Pre-sales"
+would need a migration, a deploy and a developer. Every other classification in
+Prowess is a picklist an admin edits in Reference Data, and this one is no
+different in kind. The column is now `project_type_id uuid REFERENCES
+picklist_values(id) ON DELETE SET NULL`, following the `line_items.category_id`
+precedent, with a trigger pinning it to the `PROJECT_TYPE` list — a bare FK to
+`picklist_values` would accept a CURRENCY row. **Reports must match on
+`picklist_values.ref_id`** (`BILLABLE` / `INTERNAL` / `OVERHEAD`), never on the
+label, which admins may rename. The old text column is retained and marked
+deprecated until a later migration drops it, so 755 can deploy ahead of the
+frontend rather than breaking the screen that still selects it.
+
 **`project_type` is nullable with no default — a correction to this document's
 first draft**, which specified `NOT NULL DEFAULT 'billable'`. That default would
 classify every existing project as billable and put "Billable utilisation 100%" in

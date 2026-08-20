@@ -11,17 +11,24 @@ export interface Project {
   endDate:   string;
   active:    boolean;
   /**
-   * mig 754. All three are nullable and mean it.
+   * migs 754 and 755. All are nullable and mean it.
    *
-   * projectType null is "not classified", NOT "billable" — defaulting it would
-   * make billable utilisation a number computed from a value nobody chose.
-   * budgetHours null is a project with no budget, which shows consumption
-   * without a percentage rather than against a fake denominator.
+   * projectTypeId null is "not classified", NOT "billable" — defaulting it
+   * would make billable utilisation a number computed from a value nobody
+   * chose. budgetHours null is a project with no budget, which shows
+   * consumption without a percentage rather than against a fake denominator.
    * managerId null grants nobody Project Manager access; it fails closed.
    */
-  projectType: 'billable' | 'internal' | 'overhead' | null;
-  managerId:   string | null;
-  budgetHours: number | null;
+  projectTypeId:   string | null;
+  /** Label and stable code, embedded so an INACTIVE picklist value still
+   *  renders instead of showing blank. Reports match on typeRefId. */
+  projectTypeName: string | null;
+  typeRefId:       string | null;
+  managerId:       string | null;
+  /** Embedded from employees, so the screen never has to load the whole
+   *  directory just to print one name. */
+  managerName:     string | null;
+  budgetHours:     number | null;
 }
 
 // Lookup shape — used by transactional dropdowns (queries vw_projects_lookup)
@@ -41,6 +48,20 @@ interface UseProjectsResult {
   refetch:  () => void;
 }
 
+/**
+ * PostgREST returns an embedded to-one relation as an object, but the generated
+ * types widen it to object-or-array. These unwrap it in one place rather than
+ * casting at four call sites.
+ */
+function pt(v: unknown): { value: string; ref_id: string | null } | null {
+  const o = Array.isArray(v) ? v[0] : v;
+  return (o ?? null) as { value: string; ref_id: string | null } | null;
+}
+function mgr(v: unknown): { name: string; employee_id: string } | null {
+  const o = Array.isArray(v) ? v[0] : v;
+  return (o ?? null) as { name: string; employee_id: string } | null;
+}
+
 export function useProjects(activeOnly = false): UseProjectsResult {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading,  setLoading]  = useState(true);
@@ -58,7 +79,12 @@ export function useProjects(activeOnly = false): UseProjectsResult {
       try {
         let query = supabase
           .from('projects')
-          .select('id, name, start_date, end_date, active, project_type, manager_id, budget_hours')
+          .select(`
+            id, name, start_date, end_date, active, manager_id, budget_hours,
+            project_type_id,
+            project_type:picklist_values!projects_project_type_id_fkey ( value, ref_id ),
+            manager:employees!projects_manager_id_fkey ( name, employee_id )
+          `)
           .order('name', { ascending: true });
 
         if (activeOnly) {
@@ -76,8 +102,13 @@ export function useProjects(activeOnly = false): UseProjectsResult {
               startDate: row.start_date ?? '',
               endDate:   row.end_date   ?? '',
               active:    row.active,
-              projectType: row.project_type ?? null,
-              managerId:   row.manager_id   ?? null,
+              projectTypeId:   row.project_type_id ?? null,
+              projectTypeName: pt(row.project_type)?.value  ?? null,
+              typeRefId:       pt(row.project_type)?.ref_id ?? null,
+              managerId:       row.manager_id ?? null,
+              managerName:     mgr(row.manager)
+                                 ? `${mgr(row.manager)!.name} (${mgr(row.manager)!.employee_id})`
+                                 : null,
               budgetHours: row.budget_hours === null || row.budget_hours === undefined
                              ? null : Number(row.budget_hours),
             }))
