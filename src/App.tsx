@@ -25,6 +25,7 @@ import ProtectedRoute                                             from './compon
 import LoginPage                                                  from './components/auth/LoginPage';
 import ResetPasswordPage                                          from './components/auth/ResetPasswordPage';
 import ForceChangePasswordPage                                    from './components/auth/ForceChangePasswordPage';
+import VerifyEmailChangePage                                      from './components/auth/VerifyEmailChangePage';
 import MyReports                                                  from './components/employee/MyReports';
 import MyProfile                                                  from './components/employee/MyProfile';
 import { ProfileContextProvider }                                 from './contexts/ProfileContext';
@@ -726,6 +727,7 @@ export default function App() {
       <Route path="/login"                  element={<LoginPage />} />
       <Route path="/reset-password"         element={<ResetPasswordPage />} />
       <Route path="/force-change-password"  element={<ForceChangePasswordPage />} />
+      <Route path="/verify-email-change"    element={<VerifyEmailChangePage />} />
 
       {/* ── Single persistent AppShell wrapping all authenticated routes ──── */}
       <Route element={<ProtectedRoute><AppShell /></ProtectedRoute>}>
