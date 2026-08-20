@@ -1,5 +1,12 @@
 -- =============================================================================
--- Migration : 20260820758_project_type_follows_the_house_rules.sql
+-- Migration : 20260820760_project_type_follows_the_house_rules.sql
+-- Renumbered : was 20260820758. That version was taken by
+--              20260820758_business_email_is_the_login.sql, which reached the
+--              database first, so this file failed on the schema_migrations
+--              primary key -- AFTER its own statements had run. It opens with
+--              BEGIN; and its two UPDATEs match on the old value, so the failed
+--              attempt rolled back cleanly and re-running is a no-op either way.
+--
 -- Purpose   : Make the PROJECT_TYPE picklist behave like every other picklist.
 --             755 introduced two differences that were not deliberate.
 --
@@ -120,10 +127,10 @@ BEGIN
     v_missing := v_missing || 'mig 755: the project_type_id FK was lost'::text; END IF;
 
   IF array_length(v_missing, 1) > 0 THEN
-    RAISE EXCEPTION E'MIG 758 ABORT:\n  - %', array_to_string(v_missing, E'\n  - ');
+    RAISE EXCEPTION E'MIG 760 ABORT:\n  - %', array_to_string(v_missing, E'\n  - ');
   END IF;
 
-  RAISE NOTICE 'MIG 758 verified: PROJECT_TYPE is built-in and coded P001-P003, like every other picklist.';
+  RAISE NOTICE 'MIG 760 verified: PROJECT_TYPE is built-in and coded P001-P003, like every other picklist.';
 END $mig$;
 
 COMMIT;
