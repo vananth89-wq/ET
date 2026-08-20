@@ -59,6 +59,64 @@ const INSTANCE_EVENTS: { code: string; label: string; who: string; hint: string 
   { code: 'wf.sla_escalation',            label: 'SLA escalation',         who: 'Escalation', hint: 'Sent to the escalation contact once a step breaches its SLA.' },
 ];
 
+// ─── Notification option grouping ─────────────────────────────────────────────
+// The picker lists every notification template in the system — today 35, across
+// four modules. Flat and message-first, choosing one for a timesheet step means
+// scrolling past ten hire templates, and the identifier that actually tells you
+// what you picked sits at the END of the label, where truncation eats it first.
+//
+// So: code first, message after, grouped by the prefix before the first dot,
+// with the module this workflow is actually assigned to sorted to the top and
+// wf.* — reusable by every module — last.
+const MODULE_LABELS: Record<string, string> = {
+  wf:               'Generic — all modules',
+  hire:             'Hire',
+  timesheet:        'Timesheet',
+  job_relationship: 'Job relationship',
+  expense:          'Expense',
+  termination:      'Termination',
+};
+
+function notifModuleOf(code: string): string {
+  const i = code.indexOf('.');
+  return i < 0 ? '' : code.slice(0, i);
+}
+
+function moduleLabel(key: string): string {
+  return MODULE_LABELS[key]
+      ?? (key ? key.charAt(0).toUpperCase() + key.slice(1).replace(/_/g, ' ') : 'Other');
+}
+
+/** One label per option: identifier first, so truncation cannot remove it. */
+function notifOptionLabel(t: { code: string; name: string }): string {
+  return t.name && t.name !== t.code ? `${t.code} — ${t.name}` : t.code;
+}
+
+function groupNotifTemplates(
+  list: NotifTemplate[],
+  preferred: string[],
+): Array<{ key: string; label: string; items: NotifTemplate[] }> {
+  const buckets = new Map<string, NotifTemplate[]>();
+  list.forEach(t => {
+    const k = notifModuleOf(t.code);
+    if (!buckets.has(k)) buckets.set(k, []);
+    buckets.get(k)!.push(t);
+  });
+
+  const rank = (k: string) =>
+    preferred.includes(k) ? 0        // the module this workflow actually serves
+    : k === 'wf'          ? 2        // generic, always last
+    : 1;
+
+  return [...buckets.entries()]
+    .map(([key, items]) => ({
+      key,
+      label: moduleLabel(key),
+      items: [...items].sort((a, b) => a.code.localeCompare(b.code)),
+    }))
+    .sort((a, b) => rank(a.key) - rank(b.key) || a.label.localeCompare(b.label));
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface UserOption {
@@ -497,6 +555,13 @@ export default function WorkflowTemplates() {
   const [tplNotifs,      setTplNotifs]      = useState<Map<string, string>>(new Map());
   const [tplNotifsBusy,  setTplNotifsBusy]  = useState<string | null>(null);
 
+  // Which module(s) this workflow version is actually assigned to. Read from
+  // workflow_assignments, not workflow_templates.module_code — mig 504118
+  // decoupled that column from routing, so it says what the template was
+  // authored for, not what submits through it. Used only to sort that module's
+  // notification templates to the top of the picker.
+  const [tplModules, setTplModules] = useState<string[]>([]);
+
   // Condition counts per step (shown as chips on step cards)
   const [conditionCounts, setConditionCounts] = useState<Map<string, number>>(new Map());
 
@@ -698,6 +763,12 @@ export default function WorkflowTemplates() {
       m.set(r.event_code, r.notification_template_id);
     });
     setTplNotifs(m);
+
+    const { data: asg } = await supabase
+      .from('workflow_assignments')
+      .select('module_code')
+      .eq('wf_template_id', templateId);
+    setTplModules([...new Set((asg ?? []).map((a: { module_code: string }) => a.module_code))]);
   }, []);
 
   // Clearing a binding DELETES the row rather than storing a null: absent means
@@ -736,7 +807,7 @@ export default function WorkflowTemplates() {
 
   useEffect(() => {
     if (selectedId) { loadSteps(selectedId); loadTplNotifs(selectedId); }
-    else { setSteps([]); setTplNotifs(new Map()); }
+    else { setSteps([]); setTplNotifs(new Map()); setTplModules([]); }
   }, [selectedId, loadSteps, loadTplNotifs]);
 
   const selected = templates.find(t => t.id === selectedId) ?? null;
@@ -1651,7 +1722,7 @@ export default function WorkflowTemplates() {
               <p style={{ fontSize: 12, color: C.muted, margin: '0 0 16px', lineHeight: 1.5 }}>
                 Wording for the events this workflow raises. These fire against the request as a
                 whole, not against any one step — by the time a request is fully approved there is
-                no step left to take the wording from. Anything left on <em>System Default</em>
+                no step left to take the wording from. Anything left on <em>System Default</em>{' '}
                 sends the generic message.
               </p>
 
@@ -1673,7 +1744,15 @@ export default function WorkflowTemplates() {
                     const extras = [...tplNotifs.keys()]
                       .filter(code => !known.has(code))
                       .sort()
-                      .map(code => ({ code, label: code.replace(/^wf\./, '').replace(/_/g, ' '), who: '—', hint: 'Bound outside this screen.' }));
+                      .map(code => {
+                        const words = code.replace(/^wf\./, '').replace(/_/g, ' ');
+                        return {
+                          code,
+                          label: words.charAt(0).toUpperCase() + words.slice(1),
+                          who:   '—',
+                          hint:  'Bound outside this screen.',
+                        };
+                      });
                     return [...INSTANCE_EVENTS, ...extras];
                   })().map((ev, i) => {
                     const current = tplNotifs.get(ev.code) ?? '';
@@ -1689,7 +1768,7 @@ export default function WorkflowTemplates() {
                       >
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                            <span style={{ fontSize: 13, fontWeight: 600, color: C.text, textTransform: 'capitalize' }}>
+                            <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>
                               {ev.label}
                             </span>
                             <span style={{
@@ -1714,8 +1793,12 @@ export default function WorkflowTemplates() {
                             style={{ ...iStyle, flex: 1, fontSize: 12, padding: '6px 8px' }}
                           >
                             <option value="">System Default</option>
-                            {notifTemplates.map(t => (
-                              <option key={t.id} value={t.id}>{t.name} ({t.code})</option>
+                            {groupNotifTemplates(notifTemplates, tplModules).map(g => (
+                              <optgroup key={g.key} label={g.label}>
+                                {g.items.map(t => (
+                                  <option key={t.id} value={t.id}>{notifOptionLabel(t)}</option>
+                                ))}
+                              </optgroup>
                             ))}
                           </select>
                           <i
@@ -2491,8 +2574,12 @@ export default function WorkflowTemplates() {
               style={{ ...iStyle, flex: 1 }}
             >
               <option value="">System Default</option>
-              {notifTemplates.map(t => (
-                <option key={t.id} value={t.id}>{t.name} ({t.code})</option>
+              {groupNotifTemplates(notifTemplates, tplModules).map(g => (
+                <optgroup key={g.key} label={g.label}>
+                  {g.items.map(t => (
+                    <option key={t.id} value={t.id}>{notifOptionLabel(t)}</option>
+                  ))}
+                </optgroup>
               ))}
             </select>
           </div>

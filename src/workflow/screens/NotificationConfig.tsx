@@ -20,9 +20,10 @@ interface NotifTemplate {
   title_tmpl: string;
   body_tmpl:  string;
   updated_at: string;
+  category:   Category | null;   // MIG 756 — null only on a pre-756 client cache
 }
 
-const EMPTY_DRAFT = { code: '', title_tmpl: '', body_tmpl: '' };
+const EMPTY_DRAFT = { code: '', title_tmpl: '', body_tmpl: '', category: 'general' as Category };
 
 // ─── Category helpers ─────────────────────────────────────────────────────────
 
@@ -47,6 +48,10 @@ const CAT: Record<Category, CatMeta> = {
   general:  { label: 'General',  color: '#4B5563', bg: '#F9FAFB', border: '#E5E7EB', pillBg: '#F3F4F6', pillTxt: '#374151', icon: 'fa-envelope'     },
 };
 
+// MIG 756 made category a stored column. This function survives for exactly two
+// jobs: suggesting a category while a NEW template's code is being typed, and
+// standing in for a row that predates the column. It is no longer what files an
+// existing template — see catOf().
 function getCategory(code: string): Category {
   if (code.includes('sla'))                                                           return 'sla';
   if (code.includes('task') || code.includes('reassign'))                             return 'task';
@@ -60,22 +65,110 @@ function getCategory(code: string): Category {
 
 const ALL_CATEGORIES: Array<Category | 'all'> = ['all', 'task', 'sla', 'approval', 'returned', 'admin', 'general'];
 
+/** The category a template files under. The stored column wins; the substring
+ *  rule is only a stand-in for a row loaded before MIG 756 landed. */
+function catOf(t: { code: string; category?: Category | null }): Category {
+  return t.category ?? getCategory(t.code);
+}
+
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 // ─── Token reference ──────────────────────────────────────────────────────────
+//
+// What is substitutable is NOT one fixed list. wf_queue_notification builds the
+// payload as `workflow_instances.metadata || p_payload` — so a token resolves
+// only if the MODULE put it in the instance metadata, or the EVENT's caller
+// passed it. A token from neither source survives substitution untouched and is
+// delivered as the literal characters {{approver_name}}.
+//
+// The old flat list here advertised {{submitter_name}}, which no caller in the
+// codebase has ever passed, and offered {{approver_name}} / {{record_label}} /
+// {{hours_elapsed}} on every template though only the SLA jobs supply them.
+// Sources below are the actual jsonb_build_object calls in the migrations.
 
-const TOKENS = [
-  { token: '{{step_name}}',      description: 'Name of the workflow step'             },
-  { token: '{{submitter_name}}', description: 'Full name of the person who submitted'  },
-  { token: '{{approver_name}}',  description: 'Full name of the assigned approver'    },
-  { token: '{{reason}}',         description: 'Rejection or clarification reason'     },
-  { token: '{{record_label}}',   description: 'Label of the record being approved'    },
-  { token: '{{response}}',       description: "Approver's response text"              },
-  { token: '{{hours_elapsed}}',  description: 'Hours elapsed since SLA deadline'      },
-  { token: '{{message}}',        description: 'Custom message from the workflow'       },
+interface TokenDef {
+  token:       string;
+  description: string;
+  warn?:       string;
+}
+
+/** Resolvable on every template, whatever the module or event. */
+const TOKENS_ALWAYS: TokenDef[] = [
+  { token: '{{step_name}}',   description: 'Name of the workflow step the event happened on' },
+  { token: '{{module_label}}', description: 'Readable module name — substituted at delivery time, so it works everywhere (mig 604)' },
+  { token: '{{message}}',     description: 'Free-text message supplied by the action that fired the event' },
 ];
+
+/** From workflow_instances.metadata — i.e. what the module's submit function wrote. */
+const MODULE_TOKENS: Record<string, TokenDef[]> = {
+  timesheet: [
+    { token: '{{employee_name}}',    description: 'Whose timesheet it is' },
+    { token: '{{period_label}}',     description: 'The month, written out — e.g. August 2026' },
+    { token: '{{period}}',           description: 'The month as 2026-08' },
+    { token: '{{external_code}}',    description: 'Payroll / external reference from the timesheet header' },
+    { token: '{{planned_minutes}}',  description: 'Planned time as a raw integer',
+      warn: 'Raw minutes — renders “9600”, not “160 h”. A template cannot format it.' },
+    { token: '{{recorded_minutes}}', description: 'Recorded time as a raw integer',
+      warn: 'Raw minutes — renders “4560”, not “76 h”. A template cannot format it.' },
+  ],
+  hire: [
+    { token: '{{name}}',        description: 'Name of the employee being hired' },
+    { token: '{{employee_id}}', description: 'Employee code, e.g. E001' },
+  ],
+  job_relationship: [
+    { token: '{{relationship_label}}', description: 'e.g. Matrix Manager' },
+    { token: '{{employee_name}}',      description: 'The employee the relationship is about' },
+    { token: '{{employee_code}}',      description: 'That employee’s code' },
+    { token: '{{effective_from}}',     description: 'Date the change takes effect' },
+    { token: '{{actor_name}}',         description: 'Who made the change' },
+  ],
+};
+
+/** Passed by the specific caller that raises this event, and only that one. */
+const EVENT_TOKENS: Array<{ test: RegExp; tokens: TokenDef[] }> = [
+  { test: /(reject|declin|return|withdraw|clarification_requested)/,
+    tokens: [{ token: '{{reason}}', description: 'Why it was rejected, returned or queried' }] },
+  { test: /clarification_submitted/,
+    tokens: [{ token: '{{response}}', description: 'What the submitter replied' }] },
+  { test: /sla_(reminder|warning|breach)/,
+    tokens: [{ token: '{{hours_elapsed}}', description: 'Hours the task has been waiting (supplied by the SLA job)' }] },
+  { test: /sla_escalat/,
+    tokens: [
+      { token: '{{record_label}}',  description: 'Label of the overdue request (supplied by the escalation job)' },
+      { token: '{{approver_name}}', description: 'The approver who did not act (supplied by the escalation job)' },
+    ] },
+];
+
+/** Module prefix of a code: the part before the first dot. 'wf' means generic. */
+function moduleOf(code: string): string {
+  const i = code.indexOf('.');
+  return i < 0 ? '' : code.slice(0, i);
+}
+
+function tokensFor(code: string): { always: TokenDef[]; module: TokenDef[]; event: TokenDef[]; moduleKey: string } {
+  const mod   = moduleOf(code);
+  const event = code.slice(mod.length + 1);
+  return {
+    always:    TOKENS_ALWAYS,
+    // A wf.* template is used by EVERY module, so no module metadata is
+    // guaranteed: wf.completed reaching a hire instance has {{name}}, reaching
+    // a timesheet instance has {{employee_name}}. Offering either would be a
+    // trap, so generic templates get none.
+    module:    MODULE_TOKENS[mod] ?? [],
+    event:     EVENT_TOKENS.filter(e => e.test.test(event)).flatMap(e => e.tokens),
+    moduleKey: mod,
+  };
+}
+
+/** Placeholders present in the text that nothing will substitute. */
+function unknownTokens(code: string, text: string): string[] {
+  const { always, module, event } = tokensFor(code);
+  const known = new Set([...always, ...module, ...event].map(t => t.token));
+  const found = text.match(/\{\{\s*[a-zA-Z_][a-zA-Z0-9_]*\s*\}\}/g) ?? [];
+  return [...new Set(found.map(f => f.replace(/\s/g, '')))].filter(f => !known.has(f));
+}
 
 // ─── Shared colours ───────────────────────────────────────────────────────────
 
@@ -112,6 +205,9 @@ function TemplateEditor({
   const titleRef = useRef<HTMLInputElement>(null);
   const [insertedToken, setInsertedToken] = useState<string | null>(null);
   const [activeField,   setActiveField]   = useState<'title' | 'body'>('body');
+  // While a NEW code is being typed the category follows it, so the common case
+  // needs no thought. The moment a human picks one, typing stops overriding it.
+  const catTouched = useRef(false);
 
   function insertToken(token: string) {
     const el = (activeField === 'body' ? bodyRef.current : titleRef.current) as HTMLInputElement | HTMLTextAreaElement | null;
@@ -130,9 +226,12 @@ function TemplateEditor({
     setTimeout(() => setInsertedToken(null), 1200);
   }
 
-  const cat     = getCategory(draft.code);
+  const cat     = draft.category;
   const meta    = CAT[cat];
   const canSave = canEdit && !saving && !!draft.code && !!draft.title_tmpl && !!draft.body_tmpl;
+
+  const tokens  = tokensFor(draft.code);
+  const unknown = unknownTokens(draft.code, `${draft.title_tmpl} ${draft.body_tmpl}`);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -194,7 +293,15 @@ function TemplateEditor({
           <input
             style={{ ...inputSt, fontFamily: 'monospace', fontSize: 12, opacity: isNew ? 1 : 0.65 }}
             value={draft.code}
-            onChange={e => isNew && setDraft(d => ({ ...d, code: e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, '') }))}
+            onChange={e => {
+              if (!isNew) return;
+              const code = e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, '');
+              setDraft(d => ({
+                ...d,
+                code,
+                category: catTouched.current ? d.category : getCategory(code),
+              }));
+            }}
             placeholder="e.g. wf.task_assigned"
             readOnly={!isNew}
           />
@@ -203,6 +310,42 @@ function TemplateEditor({
               Lowercase letters, digits, dots, hyphens and underscores only. Cannot be changed after creation.
             </div>
           )}
+        </div>
+
+        {/* Category — MIG 756. Stored, not inferred: a code is an identifier,
+            and what a message means is a separate fact. wf.task_removed reads as
+            a task assignment to any substring rule, but tells an approver a task
+            was taken away from them. */}
+        <div style={{ marginBottom: 15 }}>
+          <label style={labelSt}>Category</label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {(['task','sla','approval','returned','admin','general'] as Category[]).map(c => {
+              const m  = CAT[c];
+              const on = cat === c;
+              return (
+                <button
+                  key={c}
+                  disabled={!canEdit}
+                  onClick={() => { catTouched.current = true; setDraft(d => ({ ...d, category: c })); }}
+                  style={{
+                    padding: '5px 11px', fontSize: 11.5, fontWeight: 600, borderRadius: 6,
+                    fontFamily: 'inherit', cursor: canEdit ? 'pointer' : 'not-allowed',
+                    background: on ? m.bg   : '#fff',
+                    color:      on ? m.color : C.muted,
+                    border: `1px solid ${on ? m.border : C.border}`,
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    transition: 'all .12s',
+                  }}
+                >
+                  <i className={`fas ${m.icon}`} style={{ fontSize: 10 }} />
+                  {m.label}
+                </button>
+              );
+            })}
+          </div>
+          <div style={{ fontSize: 11, color: C.faint, marginTop: 5 }}>
+            Groups this template in the list and its filter tabs. Nothing the workflow engine does reads it.
+          </div>
         </div>
 
         {/* Notification title */}
@@ -244,6 +387,23 @@ function TemplateEditor({
           />
         </div>
 
+        {/* Unresolvable placeholders. Nothing substitutes these, so they are
+            delivered as literal braces in the recipient's email — a failure that
+            is invisible until someone reads one. */}
+        {unknown.length > 0 && (
+          <div style={{
+            marginBottom: 12, padding: '9px 12px', borderRadius: 6,
+            background: '#FFFBEB', border: '1px solid #FDE68A',
+            fontSize: 11.5, color: '#92400E', lineHeight: 1.55,
+          }}>
+            <i className="fas fa-triangle-exclamation" style={{ marginRight: 6 }} />
+            {unknown.length === 1 ? 'This placeholder is' : 'These placeholders are'} not supplied
+            for <code style={{ fontFamily: 'monospace' }}>{draft.code || 'this event'}</code> and
+            will be delivered as literal text:{' '}
+            <strong style={{ fontFamily: 'monospace' }}>{unknown.join('  ')}</strong>
+          </div>
+        )}
+
         {/* Last updated */}
         {!isNew && updatedAt && (
           <div style={{ fontSize: 11, color: C.faint }}>
@@ -271,28 +431,55 @@ function TemplateEditor({
               (editing: {activeField})
             </span>
           </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-            {TOKENS.map(({ token, description }) => {
-              const inserted = insertedToken === token;
-              return (
-                <button
-                  key={token}
-                  title={description}
-                  onClick={() => insertToken(token)}
-                  style={{
-                    padding: '3px 9px', fontSize: 11, borderRadius: 99,
-                    cursor: 'pointer', fontFamily: 'inherit',
-                    background: inserted ? '#DCFCE7' : '#fff',
-                    color:      inserted ? '#16A34A' : C.text,
-                    border: `0.5px solid ${inserted ? '#BBF7D0' : C.border}`,
-                    transition: 'all .15s',
-                  }}
-                >
-                  {inserted ? '✓ inserted' : token}
-                </button>
-              );
-            })}
-          </div>
+          {([
+            { key: 'always', label: 'Always available',                       list: tokens.always },
+            { key: 'module', label: tokens.moduleKey.replace(/_/g, ' ') || 'Module', list: tokens.module },
+            { key: 'event',  label: 'This event only',                        list: tokens.event  },
+          ] as const).filter(g => g.list.length > 0).map(g => (
+            <div key={g.key} style={{ marginBottom: 7 }}>
+              <div style={{
+                fontSize: 9.5, fontWeight: 700, letterSpacing: '.06em',
+                textTransform: 'uppercase', color: C.faint, marginBottom: 4,
+              }}>
+                {g.label}
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                {g.list.map(({ token, description, warn }) => {
+                  const inserted = insertedToken === token;
+                  return (
+                    <button
+                      key={token}
+                      title={warn ? `${description}\n\n⚠ ${warn}` : description}
+                      onClick={() => insertToken(token)}
+                      style={{
+                        padding: '3px 9px', fontSize: 11, borderRadius: 99,
+                        cursor: 'pointer', fontFamily: 'inherit',
+                        background: inserted ? '#DCFCE7' : warn ? '#FFFBEB' : '#fff',
+                        color:      inserted ? '#16A34A' : warn ? '#92400E' : C.text,
+                        border: `0.5px solid ${inserted ? '#BBF7D0' : warn ? '#FDE68A' : C.border}`,
+                        transition: 'all .15s',
+                      }}
+                    >
+                      {inserted ? '✓ inserted' : token}
+                      {warn && !inserted && <i className="fas fa-triangle-exclamation" style={{ marginLeft: 5, fontSize: 9 }} />}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+
+          {/* A wf.* template is reused by every module, so no module metadata is
+              guaranteed: the same code reaching a hire instance has {{name}} and
+              reaching a timesheet instance has {{employee_name}}. Offering
+              either would be a trap. */}
+          {tokens.module.length === 0 && (
+            <div style={{ fontSize: 10.5, color: C.faint, lineHeight: 1.5, marginTop: 2 }}>
+              {tokens.moduleKey === 'wf'
+                ? 'Generic template — used by every module, so no module-specific token is guaranteed. Write a module-prefixed template if you need one.'
+                : `No module tokens are registered for “${tokens.moduleKey || 'this prefix'}”. Only the tokens above will substitute.`}
+            </div>
+          )}
         </div>
       )}
 
@@ -362,7 +549,7 @@ export default function NotificationConfig() {
     setLoading(true); setError(null);
     const { data, error: err } = await supabase
       .from('workflow_notification_templates')
-      .select('id, code, title_tmpl, body_tmpl, updated_at')
+      .select('id, code, title_tmpl, body_tmpl, updated_at, category')
       .order('code');
     if (err) setError(err.message);
     else setTemplates(data ?? []);
@@ -382,7 +569,7 @@ export default function NotificationConfig() {
   function openEdit(t: NotifTemplate) {
     setEditing(t);
     setIsNew(false);
-    setDraft({ code: t.code, title_tmpl: t.title_tmpl, body_tmpl: t.body_tmpl });
+    setDraft({ code: t.code, title_tmpl: t.title_tmpl, body_tmpl: t.body_tmpl, category: catOf(t) });
   }
 
   function openDuplicate() {
@@ -390,7 +577,7 @@ export default function NotificationConfig() {
     const src = editing;
     setEditing(null);
     setIsNew(true);
-    setDraft({ code: src.code + '_copy', title_tmpl: src.title_tmpl, body_tmpl: src.body_tmpl });
+    setDraft({ code: src.code + '_copy', title_tmpl: src.title_tmpl, body_tmpl: src.body_tmpl, category: catOf(src) });
   }
 
   // ── Save ──────────────────────────────────────────────────────────────────
@@ -400,8 +587,8 @@ export default function NotificationConfig() {
     if (isNew) {
       const { data, error: err } = await supabase
         .from('workflow_notification_templates')
-        .insert({ code: draft.code, title_tmpl: draft.title_tmpl, body_tmpl: draft.body_tmpl })
-        .select('id, code, title_tmpl, body_tmpl, updated_at')
+        .insert({ code: draft.code, title_tmpl: draft.title_tmpl, body_tmpl: draft.body_tmpl, category: draft.category })
+        .select('id, code, title_tmpl, body_tmpl, updated_at, category')
         .single();
       if (err) { showToast('err', err.message); }
       else {
@@ -412,21 +599,20 @@ export default function NotificationConfig() {
     } else if (editing) {
       const { error: err } = await supabase
         .from('workflow_notification_templates')
-        .update({ title_tmpl: draft.title_tmpl, body_tmpl: draft.body_tmpl })
+        .update({ title_tmpl: draft.title_tmpl, body_tmpl: draft.body_tmpl, category: draft.category })
         .eq('id', editing.id);
       if (err) { showToast('err', err.message); }
       else {
         showToast('ok', 'Template saved');
-        const now = new Date().toISOString();
-        setTemplates(prev => prev.map(t =>
-          t.id === editing.id
-            ? { ...t, title_tmpl: draft.title_tmpl, body_tmpl: draft.body_tmpl, updated_at: now }
-            : t
-        ));
-        setEditing(prev => prev
-          ? { ...prev, title_tmpl: draft.title_tmpl, body_tmpl: draft.body_tmpl, updated_at: now }
-          : prev
-        );
+        const now   = new Date().toISOString();
+        const patch = {
+          title_tmpl: draft.title_tmpl,
+          body_tmpl:  draft.body_tmpl,
+          category:   draft.category,
+          updated_at: now,
+        };
+        setTemplates(prev => prev.map(t => (t.id === editing.id ? { ...t, ...patch } : t)));
+        setEditing(prev => (prev ? { ...prev, ...patch } : prev));
       }
     }
     setSaving(false);
@@ -455,12 +641,12 @@ export default function NotificationConfig() {
   const filtered = templates.filter(t => {
     const q = search.toLowerCase();
     const matchSearch = !q || t.code.includes(q) || t.title_tmpl.toLowerCase().includes(q);
-    const matchTab    = activeTab === 'all' || getCategory(t.code) === activeTab;
+    const matchTab    = activeTab === 'all' || catOf(t) === activeTab;
     return matchSearch && matchTab;
   });
 
   const counts = templates.reduce<Record<string, number>>((acc, t) => {
-    const cat = getCategory(t.code);
+    const cat = catOf(t);
     acc[cat] = (acc[cat] ?? 0) + 1;
     return acc;
   }, {});
@@ -621,7 +807,7 @@ export default function NotificationConfig() {
                 No templates found
               </div>
             ) : filtered.map(t => {
-              const meta  = CAT[getCategory(t.code)];
+              const meta  = CAT[catOf(t)];
               const isSel = editing?.id === t.id;
               return (
                 <div
