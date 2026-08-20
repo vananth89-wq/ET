@@ -409,11 +409,24 @@ Prowess is a picklist an admin edits in Reference Data, and this one is no
 different in kind. The column is now `project_type_id uuid REFERENCES
 picklist_values(id) ON DELETE SET NULL`, following the `line_items.category_id`
 precedent, with a trigger pinning it to the `PROJECT_TYPE` list — a bare FK to
-`picklist_values` would accept a CURRENCY row. **Reports must match on
-`picklist_values.ref_id`** (`BILLABLE` / `INTERNAL` / `OVERHEAD`), never on the
-label, which admins may rename. The old text column is retained and marked
-deprecated until a later migration drops it, so 755 can deploy ahead of the
-frontend rather than breaking the screen that still selects it.
+`picklist_values` would accept a CURRENCY row. The old text column is retained
+and marked deprecated until a later migration drops it, so 755 can deploy ahead
+of the frontend rather than breaking the screen that still selects it.
+
+**20260820758 put the list on the house rules**, which 755 had missed in two
+ways. The picklist is now `system = true`, so Reference Data hides Edit and
+Delete on it as it does for every other built-in list — without that flag,
+deleting the picklist would cascade its values and `ON DELETE SET NULL` would
+silently unclassify every project pointing at them. And the values are coded
+`P001` / `P002` / `P003` rather than `BILLABLE` / `INTERNAL` / `OVERHEAD`:
+`generateRefId()` in `ReferenceData.tsx` issues the picklist's first letter plus
+three digits, so non-conforming codes make the next admin-added value collide
+at `P001`.
+
+**Reports must match on `picklist_values.ref_id`** — `P001` billable, `P002`
+internal, `P003` overhead — never on the label, which admins may rename. Opaque
+codes are the price of following the convention, and the same price every
+`D001` and `T001` in this database already pays.
 
 **`project_type` is nullable with no default — a correction to this document's
 first draft**, which specified `NOT NULL DEFAULT 'billable'`. That default would
@@ -1255,6 +1268,30 @@ in de-emphasis gray).
 
 `No budget set` is a real status, shown plainly. A project health view that quietly
 omits un-budgeted projects is how half the portfolio disappears from a review.
+
+### 9.1 What a missing budget does, surface by surface
+
+`budget_hours` is nullable and most projects will not have one for a while, so
+"no budget" is the normal case rather than an edge case. It has to read the same
+way everywhere:
+
+| Surface | With a budget | With none |
+|---|---|---|
+| Hours | the figure | **the figure** — always shown; it needs no denominator |
+| Budget | the figure | blank, **never `0`** |
+| Consumed % | `hours ÷ budget`, with a meter | **nothing at all** — no meter, no `0%`, no `—%` |
+| Status | On track / Near budget / Over budget | **`No budget set`**, its own chip |
+| Sort by Consumed % | ranks normally | sorts to the **end**, never as `0%` |
+| Export | the value | **empty cell**, never `0` |
+| Portfolio roll-up | included | excluded, and the roll-up **says so**: "budget shown for 12 of 19 projects" |
+
+`0%` is the failure mode to avoid: it ranks an un-budgeted project as the
+healthiest thing in the portfolio, which is the exact inversion of the truth. A
+blank cannot be misread that way, and an empty meter track invites the reader to
+fill in the budget rather than trust the bar.
+
+Billable utilisation is unaffected — its denominator is `planned_minutes` from
+the timesheet headers, not `budget_hours`.
 
 Sparkline in each project row showing 6-month hours. A sparkline is a stat-tile
 component, not a chart: no axes, no labels, no tooltip — the row's numbers carry the
