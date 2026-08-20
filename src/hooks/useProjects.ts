@@ -10,6 +10,18 @@ export interface Project {
   startDate: string;
   endDate:   string;
   active:    boolean;
+  /**
+   * mig 754. All three are nullable and mean it.
+   *
+   * projectType null is "not classified", NOT "billable" — defaulting it would
+   * make billable utilisation a number computed from a value nobody chose.
+   * budgetHours null is a project with no budget, which shows consumption
+   * without a percentage rather than against a fake denominator.
+   * managerId null grants nobody Project Manager access; it fails closed.
+   */
+  projectType: 'billable' | 'internal' | 'overhead' | null;
+  managerId:   string | null;
+  budgetHours: number | null;
 }
 
 // Lookup shape — used by transactional dropdowns (queries vw_projects_lookup)
@@ -46,7 +58,7 @@ export function useProjects(activeOnly = false): UseProjectsResult {
       try {
         let query = supabase
           .from('projects')
-          .select('id, name, start_date, end_date, active')
+          .select('id, name, start_date, end_date, active, project_type, manager_id, budget_hours')
           .order('name', { ascending: true });
 
         if (activeOnly) {
@@ -64,6 +76,10 @@ export function useProjects(activeOnly = false): UseProjectsResult {
               startDate: row.start_date ?? '',
               endDate:   row.end_date   ?? '',
               active:    row.active,
+              projectType: row.project_type ?? null,
+              managerId:   row.manager_id   ?? null,
+              budgetHours: row.budget_hours === null || row.budget_hours === undefined
+                             ? null : Number(row.budget_hours),
             }))
           );
         }

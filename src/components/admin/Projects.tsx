@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { supabase } from '../../lib/supabase';
 import WorkflowGateBanner from '../../workflow/components/WorkflowGateBanner';
 import { useProjects } from '../../hooks/useProjects';
@@ -15,6 +15,23 @@ function getStatus(startDate: string, endDate: string): 'Active' | 'Upcoming' | 
   if (today < startDate) return 'Upcoming';
   if (today > endDate)   return 'Closed';
   return 'Active';
+}
+
+const TYPE_OPTIONS = [
+  { value: 'billable', label: 'Billable' },
+  { value: 'internal', label: 'Internal' },
+  { value: 'overhead', label: 'Overhead' },
+] as const;
+
+/**
+ * "Not classified" is shown plainly rather than assumed to be billable.
+ * A project silently defaulted to billable turns up in Finance's billable
+ * utilisation as if somebody had decided it, which is the whole reason
+ * projects.project_type is nullable (mig 754).
+ */
+function TypeCell({ value }: { value: string | null }) {
+  if (!value) return <span style={{ color: '#9CA3AF' }}>Not classified</span>;
+  return <>{TYPE_OPTIONS.find(o => o.value === value)?.label ?? value}</>;
 }
 
 function StatusBadge({ status }: { status: 'Active' | 'Upcoming' | 'Closed' }) {
@@ -35,6 +52,9 @@ export default function Projects() {
   const [name,      setName]      = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate,   setEndDate]   = useState('');
+  const [projType,  setProjType]  = useState('');
+  const [managerId, setManagerId] = useState('');
+  const [budget,    setBudget]    = useState('');
   const [editId,    setEditId]    = useState<string | null>(null);
   const [saving,    setSaving]    = useState(false);
 
@@ -55,6 +75,40 @@ export default function Projects() {
   const [usedProjectIds, setUsedProjectIds] = useState<Set<string>>(new Set());
 
   const nameRef = useRef<HTMLInputElement>(null);
+
+  /**
+   * Candidates for the reporting manager. Active employees, PLUS anyone already
+   * recorded as a manager who has since gone inactive — without the second set,
+   * opening such a project for edit would show an empty picker and quietly
+   * clear the manager on save.
+   */
+  const [people, setPeople] = useState<{ id: string; label: string; inactive: boolean }[]>([]);
+  useEffect(() => {
+    let mounted = true;
+    const t = setTimeout(async () => {
+      const { data } = await supabase
+        .from('employees')
+        .select('id, name, employee_id, status')
+        .order('name');
+      if (!mounted || !data) return;
+      const held = new Set(projects.map(p => p.managerId).filter(Boolean) as string[]);
+      setPeople(
+        data
+          .filter(r => r.status === 'Active' || held.has(r.id))
+          .map(r => ({
+            id: r.id,
+            label: `${r.name} (${r.employee_id})${r.status === 'Active' ? '' : ' — inactive'}`,
+            inactive: r.status !== 'Active',
+          }))
+      );
+    }, 0);
+    return () => { mounted = false; clearTimeout(t); };
+  }, [projects]);
+
+  const managerName = useCallback(
+    (id: string | null) => (id ? people.find(p => p.id === id)?.label ?? '—' : null),
+    [people],
+  );
 
   // Load in-use project IDs from line_items table once on mount
   useEffect(() => {
@@ -82,6 +136,7 @@ export default function Projects() {
 
   function resetForm() {
     setName(''); setStartDate(''); setEndDate('');
+    setProjType(''); setManagerId(''); setBudget('');
     setEditId(null);
     setFormErrors({});
   }
@@ -96,6 +151,12 @@ export default function Projects() {
     if (trimmed && startDate && endDate && endDate < startDate) {
       errs.endDate = 'End date cannot be before start date.';
     }
+    // Budget is optional; if given it must be a real positive number, which is
+    // also what projects_budget_hours_check enforces. Catch it here so the user
+    // gets a field error rather than a Postgres constraint message.
+    if (budget !== '' && !(Number(budget) > 0)) {
+      errs.budget = 'Budget hours must be greater than zero, or left blank.';
+    }
     if (Object.keys(errs).length > 0) { setFormErrors(errs); return; }
     setFormErrors({});
     setSaving(true);
@@ -104,7 +165,10 @@ export default function Projects() {
       // Update existing project
       const { error: err } = await supabase
         .from('projects')
-        .update({ name: trimmed, start_date: startDate, end_date: endDate })
+        .update({
+          name: trimmed, start_date: startDate, end_date: endDate,
+          ...optionalFields(),
+        })
         .eq('id', editId);
       if (err) {
         setInfoModal({ open: true, title: 'Error', message: err.message });
@@ -121,7 +185,10 @@ export default function Projects() {
       }
       const { error: err } = await supabase
         .from('projects')
-        .insert({ name: trimmed, start_date: startDate, end_date: endDate, active: true });
+        .insert({
+          name: trimmed, start_date: startDate, end_date: endDate, active: true,
+          ...optionalFields(),
+        });
       if (err) {
         setInfoModal({ open: true, title: 'Error', message: err.message });
       } else {
@@ -132,10 +199,26 @@ export default function Projects() {
     setSaving(false);
   }
 
+  /**
+   * Empty string means "not set", and must reach the database as NULL rather
+   * than as '' or 0 — the three columns treat NULL as a real state and the
+   * reports are built to show it (mig 754).
+   */
+  function optionalFields() {
+    return {
+      project_type: projType  === '' ? null : projType,
+      manager_id:   managerId === '' ? null : managerId,
+      budget_hours: budget    === '' ? null : Number(budget),
+    };
+  }
+
   function startEdit(p: Project) {
     setName(p.name);
     setStartDate(p.startDate);
     setEndDate(p.endDate);
+    setProjType(p.projectType ?? '');
+    setManagerId(p.managerId ?? '');
+    setBudget(p.budgetHours === null ? '' : String(p.budgetHours));
     setEditId(p.id);
     setFormErrors({});
     setTimeout(() => nameRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
@@ -244,6 +327,45 @@ export default function Projects() {
               )}
             </div>
           </div>
+          <div className="rd-form-row">
+            <div className="form-group" style={{ flex: 1 }}>
+              <label>Project Type</label>
+              <select value={projType} onChange={e => setProjType(e.target.value)}>
+                <option value="">Not classified</option>
+                {TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+              <small style={{ color: '#8A97A8', marginTop: 4, display: 'block' }}>
+                Drives billable utilisation. Left unclassified until someone decides.
+              </small>
+            </div>
+            <div className="form-group" style={{ flex: 1 }}>
+              <label>Reporting Manager</label>
+              <select value={managerId} onChange={e => setManagerId(e.target.value)}>
+                <option value="">None</option>
+                {people.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+              </select>
+              <small style={{ color: '#8A97A8', marginTop: 4, display: 'block' }}>
+                The manager this project reports into.
+              </small>
+            </div>
+            <div className={`form-group${formErrors.budget ? ' form-group--error' : ''}`} style={{ flex: 1 }}>
+              <label>Budget Hours</label>
+              <input
+                type="number" min="0.5" step="0.5" placeholder="Optional"
+                value={budget}
+                onChange={e => { setBudget(e.target.value); setFormErrors(p => ({ ...p, budget: '' })); }}
+              />
+              {formErrors.budget ? (
+                <small className="field-error" style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 }}>
+                  <i className="fa-solid fa-circle-exclamation" /> {formErrors.budget}
+                </small>
+              ) : (
+                <small style={{ color: '#8A97A8', marginTop: 4, display: 'block' }}>
+                  Hours, not cost. Blank means the report shows hours without a percentage.
+                </small>
+              )}
+            </div>
+          </div>
           <div className="rd-form-actions">
             <button type="submit" className="btn-add" disabled={saving}>
               {saving ? (
@@ -273,6 +395,9 @@ export default function Projects() {
                 <th>Project Name</th>
                 <th>Start Date</th>
                 <th>End Date</th>
+                <th>Type</th>
+                <th>Reporting Manager</th>
+                <th style={{ textAlign: 'right' }}>Budget (h)</th>
                 <th>Status</th>
                 <th style={{ textAlign: 'right' }}>Action</th>
               </tr>
@@ -280,13 +405,13 @@ export default function Projects() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="rd-empty">
+                  <td colSpan={9} className="rd-empty">
                     <i className="fa-solid fa-spinner fa-spin" /> Loading projects…
                   </td>
                 </tr>
               ) : projects.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="rd-empty">No projects added yet.</td>
+                  <td colSpan={9} className="rd-empty">No projects added yet.</td>
                 </tr>
               ) : projects.map((p, i) => {
                 const inUse = usedProjectIds.has(p.id);
@@ -296,6 +421,13 @@ export default function Projects() {
                     <td><strong>{p.name}</strong></td>
                     <td>{p.startDate}</td>
                     <td>{p.endDate}</td>
+                    <td><TypeCell value={p.projectType} /></td>
+                    <td>{managerName(p.managerId) ?? <span style={{ color: '#9CA3AF' }}>None</span>}</td>
+                    <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                      {p.budgetHours === null
+                        ? <span style={{ color: '#9CA3AF' }}>—</span>
+                        : p.budgetHours}
+                    </td>
                     <td><StatusBadge status={getStatus(p.startDate, p.endDate)} /></td>
                     <td style={{ textAlign: 'right' }} className="rd-actions">
                       <button

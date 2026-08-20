@@ -388,19 +388,41 @@ single most common bug in enterprise grids.
 
 ---
 
-## 3. Schema additions — migration 747
+## 3. Schema additions — migration 754, SHIPPED
 
-Two columns block two personas.
+Three columns block three things. Two unblock reports; one unblocks a persona.
 
 ```sql
 ALTER TABLE projects
-  ADD COLUMN project_type text NOT NULL DEFAULT 'billable'
-    CHECK (project_type IN ('billable','internal','overhead')),
-  ADD COLUMN manager_id   uuid REFERENCES employees(id),
+  ADD COLUMN project_type text
+    CHECK (project_type IS NULL OR project_type IN ('billable','internal','overhead')),
+  ADD COLUMN manager_id   uuid REFERENCES employees(id) ON DELETE SET NULL,
   ADD COLUMN budget_hours numeric(10,2) CHECK (budget_hours IS NULL OR budget_hours > 0);
 
 CREATE INDEX idx_projects_manager ON projects (manager_id) WHERE manager_id IS NOT NULL;
 ```
+
+**`project_type` is nullable with no default — a correction to this document's
+first draft**, which specified `NOT NULL DEFAULT 'billable'`. That default would
+classify every existing project as billable and put "Billable utilisation 100%" in
+front of Finance on day one, computed entirely from a value nobody chose. It is the
+same mistake as a fake denominator, and this suite has now made it twice (§8.1b).
+`NULL` means *not classified*, the admin screen shows it as such, and the report
+must too.
+
+**`ON DELETE SET NULL` on `manager_id`.** A project whose manager row disappears
+loses its manager and therefore grants nobody PM access — it fails closed. `RESTRICT`
+would instead block deleting an employee because a project points at them, turning an
+HR action into a project-admin puzzle.
+
+The migration grants nothing. `timesheet.view_project`, the PM scope predicate and the
+column redaction in §5 are deliberately *not* folded into a schema change: a column no
+policy reads is inert, whereas adding a policy in the same breath as the column it
+reads is how a scope bug ships unnoticed.
+
+`projects` is shared with Expenses. These columns are additive and no expense policy
+reads them. Keying expense visibility off `manager_id` later would be a separate,
+deliberate decision — a timesheet PM scope must not silently become an expense scope.
 
 **Why `project_type` and not `is_billable`.** A boolean forces overhead (leave,
 holiday, training, bench) into "internal", and the first question after "what is our
@@ -413,6 +435,11 @@ needs one question answered — "is this caller the PM of this project" — and 
 membership table answers a different, larger question nobody has asked for yet. Start
 with the column; a `project_members` table is an additive change if assignment
 tracking is ever needed.
+
+**One manager per project, and it is the *reporting manager*** — the manager the
+project reports into, not necessarily whoever runs delivery day to day. Co-owned
+projects are the case this shape does not serve, and are the trigger for revisiting
+the members table.
 
 **`budget_hours` is what makes Project Health possible.** "Hours vs budget" is the
 first question asked of any project report, and there is nowhere to put the budget
