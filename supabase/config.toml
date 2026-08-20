@@ -25,3 +25,16 @@ verify_jwt = false
 [functions.activate-employee]
 verify_jwt = false
 
+# Called by Postgres via pg_net (trg_employee_email_change, mig 761). pg_net
+# sends only x-webhook-secret, no JWT, so the gateway must not demand one --
+# otherwise it returns 401 BEFORE the function runs and nothing is logged
+# except the rejection.
+[functions.send-email-change-verification]
+verify_jwt = false
+
+# Called from the browser by /verify-email-change. The person confirming has
+# usually not signed in -- and may not be able to, which is the case this whole
+# flow exists for. The one-time token is the credential; the request carries
+# only the anon key.
+[functions.confirm-email-change]
+verify_jwt = false
