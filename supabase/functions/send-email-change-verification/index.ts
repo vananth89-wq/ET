@@ -63,6 +63,26 @@ Deno.serve(async (req: Request) => {
 
   const admin = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } });
 
+  // Same source as the notification emails and the PDF letterhead: whatever
+  // Theme Manager says. Wrapped, because branding must never be the reason a
+  // verification link fails to reach somebody.
+  let appName = 'Prowess';
+  let logoRaw: string | null = null;
+  try {
+    const { data: themeRows } = await admin
+      .from('theme_settings').select('key, value').in('key', ['app_name', 'nav_logo']);
+    for (const r of themeRows ?? []) {
+      if (r.key === 'app_name' && r.value) appName = r.value;
+      if (r.key === 'nav_logo' && r.value) logoRaw = r.value;
+    }
+  } catch (_) { /* fall through to the defaults */ }
+
+  const logoUrl = logoRaw
+    ? (/^https?:\/\//i.test(logoRaw)
+        ? logoRaw
+        : `${appBaseUrl.replace(/\/$/, '')}/${logoRaw.replace(/^\//, '')}`)
+    : `${appBaseUrl.replace(/\/$/, '')}/logo.png`;
+
   async function writeOutcome(status: string, error?: string) {
     await admin.from('employee_email_changes')
       .update({ email_status: status, error_message: error ?? null })
@@ -111,7 +131,7 @@ Deno.serve(async (req: Request) => {
         <p style="margin:0;color:#6B7280;font-size:13px">
           If you were not expecting this, ignore it and tell your HR team — your sign-in
           will not change.</p>
-      `),
+      `, appName, logoUrl),
     );
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -139,7 +159,7 @@ Deno.serve(async (req: Request) => {
           <p style="margin:0;color:#6B7280;font-size:13px">
             If you were not, contact your HR team now — before ${esc(expires)}, which is when
             the request lapses on its own.</p>
-        `),
+        `, appName, logoUrl),
       );
     } catch (e) {
       noticeError = e instanceof Error ? e.message : String(e);
@@ -161,17 +181,25 @@ function esc(s: string) {
   return (s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-function shell(inner: string) {
+function shell(inner: string, appName = 'Prowess', logoUrl = '') {
+  // White band + brand rule, matching send-notification-email. The wordmark is
+  // navy on transparent, so a coloured band swallows it. alt carries the app
+  // name for the very common case of a client blocking remote images.
+  const header = logoUrl
+    ? `<img src="${esc(logoUrl)}" alt="${esc(appName)}" height="28"
+            style="height:28px;display:block;border:0;outline:none;text-decoration:none" />`
+    : `<span style="font-size:18px;font-weight:700;color:#18345B;letter-spacing:-.3px">${esc(appName)}</span>`;
+
   return `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#F3F4F6">
     <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:28px 14px">
       <table width="560" cellpadding="0" cellspacing="0"
              style="background:#fff;border-radius:10px;overflow:hidden;
                     font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif">
-        <tr><td style="background:#18345B;padding:16px 26px;color:#fff;font-weight:700;
-                       letter-spacing:.04em">PROWESS</td></tr>
+        <tr><td style="background:#fff;padding:20px 26px 16px;border-bottom:3px solid #2F77B5">
+          ${header}</td></tr>
         <tr><td style="padding:26px;color:#111827;font-size:14.5px;line-height:1.6">${inner}</td></tr>
         <tr><td style="padding:14px 26px;background:#F9FAFB;color:#9CA3AF;font-size:12px">
-          This message was sent automatically by Prowess. Please do not reply.</td></tr>
+          This message was sent automatically by ${esc(appName)}. Please do not reply.</td></tr>
       </table>
     </td></tr></table></body></html>`;
 }

@@ -69,7 +69,7 @@ Deno.serve(async (req: Request) => {
   const supabaseUrl    = Deno.env.get('SUPABASE_URL')!;
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
   const resendApiKey   = Deno.env.get('RESEND_API_KEY');
-  const emailFrom      = Deno.env.get('EMAIL_FROM') ?? 'Expense Tracker <no-reply@example.com>';
+  const emailFrom      = Deno.env.get('EMAIL_FROM') ?? 'Prowess <no-reply@example.com>';
 
   const admin = createClient(supabaseUrl, serviceRoleKey, {
     auth: { persistSession: false },
@@ -113,7 +113,26 @@ Deno.serve(async (req: Request) => {
   const fullLink   = link ? `${appBaseUrl}${link}` : `${appBaseUrl}/workflow/my-requests`;
 
   // ── 6. Render HTML email ──────────────────────────────────────────────────
-  const html = renderEmail({ title, body: body ?? '', link: fullLink });
+  // The product is named in Theme Manager (theme_settings.app_name, mig 566) —
+  // the same value the app header shows. It was hardcoded to "Expense Tracker"
+  // here, the repo's original name, so every notification email has been branded
+  // as a different product from the one that sent it.
+  let appName = 'Prowess';
+  let logoRaw: string | null = null;
+  try {
+    const { data: themeRows } = await admin
+      .from('theme_settings').select('key, value').in('key', ['app_name', 'nav_logo']);
+    for (const r of themeRows ?? []) {
+      if (r.key === 'app_name' && r.value) appName = r.value;
+      if (r.key === 'nav_logo' && r.value) logoRaw = r.value;
+    }
+  } catch (_) {
+    // Branding must never be the reason an email does not go out.
+  }
+
+  const logoUrl = absoluteLogo(logoRaw, appBaseUrl);
+
+  const html = renderEmail({ title, body: body ?? '', link: fullLink, appName, logoUrl });
 
   // ── 7. Send via Resend ────────────────────────────────────────────────────
   let resendRes: Response;
@@ -168,8 +187,8 @@ Deno.serve(async (req: Request) => {
 
 // ─── Email renderer ───────────────────────────────────────────────────────────
 
-function renderEmail(opts: { title: string; body: string; link: string }): string {
-  const { title, body, link } = opts;
+function renderEmail(opts: { title: string; body: string; link: string; appName: string; logoUrl: string }): string {
+  const { title, body, link, appName, logoUrl } = opts;
 
   const bodyHtml = body
     .replace(/&/g, '&amp;')
@@ -190,12 +209,20 @@ function renderEmail(opts: { title: string; body: string; link: string }): strin
       <td align="center">
         <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.08);">
 
-          <!-- Header -->
+          <!-- Header. White, because the wordmark is navy on transparent: on the
+               old #2F77B5 band it went muddy, and on navy it disappeared. The 3px
+               rule keeps the brand colour without fighting the mark, and matches
+               the app's own header.
+
+               alt is the app name on purpose — Outlook blocks remote images by
+               default and so does Gmail for unknown senders, so for a good share
+               of recipients this degrades to the brand as text, which is exactly
+               what the email showed before the logo existed. A data URI would
+               dodge the blocking but Gmail strips those outright. -->
           <tr>
-            <td style="background:#2F77B5;padding:28px 36px;">
-              <span style="font-size:20px;font-weight:700;color:#ffffff;letter-spacing:-0.3px;">
-                💼 Expense Tracker
-              </span>
+            <td style="background:#ffffff;padding:22px 36px 18px;border-bottom:3px solid #2F77B5;">
+              <img src="${escAttr(logoUrl)}" alt="${escAttr(appName)}"
+                   height="30" style="height:30px;display:block;border:0;outline:none;text-decoration:none;" />
             </td>
           </tr>
 
@@ -213,7 +240,7 @@ function renderEmail(opts: { title: string; body: string; link: string }): strin
                   <td style="border-radius:8px;background:#2F77B5;">
                     <a href="${escAttr(link)}"
                        style="display:inline-block;padding:12px 28px;font-size:14px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:8px;">
-                      View in Expense Tracker →
+                      View in ${escHtml(appName)} →
                     </a>
                   </td>
                 </tr>
@@ -232,7 +259,7 @@ function renderEmail(opts: { title: string; body: string; link: string }): strin
           <tr>
             <td style="padding:20px 36px 28px;">
               <p style="margin:0;font-size:12px;color:#9CA3AF;line-height:1.5;">
-                You received this notification from Expense Tracker because an action
+                You received this notification from ${escHtml(appName)} because an action
                 requires your attention. If you have questions, contact your system administrator.
               </p>
               <p style="margin:8px 0 0;font-size:12px;color:#9CA3AF;">
@@ -249,6 +276,21 @@ function renderEmail(opts: { title: string; body: string; link: string }): strin
   </table>
 </body>
 </html>`;
+}
+
+/**
+ * The logo as something an inbox can actually fetch.
+ *
+ * theme_settings.nav_logo is the same key loadLogoDataUrl uses for the PDF
+ * letterhead, so the app header, the report and these emails move together when
+ * somebody changes it in Theme Manager. It may hold an absolute URL or a path
+ * relative to the app — and a relative path is meaningless in an email client,
+ * which has no idea what "/logo.png" is relative TO.
+ */
+function absoluteLogo(raw: string | null, base: string): string {
+  if (!raw) return `${base.replace(/\/$/, '')}/logo.png`;
+  if (/^https?:\/\//i.test(raw)) return raw;
+  return `${base.replace(/\/$/, '')}/${raw.replace(/^\//, '')}`;
 }
 
 function escHtml(s: string): string {
