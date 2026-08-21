@@ -751,6 +751,25 @@ This needs a new permission — `timesheet.view_project` — and is the single l
 piece of new security work in the suite. It should not be hand-waved into the first
 release.
 
+**Landed in halves, deliberately.** `20260820767` adds the permission and the
+predicate — `time_report_managed_project_ids()` and the cheap
+`time_report_is_project_manager()` branch test — and **no report reads either
+one**. A scope predicate and the queries that trust it are the two halves of a
+security change; landing them together means the first time anyone sees the new
+rows is also the first time the predicate has ever run. The migration asserts
+that no report references it, so "767 changes no behaviour" is checked rather
+than claimed.
+
+The predicate fails closed at four points: no grant, no employee behind the
+login, no managed projects, or `manager_id` NULL. An empty result must mean
+every reader behaves exactly as it did before — which is also what keeps the
+existing query plan for the overwhelming majority of callers.
+
+**Compliance is out by construction**, not by preference. It is grained on the
+employee-month and has no project dimension at all, so a project-scoped
+predicate cannot be expressed against it. The PM path applies to Utilisation and
+Project Summary only.
+
 ---
 
 ## 6. Visual system
