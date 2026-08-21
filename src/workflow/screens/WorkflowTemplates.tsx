@@ -49,6 +49,7 @@ const C = {
 // prefix and then to the generic wf.* wording (mig 748).
 const INSTANCE_EVENTS: { code: string; label: string; who: string; hint: string }[] = [
   { code: 'wf.task_assigned',             label: 'Task assigned',          who: 'Approver',   hint: 'When a step lands in an approver’s queue. An individual step can still override this on its own Notification dropdown.' },
+  { code: 'wf.cc_notified',               label: 'Copied for information', who: 'CC step',    hint: 'When a notify-only step is reached. A CC recipient cannot act, so this must not read like the approver’s message — mig 768 routes it here instead of wf.task_assigned.' },
   { code: 'wf.completed',                 label: 'Fully approved',         who: 'Requester',  hint: 'When the last step approves and the run finishes.' },
   { code: 'wf.rejected',                  label: 'Rejected',               who: 'Requester',  hint: 'When an approver rejects the request.' },
   { code: 'wf.returned_to_previous_step', label: 'Returned',               who: 'Requester',  hint: 'When an approver sends the request back a step.' },
