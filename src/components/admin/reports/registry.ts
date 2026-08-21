@@ -70,7 +70,7 @@ export const REPORTS: ReportDef[] = [
   {
     code:        'timesheet',
     name:        'Timesheet Report',
-    description: 'Two views of one month. Compliance: who has and has not submitted, including employees who logged nothing at all. Utilisation: where the recorded hours went, by employee, project and activity. Exports to Excel.',
+    description: 'Three views of one period. Compliance: who has and has not submitted, including employees who logged nothing at all. Utilisation: where the recorded hours went, by employee, project and activity. Project Summary: each project against its budget. Exports to Excel.',
     icon:        'fa-clock',
     active:      true,
     views: [
@@ -89,6 +89,14 @@ export const REPORTS: ReportDef[] = [
         permission:  'timesheet_reports.view_utilisation',
         description: 'Where the recorded hours went — by employee, project and time type, with the activity breakdown behind each entry. Planned vs recorded. Exports to Excel.',
         Component:   lazy(() => import('./TimesheetUtilisation')),
+      },
+      {
+        code:        'projects',
+        name:        'Project Summary',
+        icon:        'fa-diagram-project',
+        permission:  'timesheet_reports.view_projects',
+        description: 'Each project against what it was given — hours, budget consumption, contributors and a status. Projects without a budget show their hours and no percentage, rather than a fake one. Exports to Excel.',
+        Component:   lazy(() => import('./TimesheetProjectSummary')),
       },
     ],
   },
@@ -133,6 +141,7 @@ export function reportActionLabel(action: string | null): string {
     case 'view':             return 'Access';
     case 'view_compliance':  return 'Compliance report';
     case 'view_utilisation': return 'Utilisation report';
+    case 'view_projects':    return 'Project Summary report';
     case 'view_capacity':    return 'Workforce capacity report';
     case 'view_analytics':   return 'Executive dashboard';
     case 'create':           return 'Generate & export';

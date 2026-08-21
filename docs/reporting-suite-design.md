@@ -1268,10 +1268,33 @@ No bulk actions, no multi-select — there is no action to take on an entry from
 
 ---
 
-## 9. Project Summary — a preset, not a screen
+## 9. Project Summary — SHIPPED (mig 20260820763)
 
-`ReportDefinition` = Utilisation, with `groupBy: 'project'`, a different default column
-set, a chart header, and its own catalog row. **Zero new screens.**
+Built as its own RPC and its own view under Timesheet Report, gated on
+`timesheet_reports.view_projects`.
+
+**It is not a preset of Utilisation, as this section originally proposed.** That
+plan assumed the `ReportGrid` platform of §12, which does not exist; without it
+"a preset" means a second code path through a screen grained on the entry,
+pretending to be grained on the project. A separate RPC reusing
+`time_report_scope_mode()` / `time_report_scope_ids()` is smaller, not larger.
+
+**Which projects appear.** Every active project whose dates overlap the reported
+period, plus every project with entries in the filtered set. The second half
+catches a closed project still receiving hours; the first catches a budgeted
+project nobody logged to — which reads 0% consumed and is a real finding. A
+report listing only projects with hours would silently drop exactly the projects
+worth asking about.
+
+**No per-project Billable % — a correction.** The table below lists one, but
+that was written before `project_type` landed on the *project*. A project is
+entirely one type, so its billable share is 100% or 0% and the column carries no
+information. The portfolio billable share is in the KPI strip instead. A genuine
+per-project split needs a type on the *entry*, which does not exist.
+
+**Hours are scoped.** They arrive through `timesheet_headers`, so they are the
+hours of employees the caller may see — a project total here is not necessarily
+the project total, and the scope badge says so.
 
 Header, above the grid:
 
