@@ -459,13 +459,17 @@ export default function MyTimesheet() {
   const [access, setAccess] = useState<{
     can_view: boolean; can_edit: boolean; can_delete: boolean; can_create: boolean;
   } | null>(null);
+  // Issue 3 fix — track whether the access RPC is still in flight so the Create
+  // button never flickers between a guess (isSelf) and the real answer.
+  const [accessLoading, setAccessLoading] = useState(true);
 
   useEffect(() => {
     if (!subjectId) return;
     let cancelled = false;
+    setAccessLoading(true);
     (async () => {
       const { data } = await supabase.rpc('time_timesheet_access', { p_employee_id: subjectId });
-      if (!cancelled) setAccess(data as any);
+      if (!cancelled) { setAccess(data as any); setAccessLoading(false); }
     })();
     return () => { cancelled = true; };
   }, [subjectId]);
@@ -2157,16 +2161,21 @@ export default function MyTimesheet() {
             </span>
           )}
 
-          {editable && (
+          {(editable || accessLoading) && (
             <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
               <button
-                onClick={() => { exitCopyMode(); openCreate(); }}
+                onClick={() => { if (!accessLoading) { exitCopyMode(); openCreate(); } }}
+                disabled={accessLoading}
                 style={{
                   padding: '7px 14px', borderRadius: 7, border: '1px solid #D0D5DD',
-                  background: '#fff', color: '#1F2937', fontWeight: 600, fontSize: 13,
-                  cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+                  background: accessLoading ? '#F3F4F6' : '#fff',
+                  color: accessLoading ? '#D1D5DB' : '#1F2937',
+                  fontWeight: 600, fontSize: 13,
+                  cursor: accessLoading ? 'default' : 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  transition: 'background 0.15s, color 0.15s',
                 }}
-                title="Create attendance on one or more days (C)"
+                title={accessLoading ? '' : 'Create attendance on one or more days (C)'}
               >
                 <i className="fa-solid fa-plus" style={{ fontSize: 11 }} /> Create
               </button>
