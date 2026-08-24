@@ -697,7 +697,7 @@ function AppShell() {
   const isEmployeeMode = /^\/profile(\/[^/]+)?$/.test(loc.pathname);
   const isHomePage     = loc.pathname === '/home';
   const isAdminArea    = loc.pathname === '/admin' || loc.pathname.startsWith('/admin/');
-  const isFullPage     = ['/org-chart', '/expense', '/my-timesheet', '/timesheet', '/workflow/my-requests', '/workflow/inbox', '/workflow/delegations', '/workflow/review'].some(
+  const isFullPage     = ['/org-chart', '/expense', '/my-timesheet', '/my-projects', '/timesheet', '/workflow/my-requests', '/workflow/inbox', '/workflow/delegations', '/workflow/review'].some(
     p => loc.pathname === p || loc.pathname.startsWith(p + '/')
   );
   const hideSidebar    = isEmployeeMode || isHomePage || isFullPage || isAdminArea;
