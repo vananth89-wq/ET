@@ -241,7 +241,7 @@ const ADMIN_GROUPS: MatrixGroup[] = [
   { groupLabel: 'Projects', rows: [
     { code: 'projects_mgmt', label: 'Project', availableActions: ['view','create','edit','delete'],
       rowHint: 'Create and manage projects that employees and expenses can be assigned to' },
-    { code: 'projects_mgmt', label: 'Project members', availableActions: ['view'], isSubRow: true,
+    { code: 'projects_mgmt', label: 'Project team', availableActions: ['view'], isSubRow: true,
       actionAlias: { view: 'manage_members' },
       rowHint: 'Lets this person add and remove people on projects where they are the Reporting Manager (mig 773). Scoped by the project\'s manager field, not by a target group — the permission says what they may do, the project says where. Grants no visibility of anyone\'s data: the reports key on the timesheet entry, not on membership. Screen is at /my-projects.',
       actionHints: {
@@ -306,11 +306,12 @@ const TOGGLE_GROUPS: ToggleGroup[] = [
 // ─── Target population config ─────────────────────────────────────────────────
 
 interface TpChip { label: string; tgCode: string | null; special?: boolean; }
-type RoleCategory = 'ess' | 'mss' | 'hr';
+type RoleCategory = 'ess' | 'mss' | 'pm' | 'hr';
 
 const ROLE_CAT_INFO: Record<RoleCategory, { badge: string; bg: string; color: string }> = {
   ess: { badge: 'ESS — employee self-service',  bg: '#DBEAFE', color: '#1E40AF' },
   mss: { badge: 'MSS — manager self-service',   bg: '#D1FAE5', color: '#065F46' },
+  pm:  { badge: 'Project lead',                 bg: '#FEF3C7', color: '#92400E' },
   hr:  { badge: 'HR / Custom role',             bg: '#EDE9FE', color: '#5B21B6' },
 };
 
@@ -326,6 +327,10 @@ const TP_OPTIONS: Record<RoleCategory, TpChip[]> = {
     { label: 'Same dept',   tgCode: 'same_department' },
     { label: 'Everyone',    tgCode: 'everyone'        },
   ],
+  pm: [
+    { label: 'Project members',       tgCode: 'project_members' },
+    { label: 'Select target group →', tgCode: null, special: true },
+  ],
   hr: [
     { label: 'Everyone',              tgCode: 'everyone'        },
     { label: 'Same dept',             tgCode: 'same_department' },
@@ -336,6 +341,11 @@ const TP_OPTIONS: Record<RoleCategory, TpChip[]> = {
 
 function getRoleCategory(code: string, name: string): RoleCategory {
   const lc = (code + name).toLowerCase();
+  // Project lead must be tested FIRST. 'project_manager' contains 'manager', so
+  // the mss test below would swallow it -- and the mss chip list has no
+  // 'Select target group' escape hatch, leaving 'Project members' unreachable
+  // for the one role that exists to use it.
+  if (lc.includes('project')) return 'pm';
   if (lc.includes('employee') || lc.includes('ess')) return 'ess';
   if (lc.includes('manager') || lc.includes('mss') || lc.includes('dept') || lc.includes('head')) return 'mss';
   return 'hr';
