@@ -358,8 +358,8 @@ GRANT EXECUTE ON FUNCTION public.paste_timesheet_day(uuid, date, date, uuid[]) T
 REVOKE ALL ON FUNCTION public.paste_timesheet_day(uuid, date, date) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.paste_timesheet_day(uuid, date, date) TO authenticated;
 
-COMMENT ON FUNCTION public.paste_timesheet_day IS
-  'Mig 746: extends 735 with selective paste (p_entry_ids filter) and paste '
+COMMENT ON FUNCTION public.paste_timesheet_day(uuid, date, date, uuid[]) IS
+  'Mig 772: extends 735 with selective paste (p_entry_ids filter) and paste '
   'into non-empty days (collision handling: append same project, reject bare '
   'duplicates, reject legacy). Daily cap enforced pre-write.';
 
