@@ -520,6 +520,10 @@ export default function MyTimesheet() {
   // Copy Day — 'idle' | 'pick' (choose a source) | 'paste' (choose targets)
   const [copyMode,  setCopyMode]  = useState<'idle' | 'pick' | 'paste'>('idle');
   const [clipboard, setClipboard] = useState<{ from: string; entries: TimesheetEntry[] } | null>(null);
+  // Selective copy: when a source day has multiple entries show a picker before
+  // committing to the clipboard. copyPickerDate = null means the picker is closed.
+  const [copyPickerDate, setCopyPickerDate] = useState<string | null>(null);
+  const [copyPickerSel,  setCopyPickerSel]  = useState<Set<string>>(new Set());
 
   // Toasts
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -1086,11 +1090,10 @@ export default function MyTimesheet() {
   const typesAllowingFuture = (cat: 'attendance' | 'absence') =>
     timeTypes.filter(t => t.category === cat && t.allows_future).length;
 
-  // Copy Day keeps the stricter "empty days only" rule on purpose. Pasting N
-  // entries into a non-empty day is N separate collision questions and needs
-  // the classify-and-preview machinery the Create modal gets in PR 2. Copy Day
-  // has also never been exercised in a browser; its first real test should not
-  // be the harder version of the problem.
+  // Paste is now allowed into non-empty days. Mig 746 handles collision the same
+  // way save_timesheet_entry does: APPEND for same project+type with activity
+  // rows, ALREADY_EXISTS / LEGACY_NEEDS_SPLIT for others, and a 16h cap check.
+  // The only client-side blocks are future dates (per type) and full-day absence.
   function pasteBlockedReason(dateStr: string): string | null {
     // A future target is allowed when EVERY type on the copied day may be dated
     // forward -- mig 737, and the same rule the day panel applies per entry via
@@ -1109,8 +1112,7 @@ export default function MyTimesheet() {
       ));
       if (blocking.length) return `${blocking.join(', ')} cannot be recorded in advance`;
     }
-    return dateBlockedReason(dateStr)
-        ?? ((entriesByDate[dateStr] ?? []).length > 0 ? 'Already has attendance' : null);
+    return dateBlockedReason(dateStr);
   }
 
   // ── Create ────────────────────────────────────────────────────────────
@@ -1237,7 +1239,7 @@ export default function MyTimesheet() {
   }
 
   // ── Copy Day ──────────────────────────────────────────────────────────
-  function exitCopyMode() { setCopyMode('idle'); setClipboard(null); }
+  function exitCopyMode() { setCopyMode('idle'); setClipboard(null); setCopyPickerDate(null); setCopyPickerSel(new Set()); }
 
   // Only attendance travels. Leave is excluded entirely: an 8h leave pasted
   // onto a 4h-planned day would be longer than the day exists.
@@ -1252,44 +1254,72 @@ export default function MyTimesheet() {
         : 'Nothing to copy — that day is empty.', 'bad');
       return;
     }
-    const skipped = (entriesByDate[dateStr] ?? []).length - work.length;
-    setClipboard({ from: dateStr, entries: work });
+    if (work.length === 1) {
+      // Single entry — copy immediately, no picker needed.
+      const skipped = (entriesByDate[dateStr] ?? []).length - 1;
+      setClipboard({ from: dateStr, entries: work });
+      setCopyMode('paste');
+      pushToast(`Copied ${fmtChip(dateStr)} — 1 entry${skipped ? ' (leave not copied)' : ''}`);
+    } else {
+      // Multiple entries — let the user choose which ones to carry.
+      setCopyPickerDate(dateStr);
+      setCopyPickerSel(new Set(work.map(e => e.id)));  // start with all ticked
+    }
+  }
+
+  function confirmCopyPicker() {
+    if (!copyPickerDate) return;
+    const work = attendanceOf(copyPickerDate);
+    const selected = work.filter(e => copyPickerSel.has(e.id));
+    if (!selected.length) { pushToast('Select at least one entry to copy.', 'bad'); return; }
+    const skipped = (entriesByDate[copyPickerDate] ?? []).length - selected.length;
+    setClipboard({ from: copyPickerDate, entries: selected });
     setCopyMode('paste');
-    pushToast(`Copied ${fmtChip(dateStr)} — ${work.length} ${work.length === 1 ? 'entry' : 'entries'}${skipped ? ' (leave not copied)' : ''}`);
+    setCopyPickerDate(null);
+    setCopyPickerSel(new Set());
+    pushToast(
+      `Copied ${fmtChip(copyPickerDate)} — ${selected.length} ${selected.length === 1 ? 'entry' : 'entries'}${skipped ? ' (leave/unselected not copied)' : ''}`,
+    );
   }
 
   async function pasteInto(dateStr: string) {
     if (!header || !clipboard) return;
     const blocked = pasteBlockedReason(dateStr);
-    if (blocked) {
-      pushToast(blocked === 'Already has attendance'
-        ? 'This day already has entries. Paste is only allowed into empty days.'
-        : `${blocked}.`, 'bad');
-      return;
-    }
+    if (blocked) { pushToast(`${blocked}.`, 'bad'); return; }
+
     // ONE RPC, ONE TRANSACTION, AND THE ROWS COME FROM THE DATABASE — mig 735.
-    // This used to build plain objects here and insert them straight into
-    // timesheet_entries, carrying `activities` (the parent's denormalised text[]
-    // of NAMES) and no timesheet_entry_activities rows at all. The pasted day
-    // then showed the right total against nothing: "Code Review — 1h" in the
-    // PDF and "Not itemised" in the summary. It also went round
-    // save_timesheet_entry, so the header-status check never ran on a paste,
-    // and the empty-day and future-date rules above were browser-only.
+    // Mig 746 extends this to non-empty targets: same collision logic as
+    // save_timesheet_entry (APPEND / ALREADY_EXISTS / LEGACY_NEEDS_SPLIT)
+    // and a 16h cap check before any write lands.
     //
-    // The child rows were in memory the whole time — reloadEntries selects
-    // them — but copying a record's children out of a client cache is how this
-    // went wrong in the first place. The RPC reads them from the table.
+    // p_entry_ids carries the IDs the user selected in the picker (or all of
+    // them when the day had only one entry and the picker was skipped). The RPC
+    // treats NULL as "copy everything", but we always send the explicit list so
+    // selective copy is honoured.
     const { data, error: rpcErr } = await supabase.rpc('paste_timesheet_day', {
       p_header_id: header.id,
       p_from_date: clipboard.from,
       p_to_date:   dateStr,
+      p_entry_ids: clipboard.entries.map(e => e.id),
     });
     if (rpcErr)    { pushToast(rpcErr.message, 'bad'); return; }
     if (!data?.ok) { pushToast(data?.message ?? 'Could not paste that day.', 'bad'); return; }
 
     await reloadEntries();
-    pushToast(`Pasted into ${fmtChip(dateStr)} — ${data.created} ${data.created === 1 ? 'entry' : 'entries'}`,
-      'ok', (data.entry_ids ?? []) as string[]);
+
+    const parts: string[] = [];
+    if (data.created)  parts.push(`${data.created} new ${data.created === 1 ? 'entry' : 'entries'}`);
+    if (data.appended) parts.push(`${data.appended} merged`);
+    pushToast(
+      `Pasted into ${fmtChip(dateStr)} — ${parts.join(', ') || 'done'}`,
+      'ok',
+      (data.entry_ids ?? []) as string[],
+    );
+
+    // Soft-line warning: target day is now more than 4h above its schedule.
+    if (data.warning) {
+      pushToast(`${fmtChip(dateStr)} is now more than 4 hours beyond its schedule.`, 'warn');
+    }
   }
 
   // ── Keyboard: C = create, D = copy mode, Esc = exit ───────────────────
@@ -3157,6 +3187,98 @@ export default function MyTimesheet() {
         )}
       </div>
 
+      {/* ── Selective copy picker ─────────────────────────────────────────── */}
+      {copyPickerDate && (() => {
+        const work = attendanceOf(copyPickerDate);
+        return (
+          <div style={{
+            position: 'fixed', inset: 0, zIndex: 900,
+            background: 'rgba(16,24,40,0.35)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }} onClick={() => { setCopyPickerDate(null); setCopyPickerSel(new Set()); }}>
+            <div style={{
+              background: '#fff', borderRadius: 10, padding: '20px 22px',
+              boxShadow: '0 8px 32px -4px rgba(16,24,40,0.22)',
+              minWidth: 320, maxWidth: 440,
+            }} onClick={e => e.stopPropagation()}>
+              <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>
+                Select entries to copy
+              </div>
+              <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 14 }}>
+                From {fmtChip(copyPickerDate)} — choose which attendance to carry across.
+              </div>
+
+              {work.map(e => {
+                const tt   = timeTypes.find(t => t.id === e.time_type_id);
+                const proj = projects.find(p => p.id === e.project_id);
+                const h    = Math.floor(e.hours_minutes / 60);
+                const m    = e.hours_minutes % 60;
+                const dur  = h ? `${h}h${m ? ` ${m}m` : ''}` : `${m}m`;
+                const label = proj ? `${proj.name}` : (tt?.name ?? 'Entry');
+                const acts  = e.activities?.join(', ') ?? '';
+                const ticked = copyPickerSel.has(e.id);
+                return (
+                  <div key={e.id} onClick={() => {
+                    setCopyPickerSel(prev => {
+                      const next = new Set(prev);
+                      if (next.has(e.id)) next.delete(e.id); else next.add(e.id);
+                      return next;
+                    });
+                  }} style={{
+                    display: 'flex', alignItems: 'flex-start', gap: 10,
+                    padding: '8px 10px', borderRadius: 6, marginBottom: 6,
+                    border: `1px solid ${ticked ? '#BFDBFE' : '#E5E7EB'}`,
+                    background: ticked ? '#EFF6FF' : '#FAFAFA',
+                    cursor: 'pointer', userSelect: 'none',
+                  }}>
+                    <div style={{
+                      width: 16, height: 16, borderRadius: 3, flexShrink: 0, marginTop: 1,
+                      border: `2px solid ${ticked ? '#2563EB' : '#D1D5DB'}`,
+                      background: ticked ? '#2563EB' : '#fff',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      {ticked && <i className="fa-solid fa-check" style={{ fontSize: 9, color: '#fff' }} />}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: 13, color: '#111827' }}>
+                        {label}
+                        <span style={{ fontWeight: 400, color: '#6B7280', marginLeft: 6 }}>{dur}</span>
+                      </div>
+                      {acts && <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{acts}</div>}
+                    </div>
+                  </div>
+                );
+              })}
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16, gap: 8 }}>
+                <button onClick={() => {
+                  setCopyPickerSel(s => s.size === work.length ? new Set() : new Set(work.map(e => e.id)));
+                }} style={{
+                  fontSize: 12, color: '#6B7280', background: 'none', border: 'none',
+                  cursor: 'pointer', padding: '4px 0',
+                }}>
+                  {copyPickerSel.size === work.length ? 'Deselect all' : 'Select all'}
+                </button>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => { setCopyPickerDate(null); setCopyPickerSel(new Set()); }} style={{
+                    padding: '7px 14px', borderRadius: 7, border: '1px solid #D0D5DD',
+                    background: '#fff', color: '#374151', fontWeight: 600, fontSize: 13, cursor: 'pointer',
+                  }}>Cancel</button>
+                  <button onClick={confirmCopyPicker} disabled={copyPickerSel.size === 0} style={{
+                    padding: '7px 14px', borderRadius: 7, border: 'none',
+                    background: copyPickerSel.size > 0 ? '#2563EB' : '#93C5FD',
+                    color: '#fff', fontWeight: 600, fontSize: 13,
+                    cursor: copyPickerSel.size > 0 ? 'pointer' : 'default',
+                  }}>
+                    Copy {copyPickerSel.size > 0 ? `${copyPickerSel.size} ${copyPickerSel.size === 1 ? 'entry' : 'entries'}` : ''}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* ── Copy-mode banner ──────────────────────────────────────────────── */}
       {copyMode !== 'idle' && (
         <div style={{
@@ -3169,7 +3291,7 @@ export default function MyTimesheet() {
         }}>
           {copyMode === 'pick'
             ? '📋 Copy mode — click a day that has attendance'
-            : `✓ Copied ${clipboard ? fmtChip(clipboard.from) : ''} (${clipboard?.entries.length ?? 0} ${clipboard?.entries.length === 1 ? 'entry' : 'entries'}) — click any empty day to paste`}
+            : `✓ Copied ${clipboard ? fmtChip(clipboard.from) : ''} (${clipboard?.entries.length ?? 0} ${clipboard?.entries.length === 1 ? 'entry' : 'entries'}) — click any day to paste`}
           <button onClick={exitCopyMode} style={{ border: 'none', background: 'none', font: 'inherit', fontWeight: 700, cursor: 'pointer', color: 'inherit', opacity: 0.75 }}>
             {copyMode === 'pick' ? 'Cancel' : 'Done'} (Esc)
           </button>
