@@ -3011,6 +3011,28 @@ export default function MyTimesheet() {
                     {editingEntry ? 'Edit Entry' : 'Add Entry'}
                   </div>
 
+                  {/* Issue 2 fix — warn before silently appending to a day that
+                      already has attendance. The save is not blocked; the user just
+                      needs to know they are adding alongside existing entries, not
+                      creating a fresh day. */}
+                  {selectedDate && (entriesByDate[selectedDate] ?? []).length > 0 && (() => {
+                    const n = (entriesByDate[selectedDate] ?? []).length;
+                    return (
+                      <div style={{
+                        display: 'flex', alignItems: 'flex-start', gap: 8,
+                        background: '#FFFBEB', border: '1px solid #FDE68A',
+                        borderRadius: 6, padding: '8px 10px', marginBottom: 10,
+                        fontSize: 12, color: '#92400E', lineHeight: 1.5,
+                      }}>
+                        <span style={{ fontSize: 13, marginTop: 1 }}>⚠️</span>
+                        <span>
+                          This day already has <b>{n === 1 ? '1 entry' : `${n} entries`}</b>.
+                          {' '}Your new entry will be added alongside {n === 1 ? 'it' : 'them'}.
+                        </span>
+                      </div>
+                    );
+                  })()}
+
                   {renderEntryFields({ projectDates: selectedDate ? [selectedDate] : [] })}
 
                   <div style={{ display: 'flex', gap: 7 }}>
