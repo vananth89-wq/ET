@@ -131,7 +131,7 @@ COMMENT ON COLUMN public.project_members.allocation_pct IS
 DROP TRIGGER IF EXISTS trg_project_members_updated_at ON public.project_members;
 CREATE TRIGGER trg_project_members_updated_at
   BEFORE UPDATE ON public.project_members
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();   -- 20260419001, as every other table uses
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- PART 2  Backfill from what actually happened
