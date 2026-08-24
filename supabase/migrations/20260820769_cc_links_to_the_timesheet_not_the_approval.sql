@@ -9,6 +9,20 @@
 -- exists precisely to withhold. 768 stopped the WORDS inviting them to act; this
 -- stops the LINK doing it.
 --
+-- WHERE is_cc ACTUALLY LIVES
+--   On workflow_steps (mig 501093), NOT on workflow_tasks — a task reaches it
+--   through step_id. The first cut of this migration read t.is_cc and died on
+--   `column t.is_cc does not exist`. Mig 675's header says its own check "uses
+--   workflow_tasks (assigned_to + is_cc + status='approved')" and I took that
+--   sentence for the schema instead of reading the table.
+--
+--   Worth stating plainly, because it is the more useful half: had the assertion
+--   at the foot not run that query, the SAME mistake in the function body would
+--   have shipped and thrown on every notification delivery. plpgsql does not
+--   resolve a column name until the line executes, so a wrong column in a
+--   function is invisible until a user triggers it — the identical failure mode
+--   as the ::text cast in 764.
+--
 -- WHERE A CC RECIPIENT SHOULD LAND
 --   On a timesheet, at the timesheet: /timesheet/<employee_id>?period=YYYY-MM.
 --   That route is MyTimesheet viewing somebody else's month. It carries no
@@ -34,7 +48,7 @@
 --   PENDING non-CC task of their own. Real work wins.
 --
 -- Depends on : 765 (the approver deep link this refines), 768 (the CC wording),
---              742 (timesheet metadata), 501093 (is_cc)
+--              742 (timesheet metadata), 501093 (workflow_steps.is_cc)
 
 CREATE OR REPLACE FUNCTION public._wf_notification_link(
   p_instance_id    uuid,
@@ -85,17 +99,22 @@ BEGIN
   END IF;
 
   -- ── CC, but only if they have nothing of their own to act on ──────────────
+  -- is_cc is a property of the STEP; the task points at it through step_id.
   SELECT EXISTS (
-           SELECT 1 FROM workflow_tasks t
+           SELECT 1
+           FROM   workflow_tasks t
+           JOIN   workflow_steps ws ON ws.id = t.step_id
            WHERE  t.instance_id = p_instance_id
              AND  t.assigned_to = p_target_profile
-             AND  t.is_cc IS TRUE
+             AND  ws.is_cc IS TRUE
          )
          AND NOT EXISTS (
-           SELECT 1 FROM workflow_tasks t
+           SELECT 1
+           FROM   workflow_tasks t
+           JOIN   workflow_steps ws ON ws.id = t.step_id
            WHERE  t.instance_id = p_instance_id
              AND  t.assigned_to = p_target_profile
-             AND  t.is_cc IS NOT TRUE
+             AND  ws.is_cc IS NOT TRUE
              AND  t.status = 'pending'
          )
   INTO   v_is_cc;
@@ -134,12 +153,14 @@ COMMENT ON FUNCTION public._wf_notification_link(uuid, uuid) IS
   'controls; other modules fall back to the inbox until they have such a view. '
   'Approvers go to /workflow/review/<record_id> for modules with a full-review '
   'screen (list mirrors FULL_REVIEW_MODULES in ApproverInbox.tsx). Somebody who '
-  'is both CC and a pending approver is treated as an approver.';
+  'is both CC and a pending approver is treated as an approver. is_cc is read '
+  'from workflow_steps via workflow_tasks.step_id — it is not a column on the task.';
 
 
 -- ── Assertions ───────────────────────────────────────────────────────────────
 -- A wrong link raises nothing anywhere: the email sends and the button renders.
--- The only way to know is to run the function against real rows.
+-- The only way to know is to run the function against real rows — which is also
+-- what caught the wrong column above, before it reached a user.
 DO $chk$
 DECLARE
   r        record;
@@ -151,9 +172,10 @@ BEGIN
   FOR r IN
     SELECT DISTINCT wi.id, wi.metadata, t.assigned_to
     FROM   workflow_instances wi
-    JOIN   workflow_tasks t ON t.instance_id = wi.id
+    JOIN   workflow_tasks t  ON t.instance_id = wi.id
+    JOIN   workflow_steps ws ON ws.id = t.step_id
     WHERE  wi.module_code = 'timesheet'
-      AND  t.is_cc IS TRUE
+      AND  ws.is_cc IS TRUE
       AND  t.assigned_to IS DISTINCT FROM wi.submitted_by
     LIMIT  5
   LOOP
@@ -166,9 +188,13 @@ BEGIN
 
     IF (r.metadata ->> 'employee_id') IS NOT NULL
        AND v_link NOT LIKE '/timesheet/%'
-       AND NOT EXISTS (SELECT 1 FROM workflow_tasks t2
-                       WHERE t2.instance_id = r.id AND t2.assigned_to = r.assigned_to
-                         AND t2.is_cc IS NOT TRUE AND t2.status = 'pending') THEN
+       AND NOT EXISTS (SELECT 1
+                       FROM  workflow_tasks t2
+                       JOIN  workflow_steps ws2 ON ws2.id = t2.step_id
+                       WHERE t2.instance_id = r.id
+                         AND t2.assigned_to = r.assigned_to
+                         AND ws2.is_cc IS NOT TRUE
+                         AND t2.status = 'pending') THEN
       RAISE EXCEPTION
         'mig 769 assert: CC on a timesheet with employee_id in metadata resolved to %, '
         'expected the timesheet', v_link;
@@ -181,9 +207,10 @@ BEGIN
   FOR r IN
     SELECT wi.id, wi.record_id, t.assigned_to
     FROM   workflow_instances wi
-    JOIN   workflow_tasks t ON t.instance_id = wi.id
+    JOIN   workflow_tasks t  ON t.instance_id = wi.id
+    JOIN   workflow_steps ws ON ws.id = t.step_id
     WHERE  wi.module_code = 'timesheet'
-      AND  t.is_cc IS NOT TRUE
+      AND  ws.is_cc IS NOT TRUE
       AND  t.assigned_to IS DISTINCT FROM wi.submitted_by
       AND  wi.record_id IS NOT NULL
     LIMIT  3
