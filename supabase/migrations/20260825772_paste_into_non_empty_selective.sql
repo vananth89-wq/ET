@@ -369,35 +369,42 @@ COMMENT ON FUNCTION public.paste_timesheet_day(uuid, date, date, uuid[]) IS
 DO $$
 DECLARE v_src text;
 BEGIN
+  -- Target the 4-arg overload specifically (uuid, date, date, uuid[]).
+  -- Without specifying arg types pg_get_functiondef picks one arbitrarily
+  -- when the name is overloaded, which caused the old 3-arg body to be
+  -- inspected and the p_entry_ids check to fail.
   SELECT pg_get_functiondef(p.oid) INTO v_src
-  FROM   pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-  WHERE  n.nspname = 'public' AND p.proname = 'paste_timesheet_day';
+  FROM   pg_proc p
+  JOIN   pg_namespace n ON n.oid = p.pronamespace
+  WHERE  n.nspname = 'public'
+    AND  p.proname = 'paste_timesheet_day'
+    AND  p.pronargs = 4;
 
   IF v_src IS NULL THEN
-    RAISE EXCEPTION 'MIG 746 ABORT: paste_timesheet_day was not created.';
+    RAISE EXCEPTION 'MIG 772 ABORT: paste_timesheet_day (4-arg) was not created.';
   END IF;
 
   IF position('p_entry_ids' IN v_src) = 0 THEN
-    RAISE EXCEPTION 'MIG 746 ABORT: paste_timesheet_day does not carry the selective filter.';
+    RAISE EXCEPTION 'MIG 772 ABORT: paste_timesheet_day does not carry the selective filter.';
   END IF;
 
   IF position('TARGET_NOT_EMPTY' IN v_src) > 0 THEN
-    RAISE EXCEPTION 'MIG 746 ABORT: paste_timesheet_day still has the TARGET_NOT_EMPTY block.';
+    RAISE EXCEPTION 'MIG 772 ABORT: paste_timesheet_day still has the TARGET_NOT_EMPTY block.';
   END IF;
 
   IF position('DAILY_CAP' IN v_src) = 0 THEN
-    RAISE EXCEPTION 'MIG 746 ABORT: paste_timesheet_day does not check the daily cap.';
+    RAISE EXCEPTION 'MIG 772 ABORT: paste_timesheet_day does not check the daily cap.';
   END IF;
 
   IF position('LEGACY_NEEDS_SPLIT' IN v_src) = 0 THEN
-    RAISE EXCEPTION 'MIG 746 ABORT: paste_timesheet_day does not handle legacy entries on the target.';
+    RAISE EXCEPTION 'MIG 772 ABORT: paste_timesheet_day does not handle legacy entries on the target.';
   END IF;
 
   IF position('FROM   timesheet_entry_activities a' IN v_src) = 0 THEN
-    RAISE EXCEPTION 'MIG 746 ABORT: paste_timesheet_day does not read activity rows from the database.';
+    RAISE EXCEPTION 'MIG 772 ABORT: paste_timesheet_day does not read activity rows from the database.';
   END IF;
 
-  RAISE NOTICE 'MIG 746 verified: selective paste, non-empty target, daily cap, collision handling all present.';
+  RAISE NOTICE 'MIG 772 verified: selective paste, non-empty target, daily cap, collision handling all present.';
 END $$;
 
 COMMIT;
