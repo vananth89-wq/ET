@@ -36,6 +36,10 @@ interface Row {
   entry_id: string; entry_date: string; period: string;
   employee_id: string; employee_name: string; employee_code: string;
   department_name: string | null; header_id: string; header_status: string;
+  /** mig 771. True when this row is visible only because the caller manages the
+   *  project — department is redacted on those rows. Optional so a bundle live
+   *  against a pre-771 database degrades to "no badge" rather than a type error. */
+  via_project?: boolean;
   project_id: string | null; project_name: string | null;
   time_type_id: string | null; time_type_name: string | null; time_type_code: string | null;
   category: string | null; hours_minutes: number; notes: string | null;
@@ -54,9 +58,17 @@ interface Breakdowns {
 interface Payload {
   ok: boolean; page: number; page_size: number; total_rows: number;
   totals: { recorded_minutes: number; planned_minutes: number; entry_count: number;
-            employee_count: number; project_count: number };
+            employee_count: number; project_count: number;
+            /** mig 771. False when project-reached rows are present: planned comes
+             *  from the caller's employee scope, so it has no capacity for them. */
+            planned_covers_all_rows?: boolean };
   breakdowns?: Breakdowns;
   scope: { mode?: string; employee_count?: number | null };
+  /** mig 771. Present only once the PM path is deployed. */
+  pm?: {
+    is_manager: boolean; managed_projects: number; via_project_rows: number;
+    redacted_columns: string[]; dept_filter_suppressed: boolean;
+  };
   rows: Row[];
 }
 interface Opt { value: string; label: string; }
@@ -226,7 +238,11 @@ export default function TimesheetUtilisation({ shared, setShared }: ReportTabPro
       await exportXlsx([
         { name: 'Entries', rows: rows.map(r => ({
             Date: r.entry_date, Employee: r.employee_name, 'Employee ID': r.employee_code,
-            Department: r.department_name ?? '', Project: r.project_name ?? '',
+            // Redaction has to survive the export. A spreadsheet is where a
+            // hidden column is least likely to be noticed as hidden.
+            Department: r.via_project ? 'Hidden' : (r.department_name ?? ''),
+            'Via project': r.via_project ? 'Yes' : '',
+            Project: r.project_name ?? '',
             'Time type': r.time_type_name ?? '', Category: r.category ?? '',
             Hours: toDecimalHours(r.hours_minutes), Minutes: r.hours_minutes,
             Activities: r.activities.length, Status: r.header_status, Notes: r.notes ?? '',
@@ -244,6 +260,21 @@ export default function TimesheetUtilisation({ shared, setShared }: ReportTabPro
   }, [filters, from, to]);
 
   const t = data?.totals;
+
+  /**
+   * Planned is unusable for two different reasons, and the caption has to say
+   * which. entryFiltered: the numerator was narrowed to a project/type/category
+   * the denominator knows nothing about (mig 752 era). plannedIncomplete: the
+   * numerator gained rows from a managed project by people outside the caller's
+   * employee scope, whose capacity is not in `hdr` at all (mig 771). Either way
+   * the ratio would divide two different populations.
+   *
+   * `planned_covers_all_rows` is absent on a pre-771 database, so the `=== false`
+   * test is deliberate — undefined must not read as incomplete.
+   */
+  const plannedIncomplete = t?.planned_covers_all_rows === false;
+  const plannedUnusable   = entryFiltered || plannedIncomplete;
+
   const util = t && t.planned_minutes > 0
     ? `${Math.round((t.recorded_minutes / t.planned_minutes) * 100)}%` : '—';
 
@@ -286,15 +317,21 @@ export default function TimesheetUtilisation({ shared, setShared }: ReportTabPro
         <div style={{ display: 'flex', gap: 12, padding: '16px 20px 4px', flexWrap: 'wrap' }}>
           <Kpi label="Recorded" value={fmtHM(t?.recorded_minutes)}
                caption={entryFiltered ? 'Hours matching the current filter' : undefined} />
-          <Kpi label="Planned" value={entryFiltered ? '\u2014' : fmtHM(t?.planned_minutes)}
-               caption={entryFiltered
-                 ? 'Planned hours are set per employee per month, never per project. Clear the project, time type and category filters to see them.'
-                 : undefined} />
-          <Kpi label="Recording rate" value={entryFiltered ? '\u2014' : util}
-               tone={entryFiltered ? undefined : '#0F766E'}
-               caption={entryFiltered
-                 ? 'Needs a planned figure to divide by. Project budgets live in the Project Summary report.'
-                 : 'Recorded against planned, for everyone in scope'} />
+          <Kpi label="Planned" value={plannedUnusable ? '\u2014' : fmtHM(t?.planned_minutes)}
+               caption={
+                 entryFiltered
+                   ? 'Planned hours are set per employee per month, never per project. Clear the project, time type and category filters to see them.'
+                   : plannedIncomplete
+                     ? 'Some rows come from projects you manage, by people outside your employee scope. Planned has no capacity figure for them, so the two numbers would not describe the same population.'
+                     : undefined} />
+          <Kpi label="Recording rate" value={plannedUnusable ? '\u2014' : util}
+               tone={plannedUnusable ? undefined : '#0F766E'}
+               caption={
+                 entryFiltered
+                   ? 'Needs a planned figure to divide by. Project budgets live in the Project Summary report.'
+                   : plannedIncomplete
+                     ? 'Recorded and planned cover different populations here.'
+                     : 'Recorded against planned, for everyone in scope'} />
           <Kpi label="Entries"     value={String(t?.entry_count ?? 0)} />
           <Kpi label="Employees"   value={String(t?.employee_count ?? 0)} />
           <Kpi label="Projects"    value={String(t?.project_count ?? 0)} />
@@ -345,6 +382,34 @@ export default function TimesheetUtilisation({ shared, setShared }: ReportTabPro
         </div>
       )}
 
+      {/* Without this the report looks impossible: rows for people the reader
+          has no HR access to, and a department column that is blank for some of
+          them and not others. Redaction that is not announced reads as a bug. */}
+      {data?.pm?.is_manager && (data.pm.via_project_rows > 0 || data.pm.dept_filter_suppressed) && (
+        <div style={{ margin: '10px 20px 0', padding: '10px 14px', borderRadius: 8,
+                      background: '#F7F3FF', border: '1px solid #ddd6fe',
+                      fontSize: 12.5, color: '#5b21b6', lineHeight: 1.5 }}>
+          <i className="fa-solid fa-diagram-project" style={{ marginRight: 8 }} />
+          {data.pm.dept_filter_suppressed ? (
+            <>
+              You manage <strong>{data.pm.managed_projects}</strong>{' '}
+              project{data.pm.managed_projects === 1 ? '' : 's'}, but a{' '}
+              <strong>department filter is applied</strong>, so rows from outside your
+              employee scope are hidden. Department is redacted on those rows, and a
+              filter that made them appear and disappear would give the value back.
+              Clear the department filter to see them.
+            </>
+          ) : (
+            <>
+              <strong>{data.pm.via_project_rows}</strong>{' '}
+              row{data.pm.via_project_rows === 1 ? '' : 's'} below come from projects you
+              manage, recorded by people outside your employee scope.{' '}
+              <strong>Department is hidden</strong> on those rows.
+            </>
+          )}
+        </div>
+      )}
+
       <ReportStatus loading={loading} error={error}
                     empty={!!data && data.rows.length === 0}
                     emptyText="No timesheet entries match these filters." />
@@ -386,11 +451,28 @@ export default function TimesheetUtilisation({ shared, setShared }: ReportTabPro
                     <td className="er-td-date">{fmtDate(r.entry_date)}</td>
                     <td>
                       <div className="er-emp-info">
-                        <span className="er-emp-name">{r.employee_name}</span>
+                        <span className="er-emp-name">
+                          {r.employee_name}
+                          {r.via_project && (
+                            <span title="Visible through a project you manage"
+                                  style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 700, color: '#7c3aed',
+                                           background: '#f3e8ff', border: '1px solid #ddd6fe',
+                                           borderRadius: 999, padding: '1px 6px', whiteSpace: 'nowrap' }}>
+                              via project
+                            </span>
+                          )}
+                        </span>
                         <span className="er-emp-id">{r.employee_code}</span>
                       </div>
                     </td>
-                    <td style={{ whiteSpace: 'nowrap' }}>{r.department_name ?? '—'}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      {r.via_project
+                        ? <span style={{ color: '#9CA3AF' }}
+                                title="Hidden — you see this row through a project you manage, not through your employee scope">
+                            Hidden
+                          </span>
+                        : (r.department_name ?? '—')}
+                    </td>
                     <td style={{ whiteSpace: 'nowrap' }}>{r.project_name ?? '—'}</td>
                     <td style={{ whiteSpace: 'nowrap' }}>
                       {r.time_type_name ?? '—'}

@@ -798,9 +798,36 @@ exists for.
 flag. Hiding a project from the person accountable for it because it closed last
 month is not a security property.
 
-Still to come: Utilisation, which needs per-row redaction of department and
-planned hours, and a visible "columns hidden by your permissions" notice rather
-than silent omission.
+**Second reader: Utilisation (`20260820771`).** The risky half, and the three
+things that make it safe are enforced in the RPC rather than the UI:
+
+1. **Department is nulled** on rows visible only through the project. The name
+   stays — a report of hours with the person blanked out answers nothing.
+2. **A department filter suppresses the PM branch entirely.** Applying it to
+   redacted rows would let a manager binary-search the hidden value by toggling
+   the filter and watching rows appear. Redaction a filter can undo is not
+   redaction. The screen says the branch is suppressed and why.
+3. **`planned_minutes` is flagged incomplete.** It comes from `hdr`, still
+   employee-scoped, so with project-reached rows present the recorded total
+   counts hours the planned total has no capacity for — §8.1b arriving through a
+   different door. `planned_covers_all_rows` drives the same suppression the
+   project filter already uses, with a caption naming which of the two causes
+   applies.
+
+Rows carry `via_project`, so the screen can badge them and the export can carry
+the redaction — a spreadsheet is where a hidden column is least likely to be
+noticed as hidden.
+
+**A manager with no employee population sees their own entries redacted too.**
+With scope `none` every row is reached through the project, including their own,
+so their own department is hidden from them. Consistent rather than
+special-cased, and the alternative — an "or it's me" exemption — is the employee
+scope's job, not this predicate's.
+
+**Patched in place, not re-issued.** 745, 746, 750 and 752 have each amended
+this function; a `CREATE OR REPLACE` built from an older file would silently
+revert whichever the author had not read — the defect behind 734, 736 and 737.
+All eight anchors are asserted to match exactly once.
 
 ---
 
