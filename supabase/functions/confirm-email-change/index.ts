@@ -18,6 +18,14 @@
  *              and its confirmation timestamps, and a direct UPDATE from SQL
  *              would leave those inconsistent.
  *
+ * Sessions are revoked on success. updateUserById({ email }) moves the
+ * IDENTIFIER but leaves existing refresh tokens valid, so without this step a
+ * confirmed change would leave anyone already signed in on the old address
+ * working until their token expired — wrong in exactly the cases this feature
+ * exists for: a departing employee whose mailbox is being reassigned, or an
+ * account being moved because it was compromised. HR would see "confirmed" and
+ * believe the old holder was out.
+ *
  * Required secrets:
  *   SUPABASE_URL               — auto-injected
  *   SUPABASE_SERVICE_ROLE_KEY  — auto-injected
@@ -43,11 +51,12 @@ Deno.serve(async (req: Request) => {
     return json({ ok: false, error: 'This link is missing its confirmation code.' }, 400);
   }
 
-  const admin = createClient(
-    Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
-    { auth: { persistSession: false } },
-  );
+  const supabaseUrl    = Deno.env.get('SUPABASE_URL')!;
+  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+
+  const admin = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { persistSession: false },
+  });
 
   // ── 1. Let the database rule on it ────────────────────────────────────────
   const { data: rows, error: claimErr } = await admin
@@ -92,7 +101,43 @@ Deno.serve(async (req: Request) => {
     }, 409);
   }
 
-  // ── 3. Close the request ──────────────────────────────────────────────────
+  // ── 3. Revoke every existing session ──────────────────────────────────────
+  // supabase-js's auth.admin.signOut() takes a JWT, not a user id, so this goes
+  // to the GoTrue admin endpoint directly.
+  //
+  // NOT fatal. The email HAS changed by this point; reporting failure would send
+  // someone off to sign in with the wrong address. But it is not silent either:
+  // a revocation that quietly failed is a security hole that looks closed, so
+  // the reason is written to the audit row below.
+  let revoked   = false;
+  let revokeErr: string | null = null;
+  try {
+    const res = await fetch(
+      `${supabaseUrl}/auth/v1/admin/users/${change.profile_id}/logout`,
+      {
+        method:  'POST',
+        headers: {
+          'Content-Type':  'application/json',
+          apikey:          serviceRoleKey,
+          Authorization:   `Bearer ${serviceRoleKey}`,
+        },
+        body: JSON.stringify({ scope: 'global' }),
+      },
+    );
+    if (res.ok) {
+      revoked = true;
+    } else {
+      revokeErr = `GoTrue ${res.status}: ${await res.text()}`;
+    }
+  } catch (e) {
+    revokeErr = e instanceof Error ? e.message : String(e);
+  }
+
+  if (revokeErr) {
+    console.error('confirm-email-change: session revocation failed:', revokeErr);
+  }
+
+  // ── 4. Close the request ──────────────────────────────────────────────────
   const { error: finErr } = await admin.rpc('finish_email_change', {
     p_change_id: change.change_id,
     p_error:     null,
@@ -104,12 +149,23 @@ Deno.serve(async (req: Request) => {
     console.error('confirm-email-change: login updated but row not closed:', finErr.message);
   }
 
-  console.log(`confirm-email-change: login updated for profile ${change.profile_id}`);
+  // Verified stands either way; the note records what did not happen.
+  if (revokeErr) {
+    await admin.from('employee_email_changes')
+      .update({ error_message: `login updated, sessions NOT revoked: ${revokeErr}` })
+      .eq('id', change.change_id);
+  }
+
+  console.log(
+    `confirm-email-change: login updated for profile ${change.profile_id}, ` +
+    `sessions revoked: ${revoked}`,
+  );
 
   return json({
-    ok:            true,
-    email:         change.new_email,
-    employee_name: change.employee_name,
+    ok:              true,
+    email:           change.new_email,
+    employee_name:   change.employee_name,
+    sessions_revoked: revoked,
   });
 });
 

@@ -17,7 +17,7 @@ import { useNavigate } from 'react-router-dom';
 
 type State =
   | { kind: 'working' }
-  | { kind: 'done';   email: string; name: string }
+  | { kind: 'done';   email: string; name: string; revoked: boolean }
   | { kind: 'failed'; message: string };
 
 export default function VerifyEmailChangePage() {
@@ -48,7 +48,8 @@ export default function VerifyEmailChangePage() {
     })
       .then(async res => {
         const data = await res.json().catch(() => ({}));
-        if (data?.ok) setState({ kind: 'done', email: data.email, name: data.employee_name });
+        if (data?.ok) setState({ kind: 'done', email: data.email, name: data.employee_name,
+                                 revoked: data.sessions_revoked === true });
         else          setState({ kind: 'failed', message: data?.error ?? 'This link could not be confirmed.' });
       })
       .catch(() => setState({
@@ -81,8 +82,9 @@ export default function VerifyEmailChangePage() {
                 <b>{state.email}</b>.
               </p>
               <p style={{ color: '#64748b', fontSize: 13, marginTop: 10, lineHeight: 1.6 }}>
-                Your password has not changed. If you are signed in somewhere on the old
-                address, sign out and back in.
+                {state.revoked
+                  ? 'Your password has not changed. You have been signed out everywhere — sign in again with the new address.'
+                  : 'Your password has not changed. If you are signed in on another device, sign out and back in there.'}
               </p>
             </div>
             <button
