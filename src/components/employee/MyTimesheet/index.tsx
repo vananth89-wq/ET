@@ -123,6 +123,10 @@ function validateActRows(rows: ActRow[]): string | null {
       return `"${r.name.trim()}" is listed twice — combine the hours into one line.`;
     seen.add(key);
   }
+
+  const totalMins = named.reduce((sum, r) => sum + rowMinutes(r), 0);
+  if (totalMins > 960) return 'Total hours cannot exceed 16h in a single day.';
+
   return null;
 }
 
@@ -1164,6 +1168,7 @@ export default function MyTimesheet() {
       const bad = validateActRows(form.actRows);
       if (bad) { fail(bad); return; }
       totalMins = actTotal(form.actRows);
+      if (totalMins > 960) { fail('Total hours cannot exceed 16h in a single day.'); return; }
     } else {
       const hrs = parseInt(form.hours || '0', 10);
       const mins = parseInt(form.mins || '0', 10);
@@ -2011,8 +2016,8 @@ export default function MyTimesheet() {
               }}>
                 <span style={{ fontSize: 11, color: '#6B7280', fontWeight: 600 }}>Total for the day</span>
                 <span style={{ fontSize: 13, fontWeight: 700, fontVariantNumeric: 'tabular-nums',
-                               color: total > 0 ? '#111827' : '#9CA3AF' }}>
-                  {fmtMins(total)}
+                               color: total > 960 ? '#DC2626' : total > 720 ? '#D97706' : total > 0 ? '#111827' : '#9CA3AF' }}>
+                  {fmtMins(total)}{total > 960 ? ' · exceeds 16h cap' : ''}
                 </span>
               </div>
             </div>
