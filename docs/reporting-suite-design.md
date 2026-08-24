@@ -770,6 +770,38 @@ employee-month and has no project dimension at all, so a project-scoped
 predicate cannot be expressed against it. The PM path applies to Utilisation and
 Project Summary only.
 
+**First reader: Project Summary (`20260820770`).** Deliberately the simpler of
+the two. It is grained on the PROJECT, so the only employee-derived figure is
+`contributor_count` — a number, not an identity — and it needs no redaction at
+all. That delivers the whole point of the persona (a PM sees the *true* total
+for their project rather than a fraction of it) while the row-level redaction
+risk stays in its own migration.
+
+The rule: **an entry counts if the employee is in my scope, OR the project is
+one I manage.** The two halves are `UNION ALL`'d as *disjoint* sets — the PM
+branch excludes employees already visible through scope — so nothing is deduped
+and no hour is counted twice. Tested: a caller who sees everyone *and* manages
+the project gets 720 minutes, not 1,140.
+
+**Why a second branch and not one wider predicate.** 746 measured the scoped
+path at 15ms against 1,381ms, and the win came from the scope semi-join pruning
+headers before anything else runs. Folding `OR <project test>` into that
+predicate would defeat the prune for *every* caller, including the overwhelming
+majority who manage nothing. As a separate branch guarded by `v_pm`, a
+non-manager's branch is a constant false and Postgres skips it whole.
+
+**Scope `none` is no longer an early return for a manager.** A PM with no
+employee population — an external delivery lead — is exactly who this feature
+exists for.
+
+**A manager always sees their own projects**, whatever their dates or active
+flag. Hiding a project from the person accountable for it because it closed last
+month is not a security property.
+
+Still to come: Utilisation, which needs per-row redaction of department and
+planned hours, and a visible "columns hidden by your permissions" notice rather
+than silent omission.
+
 ---
 
 ## 6. Visual system

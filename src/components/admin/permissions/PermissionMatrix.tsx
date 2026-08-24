@@ -56,7 +56,21 @@ const ACTION_HINTS: Record<Action, string> = {
   history: 'Can view the full audit trail and change history for records',
 };
 
-interface ModuleRow   { code: string; label: string; availableActions: Action[]; actionHints?: Partial<Record<Action, string>>; rowHint?: string; isSubRow?: boolean; }
+/**
+ * `actionAlias` lets a column stand for a permission whose action is not one of
+ * the five the matrix has columns for.
+ *
+ * The RBP catalog has more verbs than this grid has columns -- view_project,
+ * approve, view_inactive, reassign -- and a permission with no column is a
+ * permission an administrator cannot grant, however correctly the database
+ * seeded it. Adding a column per verb would widen the grid for every module to
+ * serve one; aliasing puts the checkbox in the column whose MEANING matches
+ * (view_project is a kind of view) and lets the row label carry the specifics.
+ *
+ * `availableActions` still decides which columns render. The alias only changes
+ * which permission code the rendered checkbox reads and writes.
+ */
+interface ModuleRow   { code: string; label: string; availableActions: Action[]; actionHints?: Partial<Record<Action, string>>; rowHint?: string; isSubRow?: boolean; actionAlias?: Partial<Record<Action, string>>; }
 interface MatrixGroup { groupLabel: string; rows: ModuleRow[]; }
 
 const EV_GROUPS: MatrixGroup[] = [
@@ -72,6 +86,13 @@ const EV_GROUPS: MatrixGroup[] = [
         create: 'Open a month for the first time. The monthly header is created automatically when the screen loads, so grant this wherever Edit is granted — without it the Timesheet screen fails to load.',
         edit:   'Add and update time entries within the configured edit window',
         delete: 'Remove time entries within the configured edit window',
+      },
+    },
+    { code: 'timesheet', label: 'Managed projects', availableActions: ['view'], isSubRow: true,
+      actionAlias: { view: 'view_project' },
+      rowHint: 'Project Manager access (mig 767). Lets this person see timesheet entries recorded against projects where they are the Reporting Manager — including entries by employees outside their Timesheet target population. Department and planned hours stay hidden on those rows. Grants nothing on its own: they still need a report permission to open a report, and they must actually be set as Reporting Manager on a project.',
+      actionHints: {
+        view: 'See entries against projects this person manages, whoever recorded them',
       },
     },
   ]},
@@ -707,11 +728,11 @@ export default function PermissionMatrix() {
   function cancelCreate() { setCreatingNew(false); setNewSetName(''); }
 
   // ── Permission lookup helpers ──────────────────────────────────────────────
-  const permId = useCallback((moduleCode: string, action: Action): string | null => {
+  const permId = useCallback((moduleCode: string, action: string): string | null => {
     return permByCode.current.get(`${moduleCode}.${action}`)?.id ?? null;
   }, []);
 
-  const isGranted = useCallback((moduleCode: string, action: Action) => {
+  const isGranted = useCallback((moduleCode: string, action: string) => {
     const id = permId(moduleCode, action);
     return id ? grantedIds.has(id) : false;
   }, [grantedIds, permId]);
@@ -721,7 +742,7 @@ export default function PermissionMatrix() {
     return id ? grantedIds.has(id) : false;
   }, [grantedIds, permId]);
 
-  const togglePerm = useCallback((moduleCode: string, action: Action) => {
+  const togglePerm = useCallback((moduleCode: string, action: string) => {
     const id = permId(moduleCode, action);
     if (!id) return;
     setGrantedIds(prev => {
@@ -998,17 +1019,22 @@ export default function PermissionMatrix() {
     );
   }
 
-  function CbCell({ moduleCode, action, availableActions, actionHints }: {
-    moduleCode: string; action: Action; availableActions: Action[]; actionHints?: Partial<Record<Action, string>>;
+  function CbCell({ moduleCode, action, availableActions, actionHints, realAction }: {
+    moduleCode: string; action: Action; availableActions: Action[];
+    actionHints?: Partial<Record<Action, string>>;
+    /** The permission verb this cell actually reads and writes. Defaults to the
+     *  column's own action; see ModuleRow.actionAlias. */
+    realAction?: string;
   }) {
     if (!availableActions.includes(action)) {
       return <td style={tdStyle}><span style={{ color: '#E5E7EB', fontSize: 14 }}>—</span></td>;
     }
+    const verb = realAction ?? action;
     const hint = actionHints?.[action] ?? ACTION_HINTS[action];
     return (
       <td style={tdStyle} title={hint}>
-        <input type="checkbox" checked={isGranted(moduleCode, action)}
-          onChange={() => !canEdit ? undefined : togglePerm(moduleCode, action)}
+        <input type="checkbox" checked={isGranted(moduleCode, verb)}
+          onChange={() => !canEdit ? undefined : togglePerm(moduleCode, verb)}
           disabled={!canEdit}
           style={{ width: 15, height: 15, accentColor: '#1D4ED8', cursor: canEdit ? 'pointer' : 'not-allowed', opacity: canEdit ? 1 : 0.5 }} />
       </td>
@@ -1029,7 +1055,8 @@ export default function PermissionMatrix() {
         </td>
         {ACTIONS.map(a => (
           <CbCell key={a} moduleCode={row.code} action={a}
-            availableActions={row.availableActions} actionHints={row.actionHints} />
+            availableActions={row.availableActions} actionHints={row.actionHints}
+            realAction={row.actionAlias?.[a]} />
         ))}
       </tr>
     );

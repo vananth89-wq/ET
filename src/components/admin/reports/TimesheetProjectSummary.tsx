@@ -38,6 +38,9 @@ interface Row {
   months_active: number; first_entry: string | null; last_entry: string | null;
   budget_hours: number | null; consumed_pct: number | null;
   status: 'on_track' | 'near_budget' | 'over_budget' | 'no_budget';
+  /** mig 770. Optional so a bundle live against a pre-770 database degrades to
+   *  "no badge" rather than a type error. */
+  i_manage?: boolean;
 }
 interface Payload {
   ok: boolean; page: number; page_size: number; total_rows: number; sort: string;
@@ -49,6 +52,8 @@ interface Payload {
     over_budget_projects: number; unmanaged_projects: number;
   };
   scope: { mode?: string; employee_count?: number | null };
+  /** mig 770. Present only once the PM path is deployed. */
+  pm?: { is_manager: boolean; managed_projects: number };
   rows: Row[];
 }
 interface Opt { value: string; label: string; }
@@ -319,6 +324,19 @@ export default function TimesheetProjectSummary({ shared, setShared }: ReportTab
         </div>
       )}
 
+      {/* A project manager's hours on their own projects are NOT limited to
+          their employee scope (mig 770). Without this line the totals look
+          impossible: more hours than the people they can see could have
+          recorded, and nothing on screen explaining it. */}
+      {data?.pm?.is_manager && (
+        <div style={{ padding: '4px 20px 0', fontSize: 11.5, color: '#7c3aed' }}>
+          You manage <strong>{data.pm.managed_projects}</strong>{' '}
+          project{data.pm.managed_projects === 1 ? '' : 's'} — those rows show
+          every hour recorded against them, including by people outside your
+          employee scope.
+        </div>
+      )}
+
       {/* Says what the roll-up does not cover, rather than letting the tiles
           imply the whole portfolio is measured. */}
       {data && t && t.project_count > 0 && t.budgeted_projects < t.project_count && (
@@ -353,6 +371,14 @@ export default function TimesheetProjectSummary({ shared, setShared }: ReportTab
                   <tr key={r.project_id}>
                     <td>
                       <strong>{r.project_name}</strong>
+                      {r.i_manage && (
+                        <span title="You are the reporting manager for this project"
+                              style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: '#7c3aed',
+                                       background: '#f3e8ff', border: '1px solid #ddd6fe',
+                                       borderRadius: 999, padding: '1px 7px', whiteSpace: 'nowrap' }}>
+                          You manage
+                        </span>
+                      )}
                       {!r.active && <span style={{ color: '#9CA3AF', fontSize: 11 }}> · inactive</span>}
                     </td>
                     <td>{r.type_label ?? <span style={{ color: '#9CA3AF' }}>Not classified</span>}</td>
