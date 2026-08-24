@@ -254,7 +254,7 @@ export default function MyProjects() {
                 <AddMember projectId={current.project_id} onAdded={refresh} />
               </div>
 
-              <div className="er-table-wrap" style={{ background: '#fff', borderRadius: 10,
+              <div className="er-table-wrap er-table-wrap--fluid" style={{ background: '#fff', borderRadius: 10,
                                                       boxShadow: '0 2px 10px rgba(24,52,91,0.07)' }}>
                 <table className="er-table">
                   <thead>

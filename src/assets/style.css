@@ -6673,6 +6673,12 @@ tbody td:last-child {
     table-layout: auto;           /* let columns size to their content */
     min-width: 860px;             /* prevent collapse; wrapper scrolls */
 }
+/* ── Opt out of that 860px floor ────────────────────────────────────
+   860px exists for the exchange-rates direction columns. A narrower
+   table in a narrower column inherits it, overflows by the difference
+   and shows a scrollbar with nothing to scroll to. Screens whose
+   columns genuinely fit add --fluid and keep the shared chrome.     */
+.er-table-wrap.er-table-wrap--fluid .er-table { min-width: 0; }
 .er-table-wrap .er-table td {
     overflow: visible;            /* don't clip badge pairs            */
     text-overflow: clip;          /* no ellipsis                       */
