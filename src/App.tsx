@@ -77,6 +77,7 @@ import Holidays                                                   from './compon
 import SubmissionConfig                                           from './components/admin/time/SubmissionConfig';
 import TimesheetAdmin                                             from './components/admin/time/TimesheetAdmin';
 import MyTimesheet                                                from './components/employee/MyTimesheet';
+import MyProjects                                                 from './components/employee/MyProjects';
 import LandingPage                                                from './components/employee/LandingPage';
 import { usePicklistValues }                                      from './hooks/usePicklistValues';
 import { supabase }                                               from './lib/supabase';
@@ -745,6 +746,13 @@ export default function App() {
           </ProtectedRoute>
         } />
         <Route path="/my-timesheet"         element={<MyTimesheet />} />
+        {/* Outside /admin on purpose: that branch needs sec_admin_access.view, and a
+            project lead staffing their own team is not an administrator. */}
+        <Route path="/my-projects"          element={
+          <ProtectedRoute requiredPermission="projects_mgmt.manage_members">
+            <MyProjects />
+          </ProtectedRoute>
+        } />
         {/* Somebody else's, reached from the header search. No permission on the
             route itself: MyTimesheet asks time_timesheet_access for THIS
             employee and refuses in place, because access here is per-employee

@@ -818,6 +818,47 @@ Rows carry `via_project`, so the screen can badge them and the export can carry
 the redaction — a spreadsheet is where a hidden column is least likely to be
 noticed as hidden.
 
+### 5.1 Project membership — `project_members` (migs 773, 774)
+
+The only link between a person and a project was `timesheet_entries.project_id`,
+which records what **happened**, never what was planned. `project_members` is the
+missing half: who is expected on a project, from when, at what allocation.
+
+**Membership does not gate visibility, and must not.** The reports still key on
+the project of the *entry* (`770`, `771`). If they keyed on membership instead,
+hours booked by a non-member would be invisible to the one person who could add
+them — a gap that conceals itself. Membership gates **who may book**, so the two
+sets converge by construction rather than by hope.
+
+**Dated, and removal is end-dating.** A September removal must not invalidate an
+August timesheet a manager already approved. An exclusion constraint forbids
+overlapping stints for the same pair, so *"was X a member on date D"* always has
+exactly one answer, and people can roll off and back on. There is **no DELETE
+policy at all** — that makes end-dating structural instead of a convention.
+`project_member_remove()` is the single exception and decides for itself: hours
+exist → end-date; none → delete.
+
+**Two RLS traps, both real.** The obvious predicate —
+`EXISTS (SELECT 1 FROM projects WHERE id = project_id AND manager_id = …)` —
+evaluates **false for every project lead**, because subqueries in a policy run as
+the caller and `projects` requires `projects_mgmt.view`. `employees` is worse: it
+requires `employee_details.view` *per employee*, so a lead cannot read the name of
+anyone they are staffing. Both are why `my_staffable_projects()` and the four
+calls in `774` are `SECURITY DEFINER` — and being definer, the checks inside them
+are the only security, so each opens with `can_staff_project()`.
+
+**`UPDATE` carries `USING` *and* `WITH CHECK`.** With `USING` alone a lead could
+take a row on their own project and rewrite `project_id` onto someone else's — it
+passes the old-row test and lands outside their control.
+
+**The picker returns name and code only.** A lead staffing across departments
+legitimately needs to find people outside their HR scope; that is not the same as
+being told where those people sit. Same line `771` draws.
+
+**Landed inert.** The timesheet dropdown still lists every project, nothing blocks
+an entry, membership grants no read access, and no email fires. Steps 2–4 switch
+those on separately.
+
 **A manager with no employee population sees their own entries redacted too.**
 With scope `none` every row is reached through the project, including their own,
 so their own department is hidden from them. Consistent rather than

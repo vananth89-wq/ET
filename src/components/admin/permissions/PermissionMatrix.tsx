@@ -241,6 +241,13 @@ const ADMIN_GROUPS: MatrixGroup[] = [
   { groupLabel: 'Projects', rows: [
     { code: 'projects_mgmt', label: 'Project', availableActions: ['view','create','edit','delete'],
       rowHint: 'Create and manage projects that employees and expenses can be assigned to' },
+    { code: 'projects_mgmt', label: 'Project members', availableActions: ['view'], isSubRow: true,
+      actionAlias: { view: 'manage_members' },
+      rowHint: 'Lets this person add and remove people on projects where they are the Reporting Manager (mig 773). Scoped by the project\'s manager field, not by a target group — the permission says what they may do, the project says where. Grants no visibility of anyone\'s data: the reports key on the timesheet entry, not on membership. Screen is at /my-projects.',
+      actionHints: {
+        view: 'Add and remove members on projects this person manages',
+      },
+    },
   ]},
   { groupLabel: 'Exchange rate', rows: [
     { code: 'exchange_rates_mgmt', label: 'Exchange rate', availableActions: ['view','create','edit','delete'],

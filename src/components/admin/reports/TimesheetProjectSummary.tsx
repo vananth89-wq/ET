@@ -333,7 +333,12 @@ export default function TimesheetProjectSummary({ shared, setShared }: ReportTab
           You manage <strong>{data.pm.managed_projects}</strong>{' '}
           project{data.pm.managed_projects === 1 ? '' : 's'} — those rows show
           every hour recorded against them, including by people outside your
-          employee scope.
+          employee scope.{' '}
+          {/* The one place a lead is already thinking about their project, so the
+              one place worth offering the team list from. */}
+          <a href="/my-projects" style={{ color: '#7c3aed', fontWeight: 600 }}>
+            Manage the team →
+          </a>
         </div>
       )}
 
