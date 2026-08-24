@@ -13,21 +13,30 @@
  *   each gating itself on can_staff_project(). Reaching for the tables directly
  *   would return empty and look like a bug rather than a permission.
  *
- * WHAT MEMBERSHIP DOES AND DOES NOT DO, TODAY
- *   Nothing yet, deliberately. The timesheet dropdown still lists every project
- *   and nothing blocks an entry against a project you are not on (step 2), and
- *   membership grants the lead no visibility of anyone (step 3). This screen
- *   fills the table so those steps have something real to switch on.
+ * WHAT MEMBERSHIP DOES, AS OF MIGS 781-783
+ *   - The timesheet dropdown offers the projects you are on (mig 783). Offers
+ *     only: the database still accepts any project id, so enforcement remains a
+ *     separate switch.
+ *   - The Project Members target group resolves from this table live, so adding
+ *     someone puts them in the lead's scope on the next request (mig 781).
+ *   - The reports clip those people to the lead's own projects (mig 782).
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '../../../lib/supabase';
 
-interface StaffableProject { project_id: string; project_name: string; member_count: number; }
+interface StaffableProject {
+  project_id: string; project_name: string;
+  project_type: string | null;
+  start_date: string | null; end_date: string | null;
+  budget_hours: number | null; hours_booked: number;
+  current_members: number; past_members: number;
+}
 interface Member {
   id: string; employee_id: string; employee_name: string; employee_code: string;
   effective_from: string; effective_to: string | null;
   allocation_pct: number | null; is_current: boolean; has_hours: boolean;
+  hours_booked: number;
 }
 interface Candidate { employee_id: string; employee_name: string; employee_code: string; }
 
@@ -36,6 +45,72 @@ function fmt(d: string | null): string {
   const dt = new Date(d + 'T00:00:00');
   return isNaN(dt.getTime()) ? d
     : `${String(dt.getDate()).padStart(2, '0')} ${dt.toLocaleString('en', { month: 'short' })} ${dt.getFullYear()}`;
+}
+
+const nf = new Intl.NumberFormat('en', { maximumFractionDigits: 1 });
+function hrs(n: number | null): string {
+  return n === null || n === undefined || n === 0 ? '\u2014' : `${nf.format(n)} h`;
+}
+
+// ─── Project header ───────────────────────────────────────────────────────────
+//
+// Four facts and, when there is a budget, one meter. Deliberately not a chart:
+// a single magnitude against a single target is a stat, and a stat tile reads
+// faster than any plot of it would.
+//
+// The meter turns amber only past 100%, and never carries that meaning in colour
+// alone -- the caption says "over budget by N h" in words.
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div style={{ fontSize: 10, letterSpacing: 0.6, textTransform: 'uppercase',
+                    color: '#8A97A8', fontWeight: 700, marginBottom: 3 }}>{label}</div>
+      <div style={{ fontSize: 14, color: '#18345B', fontWeight: 600 }}>{value}</div>
+    </div>
+  );
+}
+
+function ProjectHeader({ p }: { p: StaffableProject }) {
+  const budget = p.budget_hours ?? 0;
+  const pct    = budget > 0 ? (p.hours_booked / budget) * 100 : null;
+  const over   = pct !== null && pct > 100;
+
+  return (
+    <div style={{ background: '#fff', borderRadius: 10, padding: '16px 18px', marginBottom: 14,
+                  boxShadow: '0 2px 10px rgba(24,52,91,0.07)' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap',
+                    marginBottom: 14 }}>
+        <h2 style={{ fontSize: 17, color: '#18345B', margin: 0, fontWeight: 700 }}>{p.project_name}</h2>
+        {p.project_type && (
+          <span style={{ fontSize: 11, fontWeight: 600, color: '#3E5C8A', background: '#EEF3FB',
+                         borderRadius: 999, padding: '2px 9px' }}>{p.project_type}</span>
+        )}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+                    gap: 16, marginBottom: pct === null ? 0 : 16 }}>
+        <Stat label="Runs"   value={`${fmt(p.start_date)} \u2192 ${fmt(p.end_date)}`} />
+        <Stat label="Team"   value={`${p.current_members} current${p.past_members ? ` \u00b7 ${p.past_members} past` : ''}`} />
+        <Stat label="Budget" value={budget > 0 ? `${nf.format(budget)} h` : 'Not set'} />
+        <Stat label="Booked" value={p.hours_booked > 0 ? `${nf.format(p.hours_booked)} h` : 'None yet'} />
+      </div>
+
+      {pct !== null && (
+        <div>
+          <div style={{ height: 6, borderRadius: 3, background: '#EEF2F7', overflow: 'hidden' }}>
+            <div style={{ height: '100%', borderRadius: 3,
+                          width: `${Math.min(pct, 100)}%`,
+                          background: over ? '#B54708' : '#2B54CE' }} />
+          </div>
+          <div style={{ fontSize: 11.5, color: '#6B7280', marginTop: 6 }}>
+            {nf.format(p.hours_booked)} of {nf.format(budget)} budget hours · {nf.format(pct)}%
+            {over && <strong style={{ color: '#B54708' }}> · over budget by {nf.format(p.hours_booked - budget)} h</strong>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ─── The picker ───────────────────────────────────────────────────────────────
@@ -145,7 +220,7 @@ export default function MyProjects() {
   useEffect(() => {
     let live = true;
     (async () => {
-      const { data } = await supabase.rpc('my_staffable_projects');
+      const { data } = await supabase.rpc('my_staffable_projects_detail');
       if (!live) return;
       const rows = (data as StaffableProject[]) ?? [];
       setProjects(rows);
@@ -216,7 +291,7 @@ export default function MyProjects() {
   }
 
   return (
-    <div style={{ padding: '28px 24px', maxWidth: 1100 }}>
+    <div style={{ padding: '28px 24px', maxWidth: 1280 }}>
       <h1 style={{ fontSize: 20, color: '#18345B', margin: '0 0 4px' }}>My Projects</h1>
       <p style={{ fontSize: 13, color: '#6B7280', margin: '0 0 20px' }}>
         Who is on the projects you manage. Adding someone does not give you access to their
@@ -231,7 +306,7 @@ export default function MyProjects() {
       )}
 
       <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-        <div style={{ flex: '0 0 240px', background: '#fff', borderRadius: 10,
+        <div style={{ flex: '0 0 250px', background: '#fff', borderRadius: 10,
                       boxShadow: '0 2px 10px rgba(24,52,91,0.07)', overflow: 'hidden' }}>
           {projects.map(p => (
             <button key={p.project_id} type="button" onClick={() => setSel(p.project_id)}
@@ -241,15 +316,17 @@ export default function MyProjects() {
                        background: p.project_id === sel ? '#F4F7FE' : 'transparent' }}>
               <div style={{ fontSize: 13, fontWeight: 600, color: '#18345B' }}>{p.project_name}</div>
               <div style={{ fontSize: 11, color: '#8A97A8', marginTop: 2 }}>
-                {p.member_count} on the team
+                {p.current_members} on the team{p.hours_booked > 0 ? ` \u00b7 ${nf.format(p.hours_booked)} h` : ''}
               </div>
             </button>
           ))}
         </div>
 
-        <div style={{ flex: 1, minWidth: 460 }}>
+        <div style={{ flex: 1, minWidth: 520 }}>
           {current && (
             <>
+              <ProjectHeader p={current} />
+
               <div style={{ marginBottom: 14 }}>
                 <AddMember projectId={current.project_id} onAdded={refresh} />
               </div>
@@ -260,6 +337,8 @@ export default function MyProjects() {
                   <thead>
                     <tr>
                       <th>Name</th>
+                      <th style={{ textAlign: 'right' }}>Allocation</th>
+                      <th style={{ textAlign: 'right' }}>Hours</th>
                       <th>From</th>
                       <th>Until</th>
                       <th style={{ textAlign: 'right' }}>Action</th>
@@ -267,7 +346,7 @@ export default function MyProjects() {
                   </thead>
                   <tbody>
                     {members.length === 0 ? (
-                      <tr><td colSpan={4} style={{ padding: 20, textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>
+                      <tr><td colSpan={6} style={{ padding: 20, textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>
                         Nobody on this project yet.
                       </td></tr>
                     ) : members.map(m => (
@@ -281,6 +360,14 @@ export default function MyProjects() {
                               past
                             </span>
                           )}
+                        </td>
+                        <td style={{ textAlign: 'right', whiteSpace: 'nowrap', color: '#6B7280' }}>
+                          {m.allocation_pct === null ? '\u2014' : `${nf.format(m.allocation_pct)}%`}
+                        </td>
+                        <td style={{ textAlign: 'right', whiteSpace: 'nowrap',
+                                     color: m.hours_booked > 0 ? '#18345B' : '#9CA3AF',
+                                     fontWeight: m.hours_booked > 0 ? 600 : 400 }}>
+                          {hrs(m.hours_booked)}
                         </td>
                         <td style={{ whiteSpace: 'nowrap' }}>{fmt(m.effective_from)}</td>
                         <td style={{ whiteSpace: 'nowrap' }}>{fmt(m.effective_to)}</td>

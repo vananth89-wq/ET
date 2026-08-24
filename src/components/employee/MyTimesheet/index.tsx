@@ -593,7 +593,11 @@ export default function MyTimesheet() {
       const [empRes, ttRes, prRes, actRes] = await Promise.all([
         supabase.from('employees').select('employee_id, name').eq('id', subjectId).single(),
         supabase.from('time_types').select('id, name, code, category, requires_project, allows_half_day, allows_future, is_active').eq('is_active', true).eq('is_system_managed', false).order('category').order('name'),
-        supabase.from('projects').select('id, name, active, start_date, end_date').eq('active', true).order('name'),
+        // Mig 783: the projects THIS employee is on, not every active project.
+        // Falls back to all active projects when they have no membership and no
+        // history, so narrowing can never be the reason somebody cannot record
+        // their time -- project is a mandatory field.
+        supabase.rpc('my_timesheet_projects', { p_employee_id: subjectId }),
         supabase.rpc('get_employee_activities', { p_employee_id: subjectId }),
       ]);
       if (empRes.data) { setEmpCode(empRes.data.employee_id ?? ''); setSubjectName((empRes.data as any).name ?? ''); }
