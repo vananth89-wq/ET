@@ -241,13 +241,17 @@ const ADMIN_GROUPS: MatrixGroup[] = [
   { groupLabel: 'Projects', rows: [
     { code: 'projects_mgmt', label: 'Project', availableActions: ['view','create','edit','delete'],
       rowHint: 'Create and manage projects that employees and expenses can be assigned to' },
-    { code: 'projects_mgmt', label: 'Project team', availableActions: ['view'], isSubRow: true,
-      actionAlias: { view: 'manage_members' },
-      rowHint: 'Lets this person add and remove people on projects where they are the Reporting Manager (mig 773). Scoped by the project\'s manager field, not by a target group — the permission says what they may do, the project says where. Grants no visibility of anyone\'s data: the reports key on the timesheet entry, not on membership. Screen is at /my-projects.',
+  ]},
+  { groupLabel: 'Team Allocation', rows: [
+    { code: 'project_members', label: 'Project team',
+      availableActions: ['view','create','edit','delete'],
+      rowHint: 'Who is on a project team. The four verbs are separate on purpose: an administrator can let somebody read a team without staffing it, or add people without ending anyone\'s assignment. Every one of them still requires being the project\'s Reporting Manager (or holding Project → Edit, the administrator door). Screen is at /my-projects, and inside Admin → Projects → Team.',
       actionHints: {
-        view: 'Add and remove members on projects this person manages',
-      },
-    },
+        view:   'See who is on the teams of projects this person manages',
+        create: 'Add somebody to one of those teams',
+        edit:   'Change a member\'s role, percentage or dates',
+        delete: 'End a member\'s assignment — end-dated rather than removed once they have booked hours, so approved timesheets stay valid',
+      } },
   ]},
   { groupLabel: 'Exchange rate', rows: [
     { code: 'exchange_rates_mgmt', label: 'Exchange rate', availableActions: ['view','create','edit','delete'],
