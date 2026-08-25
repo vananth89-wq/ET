@@ -590,22 +590,41 @@ export default function MyTimesheet() {
   useEffect(() => {
     if (!subjectId) return;
     (async () => {
-      const [empRes, ttRes, prRes, actRes] = await Promise.all([
+      const [empRes, ttRes, actRes] = await Promise.all([
         supabase.from('employees').select('employee_id, name').eq('id', subjectId).single(),
         supabase.from('time_types').select('id, name, code, category, requires_project, allows_half_day, allows_future, is_active').eq('is_active', true).eq('is_system_managed', false).order('category').order('name'),
-        // Mig 783: the projects THIS employee is on, not every active project.
-        // Falls back to all active projects when they have no membership and no
-        // history, so narrowing can never be the reason somebody cannot record
-        // their time -- project is a mandatory field.
-        supabase.rpc('my_timesheet_projects', { p_employee_id: subjectId }),
         supabase.rpc('get_employee_activities', { p_employee_id: subjectId }),
       ]);
       if (empRes.data) { setEmpCode(empRes.data.employee_id ?? ''); setSubjectName((empRes.data as any).name ?? ''); }
       if (ttRes.data)  setTimeTypes(ttRes.data as TimeType[]);
-      if (prRes.data)  setProjects(prRes.data as Project[]);
       if (actRes.data) setActivityHistory(actRes.data as ActivityHistoryItem[]);
     })();
   }, [subjectId]);
+
+  // ── Projects offered for THIS period ────────────────────────────────────
+  //
+  // Deliberately its own effect, keyed on the period as well as the employee.
+  // It used to sit in the reference-data fetch above, which runs once per
+  // employee -- so the dropdown resolved membership as of TODAY and never
+  // re-asked. Open a March timesheet in June, having rolled off the project in
+  // April, and March's project was missing from the very period that needed it
+  // (mig 786 header spells the case out).
+  //
+  // A stint counts when it overlaps the period at all, so joining mid-month
+  // still offers the project for that whole month.
+  useEffect(() => {
+    if (!subjectId) return;
+    let live = true;
+    const from = `${year}-${pad2(month)}-01`;
+    const to   = `${year}-${pad2(month)}-${pad2(new Date(year, month, 0).getDate())}`;
+    (async () => {
+      const { data } = await supabase.rpc('my_timesheet_projects', {
+        p_employee_id: subjectId, p_period_start: from, p_period_end: to,
+      });
+      if (live && data) setProjects(data as Project[]);
+    })();
+    return () => { live = false; };
+  }, [subjectId, year, month]);
 
   // ── Load / auto-create header + entries for the period ─────────────────
   const loadPeriod = useCallback(async () => {

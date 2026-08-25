@@ -171,7 +171,7 @@ function Allocation({ m, onSaved, onError }:
   if (!editing) {
     return (
       <button type="button" onClick={() => setEditing(true)}
-        title="Click to set this person's allocation to the project"
+        title="Click to set what percentage of this person's time is on the project"
         style={{ border: 0, background: 'transparent', font: 'inherit', cursor: 'pointer',
                  padding: '2px 4px', borderRadius: 4,
                  color: m.allocation_pct === null ? INK_MUTED : INK,
@@ -201,6 +201,75 @@ function Allocation({ m, onSaved, onError }:
       </button>
       <button type="button" disabled={busy} title="Cancel"
         onClick={() => { setEditing(false); setVal(m.allocation_pct === null ? '' : String(m.allocation_pct)); }}
+        style={{ border: 0, background: 'transparent', cursor: 'pointer', color: INK_MUTED, padding: 2 }}>
+        <i className="fa-solid fa-xmark" />
+      </button>
+    </span>
+  );
+}
+
+
+// ─── Dates, edited in place ───────────────────────────────────────────────────
+//
+// effective_from and effective_to have existed since mig 773, but until 786 the
+// only thing that ever wrote an end date was Remove, which stamps today. So a
+// planned end -- "off the project on 31 December" -- was unsayable. This is the
+// affordance for it, and for correcting a start date recorded late.
+
+function Dates({ m, onSaved, onError }:
+  { m: Member; onSaved: (msg: string) => void; onError: (msg: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [from, setFrom]       = useState(m.effective_from);
+  const [to, setTo]           = useState(m.effective_to ?? '');
+  const [busy, setBusy]       = useState(false);
+
+  const reset = useCallback(() => {
+    setFrom(m.effective_from); setTo(m.effective_to ?? ''); setEditing(false);
+  }, [m.effective_from, m.effective_to]);
+
+  const save = useCallback(async () => {
+    if (!from) { onError('A start date is required.'); return; }
+    if (to && to < from) { onError('The end date cannot be before the start date.'); return; }
+    setBusy(true);
+    const { data, error } = await supabase.rpc('project_member_update', {
+      p_id: m.id,
+      p_effective_from: from,
+      p_effective_to: to === '' ? null : to,
+      p_clear_effective_to: to === '' && m.effective_to !== null,
+    });
+    setBusy(false);
+    const res = data as { ok: boolean; message?: string } | null;
+    if (error || !res?.ok) { onError(res?.message ?? 'Could not save those dates.'); return; }
+    setEditing(false);
+    onSaved(`${m.employee_name}'s dates updated.`);
+  }, [from, to, m.id, m.employee_name, m.effective_to, onSaved, onError]);
+
+  if (!editing) {
+    return (
+      <button type="button" onClick={() => setEditing(true)}
+        title="Click to change the start or end date"
+        style={{ border: 0, background: 'transparent', font: 'inherit', cursor: 'pointer',
+                 padding: '2px 4px', borderRadius: 4, color: INK_SOFT, textAlign: 'left' }}>
+        {m.effective_to
+          ? <>{fmt(m.effective_from)} – {fmt(m.effective_to)}</>
+          : <>since {fmt(m.effective_from)}</>}
+      </button>
+    );
+  }
+
+  const box = { padding: '3px 6px', borderRadius: 5, border: `1px solid ${LINE}`, fontSize: 12.5 };
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+      <input type="date" value={from} disabled={busy} style={box}
+             onChange={e => setFrom(e.target.value)} aria-label="Start date" />
+      <span style={{ color: INK_MUTED }}>–</span>
+      <input type="date" value={to} disabled={busy} style={box}
+             onChange={e => setTo(e.target.value)} aria-label="End date, leave empty for open-ended" />
+      <button type="button" onClick={() => void save()} disabled={busy} title="Save"
+        style={{ border: 0, background: 'transparent', cursor: 'pointer', color: ACCENT, padding: 2 }}>
+        <i className="fa-solid fa-check" />
+      </button>
+      <button type="button" onClick={reset} disabled={busy} title="Cancel"
         style={{ border: 0, background: 'transparent', cursor: 'pointer', color: INK_MUTED, padding: 2 }}>
         <i className="fa-solid fa-xmark" />
       </button>
@@ -446,7 +515,7 @@ export default function MyProjects() {
 
       <td style={{ whiteSpace: 'nowrap', color: INK_SOFT }}>
         {m.is_current
-          ? <>since {fmt(m.effective_from)}</>
+          ? <Dates m={m} onSaved={refresh} onError={fail} />
           : <>{fmt(m.effective_from)} – {fmt(m.effective_to)}</>}
       </td>
 
@@ -558,6 +627,26 @@ export default function MyProjects() {
                 <AddMember projectId={current.project_id} onAdded={refresh} />
               </div>
 
+              {/* The table had no name at all -- it was a grid under a search box.
+                  "Team Allocation" is the section; "Percentage" is the column,
+                  which is why the column is not also called Allocation. */}
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap',
+                            marginBottom: 8 }}>
+                <h3 style={{ fontSize: 14, fontWeight: 700, color: INK, margin: 0 }}>
+                  Team Allocation
+                </h3>
+                <span style={{ fontSize: 12, color: INK_MUTED }}>
+                  {live.length} current{past.length > 0 ? ` · ${past.length} past` : ''}
+                </span>
+                {past.length > 0 && (
+                  <button type="button" onClick={() => setShowPast(v => !v)}
+                    style={{ marginLeft: 'auto', border: 0, background: 'transparent', font: 'inherit',
+                             fontSize: 12.5, color: ACCENT, cursor: 'pointer', padding: 0 }}>
+                    {showPast ? 'Hide' : 'Show'} past member{past.length === 1 ? '' : 's'}
+                  </button>
+                )}
+              </div>
+
               <div className="er-table-wrap er-table-wrap--fluid"
                    style={{ background: '#fff', borderRadius: 10,
                             boxShadow: '0 2px 10px rgba(24,52,91,0.07)' }}>
@@ -566,7 +655,7 @@ export default function MyProjects() {
                     <tr>
                       {sortable('name', 'Name', 'left')}
                       {sortable('hours', 'Hours', 'right')}
-                      <th style={{ textAlign: 'right' }}>Allocation</th>
+                      <th style={{ textAlign: 'right' }}>Percentage</th>
                       <th>On the project</th>
                       <th style={{ textAlign: 'right' }} aria-label="Actions" />
                     </tr>
@@ -586,20 +675,14 @@ export default function MyProjects() {
                 </table>
               </div>
 
-              <div style={{ display: 'flex', gap: 14, alignItems: 'baseline', flexWrap: 'wrap',
-                            marginTop: 10 }}>
-                {past.length > 0 && (
-                  <button type="button" onClick={() => setShowPast(v => !v)}
-                    style={{ border: 0, background: 'transparent', font: 'inherit', fontSize: 12.5,
-                             color: ACCENT, cursor: 'pointer', padding: 0 }}>
-                    {showPast ? 'Hide' : 'Show'} {past.length} past member{past.length === 1 ? '' : 's'}
-                  </button>
-                )}
-                <span style={{ fontSize: 12, color: INK_MUTED }}>
-                  Someone who has booked time is <strong>end-dated</strong> rather than deleted, so
-                  approved timesheets stay valid and their hours stay in the project report.
-                </span>
-              </div>
+              <p style={{ fontSize: 12, color: INK_MUTED, margin: '10px 0 0', maxWidth: 720 }}>
+                <strong>Percentage</strong> is how much of that person's time is committed to this
+                project — it does not affect their timesheet, which records the hours actually worked.
+                Dates are editable: leave the end date empty for an open-ended assignment, or set a
+                future one to plan somebody off the project without having to remember the day.
+                Someone who has booked time is <strong>end-dated</strong> rather than deleted, so
+                approved timesheets stay valid and their hours stay in the project report.
+              </p>
             </>
           )}
         </div>
