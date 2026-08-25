@@ -1975,11 +1975,20 @@ export default function MyTimesheet() {
     return spells.some(s => s.from <= d && (!s.to || s.to >= d));
   }
 
+  // An entry that ALREADY EXISTS on this date against this project must always
+  // be able to name it, whatever the windows now say. Mig 788 stops new
+  // stranding, but rows stranded before it exist and must stay editable --
+  // otherwise the fix for bad data is unreachable from the screen that has it.
+  function alreadyBookedOn(p: Project, d: string) {
+    return entries.some(e => e.project_id === p.id && e.entry_date === d);
+  }
+
   function projectActiveOn(p: Project, dates: string[]) {
     return dates.every(d =>
-      (!p.start_date || p.start_date <= d) &&
-      (!p.end_date   || p.end_date   >= d) &&
-      memberOn(p, d));
+      alreadyBookedOn(p, d) || (
+        (!p.start_date || p.start_date <= d) &&
+        (!p.end_date   || p.end_date   >= d) &&
+        memberOn(p, d)));
   }
 
   // ── Entry form fields ─────────────────────────────────────────────────

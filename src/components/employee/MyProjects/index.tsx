@@ -156,7 +156,7 @@ function Allocation({ m, onSaved, onError }:
     });
     setBusy(false);
     const res = data as { ok: boolean; message?: string } | null;
-    if (error || !res?.ok) { onError(res?.message ?? 'Could not save that allocation.'); return; }
+    if (error || !res?.ok) { onError(res?.message ?? error?.message ?? 'Could not save that allocation.'); return; }
     setEditing(false);
     onSaved(clear ? `${m.employee_name}'s allocation cleared.`
                   : `${m.employee_name} set to ${nf.format(num as number)}%.`);
@@ -255,7 +255,7 @@ function DateCell({ m, field, onSaved, onError }: {
             p_clear_effective_to: val === '' && m.effective_to !== null });
     setBusy(false);
     const res = data as { ok: boolean; message?: string } | null;
-    if (error || !res?.ok) { onError(res?.message ?? 'Could not save that date.'); return; }
+    if (error || !res?.ok) { onError(res?.message ?? error?.message ?? 'Could not save that date.'); return; }
     setEditing(false);
     onSaved(field === 'from'
       ? `${m.employee_name} now starts ${fmt(val)}.`
@@ -350,7 +350,7 @@ function AddMember({ projectId, onAdded }: { projectId: string; onAdded: (msg: s
     });
     setBusy(false);
     const res = data as { ok: boolean; message?: string } | null;
-    if (error || !res?.ok) { setErr(res?.message ?? 'Could not add that person.'); return; }
+    if (error || !res?.ok) { setErr(res?.message ?? error?.message ?? 'Could not add that person.'); return; }
     setQ(''); setHits([]); setOpen(false);
     onAdded(`${c.employee_name} added. Set their allocation in the row below.`);
   }, [projectId, onAdded]);
@@ -468,7 +468,7 @@ export default function MyProjects() {
     const { data, error: rpcErr } = await supabase.rpc('project_member_remove', { p_id: m.id });
     setBusy(false);
     const res = data as { ok: boolean; action?: string; message?: string } | null;
-    if (rpcErr || !res?.ok) { fail(res?.message ?? 'Could not update that assignment.'); return; }
+    if (rpcErr || !res?.ok) { fail(res?.message ?? rpcErr?.message ?? 'Could not update that assignment.'); return; }
     refresh(res.action === 'deleted'
       ? `${m.employee_name} removed.`
       : `${m.employee_name}'s assignment ended.`);
