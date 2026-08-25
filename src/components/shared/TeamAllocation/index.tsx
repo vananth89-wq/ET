@@ -280,7 +280,14 @@ export default function TeamAllocation({
             {m.has_hours
               ? <><strong>{m.employee_name}</strong> has booked {nf.format(m.hours_booked)} h to this project,
                   so the assignment is <strong>end-dated today</strong> — past timesheets stay valid and the
-                  hours stay in the project report.</>
+                  hours stay in the project report.
+                  {allowHardDelete && (
+                    <> To remove the assignment outright instead, clear those entries from{' '}
+                      <a href={`/timesheet/${m.employee_id}`} style={{ color: DANGER, fontWeight: 600 }}>
+                        their timesheet
+                      </a>{' '}first — deleting it while the hours exist would leave them booked to a project
+                      nobody is on.</>
+                  )}</>
               : <><strong>{m.employee_name}</strong> has booked no time here, so the assignment is
                   <strong> removed entirely</strong>.</>}
           </span>

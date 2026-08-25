@@ -2,6 +2,8 @@ import { useState, useRef, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import WorkflowGateBanner from '../../workflow/components/WorkflowGateBanner';
 import { useProjects } from '../../hooks/useProjects';
+import { usePermissions } from '../../hooks/usePermissions';
+import TeamAllocation from '../shared/TeamAllocation';
 import { usePicklistValues } from '../../hooks/usePicklistValues';
 import ManagerAutocomplete from './ManagerAutocomplete';
 import ConfirmationModal from '../shared/ConfirmationModal';
@@ -51,6 +53,16 @@ function StatusBadge({ status }: { status: 'Active' | 'Upcoming' | 'Closed' }) {
 
 export default function Projects() {
   const { projects, loading, error, refetch } = useProjects();
+  const { can } = usePermissions();
+
+  /* Mig 791. An administrator reaches every project's team through the
+     admin door in can_staff_project() -- projects_mgmt.edit short-circuits
+     before the Reporting Manager check -- so this button is offered on the
+     strength of the Team Allocation verbs OR that door. */
+  const maySeeTeam = can('project_members.view')
+                  || can('projects_mgmt.manage_members')
+                  || can('projects_mgmt.edit');
+  const [teamFor, setTeamFor] = useState<Project | null>(null);
 
   const [name,      setName]      = useState('');
   const [startDate, setStartDate] = useState('');
@@ -473,6 +485,16 @@ export default function Projects() {
                       >
                         <i className="fa-solid fa-pen-to-square" />
                       </button>
+                      {maySeeTeam && (
+                        <button
+                          className="rd-btn-edit-val"
+                          title="Team allocation"
+                          onClick={() => setTeamFor(t => t?.id === p.id ? null : p)}
+                          style={teamFor?.id === p.id ? { color: '#2B54CE' } : undefined}
+                        >
+                          <i className="fa-solid fa-users" />
+                        </button>
+                      )}
                       <button
                         className="rd-btn-del-val"
                         title={inUse ? 'In use — cannot delete' : 'Delete'}
@@ -489,6 +511,51 @@ export default function Projects() {
           </table>
         </div>
       </div>
+
+      {/* ── Team allocation ──────────────────────────────────────────────────────
+          The SAME component the lead uses at /my-projects. The only differences
+          are the project list feeding it -- every project here, not just the
+          ones you manage -- and allowHardDelete, which turns the end-assignment
+          control into a real delete for a member who has booked no hours. */}
+      {teamFor && (
+        <div className="rd-form-card" style={{ marginTop: 24 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between',
+                        gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+              <h3 style={{ fontSize: 16, fontWeight: 700, color: '#18345B', margin: 0 }}>
+                {teamFor.name}
+              </h3>
+              <span style={{ fontSize: 12.5, color: '#6B7280' }}>
+                Reporting Manager: {teamFor.managerName ?? 'not set'} · runs to {teamFor.endDate}
+              </span>
+            </div>
+            <button type="button" onClick={() => setTeamFor(null)}
+              style={{ border: '1px solid #E3E9F2', background: '#fff', borderRadius: 7,
+                       padding: '7px 14px', fontSize: 12.5, color: '#6B7280', cursor: 'pointer',
+                       font: 'inherit' }}>
+              Close
+            </button>
+          </div>
+
+          {!teamFor.managerId && (
+            <div style={{ marginBottom: 14, padding: '9px 14px', borderRadius: 8, fontSize: 13,
+                          background: '#FDF2DF', border: '1px solid #EBCF9C', color: '#7A4B00' }}>
+              <i className="fa-solid fa-circle-exclamation" /> This project has no Reporting
+              Manager, so nobody leads it. You can staff it from here, but no one will see it on
+              My&nbsp;Projects until a manager is set.
+            </div>
+          )}
+
+          <TeamAllocation
+            key={teamFor.id}
+            projectId={teamFor.id}
+            projectName={teamFor.name}
+            projectEndDate={teamFor.endDate}
+            allowHardDelete
+            onChanged={refetch}
+          />
+        </div>
+      )}
 
       {/* ── Delete confirmation modal ─────────────────────────────────────────── */}
       <ConfirmationModal
