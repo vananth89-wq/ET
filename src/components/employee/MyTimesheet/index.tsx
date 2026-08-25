@@ -185,12 +185,18 @@ interface TimeType {
   is_active:        boolean;
 }
 
+interface MemberSpell { from: string; to: string | null }
 interface Project {
   id:         string;
   name:       string;
   active:     boolean;
   start_date: string;
   end_date:   string;
+  /** Mig 787. Every membership stint overlapping the period being recorded.
+   *  NULL/absent means the project was reached some other way -- already booked,
+   *  or the all-projects fallback -- and carries no membership restriction. */
+  member_spells?: MemberSpell[] | null;
+  has_entries?:   boolean;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -1940,10 +1946,40 @@ export default function MyTimesheet() {
   // Render
   // ─────────────────────────────────────────────────────────────────────
 
-  // A project may be chosen only if its validity window covers every date given.
-  // One date (day panel) and many dates (Create modal) use the same rule.
+  // A project may be chosen only if BOTH windows cover every date given: the
+  // project's own validity window, and — since mig 787 — the person's
+  // membership stints. One date (day panel) and many dates (Create modal) use
+  // the same rule.
+  //
+  // Until 787 the two were enforced at different resolutions: the project window
+  // per day here, the membership window per MONTH in the RPC. A stint ending on
+  // the 10th still offered the project for the whole month, and an entry on the
+  // 25th went through. member_spells closes that.
+  //
+  // Two deliberate exemptions, both of which would otherwise break editing
+  // rather than tighten anything:
+  //   no spells      -> the project was reached via `booked` or the fallback,
+  //                     so there is no membership window to apply.
+  //   has_entries    -> they have already booked to it. An entry that exists
+  //                     must be able to name its own project; filter it out and
+  //                     editing that entry finds its project missing from the
+  //                     select. This is the same date-blind escape hatch the
+  //                     RPC's `booked` arm is, for the same reason — and it is
+  //                     why an ex-member who has booked keeps being offered it.
+  //                     Closing THAT needs enforcement in the database, with an
+  //                     exemption for entries that already exist.
+  function memberOn(p: Project, d: string) {
+    const spells = p.member_spells;
+    if (!spells || spells.length === 0) return true;
+    if (p.has_entries) return true;
+    return spells.some(s => s.from <= d && (!s.to || s.to >= d));
+  }
+
   function projectActiveOn(p: Project, dates: string[]) {
-    return dates.every(d => (!p.start_date || p.start_date <= d) && (!p.end_date || p.end_date >= d));
+    return dates.every(d =>
+      (!p.start_date || p.start_date <= d) &&
+      (!p.end_date   || p.end_date   >= d) &&
+      memberOn(p, d));
   }
 
   // ── Entry form fields ─────────────────────────────────────────────────
