@@ -209,67 +209,94 @@ function Allocation({ m, onSaved, onError }:
 }
 
 
-// ─── Dates, edited in place ───────────────────────────────────────────────────
+// ─── One date, edited in place ────────────────────────────────────────────────
 //
-// effective_from and effective_to have existed since mig 773, but until 786 the
-// only thing that ever wrote an end date was Remove, which stamps today. So a
-// planned end -- "off the project on 31 December" -- was unsayable. This is the
-// affordance for it, and for correcting a start date recorded late.
+// Start and End are separate columns rather than one "On the project" phrase.
+// The phrase read well and scanned badly: you could not compare two people's
+// end dates down a column, and half the rows said "since …" while the other
+// half said a range, so the eye had to parse each cell instead of reading down.
+//
+// Each cell edits only its own field. The other date still comes along for
+// validation — an end before a start is caught here in words before the server
+// has to say DATES_CROSSED.
 
-function Dates({ m, onSaved, onError }:
-  { m: Member; onSaved: (msg: string) => void; onError: (msg: string) => void }) {
+function DateCell({ m, field, onSaved, onError }: {
+  m: Member;
+  field: 'from' | 'to';
+  onSaved: (msg: string) => void;
+  onError: (msg: string) => void;
+}) {
+  const stored = field === 'from' ? m.effective_from : (m.effective_to ?? '');
   const [editing, setEditing] = useState(false);
-  const [from, setFrom]       = useState(m.effective_from);
-  const [to, setTo]           = useState(m.effective_to ?? '');
+  const [val, setVal]         = useState(stored);
   const [busy, setBusy]       = useState(false);
+  const input = useRef<HTMLInputElement>(null);
 
-  const reset = useCallback(() => {
-    setFrom(m.effective_from); setTo(m.effective_to ?? ''); setEditing(false);
-  }, [m.effective_from, m.effective_to]);
+  useEffect(() => { if (editing) input.current?.focus(); }, [editing]);
+
+  const cancel = useCallback(() => { setVal(stored); setEditing(false); }, [stored]);
 
   const save = useCallback(async () => {
-    if (!from) { onError('A start date is required.'); return; }
-    if (to && to < from) { onError('The end date cannot be before the start date.'); return; }
+    const other = field === 'from' ? (m.effective_to ?? '') : m.effective_from;
+
+    if (field === 'from') {
+      if (!val) { onError('A start date is required.'); return; }
+      if (other && val > other) { onError('The start date cannot be after the end date.'); return; }
+    } else if (val && val < other) {
+      onError('The end date cannot be before the start date.'); return;
+    }
+
     setBusy(true);
-    const { data, error } = await supabase.rpc('project_member_update', {
-      p_id: m.id,
-      p_effective_from: from,
-      p_effective_to: to === '' ? null : to,
-      p_clear_effective_to: to === '' && m.effective_to !== null,
-    });
+    const { data, error } = await supabase.rpc('project_member_update',
+      field === 'from'
+        ? { p_id: m.id, p_effective_from: val }
+        : { p_id: m.id,
+            p_effective_to: val === '' ? null : val,
+            p_clear_effective_to: val === '' && m.effective_to !== null });
     setBusy(false);
     const res = data as { ok: boolean; message?: string } | null;
-    if (error || !res?.ok) { onError(res?.message ?? 'Could not save those dates.'); return; }
+    if (error || !res?.ok) { onError(res?.message ?? 'Could not save that date.'); return; }
     setEditing(false);
-    onSaved(`${m.employee_name}'s dates updated.`);
-  }, [from, to, m.id, m.employee_name, m.effective_to, onSaved, onError]);
+    onSaved(field === 'from'
+      ? `${m.employee_name} now starts ${fmt(val)}.`
+      : val === '' ? `${m.employee_name}'s assignment is open-ended again.`
+                   : `${m.employee_name} ends ${fmt(val)}.`);
+  }, [val, field, m.id, m.employee_name, m.effective_from, m.effective_to, onSaved, onError]);
+
+  if (!m.is_current) {
+    return <span style={{ color: INK_MUTED }}>{stored ? fmt(stored) : '—'}</span>;
+  }
 
   if (!editing) {
+    const empty = stored === '';
     return (
       <button type="button" onClick={() => setEditing(true)}
-        title="Click to change the start or end date"
+        title={field === 'from' ? 'Click to change the start date'
+                                : 'Click to set an end date — leave it empty for open-ended'}
         style={{ border: 0, background: 'transparent', font: 'inherit', cursor: 'pointer',
-                 padding: '2px 4px', borderRadius: 4, color: INK_SOFT, textAlign: 'left' }}>
-        {m.effective_to
-          ? <>{fmt(m.effective_from)} – {fmt(m.effective_to)}</>
-          : <>since {fmt(m.effective_from)}</>}
+                 padding: '2px 4px', borderRadius: 4, textAlign: 'left',
+                 color: empty ? INK_MUTED : INK_SOFT,
+                 borderBottom: `1px dashed ${empty ? INK_MUTED : 'transparent'}` }}>
+        {empty ? 'Set' : fmt(stored)}
       </button>
     );
   }
 
-  const box = { padding: '3px 6px', borderRadius: 5, border: `1px solid ${LINE}`, fontSize: 12.5 };
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
-      <input type="date" value={from} disabled={busy} style={box}
-             onChange={e => setFrom(e.target.value)} aria-label="Start date" />
-      <span style={{ color: INK_MUTED }}>–</span>
-      <input type="date" value={to} disabled={busy} style={box}
-             onChange={e => setTo(e.target.value)} aria-label="End date, leave empty for open-ended" />
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+      <input ref={input} type="date" value={val} disabled={busy}
+        onChange={e => setVal(e.target.value)}
+        onKeyDown={e => {
+          if (e.key === 'Enter')  { e.preventDefault(); void save(); }
+          if (e.key === 'Escape') cancel();
+        }}
+        aria-label={field === 'from' ? 'Start date' : 'End date'}
+        style={{ padding: '3px 6px', borderRadius: 5, border: `1px solid ${LINE}`, fontSize: 12.5 }} />
       <button type="button" onClick={() => void save()} disabled={busy} title="Save"
         style={{ border: 0, background: 'transparent', cursor: 'pointer', color: ACCENT, padding: 2 }}>
         <i className="fa-solid fa-check" />
       </button>
-      <button type="button" onClick={reset} disabled={busy} title="Cancel"
+      <button type="button" onClick={cancel} disabled={busy} title="Cancel"
         style={{ border: 0, background: 'transparent', cursor: 'pointer', color: INK_MUTED, padding: 2 }}>
         <i className="fa-solid fa-xmark" />
       </button>
@@ -514,9 +541,11 @@ export default function MyProjects() {
       </td>
 
       <td style={{ whiteSpace: 'nowrap', color: INK_SOFT }}>
-        {m.is_current
-          ? <Dates m={m} onSaved={refresh} onError={fail} />
-          : <>{fmt(m.effective_from)} – {fmt(m.effective_to)}</>}
+        <DateCell m={m} field="from" onSaved={refresh} onError={fail} />
+      </td>
+
+      <td style={{ whiteSpace: 'nowrap', color: INK_SOFT }}>
+        <DateCell m={m} field="to" onSaved={refresh} onError={fail} />
       </td>
 
       <td style={{ textAlign: 'right' }}>
@@ -537,7 +566,7 @@ export default function MyProjects() {
 
   const confirmRowOf = (m: Member) => (
     <tr key={`${m.id}-confirm`}>
-      <td colSpan={5} style={{ background: '#FFF7F5', borderTop: `1px solid #FBD5CD` }}>
+      <td colSpan={6} style={{ background: '#FFF7F5', borderTop: `1px solid #FBD5CD` }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
                       padding: '4px 0', fontSize: 13, color: '#7A271A' }}>
           <span>
@@ -656,13 +685,14 @@ export default function MyProjects() {
                       {sortable('name', 'Name', 'left')}
                       {sortable('hours', 'Hours', 'right')}
                       <th style={{ textAlign: 'right' }}>Percentage</th>
-                      <th>On the project</th>
+                      <th>Start date</th>
+                      <th>End date</th>
                       <th style={{ textAlign: 'right' }} aria-label="Actions" />
                     </tr>
                   </thead>
                   <tbody>
                     {live.length === 0 && past.length === 0 ? (
-                      <tr><td colSpan={5} style={{ padding: 24, textAlign: 'center', color: INK_MUTED, fontSize: 13 }}>
+                      <tr><td colSpan={6} style={{ padding: 24, textAlign: 'center', color: INK_MUTED, fontSize: 13 }}>
                         Nobody on this project yet. Search above to add the first person.
                       </td></tr>
                     ) : (
