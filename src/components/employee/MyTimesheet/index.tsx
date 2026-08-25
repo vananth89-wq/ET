@@ -1141,6 +1141,29 @@ export default function MyTimesheet() {
       ));
       if (blocking.length) return `${blocking.join(', ')} cannot be recorded in advance`;
     }
+
+    // The same windows the picker applies, applied here too. Copy Day used to
+    // skip this entirely: it copies project_id verbatim and paste_timesheet_day
+    // (mig 772) inserts it without a date check, so pasting was a way to put an
+    // entry on a day the picker would have refused — and once it existed,
+    // alreadyBookedOn() made that day legitimate for the picker as well. Paste
+    // was not just a hole, it was how the hole became permanent.
+    if (clipboard) {
+      const unavailable = Array.from(new Set(
+        clipboard.entries
+          .filter(e => e.project_id)
+          .filter(e => {
+            const p = projects.find(pr => pr.id === e.project_id);
+            return !p || !projectActiveOn(p, [dateStr]);
+          })
+          .map(e => projects.find(pr => pr.id === e.project_id)?.name ?? 'That project')
+      ));
+      if (unavailable.length) {
+        return `${unavailable.join(', ')} ${unavailable.length === 1 ? 'is' : 'are'} `
+             + 'not available on that day — outside the project dates or your allocation';
+      }
+    }
+
     return dateBlockedReason(dateStr);
   }
 
@@ -2014,6 +2037,16 @@ export default function MyTimesheet() {
     const projectDates = opts?.projectDates ?? [];
     const selTT        = timeTypes.find(t => t.id === form.typeId);
 
+    // Offered vs withheld, computed once so the hint below can NAME what was
+    // taken out. Hiding a project silently is the wrong half of the rule: the
+    // day panel gets away with it because there is one date to reason about,
+    // but the Create modal filters across every date picked, and a project
+    // vanishing with no reason given is indistinguishable from a bug.
+    const offered  = projects.filter(p => projectActiveOn(p, projectDates));
+    const withheld = projectDates.length
+      ? projects.filter(p => !projectActiveOn(p, projectDates))
+      : [];
+
     return (
       <>
         {/* Time type picker — filtered by attendance/absence when a category is set */}
@@ -2051,10 +2084,19 @@ export default function MyTimesheet() {
               style={selectSt}
             >
               <option value="">— Select —</option>
-              {projects
-                .filter(p => projectActiveOn(p, projectDates))
-                .map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              {offered.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
+            {withheld.length > 0 && (
+              <div style={{ marginTop: 5, fontSize: 11.5, color: '#8A97A8', lineHeight: 1.45 }}>
+                <i className="fa-solid fa-circle-info" style={{ marginRight: 5 }} />
+                Not available for {projectDates.length === 1
+                  ? fmtChip(projectDates[0])
+                  : `all ${projectDates.length} selected days`}:{' '}
+                {withheld.slice(0, 4).map(p => p.name).join(', ')}
+                {withheld.length > 4 ? ` and ${withheld.length - 4} more` : ''}
+                {' — '}outside the project&rsquo;s dates or your allocation to it.
+              </div>
+            )}
           </div>
         )}
 
@@ -2513,7 +2555,12 @@ export default function MyTimesheet() {
                   // Copy Day roles. Non-working days participate — weekend work is real work.
                   const copySrcOk  = copyMode === 'pick'  && attendanceOf(dateStr).length > 0;
                   const copySrcNo  = copyMode === 'pick'  && !copySrcOk;
-                  const pasteOk    = copyMode === 'paste' && !dateBlockedReason(dateStr);
+                  // pasteBlockedReason, not dateBlockedReason. The calendar used to
+                  // colour a day pasteable on the weaker test, so a day could look
+                  // available, get clicked, and refuse in a toast — the future-type
+                  // rule and now the project-window rule both landed that way. The
+                  // day that cannot take the paste should look like it cannot.
+                  const pasteOk    = copyMode === 'paste' && !pasteBlockedReason(dateStr);
                   const pasteNo    = copyMode === 'paste' && !pasteOk && clipboard?.from !== dateStr;
                   const isClipSrc  = clipboard?.from === dateStr;
                   // Hours on a day with no plan — a weekend, or a public holiday
