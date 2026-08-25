@@ -349,10 +349,21 @@ function AddMember({ projectId, onAdded }: { projectId: string; onAdded: (msg: s
       p_project_id: projectId, p_employee_id: c.employee_id,
     });
     setBusy(false);
-    const res = data as { ok: boolean; message?: string } | null;
+    const res = data as {
+      ok: boolean; message?: string; notified?: number; notify_error?: string;
+    } | null;
     if (error || !res?.ok) { setErr(res?.message ?? error?.message ?? 'Could not add that person.'); return; }
     setQ(''); setHits([]); setOpen(false);
-    onAdded(`${c.employee_name} added. Set their allocation in the row below.`);
+
+    // Mig 789 notifies the person, their line manager and (when somebody else
+    // did the adding) the project lead. A notification failure never blocks the
+    // add, so the only way anyone learns it happened is if the toast says so --
+    // the alternative is a silence that looks exactly like success.
+    onAdded(
+      res.notify_error
+        ? `${c.employee_name} added — but they could not be notified. Tell them directly.`
+        : `${c.employee_name} added${res.notified ? ` and notified` : ''}. `
+          + 'Set their allocation in the row below.');
   }, [projectId, onAdded]);
 
   return (
