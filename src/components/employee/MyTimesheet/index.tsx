@@ -1958,20 +1958,26 @@ export default function MyTimesheet() {
   //
   // Two deliberate exemptions, both of which would otherwise break editing
   // rather than tighten anything:
-  //   no spells      -> the project was reached via `booked` or the fallback,
-  //                     so there is no membership window to apply.
-  //   has_entries    -> they have already booked to it. An entry that exists
-  //                     must be able to name its own project; filter it out and
-  //                     editing that entry finds its project missing from the
-  //                     select. This is the same date-blind escape hatch the
-  //                     RPC's `booked` arm is, for the same reason — and it is
-  //                     why an ex-member who has booked keeps being offered it.
-  //                     Closing THAT needs enforcement in the database, with an
-  //                     exemption for entries that already exist.
+  //   no spells -> the project was reached via the RPC's `booked` arm or the
+  //                all-projects fallback, so there is no membership window to
+  //                apply and nothing to check against.
+  //
+  // There used to be a second exemption here — `if (p.has_entries) return true`
+  // — which skipped the membership check for the whole month as soon as the
+  // person had booked to the project even once. It was a blunt way to guarantee
+  // one thing: an entry that already exists must be able to name its own
+  // project, or editing it finds the project gone from the select. Two later
+  // changes made it both redundant and far too broad:
+  //
+  //   alreadyBookedOn() below does that job PER DATE, which is the actual
+  //   requirement, and mig 788's guards stop a date change stranding entries in
+  //   the first place — so the case it insured against can now only come from
+  //   data that predates 788, which the per-date exemption still covers.
+  //
+  // With it gone, an allocation ending on the 15th actually ends on the 15th.
   function memberOn(p: Project, d: string) {
     const spells = p.member_spells;
     if (!spells || spells.length === 0) return true;
-    if (p.has_entries) return true;
     return spells.some(s => s.from <= d && (!s.to || s.to >= d));
   }
 
