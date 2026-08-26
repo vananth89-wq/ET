@@ -289,9 +289,21 @@ export default function Projects() {
 
   return (
     <div className="ar-panel">
-      {/* Workflow gate banners */}
-      <WorkflowGateBanner moduleCode="project_create" actionLabel="new projects created" />
-      <WorkflowGateBanner moduleCode="project_edit"   actionLabel="project edits saved" />
+      {/* Workflow gate banner.
+          MIG 798 retired project_create — a create cannot be gated while
+          workflow_instances.record_id is NOT NULL and projects has no draft
+          state, so its banner promised a door that could not open.
+
+          project_edit's banner is left MOUNTED but tells the truth only when
+          the routing exists. Today handleSave() writes straight to the table:
+          `supabase.from('projects').update(…)`. Nothing calls wf_submit, so a
+          workflow assigned to project_edit gates nothing and this banner would
+          claim otherwise. It stays because the moment the routing is built it
+          becomes correct — and because hiding it would make the gap invisible
+          rather than fixed. Do not assign a workflow to project_edit until
+          handleSave routes through the engine. See Q11 in
+          docs/prowess-project-staffing.docx. */}
+      <WorkflowGateBanner moduleCode="project_edit" actionLabel="project edits saved" />
 
       {/* Page title */}
       <div style={{ marginBottom: 20 }}>
