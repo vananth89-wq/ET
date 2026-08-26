@@ -94,8 +94,8 @@
 
 .lp-tasks {
   display: flex;
-  flex-wrap: nowrap;
-  gap: 14px;
+  flex-wrap: wrap;
+  gap: 10px 14px;
 }
 
 .lp-pill {
