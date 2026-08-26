@@ -1998,7 +1998,7 @@ export default function MyProfile() {
           <div className="mp-sections">
 
             {/* ── Personal ─────────────────────────────────────────── */}
-            <section id="mps-personal" ref={el => { sectionRefs.current.personal = el; }} className="mp-section">
+            {can('personal_info.view') && <section id="mps-personal" ref={el => { sectionRefs.current.personal = el; }} className="mp-section">
               <SectionHeader
                 icon="fa-circle-user" text="Personal Information"
                 section="personal"
@@ -2298,7 +2298,7 @@ export default function MyProfile() {
                   {emp.dob && <Field label="Age" value={calcAge(emp.dob as string) !== null ? `${calcAge(emp.dob as string)} years` : undefined} />}
                 </div>
               )}
-            </section>
+            </section>}
 
             {/* ── Contact ──────────────────────────────────────────── */}
             {can('contact_info.view') && <section id="mps-contact" ref={el => { sectionRefs.current.contact = el; }} className="mp-section">
@@ -2396,7 +2396,7 @@ export default function MyProfile() {
             </section>}
 
             {/* ── Employment ───────────────────────────────────────── */}
-            <section id="mps-employment" ref={el => { sectionRefs.current.employment = el; }} className="mp-section">
+            {can('employment.view') && <section id="mps-employment" ref={el => { sectionRefs.current.employment = el; }} className="mp-section">
               <SectionHeader
                 icon="fa-briefcase" text="Employment Information"
                 section="employment"
@@ -2773,7 +2773,7 @@ export default function MyProfile() {
                   <Field label="Base Currency"    value={currencies.find(c => c.id === emp.baseCurrencyId)?.name} />
                 </div>
               )}
-            </section>
+            </section>}
 
             {/* ── Employment Propagation Modal ──────────────────────── */}
             {showPropagateModal && (
