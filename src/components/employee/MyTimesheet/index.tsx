@@ -581,6 +581,9 @@ export default function MyTimesheet() {
   // Expand/collapse per entry card in the panel
   const [expandedEntries, setExpandedEntries] = useState<Set<string>>(new Set());
 
+  // Inline discard-changes confirmation (replaces browser confirm dialog)
+  const [discardConfirmId, setDiscardConfirmId] = useState<string | null>(null);
+
   // Activity history for smart autocomplete
   const [activityHistory, setActivityHistory] = useState<ActivityHistoryItem[]>([]);
 
@@ -1697,6 +1700,7 @@ export default function MyTimesheet() {
     setForm(emptyForm);
     setBaselineForm(null);
     setFormErr('');
+    setDiscardConfirmId(null);
   }
 
   /**
@@ -3067,7 +3071,7 @@ export default function MyTimesheet() {
                                 <button
                                   onClick={() => {
                                     if (isEditing) {
-                                      if (!editUnchanged && !window.confirm('You have unsaved changes. Discard them?')) return;
+                                      if (!editUnchanged) { setDiscardConfirmId(ent.id); return; }
                                       cancelForm();
                                       setExpandedEntries(prev => new Set([...prev, ent.id]));
                                     } else {
@@ -3110,6 +3114,23 @@ export default function MyTimesheet() {
                     {/* Inline edit form — replaces card body when editing this entry */}
                     {isEditing ? (
                       <div style={{ borderTop: '1px solid #BFDBFE', background: '#EFF6FF', padding: '10px 12px 12px' }}>
+                        {/* Discard-changes confirmation bar */}
+                        {discardConfirmId === ent.id && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#FEF3C7', border: '1px solid #FCD34D', borderRadius: 8, padding: '8px 12px', marginBottom: 10 }}>
+                            <i className="fa-solid fa-triangle-exclamation" style={{ color: '#D97706', fontSize: 13, flexShrink: 0 }} />
+                            <span style={{ flex: 1, fontSize: 13, color: '#92400E' }}>You have unsaved changes. Discard them?</span>
+                            <button
+                              onClick={() => { setDiscardConfirmId(null); cancelForm(); setExpandedEntries(prev => new Set([...prev, ent.id])); }}
+                              style={{ padding: '3px 10px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: '1px solid #D97706', background: '#D97706', color: '#fff', cursor: 'pointer' }}>
+                              Discard
+                            </button>
+                            <button
+                              onClick={() => setDiscardConfirmId(null)}
+                              style={{ padding: '3px 10px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: '1px solid #E5E7EB', background: '#fff', color: '#374151', cursor: 'pointer' }}>
+                              Keep editing
+                            </button>
+                          </div>
+                        )}
                         {renderEntryFields({ projectDates: selectedDate ? [selectedDate] : [] })}
                         <div style={{ display: 'flex', gap: 7 }}>
                           {/* title on the wrapper — a disabled button never
