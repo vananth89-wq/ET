@@ -2753,7 +2753,7 @@ export default function MyTimesheet() {
                             {dayEnts.slice(0, 3).map(ent => (
                               <div
                                 key={ent.id}
-                                onClick={e => { e.stopPropagation(); setSelectedDate(dateStr); setPanelOpen(true); openEdit(ent); }}
+                                onClick={e => { e.stopPropagation(); setSelectedDate(dateStr); setPanelOpen(true); cancelForm(); setExpandedEntries(new Set([ent.id])); }}
                                 style={{
                                   display: 'flex', alignItems: 'center', flexWrap: 'nowrap', gap: 8,
                                   height: 15, padding: '0 3px', margin: '0 -3px',
