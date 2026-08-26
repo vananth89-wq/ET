@@ -3064,8 +3064,15 @@ export default function MyTimesheet() {
                             )}
                             {editable && !ent.is_system_generated && (
                               <>
-                                <button onClick={() => openEdit(ent)} title="Edit" style={{ width: 22, height: 22, border: '1px solid #E5E7EB', borderRadius: 6, background: '#F9FAFB', color: '#6B7280', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
-                                  <i className="fa-solid fa-pen" style={{ fontSize: 10 }} />
+                                <button
+                                  onClick={() => isEditing ? cancelForm() : openEdit(ent)}
+                                  title={isEditing ? 'View' : 'Edit'}
+                                  style={{ width: 22, height: 22, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0,
+                                    border: isEditing ? '1px solid #BFDBFE' : '1px solid #E5E7EB',
+                                    background: isEditing ? '#EFF6FF' : '#F9FAFB',
+                                    color: isEditing ? '#3B82F6' : '#6B7280',
+                                  }}>
+                                  <i className={`fa-solid ${isEditing ? 'fa-eye' : 'fa-pen'}`} style={{ fontSize: 10 }} />
                                 </button>
                                 <button onClick={() => handleDeleteEntry(ent.id)} title="Delete" style={{ width: 22, height: 22, border: '1px solid #FEE2E2', borderRadius: 6, background: '#FFF5F5', color: '#DC2626', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
                                   <i className="fa-solid fa-trash" style={{ fontSize: 10 }} />
