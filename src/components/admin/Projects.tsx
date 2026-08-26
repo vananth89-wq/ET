@@ -64,6 +64,14 @@ export default function Projects() {
                   || can('projects_mgmt.edit');
   const [teamFor, setTeamFor] = useState<Project | null>(null);
 
+  /* The panel renders BELOW the project table, which on a long list puts it a
+     screen and a half under the button that opened it -- the click reads as
+     doing nothing at all. Bring it into view instead. */
+  const teamRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (teamFor) teamRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [teamFor]);
+
   const [name,      setName]      = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate,   setEndDate]   = useState('');
@@ -518,7 +526,7 @@ export default function Projects() {
           ones you manage -- and allowHardDelete, which turns the end-assignment
           control into a real delete for a member who has booked no hours. */}
       {teamFor && (
-        <div className="rd-form-card" style={{ marginTop: 24 }}>
+        <div className="rd-form-card" ref={teamRef} style={{ marginTop: 24, scrollMarginTop: 88 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between',
                         gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
