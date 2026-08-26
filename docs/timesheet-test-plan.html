@@ -2,7 +2,7 @@
 {
   "name": "Timesheet Test Plan",
   "schemaVersion": 1,
-  "description": "Prowess timesheet test plan, migrations 726–776. 201 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — and now notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
+  "description": "Prowess timesheet test plan, migrations 726–794. 289 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, and assignment notifications carrying the full detail block — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
   "mcpTools": [],
   "mcpServerNames": []
 }
@@ -11,7 +11,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Timesheet — Test Plan for migrations 726 to 788</title>
+<title>Timesheet — Test Plan for migrations 726 to 794</title>
 <style>
   :root{
     --ink:#0F172A; --ink2:#334155; --ink3:#64748B; --ink4:#94A3B8;
@@ -96,14 +96,14 @@
 <header class="top">
   <div class="wrap">
     <p class="eyebrow">Prowess · Time Management</p>
-    <h1>Test plan — migrations 726 to 788</h1>
+    <h1>Test plan — migrations 726 to 794</h1>
     <p class="sub">Multiple entries per day, day-occupancy rules, per-activity hours, advance-dating —
        and, from migration 730, an edit window that actually binds and a submission that goes
        somewhere. Every case says what to do, what should happen, and which rule it proves — so a
        failure tells you where to look rather than just that something is wrong.</p>
     <div class="meta">
       <span><b>Against</b> Dev (prowess-dev)</span>
-      <span><b>Migrations</b> 726 – 731 · <b>732 – 738</b> · <b>742 · 743 · 745</b> · <b>748 – 757</b> · <b>761 – 776</b> · <b>780 – 788</b></span>
+      <span><b>Migrations</b> 726 – 731 · <b>732 – 738</b> · <b>742 · 743 · 745</b> · <b>748 – 757</b> · <b>761 – 776</b> · <b>780 – 794</b></span>
       <span><b>Written</b> 9 Aug 2026</span>
       <span><b>Sections I–K added</b> 11 Aug 2026</span>
       <span><b>Sections N–P added</b> 12 Aug 2026</span>
@@ -111,7 +111,8 @@
       <span><b>T–W added</b> 18 Aug 2026</span>
       <span><b>X–Y added</b> 20 Aug 2026</span>
       <span><b>Z added</b> 25 Aug 2026</span>
-      <span><b>AA–AH added</b> 25 Aug 2026</span>
+      <span><b>AA–AG added</b> 25 Aug 2026</span>
+      <span><b>AH–AO added</b> 26 Aug 2026</span>
     </div>
   </div>
 </header>
@@ -153,7 +154,14 @@
     <a class="toc" href="#ae">AE · My Projects (783–786)</a>
     <a class="toc" href="#af">AF · Timesheet project list (786 · 787)</a>
     <a class="toc" href="#ag">AG · Date guards (788)</a>
-    <a class="toc" href="#ah">AH · Known and deliberate</a>
+    <a class="toc" href="#ah">AH · Role on the assignment (790)</a>
+    <a class="toc" href="#ai">AI · Mandatory end dates (790 · 792)</a>
+    <a class="toc" href="#aj">AJ · The Team Allocation panel</a>
+    <a class="toc" href="#ak">AK · Four verbs (791)</a>
+    <a class="toc" href="#al">AL · Two projects, one screen</a>
+    <a class="toc" href="#am">AM · Admin staffs any project (791)</a>
+    <a class="toc" href="#an">AN · The notification (789 · 793 · 794)</a>
+    <a class="toc" href="#ao">AO · Known and deliberate (780–794)</a>
   </div>
 
   <div class="bar">
@@ -3564,20 +3572,680 @@ WHERE  n.nspname = 'public' AND p.proname = 'paste_timesheet_day';</pre>
   </div>
 </section>
 
+
 <section id="ah">
-  <h2><span class="k">AH</span> Known and deliberate (780–788)</h2>
-  <p class="lede">Three behaviours read as bugs without the context. Record them as observations, not failures.</p>
+  <h2><span class="k">AH</span> Every assignment names a role (790)</h2>
+  <p class="lede">Role comes from a reference list, not a free-text box, so it can be reported on. It is mandatory, it is carried per <i>stint</i>, and the picklist is the admin&rsquo;s to extend.</p>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AH1</span>
+      <span class="title">The list exists and is the admin&rsquo;s to grow</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <ol><li>Open <b>Admin → Reference Data</b> and find <b>Project Role</b>.</li><li>Read the five values, then add a sixth — say <b>SF Consultant</b>.</li><li>Go back to My Projects and open the Team Allocation form.</li></ol>
+      <div class="exp"><b>Expect:</b> EC Consultant, PMGM Consultant, LMS Consultant, ABAPER and ECP Consultant are already there, and the sixth appears in the form&rsquo;s Role dropdown without a deploy.</div>
+      <div class="why">This is why role is a picklist and not a text column — the list is data, and the person who owns the list is the administrator.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AH2</span>
+      <span class="title">The list itself cannot be deleted</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Try to delete the <b>Project Role</b> picklist, and separately try to delete the <b>EC Consultant</b> value while at least one assignment uses it.</p>
+      <div class="exp"><b>Expect:</b> the picklist is badged as a system list and offers no delete. The value refuses with a foreign-key style refusal rather than quietly detaching itself from the assignments using it.</div>
+      <div class="why"><code>ON DELETE RESTRICT</code>, deliberately not <code>SET NULL</code>: role is mandatory, so blanking it would answer &ldquo;you cannot delete this&rdquo; by breaking rows nobody was looking at.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AH3</span>
+      <span class="title">Deactivating a value hides it without rewriting history</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Untick <b>Active</b> on a role value that an existing member holds. Re-open Team Allocation.</p>
+      <div class="exp"><b>Expect:</b> the value is gone from the Role dropdown for new choices, but the existing member still displays it in the table.</div>
+      <div class="why">Retiring a role is a forward-looking act. Anyone who worked as that role still did.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AH4</span>
+      <span class="title">Everything that already existed says EC Consultant</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Open Team Allocation on a project that was staffed <i>before</i> this release, and check the <b>Role</b> column on every row, past members included.</p>
+      <div class="exp"><b>Expect:</b> no blanks and no dashes — every historic assignment reads <b>EC Consultant</b>.</div>
+      <div class="warn">This is a <b>guess written as a fact</b>. The system did not know these roles and now asserts one. Before trusting any report grouped by role, correct the rows that were never EC Consultant.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AH5</span>
+      <span class="title">Role is genuinely required, not merely marked required</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>In the Team Allocation form, fill in everything <i>except</i> Role and press Save.</p>
+      <div class="exp"><b>Expect:</b> refused in the panel with <b>&ldquo;Role is required.&rdquo;</b> — no row written, nothing lost from the other four fields.</div>
+      <div class="why">The form check is the courtesy. A database trigger stands behind it, so a direct API call with no role is refused too.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AH6</span>
+      <span class="title">A role from the wrong list is refused</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Call <code>project_member_add</code> directly, passing a <code>p_role_id</code> that is a valid picklist value from a <i>different</i> picklist — Project Type, say.</p>
+      <div class="sqlblock">select project_member_add(
+  p_project_id := '&lt;AMPTJ id&gt;',
+  p_employee_id := '&lt;someone&gt;',
+  p_allocation_pct := 50,
+  p_role_id := (select pv.id from picklist_values pv
+                join picklists p on p.id = pv.picklist_id
+                where p.picklist_id = 'PROJECT_TYPE' limit 1));</div>
+      <div class="exp"><b>Expect:</b> <b>&ldquo;Project role must be a value from the Project Role reference list.&rdquo;</b> and no row.</div>
+      <div class="why">A foreign key onto <code>picklist_values</code> only proves the id is <i>some</i> picklist value. The trigger is what proves it is a role.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AH7</span>
+      <span class="title">Rejoining in a new role does not relabel the old hours</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <ol><li>End Meera&rsquo;s assignment on AMPTJ after she has booked hours as <b>EC Consultant</b>.</li><li>Add her again, starting later, as <b>ABAPER</b>.</li><li>Show past members and read both rows.</li></ol>
+      <div class="exp"><b>Expect:</b> two rows — the closed stint still says EC Consultant with its hours, the open one says ABAPER. Her earlier hours are not restated as ABAPER work.</div>
+      <div class="why">Hours are counted per stint, so the role that earned them has to be too. One role per person per project would rewrite the past every time somebody changed job.</div>
+    </div>
+  </div>
+</section>
+
+<section id="ai">
+  <h2><span class="k">AI</span> Every project has an end, and nothing outlives it (790 · 792)</h2>
+  <p class="lede">An open-ended project made the allocation end date meaningless, because there was no ceiling to compare it against. <code>projects.end_date</code> is now <code>NOT NULL</code>, and an assignment may not run past it.</p>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AI1</span>
+      <span class="title">The projects that had no end now have one</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>In Admin → Projects, sort by end date and look for blanks. Note which projects previously had none.</p>
+      <div class="exp"><b>Expect:</b> no blanks anywhere. The ones that were empty read <b>31 Dec 2026</b>.</div>
+      <div class="warn">Also a guess written as a fact — it is a placeholder, not a plan. Each of these needs a real date from whoever owns the project.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AI2</span>
+      <span class="title">Except where hours already run past it</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Find a project that had no end date <i>and</i> has timesheet entries dated after 31 Dec 2026. Read its end date.</p>
+      <div class="sqlblock">select p.name, p.end_date, max(e.entry_date) as last_booked
+from   projects p join timesheet_entries e on e.project_id = p.id
+group  by p.name, p.end_date
+having max(e.entry_date) &gt; date '2026-12-31';</div>
+      <div class="exp"><b>Expect:</b> its end date is the <i>last booked day</i>, not 31 Dec 2026, and the query returns no row where <code>last_booked &gt; end_date</code>.</div>
+      <div class="why">The backfill had to leave the data legal for the guards in 788. A flat 31 Dec would have created stranded hours at the moment the constraint landed.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AI3</span>
+      <span class="title">A new project cannot be saved without one</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>In Admin → Projects, create a project and leave <b>End date</b> empty. Then clear the end date on an existing project and save.</p>
+      <div class="exp"><b>Expect:</b> both refused. The create is stopped in the form; the clear is refused by the database even if the form lets it through.</div>
+      <div class="why"><code>SET NOT NULL</code> is the guarantee; the form is the manners.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AI4</span>
+      <span class="title">Adding somebody defaults to the project&rsquo;s end</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>On My Projects, press <b>Add member</b> without touching the dates.</p>
+      <div class="exp"><b>Expect:</b> <b>End date</b> is pre-filled with AMPTJ&rsquo;s own end date, and <b>Start date</b> with today. The lead can change either.</div>
+      <div class="why">The commonest case is &ldquo;on it until the project stops&rdquo;. Defaulting it means the field is usually right, and always answerable.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AI5</span>
+      <span class="title">An assignment cannot outlive its project</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Add somebody with an end date <i>after</i> AMPTJ&rsquo;s end date. Then try the same by editing an existing member.</p>
+      <div class="exp"><b>Expect:</b> refused both times, with <b>&ldquo;The assignment cannot run past the project, which ends 31 Dec 2026.&rdquo;</b> — the message quotes the real ceiling rather than telling you to guess it.</div>
+      <div class="why">Rule <code>OUTLIVES_PROJECT</code>, enforced on <i>add</i> and on <i>update</i>. Enforcing it on only one leaves the other as the way in.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AI6</span>
+      <span class="title">End before start is refused separately</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Set End date earlier than Start date and save.</p>
+      <div class="exp"><b>Expect:</b> <b>&ldquo;The end date cannot be before the start date.&rdquo;</b> — its own message, not the project-ceiling one.</div>
+      <div class="why">Two different mistakes deserve two different sentences; <code>DATES_CROSSED</code> and <code>OUTLIVES_PROJECT</code> are distinct rules.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AI7</span>
+      <span class="title">Extending the project frees the assignment</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>After AI5 refuses, move AMPTJ&rsquo;s end date out by a month, then retry the same assignment end date.</p>
+      <div class="exp"><b>Expect:</b> accepted. The ceiling moved, so the rule that referenced it moves with it.</div>
+      <div class="why">Proves the check reads the project live rather than a value copied at assignment time.</div>
+    </div>
+  </div>
+</section>
+
+<section id="aj">
+  <h2><span class="k">AJ</span> The Team Allocation panel (790–792)</h2>
+  <p class="lede">One editor above the table owns the whole row. Five fields, all required, and hours are not among them — hours are earned, not entered.</p>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AJ1</span>
+      <span class="title">Edit opens above the table, not inside it</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Press the pencil on a member row.</p>
+      <div class="exp"><b>Expect:</b> a panel opens above the table headed <b>Edit member</b>, pre-filled with that person&rsquo;s role, percentage and both dates. The row stays visible and marked, and the table does not reflow into input boxes.</div>
+      <div class="why">You cannot enforce &ldquo;all fields required&rdquo; across five independent inline editors, and losing your place in a long team is its own cost.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AJ2</span>
+      <span class="title">Employee is fixed while editing</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>In the edit panel, try to change who the assignment is for.</p>
+      <div class="exp"><b>Expect:</b> the employee is shown as a name and code, not as a picker. Moving an assignment to a different person is not an edit — it is an end and an add.</div>
+      <div class="why">Re-pointing an assignment would silently transfer whatever hours are attached to it.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AJ3</span>
+      <span class="title">Hours are nowhere in the form</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Read every field in both <b>Add member</b> and <b>Edit member</b>.</p>
+      <div class="exp"><b>Expect:</b> Employee, Role, Percentage, Start date, End date — and no hours field in either. Hours appear only as a read-only column in the table.</div>
+      <div class="why">Hours come from timesheets. A field that looked editable here would imply a lead can set somebody&rsquo;s time.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AJ4</span>
+      <span class="title">Each empty field names itself</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Save with each field empty in turn: employee, role, percentage, start, end.</p>
+      <div class="exp"><b>Expect:</b> five different sentences — <b>&ldquo;Select an employee.&rdquo;</b>, <b>&ldquo;Role is required.&rdquo;</b>, <b>&ldquo;Percentage is required, between 1 and 100.&rdquo;</b>, <b>&ldquo;Start date is required.&rdquo;</b>, <b>&ldquo;End date is required.&rdquo;</b> Nothing is saved and nothing already typed is cleared.</div>
+      <div class="why">A single &ldquo;fill in all fields&rdquo; makes the person hunt. The panel knows which one is missing.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AJ5</span>
+      <span class="title">Percentage takes only sensible numbers</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Try 0, −10, 101, 33.5 and blank.</p>
+      <div class="exp"><b>Expect:</b> 1–100 accepted, everything outside it refused with the same sentence. Somebody at 50% saves and the table shows <b>50%</b>.</div>
+      <div class="why">Percentage is mandatory because not everyone is on a project full time — it is the field that makes a team list mean something in capacity terms.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AJ6</span>
+      <span class="title">Cancel leaves nothing behind</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Open Edit on one person, change the percentage, press <b>Cancel</b>, then open Edit on somebody else.</p>
+      <div class="exp"><b>Expect:</b> the first row is unchanged, and the second panel shows the second person&rsquo;s own values — not the abandoned ones.</div>
+      <div class="why">A panel reused across rows is exactly where a stale value gets saved onto the wrong person.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AJ7</span>
+      <span class="title">Switching project closes the panel</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>With <b>Add member</b> half filled in on one project, click the tab for another project.</p>
+      <div class="exp"><b>Expect:</b> the panel closes, the form is empty when re-opened, and the new panel&rsquo;s End date defaults to the <i>new</i> project&rsquo;s end date.</div>
+      <div class="why">Carrying a half-typed row across would save it against the wrong project — and the default end date proves the panel really re-read the project rather than merely re-rendering.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AJ8</span>
+      <span class="title">The same person cannot be added twice over the same days</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Add somebody who is already a current member, with dates that overlap their existing stint.</p>
+      <div class="exp"><b>Expect:</b> refused as a readable sentence, not a raw constraint error. Adding them for a period that starts <i>after</i> their current stint ends is accepted.</div>
+      <div class="why">The overlap exclusion constraint is what makes &ldquo;hours per stint&rdquo; unambiguous — two live stints would make it impossible to say which one earned an hour.</div>
+    </div>
+  </div>
+</section>
+
+<section id="ak">
+  <h2><span class="k">AK</span> Four verbs, four boundaries (791)</h2>
+  <p class="lede">Staffing used to hide behind <code>projects_mgmt.manage_members</code>, which sat under the module for editing the project record itself. <b>Team Allocation</b> is now its own module with view, create, edit and delete — and each one is asked for separately.</p>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AK1</span>
+      <span class="title">The actor can read anything at all</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Before any of the cases below, sign in as the test lead and confirm they can open My Projects and see the team table with names in it.</p>
+      <div class="exp"><b>Expect:</b> a populated table.</div>
+      <div class="warn">Skip this and every refusal below passes for the wrong reason — an unlinked profile or an unassigned permission set refuses everything, which looks exactly like a verb working.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AK2</span>
+      <span class="title">The band is in the matrix</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Open <b>Admin → Security → Permission Sets</b> and look for <b>TEAM ALLOCATION</b>.</p>
+      <div class="exp"><b>Expect:</b> its own top-level band — not a sub-row under Projects — carrying one row with four ticks: View, Create, Edit, Delete.</div>
+      <div class="why">It is a module in its own right because it is a different kind of authority from editing the project record.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AK3</span>
+      <span class="title">Nobody lost anything in the move</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Open every permission set that previously held <b>Manage Members</b> under Projects.</p>
+      <div class="sqlblock">select ps.name
+from   permission_sets ps
+join   permission_set_items psi on psi.permission_set_id = ps.id
+join   permissions p on p.id = psi.permission_id
+where  p.code = 'projects_mgmt.manage_members'
+and    not exists (select 1 from permission_set_items x
+                   join permissions np on np.id = x.permission_id
+                   where x.permission_set_id = ps.id
+                   and   np.code = 'project_members.create');</div>
+      <div class="exp"><b>Expect:</b> the query returns no rows — every set that had the old verb now also has all four new ones.</div>
+      <div class="why">The grant migration is what stops the release taking staffing away from people who already had it.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AK4</span>
+      <span class="title">View alone: read, but no buttons</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Give the lead <b>view</b> only and re-open My Projects.</p>
+      <div class="exp"><b>Expect:</b> the team table renders in full — names, roles, percentages, dates, hours — with no <b>Add member</b> button, no pencil and no remove icon.</div>
+      <div class="why">A read-only lead is a real role. Hiding the controls is the honest form of it; showing them and failing on save is not.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AK5</span>
+      <span class="title">No view: nothing to read</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Remove <b>view</b> and keep the other three. Re-open My Projects.</p>
+      <div class="exp"><b>Expect:</b> the project does not appear in the staffable list at all — not an empty table with buttons on it.</div>
+      <div class="why"><code>my_staffable_projects</code> gates on <code>view</code>. Create without view would be a screen you can write to but not read.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AK6</span>
+      <span class="title">Create without edit</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Grant <b>view + create</b>. Add somebody, then try to change them.</p>
+      <div class="exp"><b>Expect:</b> the add succeeds; no pencil appears on any row. A direct <code>project_member_update</code> call is refused by the RPC, not merely hidden.</div>
+      <div class="why">The button is the courtesy; the RPC asking for its own verb is the rule.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AK7</span>
+      <span class="title">Edit without create</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Grant <b>view + edit</b>. Change an existing member, then look for <b>Add member</b>.</p>
+      <div class="exp"><b>Expect:</b> the edit saves; the Add button is absent and <code>project_member_add</code> is refused.</div>
+      <div class="why">Adjusting a team you were given is a smaller authority than choosing who is on it.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AK8</span>
+      <span class="title">Delete without edit</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Grant <b>view + delete</b>. End somebody&rsquo;s assignment, then try to change their percentage.</p>
+      <div class="exp"><b>Expect:</b> the end succeeds; the pencil is absent and update is refused.</div>
+      <div class="why">Ending an assignment is <code>delete</code>, whether it removes the row or end-dates it. Both go through <code>project_member_remove</code>.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AK9</span>
+      <span class="title">All four verbs, wrong project</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>With all four granted, call <code>project_member_add</code> for a project the lead does <i>not</i> manage.</p>
+      <div class="exp"><b>Expect:</b> refused. The verbs say what you may do; the project record says where.</div>
+      <div class="why">The lead door needs the verb <b>and</b> the project naming them as Reporting Manager <b>and</b> the project being active — all three, every time.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AK10</span>
+      <span class="title">Staffing grants no access to the person</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>As a lead with all four verbs and nothing else, open the staffed person&rsquo;s employee record, their timesheet and any report scoped to them personally.</p>
+      <div class="exp"><b>Expect:</b> no access to any of it. The lead sees the person&rsquo;s name and hours <i>on this project</i>, and nothing more.</div>
+      <div class="why">The whole point of the persona: adding somebody to a project records a fact, it does not hand over their data.</div>
+    </div>
+  </div>
+</section>
+
+<section id="al">
+  <h2><span class="k">AL</span> Leading more than one project (783 · 791)</h2>
+  <p class="lede">The switcher is tabs rather than a left rail, because the editor panel above the table is already a starting point for the eye — and a rail costs the form 250px it needs.</p>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AL1</span>
+      <span class="title">Two projects, two tabs</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Make the lead Reporting Manager on a second active project. Re-open My Projects.</p>
+      <div class="exp"><b>Expect:</b> a tab per project across the top, each carrying its own member count and booked hours. The first is selected.</div>
+      <div class="why">The counts are on the tab so the lead can compare without clicking through.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AL2</span>
+      <span class="title">One project gets no chooser</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Take the second project away and re-open the screen.</p>
+      <div class="exp"><b>Expect:</b> the tab strip disappears entirely; the header names the project.</div>
+      <div class="why">A choice of one is not a choice.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AL3</span>
+      <span class="title">The header follows the tab</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Switch tabs and read the stat card: dates, team, budget, booked, and the budget meter.</p>
+      <div class="exp"><b>Expect:</b> every figure changes to the selected project. The meter turns amber only past 100%, and says <b>over budget by N h</b> in words as well as colour.</div>
+      <div class="why">Colour alone is not a message; the caption is what makes it readable to everyone.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AL4</span>
+      <span class="title">Adding on one project does not touch the other</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Add somebody on the first tab, then switch to the second and back.</p>
+      <div class="exp"><b>Expect:</b> the first tab&rsquo;s count and hours have gone up, the second tab&rsquo;s are unchanged, and the new member is on the first project only.</div>
+      <div class="why">The header counts are re-read after any write — a stale count here is the tell that the screen and the table have drifted apart.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AL5</span>
+      <span class="title">A closed project drops out</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Untick <b>Active</b> on the second project.</p>
+      <div class="exp"><b>Expect:</b> its tab disappears; the remaining project is selected and nothing on screen refers to the closed one.</div>
+      <div class="why">Staffing follows active projects (784). A lead cannot staff a project that has stopped.</div>
+    </div>
+  </div>
+</section>
+
+<section id="am">
+  <h2><span class="k">AM</span> Admin staffs any project (791)</h2>
+  <p class="lede">The same component, pointed at a different list. Whoever may edit projects may staff them — on any project, active or closed — and only the administrator may delete an assignment outright.</p>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AM1</span>
+      <span class="title">Team opens from the project row</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>In <b>Admin → Projects</b>, press the people icon on any project — including one the signed-in admin manages nothing on.</p>
+      <div class="exp"><b>Expect:</b> the Team panel opens showing that project&rsquo;s members, with the same columns, the same editor panel and the same validation as My Projects.</div>
+      <div class="why">One component. Two copies of a screen this rule-heavy would diverge within a month.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AM2</span>
+      <span class="title">Any project, not just managed ones</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Staff somebody onto a project whose Reporting Manager is a different person, and onto an <i>inactive</i> project.</p>
+      <div class="exp"><b>Expect:</b> both succeed.</div>
+      <div class="why"><code>can_staff_project</code> short-circuits on <code>projects_mgmt.edit</code> before it ever consults the lead&rsquo;s project list. That door was already open — this release only added the screen to walk through it.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AM3</span>
+      <span class="title">A project with no Reporting Manager is called out</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Clear the Reporting Manager on a project and look at the Admin → Projects list.</p>
+      <div class="exp"><b>Expect:</b> an amber banner naming it — that project has nobody who can staff it from My Projects, so only an admin can.</div>
+      <div class="why">Without the banner this is invisible: the project simply never appears on anyone&rsquo;s My Projects and nobody knows to ask why.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AM4</span>
+      <span class="title">Hours make it an end, not a delete</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>As admin, press remove on a member who has booked hours.</p>
+      <div class="exp"><b>Expect:</b> the icon is the <i>end assignment</i> one, the confirm says <b>End assignment</b>, and the result is an end-dated row that still shows under <b>past members</b> with its hours intact.</div>
+      <div class="why">Deleting an assignment that earned hours would orphan them. There is no admin override for that, and there should not be.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AM5</span>
+      <span class="title">No hours, and only for an admin, it is a real delete</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Add somebody by mistake, book nothing, then remove them — first as the lead on My Projects, then repeat as admin.</p>
+      <div class="exp"><b>Expect:</b> the admin sees a bin icon and the row disappears entirely. The lead&rsquo;s copy of the screen offers the softer action, and the row remains as a closed stint.</div>
+      <div class="why">This was already <code>project_member_remove</code>&rsquo;s behaviour — no migration was needed, only the flag that lets the admin surface ask for it.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AM6</span>
+      <span class="title">Clear the hours, then the delete becomes available</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Delete a member&rsquo;s timesheet entries on the project, re-open the admin Team panel, then remove them.</p>
+      <div class="exp"><b>Expect:</b> the icon has changed from end-assignment to bin, and the row is deleted outright.</div>
+      <div class="why">The rule is about the hours, not about the person — so removing the hours genuinely changes what is allowed rather than just what is offered.</div>
+    </div>
+  </div>
+</section>
+
+<section id="an">
+  <h2><span class="k">AN</span> What the message actually says (789 · 793 · 794)</h2>
+  <p class="lede">Four events, three recipients, one insert. Every message carries the whole assignment, labelled, so nobody has to open the app to find out what changed.</p>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AN1</span>
+      <span class="title">Adding somebody tells them so</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Add Meera to AMPTJ as the lead. Check Meera&rsquo;s bell and her inbox.</p>
+      <div class="exp"><b>Expect:</b> title <b>&ldquo;You are now on AMPTJ&rdquo;</b>, then who added her, then the detail block, then <b>&ldquo;Record your time against it in My Timesheet.&rdquo;</b> The bell entry links to My Timesheet.</div>
+      <div class="why">One insert into <code>notifications</code> is both the bell and the email — the trigger on that table carries the mail leg.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AN2</span>
+      <span class="title">The block carries everything</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Read the detail block in the email from AN1, line by line.</p>
+      <div class="sqlblock">Project: AMPTJ
+Project ends: 31 Dec 2026
+Employee: Meera R (100107)
+Role: EC Consultant
+Start date: 01 Feb 2026
+End date: 30 Sep 2026
+Percentage: 50%</div>
+      <div class="exp"><b>Expect:</b> all seven lines, dates as <b>DD Mon YYYY</b>, percentage with a <b>%</b>, and the employee code in brackets.</div>
+      <div class="why">The recipient is checking a fact, not reading prose. <b>Project ends</b> is what makes their own end date mean something — it is the ceiling that date sits under.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AN3</span>
+      <span class="title">No fake column alignment</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Look at the email body, not the bell: are the values in a straight column?</p>
+      <div class="exp"><b>Expect:</b> they are not, and that is correct — one space after each label. What must <i>not</i> appear is a run of spaces that looks like an attempt at a column and lands crooked.</div>
+      <div class="warn">Migration 793 padded the labels; it could never work. The mail template escapes the body, turns newlines into <code>&lt;br&gt;</code> and renders it in a proportional font — and HTML collapses runs of spaces. 794 removed the padding. Real alignment needs the edge function to render a table.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AN4</span>
+      <span class="title">Editing announces itself</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Change Meera&rsquo;s percentage from 50 to 80 and save.</p>
+      <div class="exp"><b>Expect:</b> <b>&ldquo;Your assignment on AMPTJ has changed&rdquo;</b>, with the detail block showing <b>80%</b> — the new value, not the old.</div>
+      <div class="why">Announced after the write, so the message describes what is now true.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AN5</span>
+      <span class="title">Ending and removing are different messages</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>End the assignment of somebody <i>with</i> hours, and remove somebody <i>without</i> any.</p>
+      <div class="exp"><b>Expect:</b> <b>&ldquo;Your assignment on AMPTJ has ended&rdquo;</b> for the first — quoting the <i>new</i> end date — and <b>&ldquo;You have been removed from AMPTJ&rdquo;</b> for the second. Neither carries the &ldquo;record your time&rdquo; line.</div>
+      <div class="why">Ended and removed are genuinely different events. The removed message must be composed <i>before</i> the row goes, or there is nothing left to describe.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AN6</span>
+      <span class="title">The line manager is told, in the third person</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Check the inbox of Meera&rsquo;s own line manager after each of the four events.</p>
+      <div class="exp"><b>Expect:</b> a copy each time — <b>&ldquo;Meera R has joined AMPTJ&rdquo;</b> and so on — naming her rather than addressing her, carrying the same detail block, and <i>without</i> the &ldquo;record your time&rdquo; line.</div>
+      <div class="why">It is not their timesheet. Their interest is capacity: who on their team is committed where, and at what percentage.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AN7</span>
+      <span class="title">The lead is not told about their own action</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>As the lead, add somebody to your own project. Check your own bell.</p>
+      <div class="exp"><b>Expect:</b> nothing. Now have an <b>admin</b> staff somebody onto that project instead — the lead gets a copy this time.</div>
+      <div class="why">Telling somebody what they just did is noise. Telling them what somebody else did to their project is the point.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AN8</span>
+      <span class="title">Nobody gets the same event twice</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Contrive an overlap: staff somebody whose own line manager <i>is</i> the project lead.</p>
+      <div class="exp"><b>Expect:</b> exactly one message to that person, not two.</div>
+      <div class="why">Each recipient is checked against the ones already sent before being added.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AN9</span>
+      <span class="title">A failed message never fails the write</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Staff somebody who has <i>no login profile</i>, and somebody whose line manager has none.</p>
+      <div class="exp"><b>Expect:</b> the assignment saves either way. The RPC reply carries <code>notified</code> — possibly 0 — and, if something threw, <code>notify_error</code>. No error reaches the screen.</div>
+      <div class="why">The notification is a courtesy on top of the write. An unreachable recipient must never be able to stop a lead staffing their team.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AN10</span>
+      <span class="title">The mail is the bell</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>After one add, compare the bell entry and the email side by side.</p>
+      <div class="sqlblock">select title, left(body, 400), link, created_at
+from   notifications
+order  by created_at desc limit 6;</div>
+      <div class="exp"><b>Expect:</b> same title, same body, one row per recipient — and one email per row. No second insert, no separate mail queue.</div>
+      <div class="why">If the two ever diverge, the cause is the edge function rendering, not two sources of truth.</div>
+    </div>
+  </div>
+</section>
+
+<section id="ao">
+  <h2><span class="k">AO</span> Known and deliberate (780–794)</h2>
+  <p class="lede">Six behaviours read as bugs without the context. Record them as observations, not failures.</p>
   <div class="qnote"><b>The dropdown is an offer, not a rule.</b> A direct API call can still write an entry
     against any active project. No enforcement trigger has been added: it is the one change that can stop
     somebody recording their week, so it waits behind a read-only audit of how much existing data it would refuse.</div>
-  <div class="qnote"><b>A project you have already booked to stays offered</b> on dates inside its own window,
-    even after your allocation ends. Deliberate — an entry that exists must be able to name its own project.
-    Closing it needs enforcement with an exemption for existing rows.</div>
-  <div class="qnote"><b>An allocation may run past the end of its project,</b> with no warning. Data hygiene
-    rather than behaviour: the project window binds anyway, so the surplus grants nothing. A warning on
-    My Projects is a candidate follow-up.</div>
+  <div class="qnote"><b>A day you have already booked stays offered,</b> per day, even once your allocation
+    no longer covers it. Deliberate — an entry that exists must be able to name its own project. Note the
+    exemption is per <i>date</i>, not per project: it does not reopen the rest of the month.</div>
+  <div class="qnote"><b>Allocations that already outlive their project are left alone.</b> Migration 792
+    refuses new ones in both directions, but it did not go back and trim rows created before it. The project
+    window binds anyway, so the surplus grants nothing — but the dates on screen can still read past the
+    project end until somebody edits that row, at which point the rule applies.</div>
+  <div class="qnote"><b>Role and end date were backfilled with guesses.</b> Every pre-existing
+    assignment now says EC Consultant and every project without an end now says 31 Dec 2026. Both are
+    placeholders the system asserts as fact — correct them before reporting on either.</div>
+  <div class="qnote"><b>The email cannot align its columns.</b> The notification template escapes the
+    body, turns newlines into &lt;br&gt; and renders it in a proportional font, so runs of spaces collapse.
+    794 dropped the padding rather than keep implying a column. Real alignment needs
+    <code>send-notification-email</code> to render structured detail as a table — a change to that
+    shared function, worth doing on its own.</div>
+  <div class="qnote"><b>A lead filtering Utilisation by department gets nothing.</b> Migration 771 keeps a
+    department guard on the project branch, so choosing a department drops it entirely. It fails closed,
+    which is why it was left rather than widened in passing.</div>
 </section>
-
 
 
   <footer>
