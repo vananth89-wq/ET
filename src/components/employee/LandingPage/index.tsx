@@ -122,7 +122,6 @@ export default function LandingPage() {
             setMostUsedApps(
               parsed
                 .filter(a => a.visible)
-                .filter(a => a.id !== 'my_projects' || can('projects_mgmt.view'))
                 .sort((a, b) => a.order - b.order)
                 .map(a => ({ ...a, path: appPathFixes[a.path] ?? a.path }))
             );
@@ -136,7 +135,6 @@ export default function LandingPage() {
             setSuggestedTasks(
               parsed
                 .filter(t => t.visible)
-                .filter(t => t.id !== 'my_projects' || can('projects_mgmt.view'))
                 .sort((a, b) => a.order - b.order)
                 .map(t => ({ ...t, path: pathFixes[t.path] ?? t.path }))
             );
@@ -208,7 +206,7 @@ export default function LandingPage() {
             <p className="lp-date">{`It's ${formatDate()}`}</p>
             <p className="lp-tasks-label">Suggested Tasks</p>
             <div className="lp-tasks">
-              {suggestedTasks.map(task => (
+              {suggestedTasks.filter(t => t.id !== 'my_projects' || can('projects_mgmt.view')).map(task => (
                 <button key={task.id} className="lp-pill" onClick={() => navigate(task.path)}>
                   {task.label}
                 </button>
@@ -230,7 +228,7 @@ export default function LandingPage() {
 
         <p className="lp-section-label">Most Used Apps</p>
         <div className="lp-apps-card">
-          {mostUsedApps.slice(0, MAX_APPS).map(app => (
+          {mostUsedApps.filter(a => a.id !== 'my_projects' || can('projects_mgmt.view')).slice(0, MAX_APPS).map(app => (
             <button key={app.id} className="lp-app" onClick={() => navigate(app.path)}>
               <div className="lp-app-icon">
                 <i className={`fa-solid ${app.icon}`} />
@@ -238,7 +236,7 @@ export default function LandingPage() {
               <span className="lp-app-label">{app.label}</span>
             </button>
           ))}
-          {mostUsedApps.length > MAX_APPS && (
+          {mostUsedApps.filter(a => a.id !== 'my_projects' || can('projects_mgmt.view')).length > MAX_APPS && (
             <button className="lp-app lp-app--more" onClick={() => setShowAllApps(true)}>
               <div className="lp-app-icon lp-app-icon--more">
                 <i className="fa-solid fa-grid-2" />
@@ -259,7 +257,7 @@ export default function LandingPage() {
                 </button>
               </div>
               <div className="lp-modal-grid">
-                {mostUsedApps.map(app => (
+                {mostUsedApps.filter(a => a.id !== 'my_projects' || can('projects_mgmt.view')).map(app => (
                   <button key={app.id} className="lp-app" onClick={() => { navigate(app.path); setShowAllApps(false); }}>
                     <div className="lp-app-icon">
                       <i className={`fa-solid ${app.icon}`} />
