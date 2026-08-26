@@ -10,6 +10,7 @@
 import { useState, useEffect }      from 'react';
 import { useNavigate }              from 'react-router-dom';
 import { useAuth }                  from '../../../contexts/AuthContext';
+import { usePermissions }           from '../../../hooks/usePermissions';
 import { supabase }                 from '../../../lib/supabase';
 import './LandingPage.css';
 
@@ -24,8 +25,9 @@ interface SuggestedTask {
 }
 
 const DEFAULT_SUGGESTED_TASKS: SuggestedTask[] = [
-  { id: 'my_profile',         label: 'My Profile.',        path: '/profile', visible: true,  order: 1 },
-  { id: 'my_expense_reports', label: 'My Expense Reports', path: '/expense', visible: true,  order: 2 },
+  { id: 'my_profile',         label: 'My Profile',         path: '/profile',     visible: true,  order: 1 },
+  { id: 'my_expense_reports', label: 'My Expense Reports', path: '/expense',     visible: true,  order: 2 },
+  { id: 'my_projects',        label: 'My Projects',        path: '/my-projects', visible: false, order: 3 },
 ];
 
 interface MostUsedApp {
@@ -38,11 +40,12 @@ interface MostUsedApp {
 }
 
 const DEFAULT_MOST_USED_APPS: MostUsedApp[] = [
-  { id: 'org_chart',    label: 'Org Chart',    icon: 'fa-diagram-project', path: '/org-chart',            visible: true, order: 1 },
-  { id: 'my_timesheet', label: 'My Timesheet', icon: 'fa-clock',           path: '/my-timesheet',         visible: true, order: 2 },
-  { id: 'my_requests',  label: 'My Requests',  icon: 'fa-list-check',      path: '/workflow/my-requests', visible: true, order: 3 },
-  { id: 'inbox',        label: 'Inbox',        icon: 'fa-inbox',           path: '/workflow/inbox',       visible: true, order: 4 },
-  { id: 'delegations',  label: 'Delegations',  icon: 'fa-people-arrows',   path: '/workflow/delegations', visible: true, order: 5 },
+  { id: 'org_chart',    label: 'Org Chart',    icon: 'fa-diagram-project', path: '/org-chart',            visible: true,  order: 1 },
+  { id: 'my_timesheet', label: 'My Timesheet', icon: 'fa-clock',           path: '/my-timesheet',         visible: true,  order: 2 },
+  { id: 'my_requests',  label: 'My Requests',  icon: 'fa-list-check',      path: '/workflow/my-requests', visible: true,  order: 3 },
+  { id: 'inbox',        label: 'Inbox',        icon: 'fa-inbox',           path: '/workflow/inbox',       visible: true,  order: 4 },
+  { id: 'delegations',  label: 'Delegations',  icon: 'fa-people-arrows',   path: '/workflow/delegations', visible: true,  order: 5 },
+  { id: 'my_projects',  label: 'My Projects',  icon: 'fa-folder-open',     path: '/my-projects',          visible: false, order: 6 },
 ];
 
 interface ThemeSettings {
@@ -85,6 +88,7 @@ const DEFAULT_HERO = '/Human AI.png';
 export default function LandingPage() {
   const { employee }                      = useAuth();
   const navigate                          = useNavigate();
+  const { can }                           = usePermissions();
   const [theme, setTheme]                 = useState<ThemeSettings>({ landing_hero_image: null, landing_graphic_image: null, suggested_tasks: null, most_used_apps: null });
   const [suggestedTasks, setSuggestedTasks] = useState<SuggestedTask[]>(DEFAULT_SUGGESTED_TASKS);
   const [mostUsedApps,   setMostUsedApps]   = useState<MostUsedApp[]>(DEFAULT_MOST_USED_APPS);
@@ -118,6 +122,7 @@ export default function LandingPage() {
             setMostUsedApps(
               parsed
                 .filter(a => a.visible)
+                .filter(a => a.id !== 'my_projects' || can('projects_mgmt.view'))
                 .sort((a, b) => a.order - b.order)
                 .map(a => ({ ...a, path: appPathFixes[a.path] ?? a.path }))
             );
@@ -131,6 +136,7 @@ export default function LandingPage() {
             setSuggestedTasks(
               parsed
                 .filter(t => t.visible)
+                .filter(t => t.id !== 'my_projects' || can('projects_mgmt.view'))
                 .sort((a, b) => a.order - b.order)
                 .map(t => ({ ...t, path: pathFixes[t.path] ?? t.path }))
             );

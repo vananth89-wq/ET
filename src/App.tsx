@@ -295,7 +295,7 @@ function SidebarProfileCard() {
 function UserMenu() {
   const navigate = useNavigate();
   const { signOut, user }   = useAuth();
-  const { canAny }          = usePermissions();
+  const { canAny, can }     = usePermissions();
   const [open,    setOpen]  = useState(false);
   const menuRef             = useRef<HTMLDivElement>(null);
 
@@ -391,8 +391,16 @@ function UserMenu() {
             {/* My Profile — always visible, navigates to self-service view (no param = self mode) */}
             <button type="button" className="user-menu-item"
               onClick={() => { setOpen(false); navigate('/profile'); }}>
-              <i className="fa-solid fa-circle-user" /> My Profile.
+              <i className="fa-solid fa-circle-user" /> My Profile
             </button>
+
+            {/* My Projects — only for users with project management access */}
+            {can('projects_mgmt.view') && (
+              <button type="button" className="user-menu-item"
+                onClick={() => { setOpen(false); navigate('/my-projects'); }}>
+                <i className="fa-solid fa-folder-open" /> My Projects
+              </button>
+            )}
 
             {/* Admin Center — only for users with admin access */}
             {canAccessAdmin && (
@@ -603,7 +611,7 @@ function Sidebar() {
           <>
             <div className="sidebar-section-label">Employee</div>
             <NavLink to="/profile"  className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
-              <i className="fa-solid fa-id-badge" /> My Profile.
+              <i className="fa-solid fa-id-badge" /> My Profile
             </NavLink>
             <NavLink to="/org-chart" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
               <i className="fa-solid fa-diagram-project" /> Org Chart
@@ -614,6 +622,11 @@ function Sidebar() {
             <NavLink to="/my-timesheet" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
               <i className="fa-solid fa-clock" /> My Timesheet
             </NavLink>
+            {can('projects_mgmt.view') && (
+              <NavLink to="/my-projects" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
+                <i className="fa-solid fa-folder-open" /> My Projects
+              </NavLink>
+            )}
             {can('wf_my_requests.view') && (
               <NavLink to="/workflow/my-requests" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
                 <i className="fa-solid fa-list-check" /> My Requests

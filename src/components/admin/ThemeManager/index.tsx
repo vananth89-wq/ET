@@ -156,6 +156,7 @@ const DEFAULT_SUGGESTED_TASKS: SuggestedTask[] = [
   { id: 'inbox',              label: 'Inbox',                 path: '/workflow/inbox',       visible: false, order: 6 },
   { id: 'delegations',        label: 'Delegations',           path: '/workflow/delegations', visible: false, order: 7 },
   { id: 'timesheet',          label: 'My Timesheet',          path: '/my-timesheet',         visible: false, order: 8 },
+  { id: 'my_projects',        label: 'My Projects',           path: '/my-projects',          visible: false, order: 9 },
 ];
 
 interface MostUsedApp {
@@ -175,6 +176,7 @@ const DEFAULT_MOST_USED_APPS: MostUsedApp[] = [
   { id: 'my_profile',  label: 'My Profile',  icon: 'fa-user',            path: '/profile',              visible: false, order: 5 },
   { id: 'expense',     label: 'My Expenses', icon: 'fa-receipt',         path: '/expense',              visible: false, order: 6 },
   { id: 'timesheet',   label: 'My Timesheet',icon: 'fa-clock',           path: '/my-timesheet',         visible: false, order: 7 },
+  { id: 'my_projects', label: 'My Projects', icon: 'fa-folder-open',     path: '/my-projects',          visible: false, order: 8 },
 ];
 
 const DEFAULT_LAYOUT: LayoutItem[] = [
