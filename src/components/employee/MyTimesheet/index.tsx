@@ -1885,11 +1885,14 @@ export default function MyTimesheet() {
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
+    // If collapsing the entry that is currently being edited, close the form too
+    if (editingEntry?.id === id) cancelForm();
   }
 
   function toggleAllEntries(ents: TimesheetEntry[]) {
-    const anyOpen = ents.some(e => expandedEntries.has(e.id));
-    setExpandedEntries(anyOpen ? new Set() : new Set(ents.map(e => e.id)));
+    const anyOpen = ents.some(e => expandedEntries.has(e.id) || editingEntry?.id === e.id);
+    if (anyOpen) { cancelForm(); setExpandedEntries(new Set()); }
+    else { setExpandedEntries(new Set(ents.map(e => e.id))); }
   }
 
   // ── Submit / withdraw ────────────────────────────────────────────────
@@ -3011,8 +3014,8 @@ export default function MyTimesheet() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
               {dayEntries.map(ent => {
                 const badge    = getEntryBadge(ent);
-                const isOpen   = expandedEntries.has(ent.id);
                 const isEditing = editingEntry?.id === ent.id;
+                const isOpen   = expandedEntries.has(ent.id) || isEditing;
                 // Same rule as the exported report, computed the same way, so
                 // the screen and the PDF cannot mark different rows.
                 const chg = status === 'approved'
