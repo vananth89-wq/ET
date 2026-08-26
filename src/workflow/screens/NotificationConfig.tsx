@@ -27,7 +27,7 @@ const EMPTY_DRAFT = { code: '', title_tmpl: '', body_tmpl: '', category: 'genera
 
 // ─── Category helpers ─────────────────────────────────────────────────────────
 
-type Category = 'task' | 'sla' | 'approval' | 'returned' | 'admin' | 'general';
+type Category = 'task' | 'sla' | 'approval' | 'returned' | 'admin' | 'general' | 'project';
 
 interface CatMeta {
   label:   string;
@@ -46,13 +46,22 @@ const CAT: Record<Category, CatMeta> = {
   returned: { label: 'Returned', color: '#B91C1C', bg: '#FEF2F2', border: '#FECACA', pillBg: '#FEE2E2', pillTxt: '#991B1B', icon: 'fa-rotate-left'  },
   admin:    { label: 'Admin',    color: '#6D28D9', bg: '#F5F3FF', border: '#DDD6FE', pillBg: '#EDE9FE', pillTxt: '#5B21B6', icon: 'fa-shield-halved'},
   general:  { label: 'General',  color: '#4B5563', bg: '#F9FAFB', border: '#E5E7EB', pillBg: '#F3F4F6', pillTxt: '#374151', icon: 'fa-envelope'     },
+  project:  { label: 'Project',  color: '#0F766E', bg: '#F0FDFA', border: '#99F6E4', pillBg: '#CCFBF1', pillTxt: '#115E59', icon: 'fa-diagram-project' },
 };
+
+/* MIG 796 added 'project' to the category CHECK, and this file is where that
+   has to be mirrored. Until it was, a template stored with a category this map
+   did not know rendered `CAT[undefined]` and the list threw on meta.color —
+   a white screen, not a missing tab. catOf() below now refuses to return a
+   category CAT cannot draw, so the next category added to the database
+   degrades to General instead of taking the page down. */
 
 // MIG 756 made category a stored column. This function survives for exactly two
 // jobs: suggesting a category while a NEW template's code is being typed, and
 // standing in for a row that predates the column. It is no longer what files an
 // existing template — see catOf().
 function getCategory(code: string): Category {
+  if (code.startsWith('project.'))                                                    return 'project';
   if (code.includes('sla'))                                                           return 'sla';
   if (code.includes('task') || code.includes('reassign'))                             return 'task';
   if (code.includes('force') || code.includes('admin') || code.includes('escalat'))  return 'admin';
@@ -63,12 +72,20 @@ function getCategory(code: string): Category {
   return 'general';
 }
 
-const ALL_CATEGORIES: Array<Category | 'all'> = ['all', 'task', 'sla', 'approval', 'returned', 'admin', 'general'];
+const ALL_CATEGORIES: Array<Category | 'all'> =
+  ['all', 'task', 'sla', 'approval', 'returned', 'admin', 'project', 'general'];
 
 /** The category a template files under. The stored column wins; the substring
- *  rule is only a stand-in for a row loaded before MIG 756 landed. */
+ *  rule is only a stand-in for a row loaded before MIG 756 landed.
+ *
+ *  The Object.hasOwn guard is the important part: the database CHECK and this
+ *  file are two lists that must agree, and nothing enforces that they do. A
+ *  stored value CAT cannot draw is filed under General rather than allowed to
+ *  reach `CAT[…].color` as undefined. */
 function catOf(t: { code: string; category?: Category | null }): Category {
-  return t.category ?? getCategory(t.code);
+  const stored = t.category;
+  if (stored && Object.hasOwn(CAT, stored)) return stored;
+  return stored ? 'general' : getCategory(t.code);
 }
 
 function fmtDate(iso: string) {
@@ -117,6 +134,23 @@ const MODULE_TOKENS: Record<string, TokenDef[]> = {
     { token: '{{name}}',        description: 'Name of the employee being hired' },
     { token: '{{employee_id}}', description: 'Employee code, e.g. E001' },
   ],
+  /* MIG 796. These do NOT come from workflow_instances.metadata — project
+     events have no workflow instance. notify_project_member_change() builds
+     the payload itself and calls render_notification_template() directly, so
+     this list is the whole vocabulary and every entry is guaranteed present. */
+  project: [
+    { token: '{{project}}',       description: 'Project name' },
+    { token: '{{project_end}}',   description: 'When the project ends — e.g. 31 Dec 2026' },
+    { token: '{{employee}}',      description: 'The person being staffed' },
+    { token: '{{employee_code}}', description: 'Their employee code' },
+    { token: '{{role}}',          description: 'Their role on the project, or “Not set”' },
+    { token: '{{start_date}}',    description: 'Assignment start — e.g. 01 Feb 2026' },
+    { token: '{{end_date}}',      description: 'Assignment end, or “Open-ended”' },
+    { token: '{{percentage}}',    description: 'Allocation, already carrying the % sign' },
+    { token: '{{actor}}',         description: 'Who made the change' },
+    { token: '{{detail}}',        description: 'The whole labelled block — every field above, one per line',
+      warn: 'Pre-formatted. You can move it or drop it, but a template cannot change what is inside it.' },
+  ],
   job_relationship: [
     { token: '{{relationship_label}}', description: 'e.g. Matrix Manager' },
     { token: '{{employee_name}}',      description: 'The employee the relationship is about' },
@@ -151,7 +185,11 @@ function tokensFor(code: string): { always: TokenDef[]; module: TokenDef[]; even
   const mod   = moduleOf(code);
   const event = code.slice(mod.length + 1);
   return {
-    always:    TOKENS_ALWAYS,
+    // MIG 796: project templates are rendered by render_notification_template()
+    // rather than by the workflow delivery trigger, so the workflow-wide
+    // vocabulary does not reach them — {{step_name}} and {{module_label}} would
+    // be advertised and then stripped. Their module list below is complete.
+    always:    mod === 'project' ? [] : TOKENS_ALWAYS,
     // A wf.* template is used by EVERY module, so no module metadata is
     // guaranteed: wf.completed reaching a hire instance has {{name}}, reaching
     // a timesheet instance has {{employee_name}}. Offering either would be a
@@ -319,7 +357,7 @@ function TemplateEditor({
         <div style={{ marginBottom: 15 }}>
           <label style={labelSt}>Category</label>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {(['task','sla','approval','returned','admin','general'] as Category[]).map(c => {
+            {(['task','sla','approval','returned','admin','project','general'] as Category[]).map(c => {
               const m  = CAT[c];
               const on = cat === c;
               return (
@@ -686,7 +724,7 @@ export default function NotificationConfig() {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {/* Category summary chips */}
-          {(['task','sla','approval','returned','admin'] as Category[]).map(cat => {
+          {(['task','sla','approval','returned','admin','project'] as Category[]).map(cat => {
             const m = CAT[cat];
             const n = counts[cat] ?? 0;
             if (!n) return null;
