@@ -3065,7 +3065,7 @@ export default function MyTimesheet() {
                             {editable && !ent.is_system_generated && (
                               <>
                                 <button
-                                  onClick={() => isEditing ? cancelForm() : openEdit(ent)}
+                                  onClick={() => isEditing ? (cancelForm(), setExpandedEntries(prev => new Set([...prev, ent.id]))) : openEdit(ent)}
                                   title={isEditing ? 'View' : 'Edit'}
                                   style={{ width: 22, height: 22, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0,
                                     border: isEditing ? '1px solid #BFDBFE' : '1px solid #E5E7EB',
