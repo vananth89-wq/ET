@@ -262,13 +262,25 @@ export default function ThemeManager() {
         if (data.suggested_tasks) {
           try {
             const parsed: SuggestedTask[] = JSON.parse(data.suggested_tasks);
-            setSuggestedTasks(parsed.sort((a, b) => a.order - b.order));
+            // Merge: add any new default entries not yet in the saved list
+            const existingIds = new Set(parsed.map(t => t.id));
+            const merged = [
+              ...parsed,
+              ...DEFAULT_SUGGESTED_TASKS.filter(t => !existingIds.has(t.id)),
+            ];
+            setSuggestedTasks(merged.sort((a, b) => a.order - b.order));
           } catch { /* use defaults */ }
         }
         if (data.most_used_apps) {
           try {
             const parsed: MostUsedApp[] = JSON.parse(data.most_used_apps);
-            setMostUsedApps(parsed.sort((a, b) => a.order - b.order));
+            // Merge: add any new default entries not yet in the saved list
+            const existingIds = new Set(parsed.map(a => a.id));
+            const merged = [
+              ...parsed,
+              ...DEFAULT_MOST_USED_APPS.filter(a => !existingIds.has(a.id)),
+            ];
+            setMostUsedApps(merged.sort((a, b) => a.order - b.order));
           } catch { /* use defaults */ }
         }
         if (data.profile_sections) {
