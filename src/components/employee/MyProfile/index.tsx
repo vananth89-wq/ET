@@ -2301,7 +2301,7 @@ export default function MyProfile() {
             </section>
 
             {/* ── Contact ──────────────────────────────────────────── */}
-            <section id="mps-contact" ref={el => { sectionRefs.current.contact = el; }} className="mp-section">
+            {can('contact_info.view') && <section id="mps-contact" ref={el => { sectionRefs.current.contact = el; }} className="mp-section">
               <SectionHeader
                 icon="fa-phone" text="Contact Information"
                 section="contact"
@@ -2393,7 +2393,7 @@ export default function MyProfile() {
                   )}
                 </>
               )}
-            </section>
+            </section>}
 
             {/* ── Employment ───────────────────────────────────────── */}
             <section id="mps-employment" ref={el => { sectionRefs.current.employment = el; }} className="mp-section">
@@ -2936,7 +2936,7 @@ export default function MyProfile() {
             )}
 
             {/* ── Address ──────────────────────────────────────────── */}
-            <section id="mps-address" ref={el => { sectionRefs.current.address = el; }} className="mp-section">
+            {can('address.view') && <section id="mps-address" ref={el => { sectionRefs.current.address = el; }} className="mp-section">
               <SectionHeader
                 icon="fa-location-dot" text="Address Information"
                 section="address"
@@ -3003,10 +3003,10 @@ export default function MyProfile() {
                   )}
                 </>
               )}
-            </section>
+            </section>}
 
             {/* ── Passport ─────────────────────────────────────────── */}
-            <section id="mps-passport" ref={el => { sectionRefs.current.passport = el; }} className="mp-section">
+            {can('passport.view') && <section id="mps-passport" ref={el => { sectionRefs.current.passport = el; }} className="mp-section">
               <SectionHeader
                 icon="fa-passport" text="Passport Information"
                 section="passport"
@@ -3123,10 +3123,10 @@ export default function MyProfile() {
                   </>
                 )
               )}
-            </section>
+            </section>}
 
             {/* ── Identification (read-only) ───────────────────────── */}
-            <section id="mps-identification" ref={el => { sectionRefs.current.identification = el; }} className="mp-section">
+            {can('identity_documents.view') && <section id="mps-identification" ref={el => { sectionRefs.current.identification = el; }} className="mp-section">
               <SectionTitle icon="fa-id-card-clip" text="Identification Details" pending={pendingCounts['profile_identification'] ?? 0} onViewProgress={() => openParticipants('profile_identification', 'Identification Details')} />
               {identifications.length === 0 ? (
                 <div className="ev-empty-state">
@@ -3177,10 +3177,10 @@ export default function MyProfile() {
                   </tbody>
                 </table>
               )}
-            </section>
+            </section>}
 
             {/* ── Emergency Contact ────────────────────────────────── */}
-            <section id="mps-emergency" ref={el => { sectionRefs.current.emergency = el; }} className="mp-section">
+            {can('emergency_contacts.view') && <section id="mps-emergency" ref={el => { sectionRefs.current.emergency = el; }} className="mp-section">
               <SectionHeader
                 icon="fa-phone-volume" text="Emergency Contact Information"
                 section="emergency"
@@ -3252,7 +3252,7 @@ export default function MyProfile() {
                   </>
                 )
               )}
-            </section>
+            </section>}
 
             {/* ── Bank Accounts ─────────────────────────────── */}
             {can('bank_accounts.view') && (
