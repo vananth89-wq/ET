@@ -3065,7 +3065,15 @@ export default function MyTimesheet() {
                             {editable && !ent.is_system_generated && (
                               <>
                                 <button
-                                  onClick={() => isEditing ? (cancelForm(), setExpandedEntries(prev => new Set([...prev, ent.id]))) : openEdit(ent)}
+                                  onClick={() => {
+                                    if (isEditing) {
+                                      if (!editUnchanged && !window.confirm('You have unsaved changes. Discard them?')) return;
+                                      cancelForm();
+                                      setExpandedEntries(prev => new Set([...prev, ent.id]));
+                                    } else {
+                                      openEdit(ent);
+                                    }
+                                  }}
                                   title={isEditing ? 'View' : 'Edit'}
                                   style={{ width: 22, height: 22, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0,
                                     border: isEditing ? '1px solid #BFDBFE' : '1px solid #E5E7EB',
