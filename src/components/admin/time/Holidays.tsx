@@ -112,7 +112,10 @@ export default function Holidays() {
     const { error: err } = await supabase.from('time_holidays').delete().eq('id', id);
     setDeleting(false);
     if (err) {
-      setInfoModal({ open: true, title: 'Error', message: err.message });
+      const message = err.code === '23503'
+        ? 'This holiday is assigned to one or more holiday calendars. Please remove it from all calendars before deleting.'
+        : err.message;
+      setInfoModal({ open: true, title: 'Cannot Delete Holiday', message });
       return;
     }
     setDeleteId(null);
