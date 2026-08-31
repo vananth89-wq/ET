@@ -2,7 +2,7 @@
 {
   "name": "Timesheet Test Plan",
   "schemaVersion": 1,
-  "description": "Prowess timesheet test plan, migrations 726–794. 289 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, and assignment notifications carrying the full detail block — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
+  "description": "Prowess timesheet test plan, migrations 726–800. 324 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
   "mcpTools": [],
   "mcpServerNames": []
 }
@@ -11,7 +11,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Timesheet — Test Plan for migrations 726 to 794</title>
+<title>Timesheet — Test Plan for migrations 726 to 800</title>
 <style>
   :root{
     --ink:#0F172A; --ink2:#334155; --ink3:#64748B; --ink4:#94A3B8;
@@ -96,14 +96,14 @@
 <header class="top">
   <div class="wrap">
     <p class="eyebrow">Prowess · Time Management</p>
-    <h1>Test plan — migrations 726 to 794</h1>
+    <h1>Test plan — migrations 726 to 800</h1>
     <p class="sub">Multiple entries per day, day-occupancy rules, per-activity hours, advance-dating —
        and, from migration 730, an edit window that actually binds and a submission that goes
        somewhere. Every case says what to do, what should happen, and which rule it proves — so a
        failure tells you where to look rather than just that something is wrong.</p>
     <div class="meta">
       <span><b>Against</b> Dev (prowess-dev)</span>
-      <span><b>Migrations</b> 726 – 731 · <b>732 – 738</b> · <b>742 · 743 · 745</b> · <b>748 – 757</b> · <b>761 – 776</b> · <b>780 – 794</b></span>
+      <span><b>Migrations</b> 726 – 731 · <b>732 – 738</b> · <b>742 · 743 · 745</b> · <b>748 – 757</b> · <b>761 – 776</b> · <b>780 – 798</b></span>
       <span><b>Written</b> 9 Aug 2026</span>
       <span><b>Sections I–K added</b> 11 Aug 2026</span>
       <span><b>Sections N–P added</b> 12 Aug 2026</span>
@@ -112,7 +112,8 @@
       <span><b>X–Y added</b> 20 Aug 2026</span>
       <span><b>Z added</b> 25 Aug 2026</span>
       <span><b>AA–AG added</b> 25 Aug 2026</span>
-      <span><b>AH–AO added</b> 26 Aug 2026</span>
+      <span><b>AH–AN added</b> 26 Aug 2026</span>
+      <span><b>AO–AP added</b> 26 Aug 2026</span>
     </div>
   </div>
 </header>
@@ -161,7 +162,10 @@
     <a class="toc" href="#al">AL · Two projects, one screen</a>
     <a class="toc" href="#am">AM · Admin staffs any project (791)</a>
     <a class="toc" href="#an">AN · The notification (789 · 793 · 794)</a>
-    <a class="toc" href="#ao">AO · Known and deliberate (780–794)</a>
+    <a class="toc" href="#ao">AO · Notification wording (796)</a>
+    <a class="toc" href="#ap">AP · Lead changes (797 &middot; 799)</a>
+    <a class="toc" href="#aqb">AQ · Billability (800)</a>
+    <a class="toc" href="#ar">AR · Known and deliberate (780&ndash;800)</a>
   </div>
 
   <div class="bar">
@@ -4222,8 +4226,408 @@ order  by created_at desc limit 6;</div>
 </section>
 
 <section id="ao">
-  <h2><span class="k">AO</span> Known and deliberate (780–794)</h2>
-  <p class="lede">Six behaviours read as bugs without the context. Record them as observations, not failures.</p>
+  <h2><span class="k">AO</span> The wording belongs to the administrator (796)</h2>
+  <p class="lede">Project notifications read their subject and body from <b>Admin → Workflow → Notifications</b>, under a new <b>Project</b> category. Editing one takes effect on the next message, with no deploy — and deleting one can never switch a notification off.</p>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AO1</span>
+      <span class="title">The screen still opens, and has a Project tab</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Open <b>Admin → Workflow → Notifications</b> and hard-reload. Read the filter chips.</p>
+      <div class="exp"><b>Expect:</b> the page renders, the total is <b>45</b>, and there is a teal <b>Project 8</b> chip. Clicking it lists the eight <code>project.member_*</code> templates.</div>
+      <div class="warn">This is a <b>load-bearing first case</b>. Before the front-end half of 796, a template whose category the screen did not know rendered <code>CAT[undefined]</code> and the list threw on <code>meta.color</code> — a white screen, not a missing tab. If the page is blank, the migration deployed without the bundle.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AO2</span>
+      <span class="title">The editor offers only tokens that resolve</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Open <code>project.member_added_self</code> and read the token list.</p>
+      <div class="exp"><b>Expect:</b> ten tokens — project, project ends, employee, employee code, role, start date, end date, percentage, actor, detail — and <b>no</b> <code>{{step_name}}</code> or <code>{{module_label}}</code>. <code>{{detail}}</code> is flagged as pre-formatted.</div>
+      <div class="why">Those two are supplied by the workflow delivery trigger, which project events do not go through. Offering them would hand an admin tokens that get silently stripped.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AO3</span>
+      <span class="title">An edit reaches a real inbox</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <ol><li>Change <code>project.member_added_self</code>&rsquo;s subject to something you will recognise — <b>&ldquo;Welcome aboard {{project}}&rdquo;</b>.</li><li>Save.</li><li>Add somebody to a project.</li><li>Check <i>their</i> bell <b>and their email</b>.</li></ol>
+      <div class="exp"><b>Expect:</b> both carry the new subject, with <code>{{project}}</code> replaced by the project name. No deploy happened in between.</div>
+      <div class="warn">The <b>email</b> half is the point. Migration 764 exists because every notification email failed silently for weeks while the bell entries looked perfect. A bell-only pass proves half the path.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AO4</span>
+      <span class="title">Editing one voice leaves the other alone</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>With AO3&rsquo;s edit still in place, look at what the person&rsquo;s <b>line manager</b> received for the same event.</p>
+      <div class="exp"><b>Expect:</b> the original third-person wording — <b>&ldquo;&lt;name&gt; has joined &lt;project&gt;&rdquo;</b>. <code>_self</code> and <code>_other</code> are separate templates.</div>
+      <div class="why">Two voices, two rows. An admin rewording the message to the person must not silently reword the manager&rsquo;s copy.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AO5</span>
+      <span class="title">A token the admin invents is stripped, not shipped</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Set a body to <b>&ldquo;Hello {{approver_name}}. You are on {{project}}.&rdquo;</b> — <code>approver_name</code> is a real workflow token that project events never carry. Save and trigger the event.</p>
+      <div class="exp"><b>Expect:</b> the message reads <b>&ldquo;Hello . You are on AMPTJ.&rdquo;</b> — the placeholder is gone. No literal <code>{{braces}}</code> anywhere.</div>
+      <div class="why">The three workflow renderers ship unresolved braces to real inboxes. This one does not, and that difference is deliberate.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AO6</span>
+      <span class="title">An emptied subject falls back rather than sending blank</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Set a template&rsquo;s subject to a token that does not exist — just <code>{{nothing}}</code> — save, and trigger the event.</p>
+      <div class="exp"><b>Expect:</b> the message arrives with the <i>built-in</i> subject, not an empty one.</div>
+      <div class="why">An empty rendered title is treated as no template at all. A blank subject in somebody&rsquo;s inbox is worse than ignoring the edit.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AO7</span>
+      <span class="title">Deleting a template changes the words, never the message</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Delete <code>project.member_added_self</code> outright. Add somebody to a project. Then re-create it by re-running the seed, or leave it deleted and note it.</p>
+      <div class="exp"><b>Expect:</b> the person is still notified, in the wording that shipped with migration 793 — <b>&ldquo;You are now on &lt;project&gt;&rdquo;</b>.</div>
+      <div class="why">Deliberately unlike the workflow renderer, which skips with a log notice when a code is missing. There, deleting a row quietly disables a notification; here it cannot.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AO8</span>
+      <span class="title">The detail block cannot be reformatted, only moved</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Move <code>{{detail}}</code> to the top of a body, then remove it entirely. Trigger the event both times.</p>
+      <div class="exp"><b>Expect:</b> it moves as one whole block, and removing it removes every labelled line at once. There is no way to reorder or reformat the lines inside it from the screen.</div>
+      <div class="why">A template can only substitute — no formatting, no conditionals, no defaults. The dates, the percentage and the &ldquo;Open-ended&rdquo; fallback are resolved before they reach it.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AO9</span>
+      <span class="title">The workflow templates were not disturbed</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Filter by <b>Task</b>, <b>Approval</b> and <b>Returned</b>. Submit a timesheet and confirm the approver is notified as before.</p>
+      <div class="exp"><b>Expect:</b> the counts and wording are unchanged, and timesheet approval notifications behave exactly as they did.</div>
+      <div class="why">796 widened a CHECK constraint on a shared table. Widening is additive, but the shared table is the reason to look.</div>
+    </div>
+  </div>
+</section>
+
+<section id="ap">
+  <h2><span class="k">AP</span> A change of lead tells the people it affects (797 &middot; 799)</h2>
+  <p class="lede">Naming somebody Reporting Manager grants a persona; replacing them revokes one. Both used to happen in silence. A lead change is also a visibility change for the team — somebody new can see their hours.</p>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AP1</span>
+      <span class="title">The fixture</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>You need: a project with a lead (<b>Gita</b>), at least two current members, one <i>past</i> member, and a second person to hand it to (<b>Hari</b>). Gita and Hari should each have a line manager, and every one of them needs a linked login.</p>
+      <div class="exp"><b>Expect:</b> nothing yet — this is setup.</div>
+      <div class="warn">A missing login means silence that looks exactly like a bug in the rule. Check all six before starting.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AP2</span>
+      <span class="title">The handover reaches five people</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>As an <b>administrator</b> — not as either lead — change the project&rsquo;s Reporting Manager from Gita to Hari. Then check six inboxes.</p>
+      <div class="exp"><b>Expect:</b> Hari, Hari&rsquo;s line manager, Gita, Gita&rsquo;s line manager and every <i>current</i> member each get exactly one message. The <b>past member gets nothing</b>.</div>
+      <div class="why">The outgoing lead is the one people forget. Their screen empties and their scope disappears; without this they find out by noticing.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AP3</span>
+      <span class="title">The outgoing lead is told what they lost</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Read Gita&rsquo;s message.</p>
+      <div class="exp"><b>Expect:</b> <b>&ldquo;You no longer lead &lt;project&gt;&rdquo;</b>, naming Hari as the new lead and saying plainly that the project has left My Projects and she no longer sees its team or hours.</div>
+      <div class="why">A silent revocation of access is the thing people report as a bug. Saying it is the fix.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AP4</span>
+      <span class="title">The incoming lead gets the project, not just the news</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Read Hari&rsquo;s message, then follow its link.</p>
+      <div class="exp"><b>Expect:</b> the project&rsquo;s dates, its <b>current team size</b>, its budget and <b>who led it before</b> — then a link that lands on My Projects with the project there.</div>
+      <div class="why">The message answers &ldquo;what have I just been given&rdquo;, which is the question somebody actually has.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AP5</span>
+      <span class="title">The team is told what changed for them, and what did not</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Read a current member&rsquo;s message.</p>
+      <div class="exp"><b>Expect:</b> that the project is now led by Hari, that he can see the team and the hours booked to it, and that <b>their own assignment is unchanged</b>. No detail block — nothing about their percentage or dates, because none of it moved.</div>
+      <div class="why">They are told because somebody new can see their hours. They are not told anything else, because nothing else about them changed.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AP6</span>
+      <span class="title">Nobody is told about their own action</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Sign in <b>as Hari</b> and hand the project back to Gita yourself.</p>
+      <div class="exp"><b>Expect:</b> Hari gets nothing. Gita is told she is now the lead — and <b>Hari&rsquo;s line manager is still told</b> that he no longer leads it.</div>
+      <div class="warn">That last clause is the case that caught a real defect: an early version suppressed the whole outgoing branch when the outgoing lead was the actor, silencing their manager along with them. A pass here needs the manager&rsquo;s copy to have arrived.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AP7</span>
+      <span class="title">Clearing the lead reads as a true sentence</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Clear the Reporting Manager field entirely and save.</p>
+      <div class="exp"><b>Expect:</b> the outgoing lead is told the manager <b>&ldquo;is now nobody&rdquo;</b>, and the team is told the project <b>&ldquo;is now led by nobody&rdquo;</b>. Awkward-free, and no blanks where a name should be.</div>
+      <div class="why">A template cannot express a conditional, so the token resolves to a word rather than to nothing.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AP8</span>
+      <span class="title">An edit that does not change the lead says nothing</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Rename the project, change its budget, change its end date. Then re-save without touching the Reporting Manager at all.</p>
+      <div class="exp"><b>Expect:</b> no notifications from any of it.</div>
+      <div class="why">The trigger fires only on a genuine transition. This also stops a double-send when somebody clears the field and re-sets it across two saves.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AP9</span>
+      <span class="title">A closed project announces nothing</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Untick <b>Active</b>, then change the Reporting Manager on the closed project.</p>
+      <div class="exp"><b>Expect:</b> silence. An inactive project grants nothing, so there is nothing to announce.</div>
+      <div class="warn"><b>Known gap, deliberate:</b> deactivating a project <i>also</i> revokes the lead&rsquo;s role, and that is still silent. It is a project-closed event that deserves its own message to the whole team, not a lead notification as a side effect.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AP10</span>
+      <span class="title">A failed notification cannot roll back the project edit</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Hard to stage from the UI — instead confirm the guarantee: change a lead where one of the five recipients has <b>no login profile</b>, and check the project afterwards.</p>
+      <div class="exp"><b>Expect:</b> the manager change is saved, and everyone who <i>could</i> be reached was. A recipient who cannot be notified never costs somebody else their edit.</div>
+      <div class="why">This notifier runs inside the caller&rsquo;s transaction, unlike the assignment ones. Without containment, a notification error would undo the save. Proven in the sandbox by making every insert fail and confirming the change still committed.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AP11</span>
+      <span class="title">Lead wording is editable too</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>In Manage Notifications, filter by <b>Project</b> and find the five <code>project.lead_*</code> templates. Edit one, and trigger the event.</p>
+      <div class="exp"><b>Expect:</b> thirteen project templates in total after 797, and the edited wording arrives with no deploy. <code>{{team_size}}</code> and <code>{{budget}}</code> resolve on these and not on the assignment ones.</div>
+      <div class="why">Built on the template layer from the start rather than hardcoded and retrofitted.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AP12</span>
+      <span class="title">Assigning yourself as lead tells you so</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>As an <b>administrator who is also an employee</b>, set yourself as the project&rsquo;s Reporting Manager. Check your own inbox and bell.</p>
+      <div class="exp"><b>Expect:</b> you receive the incoming-lead message, exactly as any other new lead would.</div>
+      <div class="why">797 suppressed the actor on every branch, so doing this to yourself produced silence. 793 had always sent the lead their own copy; the two rules disagreed and 799 settles it — a message <i>about you</i> is sent to you even when you caused it.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AP13</span>
+      <span class="title">You are still not told about yourself twice</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Same handover as AP2, but perform it as <b>Gita</b> (the outgoing lead) rather than as an administrator.</p>
+      <div class="exp"><b>Expect:</b> Gita gets her own &ldquo;you no longer lead&rdquo; message and <b>nothing else</b>. She does not also receive the incoming-lead copy, the team broadcast, or a line manager&rsquo;s copy.</div>
+      <div class="why">The suppression now sits on the four about-somebody-else branches only. Removing it wholesale would have made the actor the noisiest recipient of their own action.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AP14</span>
+      <span class="title">Each member&rsquo;s line manager hears about it too</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Give two current members <i>different</i> line managers. Hand the project over, then check both managers&rsquo; inboxes.</p>
+      <div class="exp"><b>Expect:</b> each line manager gets one message naming <b>their own</b> report and the project, on the <code>project.lead_team_manager</code> template.</div>
+      <div class="why">A member&rsquo;s manager owns their time. A change to who directs that time is their business, and 797 told nobody outside the project.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AP15</span>
+      <span class="title">One manager, two reports on the project</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Now put both members under the <b>same</b> line manager and repeat.</p>
+      <div class="exp"><b>Expect:</b> that manager receives <b>two</b> messages, one per report, each naming the right person.</div>
+      <div class="why">The payload carries the employee, so the loop is per member and not per manager. Two reports is two facts, not one.</div>
+      <div class="warn">If you see one message naming only the second member, the payload is being built outside the loop.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AP16</span>
+      <span class="title">An edited team message is not overruled by the upgrade</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Before deploying 799, edit <code>project.lead_team_changed</code> in Manage Notifications. Deploy, then trigger a lead change.</p>
+      <div class="exp"><b>Expect:</b> your edited wording survives. 799 rewords that template only where its body still matches exactly what 797 shipped.</div>
+      <div class="why">A migration that rewrites wording an administrator has already changed takes away the point of making it editable.</div>
+    </div>
+  </div>
+</section>
+<section id="aqb">
+  <h2><span class="k">AQ</span> Billability, and the numbers it must not move (800)</h2>
+  <p class="lede">Non-project hours were never missing from Utilisation &mdash; they had no <i>classification</i>. 800 gives time types the billable flag projects already had. The whole risk of this migration is that it changes a number it was supposed to leave alone.</p>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AQ1</span>
+      <span class="title">The fixture</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>You need, inside one period: a project of type <b>Billable</b>, one <b>Internal</b>, one with <b>no type set</b>, an attendance time type left non-billable (<b>Training</b>), a second attendance type you will mark billable, and some approved <b>Annual Leave</b>. Record hours against every one of them. Note the Recorded, Planned, Recording rate, Entries, Employees and Projects figures <i>before</i> the deploy.</p>
+      <div class="exp"><b>Expect:</b> nothing yet &mdash; but you cannot check the central claim of this migration without the before figures.</div>
+      <div class="warn">Write the six numbers down. AQ8 is unprovable without them.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AQ2</span>
+      <span class="title">The flag appears only where it means something</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Open <b>Time Types</b> and add a type. Switch Category between Attendance and Absence.</p>
+      <div class="exp"><b>Expect:</b> the <b>Billable</b> checkbox is offered for Attendance and disappears for Absence. The list shows a Billable column under Attendance only.</div>
+      <div class="why">Leave is not unbillable work; it is not work. Offering the choice would invite an answer to a question that does not apply.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AQ3</span>
+      <span class="title">Absence cannot be made billable by the back door</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Tick <b>Billable</b> on an attendance type, then &mdash; without saving &mdash; switch Category to Absence and save.</p>
+      <div class="exp"><b>Expect:</b> the type saves as <b>not billable</b>. Reopen it to confirm.</div>
+      <div class="why">The screen sends false and <code>upsert_time_type</code> forces false independently. Either alone would be enough; both is the point.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AQ4</span>
+      <span class="title">The four buckets account for every recorded minute</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Open <b>Utilisation</b> for the fixture period with no filters. Read the Billable share tile&rsquo;s caption, then compare against Recorded.</p>
+      <div class="exp"><b>Expect:</b> billable + non-billable + absence + unclassified equals <b>Recorded</b> exactly. No minute is in two buckets and none is in none.</div>
+      <div class="why">A split that does not reconcile to the total it splits is worse than no split, because it will be believed.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AQ5</span>
+      <span class="title">Leave does not drag the share down</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Add a week of Annual Leave for one employee and reload.</p>
+      <div class="exp"><b>Expect:</b> Recorded rises, <b>Billable share does not fall</b>. The caption states the absence hours excluded from the denominator.</div>
+      <div class="why">The denominator is worked time. If leave counted, the billable share would drop every holiday season and mean nothing.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AQ6</span>
+      <span class="title">An untyped project is unclassified, never billable</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Look at the hours booked to the project with no type set.</p>
+      <div class="exp"><b>Expect:</b> they land in <b>unclassified</b>, are counted as not billable, and the caption names the hours and says so.</div>
+      <div class="why">A project silently defaulted to billable turns up in the billable share and nobody can see why it is there.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AQ7</span>
+      <span class="title">The time type wins over the project</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Record hours on a time type that <b>requires a project</b> (mig 715), naming the Billable project, with the time type left non-billable.</p>
+      <div class="exp"><b>Expect:</b> those hours are <b>non-billable</b>, classified by the time type and not by the project they name.</div>
+      <div class="why">A requires_project entry carries both columns. Reading the project first would file somebody&rsquo;s training under the client&rsquo;s billable hours.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AQ8</span>
+      <span class="title">Nothing that existed before this migration moved</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Compare all six figures from AQ1 against the same report after the deploy.</p>
+      <div class="exp"><b>Expect:</b> <b>Recorded, Planned, Recording rate, Entries, Employees and Projects are identical.</b> Only the new Billable share tile has appeared.</div>
+      <div class="why">The split is additive by construction &mdash; <code>recorded_minutes</code> is untouched, and migration 800 asserts that on itself rather than trusting the claim.</div>
+      <div class="warn">Any movement here means the split was wired into the total instead of alongside it. Stop and report it.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AQ9</span>
+      <span class="title">Flipping the flag moves hours and only hours</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Mark <b>Training</b> billable. Reload Utilisation. Then unmark it and reload again.</p>
+      <div class="exp"><b>Expect:</b> exactly the Training minutes cross between billable and non-billable, both times, and <b>Recorded never changes</b>.</div>
+      <div class="why">This is the same assertion as AQ8 from the other direction: the one figure that may move, and the one that may not.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AQ10</span>
+      <span class="title">The other time-type rules are intact</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>On a type you have edited, confirm <b>Requires Project</b>, <b>Half Day</b> and <b>In Advance</b> all still save and still behave.</p>
+      <div class="exp"><b>Expect:</b> every flag from 715, 718 and 729 works exactly as before.</div>
+      <div class="why"><code>upsert_time_type</code> was patched in place rather than re-issued, precisely so none of these could be silently reverted &mdash; the defect behind 734, 736 and 737. This case is what proves the patch held.</div>
+    </div>
+  </div>
+</section>
+<section id="ar">
+  <h2><span class="k">AR</span> Known and deliberate (780&ndash;800)</h2>
+  <p class="lede">Seven behaviours read as bugs without the context. Record them as observations, not failures.</p>
   <div class="qnote"><b>The dropdown is an offer, not a rule.</b> A direct API call can still write an entry
     against any active project. No enforcement trigger has been added: it is the one change that can stop
     somebody recording their week, so it waits behind a read-only audit of how much existing data it would refuse.</div>
@@ -4245,8 +4649,11 @@ order  by created_at desc limit 6;</div>
   <div class="qnote"><b>A lead filtering Utilisation by department gets nothing.</b> Migration 771 keeps a
     department guard on the project branch, so choosing a department drops it entirely. It fails closed,
     which is why it was left rather than widened in passing.</div>
+  <div class="qnote"><b>Deactivating a project silently revokes its lead.</b> Migration 797 announces a
+    change of Reporting Manager, but not the role being revoked because the project closed. That is a
+    project-closed event and deserves its own message to the whole team rather than a lead
+    notification as a side effect — so the trigger watches <code>manager_id</code> only.</div>
 </section>
-
 
   <footer>
     <p><b>If something fails</b>, the "why this matters" note on each case names the rule it is
