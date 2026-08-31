@@ -134,10 +134,10 @@ export default function TeamAllocation({
     (async () => {
       const { data } = await supabase
         .from('projects')
-        .select('reporting_manager_id')
+        .select('manager_id')
         .eq('id', projectId)
         .single();
-      if (live && data) setProjectManagerId((data as any).reporting_manager_id ?? null);
+      if (live && data) setProjectManagerId((data as any).manager_id ?? null);
     })();
     return () => { live = false; };
   }, [projectId]);
