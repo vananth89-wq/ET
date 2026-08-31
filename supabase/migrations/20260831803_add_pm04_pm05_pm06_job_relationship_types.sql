@@ -15,7 +15,7 @@ cross join (
     ('Project Manager 5', 'PM05'),
     ('Project Manager 6', 'PM06')
 ) as v(label, ref_id)
-where p.code = 'JOB_RELATIONSHIP_TYPE'
+where p.picklist_id = 'JOB_RELATIONSHIP_TYPE'
   -- skip if already present (safe to re-run)
   and not exists (
     select 1 from picklist_values pv
