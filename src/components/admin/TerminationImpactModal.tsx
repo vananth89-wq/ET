@@ -47,6 +47,7 @@ interface EmployeeOption {
 
 const JR_CODE_LABELS: Record<string, string> = {
   PM01: 'Project Manager', PM02: 'Programme Manager', PM03: 'Practice Manager',
+  PM04: 'Project Manager 4', PM05: 'Project Manager 5', PM06: 'Project Manager 6',
   OM01: 'Operations Manager', OM02: 'Operations Lead', OM03: 'Operations Coordinator',
 };
 

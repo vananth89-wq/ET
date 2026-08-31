@@ -582,7 +582,7 @@ export default function Projects() {
         isOpen={modal.isOpen}
         title="Delete Project"
         message={`Are you sure you want to delete "${modal.project?.name ?? ''}"?`}
-        warning="This action cannot be undone and will permanently remove the project."
+        warning="This action cannot be undone and will permanently remove the project. If team members have job relationships linked to this project's reporting manager, those will not be automatically removed — please review Job Relationships manually."
         confirmText="Delete"
         cancelText="Cancel"
         onConfirm={confirmDelete}

@@ -94,6 +94,7 @@ export default function TeamAllocation({
   const [showPast, setShowPast] = useState(false);
   const [sortKey, setSortKey]   = useState<'hours' | 'name'>('hours');
   const [tick, setTick]         = useState(0);
+  const [projectManagerId, setProjectManagerId] = useState<string | null>(null);
 
   // ── form ───────────────────────────────────────────────────────────────────
   const [empId, setEmpId]   = useState('');
@@ -128,11 +129,85 @@ export default function TeamAllocation({
     return () => { live = false; };
   }, [projectId, tick]);
 
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      const { data } = await supabase
+        .from('projects')
+        .select('reporting_manager_id')
+        .eq('id', projectId)
+        .single();
+      if (live && data) setProjectManagerId((data as any).reporting_manager_id ?? null);
+    })();
+    return () => { live = false; };
+  }, [projectId]);
+
   // Switching project must never carry a half-typed row across — it would save
   // onto the wrong project. The parent gives this component key={projectId}, so
   // React remounts it and every piece of state goes with it. Resetting in an
   // effect instead would leave the old form on screen for one render, and is
   // the cascading-render pattern the lint rule exists to catch.
+
+  // ── Job-relationship sync helpers ──────────────────────────────────────────
+  const PM_SLOTS = ['PM01', 'PM02', 'PM03', 'PM04', 'PM05', 'PM06'];
+
+  async function syncJROnAdd(employeeId: string, managerId: string, startDate: string) {
+    try {
+      const { data: setRow } = await supabase
+        .from('employee_job_relationship_set')
+        .select('id')
+        .eq('employee_id', employeeId)
+        .single();
+      if (!setRow) return;
+      const setId = (setRow as any).id;
+      const today = new Date().toISOString().slice(0, 10);
+      const { data: items } = await supabase
+        .from('employee_job_relationship_item')
+        .select('relationship_code, manager_employee_id')
+        .eq('set_id', setId)
+        .in('relationship_code', PM_SLOTS)
+        .or(`end_date.is.null,end_date.gte.${today}`);
+      const existing = (items ?? []) as { relationship_code: string; manager_employee_id: string }[];
+      // Skip if this manager is already linked in any PM slot
+      if (existing.some(i => i.manager_employee_id === managerId)) return;
+      const usedSlots = new Set(existing.map(i => i.relationship_code));
+      const nextSlot = PM_SLOTS.find(s => !usedSlots.has(s));
+      if (!nextSlot) return; // all slots full
+      await supabase.from('employee_job_relationship_item').insert({
+        set_id: setId,
+        relationship_code: nextSlot,
+        manager_employee_id: managerId,
+        start_date: startDate,
+        end_date: null,
+      });
+    } catch { /* best-effort; don't block the UI */ }
+  }
+
+  async function syncJROnRemove(employeeId: string, managerId: string) {
+    try {
+      const { data: setRow } = await supabase
+        .from('employee_job_relationship_set')
+        .select('id')
+        .eq('employee_id', employeeId)
+        .single();
+      if (!setRow) return;
+      const setId = (setRow as any).id;
+      const today = new Date().toISOString().slice(0, 10);
+      const { data: items } = await supabase
+        .from('employee_job_relationship_item')
+        .select('id')
+        .eq('set_id', setId)
+        .eq('manager_employee_id', managerId)
+        .in('relationship_code', PM_SLOTS)
+        .is('end_date', null);
+      for (const item of (items ?? []) as { id: string }[]) {
+        await supabase
+          .from('employee_job_relationship_item')
+          .update({ end_date: today })
+          .eq('id', item.id);
+      }
+    } catch { /* best-effort */ }
+  }
 
   const done = useCallback((msg: string) => {
     setToast(msg); setError(null); setConfirm(null); setMode({ kind: 'idle' });
@@ -175,12 +250,17 @@ export default function TeamAllocation({
     const res = data as { ok: boolean; message?: string; notified?: number; notify_error?: string } | null;
     if (rpcErr || !res?.ok) { fail(res?.message ?? rpcErr?.message ?? 'Could not save that assignment.'); return; }
 
+    // Sync job relationship when adding a new member
+    if (mode.kind === 'add' && projectManagerId) {
+      await syncJROnAdd(empId, projectManagerId, from);
+    }
+
     done(mode.kind === 'add'
       ? (res.notify_error
           ? `${empName.split(' · ')[0]} added — but they could not be notified. Tell them directly.`
           : `${empName.split(' · ')[0]} added${res.notified ? ' and notified' : ''}.`)
       : `${mode.member.employee_name} updated.`);
-  }, [mode, empId, empName, roleId, pct, from, to, projectId, projectEndDate, done, fail]);
+  }, [mode, empId, empName, roleId, pct, from, to, projectId, projectEndDate, projectManagerId, done, fail]);
 
   const remove = useCallback(async (m: TeamMember) => {
     setBusy(true);
@@ -188,8 +268,12 @@ export default function TeamAllocation({
     setBusy(false);
     const res = data as { ok: boolean; action?: string; message?: string } | null;
     if (rpcErr || !res?.ok) { fail(res?.message ?? rpcErr?.message ?? 'Could not update that assignment.'); return; }
+    // End-date the job relationship for this project's manager
+    if (projectManagerId) {
+      await syncJROnRemove(m.employee_id, projectManagerId);
+    }
     done(res.action === 'deleted' ? `${m.employee_name} removed.` : `${m.employee_name}'s assignment ended.`);
-  }, [done, fail]);
+  }, [done, fail, projectManagerId]);
 
   const { live, past, maxHours } = useMemo(() => {
     const by = (a: TeamMember, b: TeamMember) =>

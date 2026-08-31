@@ -778,9 +778,10 @@ export default function WorkflowReview() {
     manager_employee_code?: string;
   };
 
-  const JR_CODE_ORDER_WFR = ['PM01', 'PM02', 'PM03', 'OM01', 'OM02', 'OM03'];
+  const JR_CODE_ORDER_WFR = ['PM01', 'PM02', 'PM03', 'PM04', 'PM05', 'PM06', 'OM01', 'OM02', 'OM03'];
   const JR_DEFAULT_LABELS: Record<string, string> = {
     PM01: 'Project Manager', PM02: 'Programme Manager', PM03: 'Practice Manager',
+    PM04: 'Project Manager 4', PM05: 'Project Manager 5', PM06: 'Project Manager 6',
     OM01: 'Operations Manager', OM02: 'Operations Lead', OM03: 'Operations Coordinator',
   };
 

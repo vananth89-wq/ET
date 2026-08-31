@@ -34,7 +34,7 @@ import WorkflowSubmitModal from '../../workflow/components/WorkflowSubmitModal';
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
 
-const JR_CODE_ORDER = ['PM01', 'PM02', 'PM03', 'OM01', 'OM02', 'OM03'] as const;
+const JR_CODE_ORDER = ['PM01', 'PM02', 'PM03', 'PM04', 'PM05', 'PM06', 'OM01', 'OM02', 'OM03'] as const;
 type JRCode = typeof JR_CODE_ORDER[number];
 
 function todayISO() {
