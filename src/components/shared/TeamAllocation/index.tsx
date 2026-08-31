@@ -149,63 +149,54 @@ export default function TeamAllocation({
   // the cascading-render pattern the lint rule exists to catch.
 
   // ── Job-relationship sync helpers ──────────────────────────────────────────
+  // Uses the same upsert_job_relationship_set RPC as the portlet so the
+  // temporal-set model is respected.
   const PM_SLOTS = ['PM01', 'PM02', 'PM03', 'PM04', 'PM05', 'PM06'];
 
   async function syncJROnAdd(employeeId: string, managerId: string, startDate: string) {
     try {
-      const { data: setRow } = await supabase
-        .from('employee_job_relationship_set')
-        .select('id')
-        .eq('employee_id', employeeId)
-        .single();
-      if (!setRow) return;
-      const setId = (setRow as any).id;
-      const today = new Date().toISOString().slice(0, 10);
-      const { data: items } = await supabase
-        .from('employee_job_relationship_item')
-        .select('relationship_code, manager_employee_id')
-        .eq('set_id', setId)
-        .in('relationship_code', PM_SLOTS)
-        .or(`end_date.is.null,end_date.gte.${today}`);
-      const existing = (items ?? []) as { relationship_code: string; manager_employee_id: string }[];
-      // Skip if this manager is already linked in any PM slot
-      if (existing.some(i => i.manager_employee_id === managerId)) return;
-      const usedSlots = new Set(existing.map(i => i.relationship_code));
+      const { data } = await supabase.rpc('get_current_job_relationships', {
+        p_employee_id: employeeId,
+      });
+      const payload = data as { ok: boolean; items: { relationship_code: string; manager_employee_id: string }[] } | null;
+      const currentItems = payload?.items ?? [];
+      // Skip if this manager is already in any PM slot
+      if (currentItems.some(i => PM_SLOTS.includes(i.relationship_code) && i.manager_employee_id === managerId)) return;
+      // Find the next free PM slot
+      const usedSlots = new Set(currentItems.map(i => i.relationship_code));
       const nextSlot = PM_SLOTS.find(s => !usedSlots.has(s));
-      if (!nextSlot) return; // all slots full
-      await supabase.from('employee_job_relationship_item').insert({
-        set_id: setId,
-        relationship_code: nextSlot,
-        manager_employee_id: managerId,
-        start_date: startDate,
-        end_date: null,
+      if (!nextSlot) return; // all 6 slots full
+      // Build the full new items list and upsert
+      const newItems = [
+        ...currentItems.map(i => ({ relationship_code: i.relationship_code, manager_employee_id: i.manager_employee_id })),
+        { relationship_code: nextSlot, manager_employee_id: managerId },
+      ];
+      await supabase.rpc('upsert_job_relationship_set', {
+        p_employee_id:    employeeId,
+        p_effective_from: startDate,
+        p_items:          newItems,
       });
     } catch { /* best-effort; don't block the UI */ }
   }
 
   async function syncJROnRemove(employeeId: string, managerId: string) {
     try {
-      const { data: setRow } = await supabase
-        .from('employee_job_relationship_set')
-        .select('id')
-        .eq('employee_id', employeeId)
-        .single();
-      if (!setRow) return;
-      const setId = (setRow as any).id;
+      const { data } = await supabase.rpc('get_current_job_relationships', {
+        p_employee_id: employeeId,
+      });
+      const payload = data as { ok: boolean; items: { relationship_code: string; manager_employee_id: string }[] } | null;
+      const currentItems = payload?.items ?? [];
+      // Remove the PM slot that holds this manager
+      const newItems = currentItems
+        .filter(i => !(PM_SLOTS.includes(i.relationship_code) && i.manager_employee_id === managerId))
+        .map(i => ({ relationship_code: i.relationship_code, manager_employee_id: i.manager_employee_id }));
+      if (newItems.length === currentItems.length) return; // nothing to remove
       const today = new Date().toISOString().slice(0, 10);
-      const { data: items } = await supabase
-        .from('employee_job_relationship_item')
-        .select('id')
-        .eq('set_id', setId)
-        .eq('manager_employee_id', managerId)
-        .in('relationship_code', PM_SLOTS)
-        .is('end_date', null);
-      for (const item of (items ?? []) as { id: string }[]) {
-        await supabase
-          .from('employee_job_relationship_item')
-          .update({ end_date: today })
-          .eq('id', item.id);
-      }
+      await supabase.rpc('upsert_job_relationship_set', {
+        p_employee_id:    employeeId,
+        p_effective_from: today,
+        p_items:          newItems,
+      });
     } catch { /* best-effort */ }
   }
 
