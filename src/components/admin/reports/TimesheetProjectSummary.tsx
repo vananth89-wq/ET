@@ -41,6 +41,12 @@ interface Row {
   /** mig 770. Optional so a bundle live against a pre-770 database degrades to
    *  "no badge" rather than a type error. */
   i_manage?: boolean;
+  /** mig 810. Hours given to this project by people not staffed on it. Reported
+   *  beside the project's own hours and deliberately absent from
+   *  recorded_minutes and consumed_pct — help does not consume a budget it was
+   *  never planned into. Optional for the same reason as i_manage. */
+  support_minutes?: number;
+  support_contributors?: number;
 }
 interface Payload {
   ok: boolean; page: number; page_size: number; total_rows: number; sort: string;
@@ -50,6 +56,8 @@ interface Payload {
     project_count: number; contributor_count: number;
     budgeted_projects: number; unclassified_projects: number;
     over_budget_projects: number; unmanaged_projects: number;
+    /** mig 810. Never part of recorded_minutes or any share taken from it. */
+    support_minutes?: number; supported_projects?: number;
   };
   scope: { mode?: string; employee_count?: number | null };
   /** mig 770. Present only once the PM path is deployed. */
@@ -239,6 +247,10 @@ export default function TimesheetProjectSummary({ shared, setShared }: ReportTab
             Entries:      r.entry_count,
             Hours:        toDecimalHours(r.recorded_minutes),
             Minutes:      r.recorded_minutes,
+            // Its own columns, never folded into Hours. A spreadsheet is where
+            // somebody adds up a column without reading the header.
+            'Support hours':   toDecimalHours(r.support_minutes ?? 0),
+            'Support helpers': r.support_contributors ?? 0,
             // Blank, never 0 — a spreadsheet zero is indistinguishable from a
             // real zero once it leaves this screen.
             'Budget (h)': r.budget_hours ?? '',
@@ -314,7 +326,11 @@ export default function TimesheetProjectSummary({ shared, setShared }: ReportTab
                  : 'Hours on billable projects, over all hours'} />
           <Kpi label="Projects"     value={String(t?.project_count ?? 0)} />
           <Kpi label="Contributors" value={String(t?.contributor_count ?? 0)}
-               caption="Anyone who logged time — there is no assignment table" />
+               caption="Anyone who booked hours to the project" />
+          {(t?.support_minutes ?? 0) > 0 && (
+            <Kpi label="Support received" value={fmtHM(t?.support_minutes)} tone="#7C3AED"
+                 caption={`Help given by people not staffed on the project, across ${t?.supported_projects ?? 0} ${(t?.supported_projects ?? 0) === 1 ? 'project' : 'projects'}. Not counted in hours, budget or billable share.`} />
+          )}
           <Kpi label="Over budget"  value={String(t?.over_budget_projects ?? 0)}
                tone={(t?.over_budget_projects ?? 0) > 0 ? '#B42318' : undefined}
                swatch={STATUS_META.over_budget.fill} />
@@ -366,6 +382,7 @@ export default function TimesheetProjectSummary({ shared, setShared }: ReportTab
                   <th>Reporting manager</th>
                   <th style={{ textAlign: 'right' }}>Contributors</th>
                   <th style={{ textAlign: 'right' }}>Hours</th>
+                  <th style={{ textAlign: 'right' }} title="Help given by people not staffed on the project. Not counted in Hours or Consumed.">Support</th>
                   <th style={{ textAlign: 'right' }}>Budget (h)</th>
                   <th style={{ textAlign: 'right', minWidth: 160 }}>Consumed</th>
                   <th>Status</th>
@@ -396,6 +413,14 @@ export default function TimesheetProjectSummary({ shared, setShared }: ReportTab
                     </td>
                     <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{r.contributor_count}</td>
                     <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtHM(r.recorded_minutes)}</td>
+                    <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                      {(r.support_minutes ?? 0) > 0
+                        ? <span style={{ color: '#7C3AED' }}
+                                title={`${r.support_contributors} ${r.support_contributors === 1 ? 'person' : 'people'} not staffed on this project. Not counted in Hours or Consumed.`}>
+                            {fmtHM(r.support_minutes)}
+                          </span>
+                        : <span style={{ color: '#D1D5DB' }}>—</span>}
+                    </td>
                     <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
                       {r.budget_hours ?? <span style={{ color: '#9CA3AF' }}>—</span>}
                     </td>
