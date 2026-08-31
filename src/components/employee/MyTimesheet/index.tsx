@@ -84,6 +84,17 @@ interface TimesheetEntry {
   timesheet_entry_activities?: TimesheetEntryActivity[] | null;
   time_types?:  { name: string; code: string; category: string; requires_project: boolean } | { name: string; code: string; category: string; requires_project: boolean }[];
   projects?:    { name: string } | { name: string }[];
+  /** mig 801. A support entry books to no project and names the one it HELPED
+   *  here instead. Joined separately because it is a different foreign key. */
+  related_projects?: { name: string } | { name: string }[];
+}
+
+/** The project an entry names, whichever column holds it. Support entries carry
+ *  theirs in related_project_id, and an entry card that showed nothing would
+ *  leave the employee unable to tell two of them apart. */
+function entryProject(ent: { projects?: any; related_projects?: any }): { name: string } | null {
+  const one = (v: any) => (Array.isArray(v) ? v[0] : v) ?? null;
+  return one(ent.projects) ?? one(ent.related_projects);
 }
 
 /** One editable activity line. Held as STRINGS on purpose: a half-typed "1" in
@@ -180,6 +191,10 @@ interface TimeType {
   code:             string;
   category:         'attendance' | 'absence';
   requires_project: boolean;
+  /** mig 801. The project picked on this type is the one being HELPED, not the
+   *  one the hours belong to. Drives an unfiltered picker here, and a different
+   *  destination column in the database. */
+  uses_related_project: boolean;
   allows_half_day:  boolean;   // absence only — mig 718
   allows_future:    boolean;   // either category, per type — mig 729
   is_active:        boolean;
@@ -294,13 +309,13 @@ function getEntryBadge(ent: TimesheetEntry): { code: string; bg: string; color: 
     const t = Array.isArray(ent.time_types) ? ent.time_types[0] : ent.time_types;
     const code = t?.code ?? 'WK';
     if (ent.project_id) {
-      const p = Array.isArray(ent.projects) ? ent.projects[0] : ent.projects;
+      const p = entryProject(ent);
       return { code, bg: '#D1FAE5', color: '#065F46', accentColor: '#10B981', projectName: p?.name };
     }
     return { code, bg: '#D1FAE5', color: '#065F46', accentColor: '#10B981' };
   }
   // entry_kind === 'project'
-  const p = Array.isArray(ent.projects) ? ent.projects[0] : ent.projects;
+  const p = entryProject(ent);
   const name = p?.name ?? 'Project';
   const abbreviated = name.length > 4 ? name.slice(0, 4).toUpperCase() : name.toUpperCase();
   return { code: abbreviated, bg: '#DBEAFE', color: '#1E40AF', accentColor: '#3B82F6', projectName: name };
@@ -343,7 +358,7 @@ function fmtDayHours(minutes: number, status: DayStatus): string {
 // Calendar cell label: the project name when there is one, else the time type.
 // The panel shows project and time type separately; the cell only has room for one.
 function getCellLabel(ent: TimesheetEntry): string {
-  const p = Array.isArray(ent.projects) ? ent.projects[0] : ent.projects;
+  const p = entryProject(ent);
   if (p?.name) return p.name;
   const t = Array.isArray(ent.time_types) ? ent.time_types[0] : ent.time_types;
   return t?.name ?? '';
@@ -508,6 +523,12 @@ export default function MyTimesheet() {
   // Reference data
   const [timeTypes,  setTimeTypes]  = useState<TimeType[]>([]);
   const [projects,   setProjects]   = useState<Project[]>([]);
+  /* mig 801. Every active project in the period, with no membership narrowing
+   * whatever — for time types that record help given to another project, where
+   * the whole point is to name one you are NOT on. Kept separate from
+   * `projects` rather than merged into it: that list is narrowed on purpose and
+   * every rule already written against it stays true. */
+  const [allProjects, setAllProjects] = useState<Project[]>([]);
 
   // Timesheet data
   const [header,    setHeader]    = useState<TimesheetHeader | null>(null);
@@ -601,7 +622,7 @@ export default function MyTimesheet() {
     (async () => {
       const [empRes, ttRes, actRes] = await Promise.all([
         supabase.from('employees').select('employee_id, name').eq('id', subjectId).single(),
-        supabase.from('time_types').select('id, name, code, category, requires_project, allows_half_day, allows_future, is_active').eq('is_active', true).eq('is_system_managed', false).order('category').order('name'),
+        supabase.from('time_types').select('id, name, code, category, requires_project, uses_related_project, allows_half_day, allows_future, is_active').eq('is_active', true).eq('is_system_managed', false).order('category').order('name'),
         supabase.rpc('get_employee_activities', { p_employee_id: subjectId }),
       ]);
       if (empRes.data) { setEmpCode(empRes.data.employee_id ?? ''); setSubjectName((empRes.data as any).name ?? ''); }
@@ -634,6 +655,23 @@ export default function MyTimesheet() {
     })();
     return () => { live = false; };
   }, [subjectId, year, month]);
+
+  /* The unfiltered pool, fetched only when some active time type asks for it.
+   * Until an administrator switches such a type on this costs nothing, and the
+   * moment one exists the picker has its list without a second round trip. */
+  useEffect(() => {
+    if (!timeTypes.some(t => t.uses_related_project)) { setAllProjects([]); return; }
+    let live = true;
+    const from = `${year}-${pad2(month)}-01`;
+    const to   = `${year}-${pad2(month)}-${pad2(new Date(year, month, 0).getDate())}`;
+    (async () => {
+      const { data } = await supabase.rpc('bookable_projects_all', {
+        p_period_start: from, p_period_end: to,
+      });
+      if (live && data) setAllProjects(data as Project[]);
+    })();
+    return () => { live = false; };
+  }, [timeTypes, year, month]);
 
   // ── Load / auto-create header + entries for the period ─────────────────
   const loadPeriod = useCallback(async () => {
@@ -992,7 +1030,7 @@ export default function MyTimesheet() {
     if (!header) return entries;
     const { data: ents } = await supabase
       .from('timesheet_entries')
-      .select(`id, header_id, entry_date, entry_kind, project_id, time_type_id, hours_minutes, notes, activities, is_system_generated, created_at, updated_at, timesheet_entry_activities(id, activity_name, hours_minutes, display_order, created_at), time_types(name,code,category,requires_project), projects(name)`)
+      .select(`id, header_id, entry_date, entry_kind, project_id, time_type_id, hours_minutes, notes, activities, is_system_generated, created_at, updated_at, timesheet_entry_activities(id, activity_name, hours_minutes, display_order, created_at), time_types(name,code,category,requires_project,uses_related_project), projects(name), related_projects:projects!related_project_id(name)`)
       .eq('header_id', header.id)
       .order('entry_date').order('created_at');
     const list = (ents ?? []) as unknown as TimesheetEntry[];
@@ -1509,7 +1547,7 @@ export default function MyTimesheet() {
     // already loaded into the neutral shape the assembler reads.
     const rows: AssembleRow[] = entries.map(e => {
       const t    = Array.isArray(e.time_types) ? e.time_types[0] : e.time_types;
-      const p    = Array.isArray(e.projects)   ? e.projects[0]   : e.projects;
+      const p    = entryProject(e);
       const acts = (e.timesheet_entry_activities ?? []) as TimesheetEntryActivity[];
 
       const activities = acts.length
@@ -2049,9 +2087,21 @@ export default function MyTimesheet() {
     // day panel gets away with it because there is one date to reason about,
     // but the Create modal filters across every date picked, and a project
     // vanishing with no reason given is indistinguishable from a bug.
-    const offered  = projects.filter(p => projectActiveOn(p, projectDates));
+    /* Help is recorded against a project you are not on, so membership cannot
+     * be part of the test — only the project's own dates. Same shape as
+     * projectActiveOn minus memberOn, and minus the already-booked escape
+     * hatch, which exists so an old entry can name its own project and has
+     * nothing to say about a project you were never on. */
+    const usesRelated = !!selTT?.uses_related_project;
+    const pool        = usesRelated ? allProjects : projects;
+    const activeOn    = (p: Project, dates: string[]) => usesRelated
+      ? dates.every(d => (!p.start_date || p.start_date <= d)
+                      && (!p.end_date   || p.end_date   >= d))
+      : projectActiveOn(p, dates);
+
+    const offered  = pool.filter(p => activeOn(p, projectDates));
     const withheld = projectDates.length
-      ? projects.filter(p => !projectActiveOn(p, projectDates))
+      ? pool.filter(p => !activeOn(p, projectDates))
       : [];
 
     return (
@@ -2084,7 +2134,7 @@ export default function MyTimesheet() {
         {/* Project picker — only when the selected time type requires one */}
         {form.typeId && selTT?.requires_project && (
           <div style={{ marginBottom: gap }}>
-            <Label>Project</Label>
+            <Label>{usesRelated ? 'Project you helped' : 'Project'}</Label>
             <select
               value={form.projId}
               onChange={e => { setForm(f => ({ ...f, projId: e.target.value })); setFormErr(''); }}
@@ -2101,7 +2151,9 @@ export default function MyTimesheet() {
                   : `all ${projectDates.length} selected days`}:{' '}
                 {withheld.slice(0, 4).map(p => p.name).join(', ')}
                 {withheld.length > 4 ? ` and ${withheld.length - 4} more` : ''}
-                {' — '}outside the project&rsquo;s dates or your allocation to it.
+                {' — '}{usesRelated
+                  ? 'outside the project\u2019s dates.'
+                  : 'outside the project\u2019s dates or your allocation to it.'}
               </div>
             )}
           </div>
@@ -3036,7 +3088,7 @@ export default function MyTimesheet() {
                     {/* Card header: single-line compact */}
                     {(() => {
                       const t = Array.isArray(ent.time_types) ? ent.time_types[0] : ent.time_types;
-                      const p = Array.isArray(ent.projects)   ? ent.projects[0]   : ent.projects;
+                      const p = entryProject(ent);
                       const primaryText = p?.name ?? t?.name ?? (ent.entry_kind === 'holiday' ? 'Holiday' : ent.entry_kind);
                       return (
                         <div style={{ display: 'flex', alignItems: 'center', padding: '0 10px 0 12px', height: 44, gap: 8 }}>
