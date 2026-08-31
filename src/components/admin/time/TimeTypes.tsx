@@ -23,6 +23,7 @@ interface TimeType {
   allows_future:          boolean;   // either category, per type — mig 729
   is_system_managed:      boolean;
   requires_project:       boolean;
+  is_billable:            boolean;   // attendance only - mig 800
   is_active:              boolean;
   created_at:             string | null;
   updated_at:             string | null;
@@ -63,7 +64,7 @@ const ruleLabelSt: React.CSSProperties = { fontSize: 13, fontWeight: 600, color:
 const ruleHintSt:  React.CSSProperties = { gridColumn: 2, fontSize: 11.5, color: '#9CA3AF', lineHeight: 1.55 };
 
 const EMPTY: Omit<TimeType, 'id'> & { id: string } = {
-  id: '', name: '', code: '', category: 'attendance', allows_half_day: false, allows_future: false, is_system_managed: false, requires_project: false, is_active: true, created_at: null, updated_at: null, creator: null,
+  id: '', name: '', code: '', category: 'attendance', allows_half_day: false, allows_future: false, is_system_managed: false, requires_project: false, is_billable: false, is_active: true, created_at: null, updated_at: null, creator: null,
 };
 
 export default function TimeTypes() {
@@ -81,7 +82,7 @@ export default function TimeTypes() {
     setError(null);
     const { data, error: e } = await supabase
       .from('time_types')
-      .select('id, name, code, category, allows_half_day, allows_future, is_system_managed, requires_project, is_active, created_at, updated_at, creator:profiles!created_by(employees!employee_id(name))')
+      .select('id, name, code, category, allows_half_day, allows_future, is_system_managed, requires_project, is_billable, is_active, created_at, updated_at, creator:profiles!created_by(employees!employee_id(name))')
       .order('category')
       .order('name');
     if (e) { setError(e.message); setLoading(false); return; }
@@ -119,6 +120,10 @@ export default function TimeTypes() {
       allows_half_day:  form.category === 'absence'    ? form.allows_half_day  : false,
       allows_future:    form.allows_future,
       requires_project: form.category === 'attendance' ? form.requires_project : false,
+      // Absence is not unbillable work, it is not work. upsert_time_type forces
+      // this false for absence anyway; sending it false is how the screen says
+      // the same thing rather than relying on the database to correct it.
+      is_billable:      form.category === 'attendance' ? form.is_billable      : false,
       is_active: form.is_active,
     };
 
@@ -223,6 +228,22 @@ export default function TimeTypes() {
               </label>
             )}
 
+            {form.category === 'attendance' && (
+              <label style={ruleRowSt}>
+                <input
+                  type="checkbox" checked={form.is_billable}
+                  onChange={e => setForm(p => ({ ...p, is_billable: e.target.checked }))}
+                  style={ruleBoxSt}
+                />
+                <span style={ruleLabelSt}>Billable</span>
+                <span style={ruleHintSt}>
+                  Hours on this type count towards the billable share in Utilisation.
+                  Leave it off for internal work such as training. Absence types are
+                  never billable and are reported separately.
+                </span>
+              </label>
+            )}
+
             {form.category === 'absence' && (
               <label style={ruleRowSt}>
                 <input
@@ -313,6 +334,7 @@ export default function TimeTypes() {
                         <th>Code</th>
                         <th>Category</th>
                         {isAttendance && <th>Req. Project</th>}
+                        {isAttendance && <th>Billable</th>}
                         {!isAttendance && <th>Half Day</th>}
                         <th>In Advance</th>
                         <th>Status</th>
@@ -334,6 +356,14 @@ export default function TimeTypes() {
                               {tt.requires_project
                                 ? <i className="fa-solid fa-check" style={{ color: '#3B82F6' }} title="Requires Project" />
                                 : <i className="fa-solid fa-minus" style={{ color: '#D1D5DB' }} />
+                              }
+                            </td>
+                          )}
+                          {isAttendance && (
+                            <td style={{ textAlign: 'center' }}>
+                              {tt.is_billable
+                                ? <i className="fa-solid fa-check" style={{ color: '#0F766E' }} title="Billable" />
+                                : <i className="fa-solid fa-minus" style={{ color: '#D1D5DB' }} title="Not billable" />
                               }
                             </td>
                           )}

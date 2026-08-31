@@ -61,7 +61,13 @@ interface Payload {
             employee_count: number; project_count: number;
             /** mig 771. False when project-reached rows are present: planned comes
              *  from the caller's employee scope, so it has no capacity for them. */
-            planned_covers_all_rows?: boolean };
+            planned_covers_all_rows?: boolean;
+            /** mig 800. Every recorded minute lands in exactly one bucket and the
+             *  four sum to recorded_minutes. Absent on a pre-800 database, which is
+             *  why every read below is optional rather than defaulted to zero: a
+             *  share of 0% and "we cannot compute this" are different statements. */
+            billable_split?: { billable_minutes: number; non_billable_minutes: number;
+                               absence_minutes: number; unclassified_minutes: number } };
   breakdowns?: Breakdowns;
   scope: { mode?: string; employee_count?: number | null };
   /** mig 771. Present only once the PM path is deployed. */
@@ -278,6 +284,18 @@ export default function TimesheetUtilisation({ shared, setShared }: ReportTabPro
   const util = t && t.planned_minutes > 0
     ? `${Math.round((t.recorded_minutes / t.planned_minutes) * 100)}%` : '—';
 
+  /* Billable share (mig 800). The denominator is WORKED time, not recorded time:
+   * absence is excluded, because leave is not unbillable work and letting it into
+   * the denominator would make the share fall every time somebody took a holiday.
+   * Unclassified stays in - hours on a project with no type are real hours that
+   * are simply not yet classified, and hiding them would flatter the number. */
+  const split     = t?.billable_split;
+  const workedMin = split
+    ? split.billable_minutes + split.non_billable_minutes + split.unclassified_minutes
+    : 0;
+  const billShare = split && workedMin > 0
+    ? `${Math.round((split.billable_minutes / workedMin) * 100)}%` : '—';
+
   return (
     <>
       <div className="er-toolbar">
@@ -335,6 +353,14 @@ export default function TimesheetUtilisation({ shared, setShared }: ReportTabPro
           <Kpi label="Entries"     value={String(t?.entry_count ?? 0)} />
           <Kpi label="Employees"   value={String(t?.employee_count ?? 0)} />
           <Kpi label="Projects"    value={String(t?.project_count ?? 0)} />
+          <Kpi label="Billable share" value={billShare}
+               tone={split && workedMin > 0 ? '#0F766E' : undefined}
+               caption={
+                 !split
+                   ? 'Not reported by this database yet.'
+                   : split.unclassified_minutes > 0
+                     ? `${fmtHM(split.unclassified_minutes)} sits on projects with no type set and counts as not billable. Absence of ${fmtHM(split.absence_minutes)} is excluded from the denominator.`
+                     : `Billable hours over worked hours. Absence of ${fmtHM(split.absence_minutes)} is excluded from the denominator.`} />
         </div>
       )}
 
