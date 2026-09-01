@@ -2,7 +2,7 @@
 {
   "name": "Timesheet Test Plan",
   "schemaVersion": 1,
-  "description": "Prowess timesheet test plan, migrations 726–826. 382 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
+  "description": "Prowess timesheet test plan, migrations 726–826. 385 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
   "mcpTools": [],
   "mcpServerNames": []
 }
@@ -4809,6 +4809,39 @@ order  by created_at desc limit 6;</div>
       <p>As an ordinary employee with one small allocation, open the helped-project picker and read the list.</p>
       <div class="exp"><b>Expect:</b> every active project in the period, including clients and prospects this person has nothing to do with. <b>This is intended</b>, not a leak &mdash; record it as an observation.</div>
       <div class="why">Accepted deliberately (design decision D4). If it is ever to change, <code>bookable_projects_all</code> is the single function that changes.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR17</span>
+      <span class="title">Reopening a support entry still shows the project it helped</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Record <b>Support to Another Project</b> naming <b>AMPTJ</b>, save, then click the pencil to edit that entry.</p>
+      <div class="exp"><b>Expect:</b> <b>Project you helped</b> reads <b>AMPTJ</b>, not <i>— Select —</i>. Change only the hours and press <b>Update</b>: it saves, and the helped project is unchanged.</div>
+      <div class="warn">Found on Dev 2026-09-01. The picker is one control but the storage is two columns &mdash; on a support type the chosen id is routed to <code>related_project_id</code> and <code>project_id</code> is left NULL (801) &mdash; and the form read <code>project_id</code> alone. <b>The consequence was not cosmetic: every support entry was uneditable</b>, because Update then submitted no project and was refused with &ldquo;Please select a project for this time type&rdquo; over a field showing nothing. The day cell behind it read AMPTJ the whole time.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR18</span>
+      <span class="title">An entry can still name a project that would no longer be offered</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>After AR17, have an administrator move that project&rsquo;s <b>end date</b> earlier than the day you recorded, or deactivate it. Reopen the same entry for editing.</p>
+      <div class="exp"><b>Expect:</b> the project is <b>still selected and still in the list</b>, and the &ldquo;Not available for &hellip;&rdquo; hint below does <b>not</b> name it.</div>
+      <div class="why">Everything that builds the picker filters on what may be CHOSEN today &mdash; the project&rsquo;s dates, its active flag, and on ordinary work your allocation to it &mdash; and none of that is guaranteed to still hold for a row saved weeks ago. The ordinary path has had an escape hatch for this since 787; the help path never did. A control that cannot represent what is stored is not read-only, it is a silent edit waiting for somebody to press Save.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR19</span>
+      <span class="title">The picker does not argue with itself</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>In the state set up by AR18, read the grey hint under the picker.</p>
+      <div class="exp"><b>Expect:</b> it lists whatever else is unavailable for that day, and <b>never the project currently selected</b>.</div>
+      <div class="why">&ldquo;Not available: AMPTJ&rdquo; printed under a picker reading AMPTJ is a screen contradicting itself, and the employee has no way to tell which half to believe.</div>
     </div>
   </div>
 </section>

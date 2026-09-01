@@ -76,6 +76,9 @@ interface TimesheetEntry {
   entry_date:    string;
   entry_kind:    'project' | 'time_type' | 'holiday' | 'leave';
   project_id:    string | null;
+  /** mig 801. The project this entry HELPED, on a type that records support.
+   *  Mutually exclusive with project_id -- rule (h) enforces it. */
+  related_project_id: string | null;
   time_type_id:  string | null;
   hours_minutes: number;
   notes:         string | null;
@@ -981,6 +984,7 @@ export default function MyTimesheet() {
         timesheet_entry_activities ( id, activity_name, hours_minutes, display_order, created_at, is_billable ),
         time_types ( name, code, category, requires_project, uses_related_project ),
         projects!project_id ( name ),
+        related_project_id,
         related_projects:projects!related_project_id ( name )
       `)
       .eq('header_id', headerId)
@@ -1095,7 +1099,7 @@ export default function MyTimesheet() {
     if (!header) return entries;
     const { data: ents } = await supabase
       .from('timesheet_entries')
-      .select(`id, header_id, entry_date, entry_kind, project_id, time_type_id, hours_minutes, notes, activities, is_system_generated, created_at, updated_at, timesheet_entry_activities(id, activity_name, hours_minutes, display_order, created_at, is_billable), time_types(name,code,category,requires_project,uses_related_project), projects!project_id(name), related_projects:projects!related_project_id(name)`)
+      .select(`id, header_id, entry_date, entry_kind, project_id, related_project_id, time_type_id, hours_minutes, notes, activities, is_system_generated, created_at, updated_at, timesheet_entry_activities(id, activity_name, hours_minutes, display_order, created_at, is_billable), time_types(name,code,category,requires_project,uses_related_project), projects!project_id(name), related_projects:projects!related_project_id(name)`)
       .eq('header_id', header.id)
       .order('entry_date').order('created_at');
     const list = (ents ?? []) as unknown as TimesheetEntry[];
@@ -1789,7 +1793,13 @@ export default function MyTimesheet() {
     const opened = {
       kind:       'time_type' as const,
       typeId:     ent.time_type_id ?? '',
-      projId:     ent.project_id  ?? '',
+      /* WHICHEVER COLUMN HOLDS IT. On a type that records help (801) the id the
+       * employee chose was routed to related_project_id and project_id was left
+       * NULL -- so reading project_id alone opened the form on "-- Select --"
+       * over a value that was saved correctly and was showing correctly in the
+       * cell behind it. The picker is one control; the storage is two columns;
+       * the form has to know that. */
+      projId:     ent.project_id ?? ent.related_project_id ?? '',
       hours:      String(Math.floor(totalM / 60)),
       mins:       String(totalM % 60),
       notes:      ent.notes ?? '',
@@ -2190,8 +2200,42 @@ export default function MyTimesheet() {
       : projectActiveOn(p, dates);
 
     const offered  = pool.filter(p => activeOn(p, projectDates));
+
+    /* AN ENTRY THAT EXISTS MUST BE ABLE TO NAME ITS OWN PROJECT.
+     *
+     * Everything above filters by what may be CHOSEN today: the project's own
+     * dates, its active flag, and on the ordinary path your allocation to it.
+     * None of those is guaranteed to still hold for a row saved weeks ago. The
+     * ordinary path has carried an escape hatch for this since 787 --
+     * alreadyBookedOn, inside projectActiveOn -- and the help path deliberately
+     * does not, because being able to see a project somebody else booked is not
+     * a reason to be offered it.
+     *
+     * That reasoning is about OFFERING and says nothing about editing. Without
+     * this, opening an old entry shows "-- Select --" over a stored value, and
+     * the employee either loses the project on Update or is refused with
+     * PROJECT_REQUIRED and no field on screen that explains why. A control that
+     * cannot represent what is stored is not a read-only control; it is a
+     * silent edit waiting for someone to press Save.
+     *
+     * So the CURRENT value is always an option, whatever the filters say --
+     * taken from the pool if it is there, and otherwise reconstructed from the
+     * entry itself, which carries the name even when the project has since gone
+     * inactive and dropped out of the pool entirely. */
+    const currentOpt: { id: string; name: string } | null = (() => {
+      if (!form.projId || offered.some(p => p.id === form.projId)) return null;
+      const fromPool = pool.find(p => p.id === form.projId);
+      if (fromPool) return fromPool;
+      const name = editingEntry ? entryProject(editingEntry)?.name : null;
+      return name ? { id: form.projId, name } : null;
+    })();
+    const options = currentOpt ? [currentOpt, ...offered] : offered;
+
     const withheld = projectDates.length
-      ? pool.filter(p => !activeOn(p, projectDates))
+      // Never name the project that is currently selected. "Not available:
+      // AMPTJ" printed under a picker reading AMPTJ is a screen arguing with
+      // itself, and the employee cannot tell which half to believe.
+      ? pool.filter(p => !activeOn(p, projectDates) && p.id !== form.projId)
       : [];
 
     return (
@@ -2238,7 +2282,7 @@ export default function MyTimesheet() {
               style={selectSt}
             >
               <option value="">— Select —</option>
-              {offered.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              {options.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
             {withheld.length > 0 && (
               <div style={{ marginTop: 5, fontSize: 11.5, color: '#8A97A8', lineHeight: 1.45 }}>
