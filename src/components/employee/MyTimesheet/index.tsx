@@ -2264,7 +2264,34 @@ export default function MyTimesheet() {
                       && (!p.end_date   || p.end_date   >= d))
       : projectActiveOn(p, dates);
 
-    const offered  = pool.filter(p => activeOn(p, projectDates));
+    /* YOUR OWN PROJECTS ARE NOT "ANOTHER PROJECT".
+     *
+     * If you are allocated to AZAD, your AZAD hours are AZAD's -- they belong in
+     * its utilisation, its burn and its cost. Recording them as help takes real
+     * project hours OUT of all three and out of the billable share, which is a
+     * quieter and worse mistake than a typo: nothing on any screen would show
+     * that the project consumed them.
+     *
+     * The test is not a second definition of membership. It asks the OTHER
+     * picker: if this project is offered for these dates as ordinary Work, it is
+     * yours, and it is not somewhere you can be helping. The two lists then
+     * partition the project pool -- every project appears in exactly one of them
+     * for any given day -- so nothing is unreachable and neither list can drift
+     * from the other, because there is only one rule.
+     *
+     * `projectActiveOn` carries the alreadyBookedOn exemption, so a project you
+     * have booked work to on that day counts as yours whatever the allocation
+     * says. That is the reading that matches what actually happened.
+     *
+     * OFFER ONLY. There is no server refusal: allocations lag reality -- someone
+     * leaves a project months before anybody updates the row -- and a hard block
+     * would then refuse a true statement with no way round it from the screen.
+     * Same standing position as the project dropdown itself (test plan AT). */
+    const mine = usesRelated && projectDates.length
+      ? new Set(projects.filter(p => projectActiveOn(p, projectDates)).map(p => p.id))
+      : new Set<string>();
+
+    const offered  = pool.filter(p => activeOn(p, projectDates) && !mine.has(p.id));
 
     /* AN ENTRY THAT EXISTS MUST BE ABLE TO NAME ITS OWN PROJECT.
      *
@@ -2296,11 +2323,18 @@ export default function MyTimesheet() {
     })();
     const options = currentOpt ? [currentOpt, ...offered] : offered;
 
+    // TWO REASONS, NAMED SEPARATELY. Both hide a project, and they call for
+    // opposite responses -- one means wait for the dates to line up, the other
+    // means you are using the wrong time type. Collapsing them into one "not
+    // available" line would leave the employee unable to tell which.
     const withheld = projectDates.length
       // Never name the project that is currently selected. "Not available:
       // AMPTJ" printed under a picker reading AMPTJ is a screen arguing with
       // itself, and the employee cannot tell which half to believe.
       ? pool.filter(p => !activeOn(p, projectDates) && p.id !== form.projId)
+      : [];
+    const withheldMine = projectDates.length
+      ? pool.filter(p => activeOn(p, projectDates) && mine.has(p.id) && p.id !== form.projId)
       : [];
 
     return (
@@ -2360,6 +2394,18 @@ export default function MyTimesheet() {
                 {' — '}{usesRelated
                   ? 'outside the project\u2019s dates.'
                   : 'outside the project\u2019s dates or your allocation to it.'}
+              </div>
+            )}
+            {/* Says what to do instead, not just that something is missing. A
+                project absent with no reason given is indistinguishable from a
+                bug, and this one has a fix the employee can act on. */}
+            {withheldMine.length > 0 && (
+              <div style={{ marginTop: 5, fontSize: 11.5, color: '#8A97A8', lineHeight: 1.45 }}>
+                <i className="fa-solid fa-circle-info" style={{ marginRight: 5 }} />
+                You are on {withheldMine.slice(0, 4).map(p => p.name).join(', ')}
+                {withheldMine.length > 4 ? ` and ${withheldMine.length - 4} more` : ''}
+                {projectDates.length === 1 ? ` on ${fmtChip(projectDates[0])}` : ''}
+                {' — '}record that time as ordinary work, so it counts towards the project.
               </div>
             )}
           </div>

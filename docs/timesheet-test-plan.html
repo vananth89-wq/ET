@@ -2,7 +2,7 @@
 {
   "name": "Timesheet Test Plan",
   "schemaVersion": 1,
-  "description": "Prowess timesheet test plan, migrations 726–827. 395 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
+  "description": "Prowess timesheet test plan, migrations 726–827. 398 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
   "mcpTools": [],
   "mcpServerNames": []
 }
@@ -4930,6 +4930,39 @@ order  by created_at desc limit 6;</div>
       <p>In a month where you both <b>worked on</b> AZAD and <b>gave help to</b> AZAD, export the PDF and read the <b>Month Split</b> donut and the <b>By Project &amp; Activity</b> cards.</p>
       <div class="exp"><b>Expect:</b> <b>two entries</b> &mdash; <b>AZAD</b> and <b>AZAD (Support)</b> &mdash; not one merged slice. Record as an observation, not a failure.</div>
       <div class="why">They are two facts. Merging them would report that AZAD received all of those hours when only the booked ones are its own, which is the claim migration 810 already refuses to make in the project summary. Two rows with one name is the price of that being true, and it is the cheaper mistake.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR28</span>
+      <span class="title">You cannot record help for a project you are on</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Pick <b>Support to Another Project</b> on a day, and open <b>Project you helped</b>. Compare the list with the projects the ordinary <b>Work</b> type offers you on that same day.</p>
+      <div class="exp"><b>Expect:</b> the two lists do not overlap. Every project appears in <b>exactly one</b> of them, and the support list carries a line naming yours: <i>&ldquo;You are on AZAD on 26 Aug &mdash; record that time as ordinary work, so it counts towards the project.&rdquo;</i></div>
+      <div class="why">Your own project&rsquo;s hours belong in its utilisation, burn and cost. Recording them as help takes them out of all three and out of the billable share &mdash; quieter and worse than a typo, because no screen would show the project had consumed them. The test is not a second definition of membership: it asks the other picker. If a project is offered as Work for those dates it is yours, so it cannot be somewhere you are helping, and the two lists cannot drift because there is one rule behind both.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR29</span>
+      <span class="title">An entry recorded before the rule stays editable</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Take an existing support entry naming a project, then have an administrator add you to that project covering that date. Reopen the entry for editing.</p>
+      <div class="exp"><b>Expect:</b> the project is <b>still selected and still in the list</b>, and it is not named in either hint. Changing only the hours still saves.</div>
+      <div class="why">Same rule as AR18: a control that cannot represent what is stored is a silent edit waiting for somebody to press Save. The narrowing decides what may be CHOSEN now; it has no authority over what was chosen before.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR30</span>
+      <span class="title">It is an offer, not a refusal &mdash; and the two hints stay apart</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Arrange a day where one project is outside its own dates and another is one you are allocated to. Read both grey lines under the picker. Then check the server: a direct API call recording help for your own project is <b>not</b> refused.</p>
+      <div class="exp"><b>Expect:</b> two separate lines with two different reasons &mdash; <i>outside the project&rsquo;s dates</i>, and <i>you are on this &mdash; record it as work</i>. The API call succeeds. Record the second half as an observation.</div>
+      <div class="why">Both reasons hide a project and they call for opposite responses: one means wait for the dates to line up, the other means you are using the wrong time type. Collapsed into one &ldquo;not available&rdquo; line the employee cannot tell which. And no server refusal was added deliberately: allocations lag reality &mdash; people leave projects months before anybody updates the row &mdash; and a hard block would refuse a true statement with no way round it from the screen. Same standing position as the project dropdown itself (section AT).</div>
     </div>
   </div>
 </section>
