@@ -2,7 +2,7 @@
 {
   "name": "Timesheet Test Plan",
   "schemaVersion": 1,
-  "description": "Prowess timesheet test plan, migrations 726–823. 355 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
+  "description": "Prowess timesheet test plan, migrations 726–824. 365 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
   "mcpTools": [],
   "mcpServerNames": []
 }
@@ -167,7 +167,7 @@
     <a class="toc" href="#aqb">AQ · Billability (800)</a>
     <a class="toc" href="#arh">AR · Help given to another project (801 &middot; 802 &middot; 810)</a>
     <a class="toc" href="#asb">AS · Which hours are chargeable (820&ndash;823)</a>
-    <a class="toc" href="#at">AT · Known and deliberate (780&ndash;823)</a>
+    <a class="toc" href="#at">AT · Known and deliberate (780&ndash;824)</a>
   </div>
 
   <div class="bar">
@@ -4812,8 +4812,8 @@ order  by created_at desc limit 6;</div>
   </div>
 </section>
 <section id="asb">
-  <h2><span class="k">AS</span> Which hours are chargeable (820 &middot; 821 &middot; 822 &middot; 823)</h2>
-  <p class="lede">A ticket on a billable project is ten hours exploring it and two hours writing the fix, and only the two can be invoiced. The flag now sits on the activity row. Two of these cases exist because the first two attempts at this shipped wrong.</p>
+  <h2><span class="k">AS</span> Which hours are chargeable (820 &middot; 821 &middot; 822 &middot; 823 &middot; 824)</h2>
+  <p class="lede">A ticket on a billable project is ten hours exploring it and two hours writing the fix, and only the two can be invoiced. The flag sits on the activity row, and one activity name can carry both answers on one day &mdash; that is two rows, not a merge. Several of these cases exist because earlier attempts at this shipped wrong; AS19 and AS20 exist because migration 821 broke Mass Create on billable projects without failing its own deploy.</p>
 
   <div class="case">
     <div class="head"><input type="checkbox"><span class="id">AS1</span>
@@ -4983,9 +4983,119 @@ order  by created_at desc limit 6;</div>
       <div class="why">The decision was that the employee proposes and the approver confirms, returning rather than editing. The approval screen has not been built to show what is being confirmed. It is the next piece of work on this feature.</div>
     </div>
   </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AS16</span>
+      <span class="title">One name, both answers, one day</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>On <b>AMPTJ</b>, record a day with two activity rows both named <b>Testing</b> &mdash; 10:00 marked <b>Not billable</b> and 2:00 marked <b>Billable</b>. Save, then reopen the day.</p>
+      <div class="exp"><b>Expect:</b> <b>two rows</b>, both called Testing, one 10:00 not billable and one 2:00 billable. Not one row of 12:00, and no error.</div>
+      <div class="why">This is the whole of 824. Until it, an activity row was unique on (entry, name) and the second Testing merged into the first, at which point some rule had to decide which answer survived &mdash; and every available answer was wrong: last-write-wins invents billable minutes that reach an invoice, AND loses them silently, and refusing makes the employee rename a real activity to record it. The key was wrong, not the merge rule.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AS17</span>
+      <span class="title">The same name and the same answer still merges</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Same day, add <b>Testing</b> 1:00 <b>Billable</b> and <b>testing</b> (lower case) 0:30 <b>Billable</b> in one save.</p>
+      <div class="exp"><b>Expect:</b> one billable Testing row of 3:30 &mdash; the earlier 2:00 plus 1:00 plus 0:30 &mdash; keeping the capitalisation typed first. The non-billable row is untouched at 10:00.</div>
+      <div class="why">824 widened the key; it did not abandon deduplication. A duplicate name with the <i>same</i> billability is still a duplicate and still folds, case-insensitively, exactly as 727 intended.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AS18</span>
+      <span class="title">Appending the other answer to a day already saved</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>On a day that already has <b>Design</b> 3:00 <b>Billable</b>, use the day panel to add <b>Design</b> 1:00 <b>Not billable</b>.</p>
+      <div class="exp"><b>Expect:</b> a second Design row appears at 1:00 not billable. The billable one stays at 3:00.</div>
+      <div class="why">The append path merges through <code>ON CONFLICT</code>, which infers its target from the unique index. 824 had to widen that clause in three functions in step with the index &mdash; miss one and the append raises a constraint error instead of merging.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AS19</span>
+      <span class="title">Mass Create on a billable project &mdash; the one that was broken</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Open <b>Create</b>, pick <b>AMPTJ</b>, select four dates, add two activities and answer the billable question on each. Save.</p>
+      <div class="exp"><b>Expect:</b> four days created, each carrying both answers.</div>
+      <div class="warn"><b>This failed before 824</b> with <code>column p_activities does not exist</code>, and the whole call rolled back. Migration 821 gave <code>bulk_create_timesheet_entries</code> a parameter that belongs to <code>save_timesheet_entry</code>; plpgsql resolves that at run time, so 821 deployed green and only broke when somebody mass-created on a project that was actually billable. If this case fails, 824 did not deploy.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AS20</span>
+      <span class="title">Mass Create now enforces the question too</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>In <b>Create</b> on <b>AMPTJ</b>, leave one activity's billable answer unset and try to save. If the screen will not let you, have the API called directly without the key.</p>
+      <div class="exp"><b>Expect:</b> refused &mdash; &ldquo;Say whether each activity is billable before saving.&rdquo; Nothing is written for any of the selected dates.</div>
+      <div class="why">Same defect as AS19, other half: because the refusal itself named the missing parameter, it never ran. <b>BILLABLE_REQUIRED has never once been enforced on Mass Create</b> until this migration, so any mass-created hours on billable projects from before 824 may carry no answer at all. Worth a look at the data, not just the screen.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AS21</span>
+      <span class="title">Mass Create appending onto days that already exist</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Run <b>Create</b> again over the same four dates with the same project and time type, one activity named <b>Testing</b> marked <b>Not billable</b>, where those days already hold a <b>billable</b> Testing.</p>
+      <div class="exp"><b>Expect:</b> each day ends with two Testing rows, one of each answer. No day has its billable minutes changed.</div>
+      <div class="why">Mass Create has its own append loop, separate from the day panel's. Both had to be widened; this is the one that is easy to forget because it only runs on a second pass over the same dates.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AS22</span>
+      <span class="title">Copy Day carries a pair as a pair</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Copy the AS16 day &mdash; Testing billable and Testing not billable &mdash; onto an empty day, then onto a day that already holds a <b>billable</b> Testing.</p>
+      <div class="exp"><b>Expect:</b> the empty day gets both rows. The occupied day ends with the billable Testing summed and the not-billable one added alongside.</div>
+      <div class="why">Copy Day merges on the index too. Its 821 rule &mdash; when two rows of one name merge, AND the flags rather than pick one &mdash; is now unreachable, because rows that merge already agree. It is left in place deliberately: it costs nothing and it still says what is meant.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AS23</span>
+      <span class="title">Where the question does not apply, one name is still one row</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>On an <b>Internal</b> project, or on <b>Training</b>, or on <b>Support to Another Project</b> &mdash; anywhere no billable choice is offered &mdash; try to record <b>Handover</b> twice on the same day.</p>
+      <div class="exp"><b>Expect:</b> they merge into one row, exactly as before. Two identical rows must not be possible.</div>
+      <div class="warn">This is the case that proves <code>NULLS NOT DISTINCT</code> is actually on the index. Without it, every row where the question did not apply carries NULL, NULLs count as distinct by default, and all of those rows quietly escape the deduplication 727 exists to provide &mdash; Handover four times on one day and no complaint.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AS24</span>
+      <span class="title">The split reads the rows, not the entry</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>With the AS16 day saved &mdash; 10:00 not billable and 2:00 billable on a billable project &mdash; open <b>Utilisation</b> for that period.</p>
+      <div class="exp"><b>Expect:</b> that day contributes <b>2:00</b> to billable and <b>10:00</b> to non-billable. Recorded hours are unchanged at 12:00.</div>
+      <div class="why">822 moved the split to activity grain. AS16 is the case it was built for, and until 824 that day could not be recorded at all, so this is the first time the two are checked together.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AS25</span>
+      <span class="title">The project screen still counts every hour</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Open <b>Project Summary</b> for AMPTJ over the same period.</p>
+      <div class="exp"><b>Expect:</b> all 12:00 counted against the project. The billable split does not reduce what the project shows as delivered.</div>
+      <div class="why">Two reports that disagree about the same hour is worse than either being wrong, because the disagreement is what gets argued about. Utilisation answers &ldquo;what can be invoiced&rdquo;; the project screen answers &ldquo;what was spent&rdquo;. Both are true of the same twelve hours.</div>
+    </div>
+  </div>
 </section>
 <section id="at">
-  <h2><span class="k">AT</span> Known and deliberate (780&ndash;823)</h2>
+  <h2><span class="k">AT</span> Known and deliberate (780&ndash;824)</h2>
   <p class="lede">Seven behaviours read as bugs without the context. Record them as observations, not failures.</p>
   <div class="qnote"><b>The dropdown is an offer, not a rule.</b> A direct API call can still write an entry
     against any active project. No enforcement trigger has been added: it is the one change that can stop
