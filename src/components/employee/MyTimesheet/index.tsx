@@ -149,11 +149,18 @@ function validateActRows(rows: ActRow[], askBillable = false): string | null {
   if (rows.some(r => !r.name.trim() && rowMinutes(r) > 0))
     return 'One line has hours but no activity name.';
 
+  /* mig 824. Two lines with the same name are a duplicate only when they carry
+   * the SAME answer. "Testing" billable and "Testing" not billable are two
+   * different facts about one day, and the database now keys on
+   * (entry, name, is_billable) so it stores them as two rows. Refusing them here
+   * would make the employee rename a real activity to record what happened. */
   const seen = new Set<string>();
   for (const r of named) {
-    const key = r.name.trim().toLowerCase();
+    const key = `${r.name.trim().toLowerCase()}|${askBillable ? String(r.billable) : ''}`;
     if (seen.has(key))
-      return `"${r.name.trim()}" is listed twice — combine the hours into one line.`;
+      return askBillable
+        ? `"${r.name.trim()}" is listed twice with the same billable answer — combine the hours into one line.`
+        : `"${r.name.trim()}" is listed twice — combine the hours into one line.`;
     seen.add(key);
   }
 
