@@ -2,7 +2,7 @@
 {
   "name": "Timesheet Test Plan",
   "schemaVersion": 1,
-  "description": "Prowess timesheet test plan, migrations 726–826. 385 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
+  "description": "Prowess timesheet test plan, migrations 726–826. 387 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
   "mcpTools": [],
   "mcpServerNames": []
 }
@@ -5125,6 +5125,28 @@ order  by created_at desc limit 6;</div>
       <p>Open <b>Project Summary</b> for AMPTJ over the same period.</p>
       <div class="exp"><b>Expect:</b> all 12:00 counted against the project. The billable split does not reduce what the project shows as delivered.</div>
       <div class="why">Two reports that disagree about the same hour is worse than either being wrong, because the disagreement is what gets argued about. Utilisation answers &ldquo;what can be invoiced&rdquo;; the project screen answers &ldquo;what was spent&rdquo;. Both are true of the same twelve hours.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AS26</span>
+      <span class="title">The day panel tells two same-named rows apart</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>On a <b>billable</b> project, record <b>Testing</b> twice on one day &mdash; 2h billable and 3h not. Save, then expand that entry in the day panel <b>without</b> clicking edit.</p>
+      <div class="exp"><b>Expect:</b> two rows, one tagged <b>Billable</b> and one <b>Not billable</b>, each with its own hours.</div>
+      <div class="why">Before this, the read-only list showed two rows both reading &ldquo;Testing&rdquo; with nothing whatever to tell them apart &mdash; the answer is the only thing that makes them two rows rather than one, so it is the thing that has to be on screen. The edit form has always had the radios; this is the view you land on first.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AS27</span>
+      <span class="title">No tag in the panel where the question was never put</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Expand, in the same panel, an entry on an <b>internal</b> project and one recorded as <b>Support to Another Project</b>.</p>
+      <div class="exp"><b>Expect:</b> activity rows with hours and <b>no tag at all</b> on either.</div>
+      <div class="why">A stored NULL means nobody was asked, not an answer of &ldquo;no&rdquo;. Support hours are read off the BOOKED project, which is NULL on those entries by design (801) &mdash; they are never chargeable to the project they name, so the absence of a tag there is correct rather than a gap.</div>
     </div>
   </div>
 </section>

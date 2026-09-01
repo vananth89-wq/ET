@@ -3384,6 +3384,18 @@ export default function MyTimesheet() {
                                           .sort((a, b) => a.display_order - b.display_order);
                           const names = (ent.activities ?? []).filter(Boolean);
                           if (!rows.length && !names.length) return null;
+                          /* Migs 821/824. Since one activity NAME can be recorded twice
+                           * on one entry with different answers -- ten hours exploring a
+                           * ticket and two writing the fix -- this list could show two
+                           * rows reading "Testing" with nothing whatever to tell them
+                           * apart. The answer is the only thing that makes them two rows
+                           * rather than one, so it is the thing that has to be on screen.
+                           *
+                           * Read off the BOOKED project. Support entries (801) leave
+                           * project_id NULL and are never chargeable to the project they
+                           * name, so they get no tag -- which is correct, not an
+                           * omission. */
+                          const cls = classOfProject(ent.project_id);
                           return (
                             <div style={{ marginBottom: ent.notes ? 8 : 0 }}>
                               <div style={{ fontSize: 9, fontWeight: 800, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
@@ -3394,6 +3406,22 @@ export default function MyTimesheet() {
                                     <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '2px 0' }}>
                                       <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#34D399', flexShrink: 0, display: 'inline-block' }} />
                                       <span style={{ fontSize: 12, color: '#374151', fontWeight: 500, flex: 1, minWidth: 0 }}>{r.activity_name}</span>
+                                      {/* Only where the question was actually put. NULL means
+                                          nobody was asked, and a "Not billable" tag against it
+                                          would be an answer this panel invented. */}
+                                      {cls === 'billable' && r.is_billable != null && (
+                                        <span style={{
+                                          fontSize: 9.5, fontWeight: 700, padding: '1px 6px', borderRadius: 5,
+                                          whiteSpace: 'nowrap', flexShrink: 0,
+                                          // The row sits on #FAFAFA here, not white as in the
+                                          // Monthly Summary, and #F3F4F6 against it is not a chip
+                                          // -- it is text with a faint smudge behind it. Same
+                                          // shape as the summary's tags, one step darker so it
+                                          // still reads as one.
+                                          background: r.is_billable ? '#ECFDF5' : '#EDEFF2',
+                                          color:      r.is_billable ? '#047857' : '#6B7280',
+                                        }}>{r.is_billable ? 'Billable' : 'Not billable'}</span>
+                                      )}
                                       <span style={{ fontSize: 11, color: '#6B7280', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{fmtMins(r.hours_minutes)}</span>
                                     </div>
                                   ))
