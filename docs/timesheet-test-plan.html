@@ -2,7 +2,7 @@
 {
   "name": "Timesheet Test Plan",
   "schemaVersion": 1,
-  "description": "Prowess timesheet test plan, migrations 726–827. 398 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
+  "description": "Prowess timesheet test plan, migrations 726–827. 399 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
   "mcpTools": [],
   "mcpServerNames": []
 }
@@ -4939,7 +4939,7 @@ order  by created_at desc limit 6;</div>
     <div class="body">
       <span class="lbl">Do</span>
       <p>Pick <b>Support to Another Project</b> on a day, and open <b>Project you helped</b>. Compare the list with the projects the ordinary <b>Work</b> type offers you on that same day.</p>
-      <div class="exp"><b>Expect:</b> the two lists do not overlap. Every project appears in <b>exactly one</b> of them, and the support list carries a line naming yours: <i>&ldquo;You are on AZAD on 26 Aug &mdash; record that time as ordinary work, so it counts towards the project.&rdquo;</i></div>
+      <div class="exp"><b>Expect:</b> the two lists do not overlap. Every project appears in <b>exactly one</b> of them, and the support list carries the line <i>&ldquo;Projects you are assigned to are not listed &mdash; record that time as ordinary work, so it counts towards the project.&rdquo;</i></div>
       <div class="why">Your own project&rsquo;s hours belong in its utilisation, burn and cost. Recording them as help takes them out of all three and out of the billable share &mdash; quieter and worse than a typo, because no screen would show the project had consumed them. The test is not a second definition of membership: it asks the other picker. If a project is offered as Work for those dates it is yours, so it cannot be somewhere you are helping, and the two lists cannot drift because there is one rule behind both.</div>
     </div>
   </div>
@@ -4961,8 +4961,19 @@ order  by created_at desc limit 6;</div>
     <div class="body">
       <span class="lbl">Do</span>
       <p>Arrange a day where one project is outside its own dates and another is one you are allocated to. Read both grey lines under the picker. Then check the server: a direct API call recording help for your own project is <b>not</b> refused.</p>
-      <div class="exp"><b>Expect:</b> two separate lines with two different reasons &mdash; <i>outside the project&rsquo;s dates</i>, and <i>you are on this &mdash; record it as work</i>. The API call succeeds. Record the second half as an observation.</div>
-      <div class="why">Both reasons hide a project and they call for opposite responses: one means wait for the dates to line up, the other means you are using the wrong time type. Collapsed into one &ldquo;not available&rdquo; line the employee cannot tell which. And no server refusal was added deliberately: allocations lag reality &mdash; people leave projects months before anybody updates the row &mdash; and a hard block would refuse a true statement with no way round it from the screen. Same standing position as the project dropdown itself (section AT).</div>
+      <div class="exp"><b>Expect:</b> two separate lines with two different reasons &mdash; the first <b>naming</b> the projects that fell outside their dates, the second stating the assignment rule with <b>no names at all</b>. The API call succeeds. Record the second half as an observation.</div>
+      <div class="why">Both reasons hide a project and they call for opposite responses: one means wait for the dates to line up, the other means you are using the wrong time type. Collapsed into one &ldquo;not available&rdquo; line the employee cannot tell which. They are also worded differently on purpose &mdash; see AR31. And no server refusal was added deliberately: allocations lag reality &mdash; people leave projects months before anybody updates the row &mdash; and a hard block would refuse a true statement with no way round it from the screen. Same standing position as the project dropdown itself (section AT).</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR31</span>
+      <span class="title">The assignment hint does not grow with your assignments</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Open the support picker as somebody allocated to <b>six or more</b> projects covering that day.</p>
+      <div class="exp"><b>Expect:</b> still <b>one sentence, no project names</b> &mdash; the same line an employee with one assignment sees. The dates line above it still names its projects, capped at four plus &ldquo;and N more&rdquo;.</div>
+      <div class="why">The two hints look alike and do different jobs. The dates line answers <i>&ldquo;where is the project I was looking for?&rdquo;</i>, so it has to say which went and why. This one answers nothing of the sort &mdash; nobody opens the help picker hunting for a project they are staffed on &mdash; so there is no absence to explain, only a rule to state once. Naming them would print six names, or sixty, to tell somebody what they already know about their own allocations, in the place they are least likely to look for it.</div>
     </div>
   </div>
 </section>

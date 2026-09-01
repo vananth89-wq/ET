@@ -2396,16 +2396,26 @@ export default function MyTimesheet() {
                   : 'outside the project\u2019s dates or your allocation to it.'}
               </div>
             )}
-            {/* Says what to do instead, not just that something is missing. A
-                project absent with no reason given is indistinguishable from a
-                bug, and this one has a fix the employee can act on. */}
+            {/* NO NAMES, deliberately -- unlike the line above it.
+                
+                The two hints look alike and do different jobs. That one answers
+                "where is the project I was looking for?", so it has to say which
+                projects went and why; an absence with no reason given is
+                indistinguishable from a bug.
+
+                This one answers nothing of the sort. Nobody opens the HELP
+                picker hunting for a project they are staffed on, so there is no
+                specific absence to explain -- there is a rule to state, once.
+                Naming them would print six names for somebody with six
+                allocations and sixty for a busy month's worth, to tell them
+                something they already know about their own assignments, in the
+                one place they are least likely to be looking for it. One
+                sentence, the same length whatever the list behind it. */}
             {withheldMine.length > 0 && (
               <div style={{ marginTop: 5, fontSize: 11.5, color: '#8A97A8', lineHeight: 1.45 }}>
                 <i className="fa-solid fa-circle-info" style={{ marginRight: 5 }} />
-                You are on {withheldMine.slice(0, 4).map(p => p.name).join(', ')}
-                {withheldMine.length > 4 ? ` and ${withheldMine.length - 4} more` : ''}
-                {projectDates.length === 1 ? ` on ${fmtChip(projectDates[0])}` : ''}
-                {' — '}record that time as ordinary work, so it counts towards the project.
+                Projects you are assigned to are not listed &mdash; record that time as
+                ordinary work, so it counts towards the project.
               </div>
             )}
           </div>
