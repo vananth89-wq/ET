@@ -152,22 +152,6 @@ DECLARE
 '  END IF;' || E'\n' ||
 '' || E'\n';
 
-  b_apply8 CONSTANT text :=
-'        -- mig 821. The append path writes child rows too, so it needs the same' || E'\n' ||
-'        -- treatment as the create path. Two returns, two applies.' || E'\n' ||
-'        IF v_bill_applies THEN' || E'\n' ||
-'          UPDATE timesheet_entry_activities t' || E'\n' ||
-'             SET is_billable = (b.value->>''billable'')::boolean' || E'\n' ||
-'            FROM jsonb_array_elements(COALESCE(p_activities, ''[]''::jsonb)) b' || E'\n' ||
-'           WHERE t.entry_id = v_id' || E'\n' ||
-'             AND lower(btrim(t.activity_name)) = lower(btrim(COALESCE(b.value->>''name'', '''')));' || E'\n' ||
-'        ELSE' || E'\n' ||
-'          UPDATE timesheet_entry_activities t' || E'\n' ||
-'             SET is_billable = NULL' || E'\n' ||
-'           WHERE t.entry_id = v_id AND t.is_billable IS NOT NULL;' || E'\n' ||
-'        END IF;' || E'\n' ||
-'' || E'\n';
-
   a_bulk CONSTANT text :=
 '  PERFORM recalc_timesheet_recorded_minutes(p_header_id);' || E'\n';
   b_bulk CONSTANT text :=
@@ -188,10 +172,6 @@ DECLARE
 '' || E'\n' ||
 '  PERFORM recalc_timesheet_recorded_minutes(p_header_id);' || E'\n';
 
-  a_ret_append CONSTANT text :=
-'        RETURN jsonb_build_object(''ok'', true, ''appended'', true, ''entry_id'', v_id,' || E'\n';
-  a_ret_create CONSTANT text :=
-'  RETURN jsonb_build_object(''ok'', true, ''appended'', false, ''entry_id'', v_id,' || E'\n';
 BEGIN
   FOREACH v_fn IN ARRAY ARRAY['save_timesheet_entry', 'bulk_create_timesheet_entries']
   LOOP
@@ -237,17 +217,27 @@ BEGIN
     v_new := replace(v_new, a_chk, b_chk);
 
     IF v_fn = 'save_timesheet_entry' THEN
-      v_hits := (length(v_new) - length(replace(v_new, a_ret_append, ''))) / length(a_ret_append);
-      IF v_hits <> 1 THEN
-        RAISE EXCEPTION 'MIG 821: the append return matched % times in %, expected 1.', v_hits, v_fn;
+      -- NOT anchored on the text of the return. 733 wrote these lines, 738
+      -- rewrote both to slot ''warning'', v_warn into the middle, and anything
+      -- later may do the same again. Two attempts at a literal here both missed
+      -- on a shape the file could not show me. Match the stable ends instead --
+      -- the call and the ''appended'' key -- and keep whatever indentation is
+      -- actually there.
+      SELECT count(*) INTO v_hits
+      FROM   regexp_matches(v_new, 'RETURN jsonb_build_object\(''ok'', true,[^\n]*''appended''', 'g');
+      IF v_hits <> 2 THEN
+        RAISE EXCEPTION 'MIG 821: expected 2 success returns in %, found %. Both write activity rows and both need the apply.', v_fn, v_hits;
       END IF;
-      v_new := replace(v_new, a_ret_append, b_apply8 || a_ret_append);
 
-      v_hits := (length(v_new) - length(replace(v_new, a_ret_create, ''))) / length(a_ret_create);
-      IF v_hits <> 1 THEN
-        RAISE EXCEPTION 'MIG 821: the create return matched % times in %, expected 1.', v_hits, v_fn;
+      v_new := regexp_replace(v_new,
+                 '(\n)([ \t]*)(RETURN jsonb_build_object\(''ok'', true,[^\n]*''appended'')',
+                 E'\\1' || b_apply || E'\\2\\3', 'g');
+
+      SELECT count(*) INTO v_hits
+      FROM   regexp_matches(v_new, 'mig 821. Applied after the child rows exist', 'g');
+      IF v_hits <> 2 THEN
+        RAISE EXCEPTION 'MIG 821: the apply landed % times in %, expected 2.', v_hits, v_fn;
       END IF;
-      v_new := replace(v_new, a_ret_create, b_apply || a_ret_create);
     ELSE
       v_hits := (length(v_new) - length(replace(v_new, a_bulk, ''))) / length(a_bulk);
       IF v_hits <> 1 THEN
