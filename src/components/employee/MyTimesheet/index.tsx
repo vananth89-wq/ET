@@ -389,6 +389,26 @@ function fmtDayHours(minutes: number, status: DayStatus): string {
   return Number.isInteger(v) ? String(v) : v.toFixed(1);
 }
 
+/**
+ * Were these hours GIVEN to the project this entry names? (mig 801)
+ *
+ * Read off the COLUMNS, not the time type. `related_project_id` holding an id
+ * while `project_id` is NULL is what the entry actually did; the type's
+ * `uses_related_project` flag is only what its type is configured to do now.
+ * Rule (h) keeps the two columns mutually exclusive, and TYPE_IN_USE (802)
+ * stops a type being reclassified under rows already recorded — so the column
+ * stays true of an old entry whatever anybody changes afterwards.
+ *
+ * Why any of this needs saying on screen: an entry showing "AZAD" asserts the
+ * hours are AZAD's, and that is precisely the claim 801 exists to deny. They
+ * are kept out of that project's utilisation, burn and cost on purpose. A row
+ * that reads the same as ordinary work booked to AZAD is not under-labelled,
+ * it is wrong.
+ */
+function isSupportEntry(ent: { project_id?: string | null; related_project_id?: string | null }): boolean {
+  return !ent.project_id && !!ent.related_project_id;
+}
+
 // Calendar cell label: the project name when there is one, else the time type.
 // The panel shows project and time type separately; the cell only has room for one.
 function getCellLabel(ent: TimesheetEntry): string {
@@ -3004,8 +3024,16 @@ export default function MyTimesheet() {
                                   color: ent.entry_kind === 'leave' ? '#1E40AF' : '#1F2937',
                                   letterSpacing: '-0.01em',
                                   whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                                }}>
-                                  {getCellLabel(ent)}
+                                }}
+                                  /* One character, because there is no room for
+                                     a word here and none is needed: an arrow
+                                     reads as "out to". The title carries the
+                                     sentence for anyone who wants it. */
+                                  title={isSupportEntry(ent)
+                                    ? `Support given to ${getCellLabel(ent)} — these hours do not count towards that project.`
+                                    : undefined}
+                                >
+                                  {isSupportEntry(ent) ? `→ ${getCellLabel(ent)}` : getCellLabel(ent)}
                                 </span>
                                 <span style={{
                                   flex: '0 0 34px', width: 34, textAlign: 'right',
@@ -3268,7 +3296,16 @@ export default function MyTimesheet() {
                     {(() => {
                       const t = Array.isArray(ent.time_types) ? ent.time_types[0] : ent.time_types;
                       const p = entryProject(ent);
-                      const primaryText = p?.name ?? t?.name ?? (ent.entry_kind === 'holiday' ? 'Holiday' : ent.entry_kind);
+                      /* "Helping AZAD", not "AZAD". The verb is the whole
+                         point -- it says the hours were given rather than
+                         booked -- and it echoes the wording of the field that
+                         captured them, which is labelled "Project you helped".
+                         Ordinary rows are left alone: their label is already
+                         true, and a suffix on every one of them would carry
+                         nothing on any of them. */
+                      const primaryText = isSupportEntry(ent) && p?.name
+                        ? `Helping ${p.name}`
+                        : p?.name ?? t?.name ?? (ent.entry_kind === 'holiday' ? 'Holiday' : ent.entry_kind);
                       return (
                         <div style={{ display: 'flex', alignItems: 'center', padding: '0 10px 0 12px', height: 44, gap: 8 }}>
                           {/* Colored dot */}

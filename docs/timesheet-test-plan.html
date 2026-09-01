@@ -2,7 +2,7 @@
 {
   "name": "Timesheet Test Plan",
   "schemaVersion": 1,
-  "description": "Prowess timesheet test plan, migrations 726–826. 387 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
+  "description": "Prowess timesheet test plan, migrations 726–826. 390 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
   "mcpTools": [],
   "mcpServerNames": []
 }
@@ -4842,6 +4842,39 @@ order  by created_at desc limit 6;</div>
       <p>In the state set up by AR18, read the grey hint under the picker.</p>
       <div class="exp"><b>Expect:</b> it lists whatever else is unavailable for that day, and <b>never the project currently selected</b>.</div>
       <div class="why">&ldquo;Not available: AMPTJ&rdquo; printed under a picker reading AMPTJ is a screen contradicting itself, and the employee has no way to tell which half to believe.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR20</span>
+      <span class="title">A support entry says the hours were given, not booked</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>On a day that carries both, compare an ordinary <b>Work</b> entry on QCC with a <b>Support to Another Project</b> entry naming AZAD &mdash; in the day panel, and in the calendar cell behind it.</p>
+      <div class="exp"><b>Expect:</b> the panel reads <b>QCC</b> and <b>Helping AZAD</b>. The cell reads <b>QCC</b> and <b>&rarr; AZAD</b>, and hovering the arrow says the hours do not count towards that project.</div>
+      <div class="why">A row reading plain &ldquo;AZAD&rdquo; asserts the hours are AZAD&rsquo;s, which is exactly the claim 801 exists to deny &mdash; they are kept out of that project&rsquo;s utilisation, burn and cost on purpose. The row was not under-labelled, it was wrong. Ordinary rows are deliberately left bare: their label is already true, and a &ldquo;(Work)&rdquo; suffix on every row of every day would carry nothing on any of them.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR21</span>
+      <span class="title">The wording follows the columns, not the configuration</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>With support hours already recorded, have an administrator open <b>Time Types</b> and try to turn <b>Support to Another Project</b> back into an ordinary project type. Then reopen the timesheet.</p>
+      <div class="exp"><b>Expect:</b> the administrator is refused with <b>TYPE_IN_USE</b> (802). The recorded entries still read <b>Helping AZAD</b> and <b>&rarr; AZAD</b>.</div>
+      <div class="why">The label is decided by the entry&rsquo;s own columns &mdash; <code>related_project_id</code> set, <code>project_id</code> NULL &mdash; not by what the time type is configured to do today. What an entry DID is a fact about that entry; what its type does is a setting. Reading the setting would have relabelled history the moment somebody changed a checkbox.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR22</span>
+      <span class="title">Leave and holiday rows are untouched</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Look at a full-day <b>Annual Leave</b> day and a <b>Public Holiday</b> in the calendar, and at the message you get trying to add attendance to a fully absent day.</p>
+      <div class="exp"><b>Expect:</b> no arrows anywhere, and the message still reads &ldquo;<i>Annual Leave covers the full day</i>&rdquo; with no stray glyph in the sentence.</div>
+      <div class="why">The cell label helper is also used inside a sentence. An arrow baked into it would have read &ldquo;&rarr; Annual Leave covers the full day&rdquo; on a screen nobody would think to check &mdash; which is why the prefix is applied where the cell is drawn rather than inside the helper.</div>
     </div>
   </div>
 </section>
