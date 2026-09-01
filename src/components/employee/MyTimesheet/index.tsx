@@ -55,6 +55,8 @@ interface TimesheetHeader {
  *  truth for a project entry; the parent's hours_minutes and activities[] are
  *  mirrors a database trigger keeps in step. */
 interface TimesheetEntryActivity {
+  /** mig 821. null = the question did not apply to this row. */
+  is_billable?: boolean | null;
   id:            string;
   activity_name: string;
   hours_minutes: number;
@@ -100,7 +102,14 @@ function entryProject(ent: { projects?: any; related_projects?: any }): { name: 
 /** One editable activity line. Held as STRINGS on purpose: a half-typed "1" in
  *  the hours box must stay "1" rather than collapsing to 0 while the person is
  *  still typing. */
-type ActRow = { name: string; h: string; m: string };
+type ActRow = {
+  name: string; h: string; m: string;
+  /** mig 821. true/false are answers the employee gave; null means the question
+   *  was never put to them — the entry books to no project, or to one nobody is
+   *  paying for. Three states, because "not billable" and "never asked" are
+   *  different facts and the database keeps them apart. */
+  billable?: boolean | null;
+};
 
 const rowMinutes = (r: ActRow) =>
   (parseInt(r.h || '0', 10) || 0) * 60 + (parseInt(r.m || '0', 10) || 0);
@@ -112,14 +121,27 @@ const actTotal = (rows: ActRow[]) =>
   namedRows(rows).reduce((sum, r) => sum + rowMinutes(r), 0);
 
 /** Rows -> the payload save_timesheet_entry and bulk_create both expect. */
-const actPayload = (rows: ActRow[]) =>
-  namedRows(rows).map(r => ({ name: r.name.trim(), minutes: rowMinutes(r) }));
+const actPayload = (rows: ActRow[], askBillable: boolean) =>
+  namedRows(rows).map(r => ({
+    name: r.name.trim(),
+    minutes: rowMinutes(r),
+    // Omitted, not nulled, when the question does not apply: the server clears
+    // the column itself, and sending a value it will discard invites somebody
+    // to wonder later which of the two won.
+    ...(askBillable ? { billable: r.billable === true } : {}),
+  }));
 
 /** Returns the message to show, or null when the rows are usable. Every branch
  *  names the offending activity — "Add hours" with no subject is a puzzle. */
-function validateActRows(rows: ActRow[]): string | null {
+function validateActRows(rows: ActRow[], askBillable = false): string | null {
   const named = namedRows(rows);
   if (!named.length) return 'Add at least one activity.';
+
+  if (askBillable) {
+    const unanswered = named.find(r => r.billable !== true && r.billable !== false);
+    if (unanswered)
+      return `Say whether "${unanswered.name.trim()}" is billable.`;
+  }
 
   const noHours = named.find(r => rowMinutes(r) <= 0);
   if (noHours) return `Add hours for "${noHours.name.trim()}".`;
@@ -156,6 +178,7 @@ function entryToActRows(ent: TimesheetEntry): ActRow[] {
         name: r.activity_name,
         h: String(Math.floor(r.hours_minutes / 60)),
         m: String(r.hours_minutes % 60),
+        billable: r.is_billable ?? null,
       }));
   }
   const names = (ent.activities ?? []).filter(Boolean);
@@ -529,6 +552,11 @@ export default function MyTimesheet() {
    * `projects` rather than merged into it: that list is narrowed on purpose and
    * every rule already written against it stays true. */
   const [allProjects, setAllProjects] = useState<Project[]>([]);
+  /* mig 823. Which projects anybody is paying for. The screen needs this only
+   * to decide whether to OFFER the billable question; what is stored is decided
+   * server-side by save_timesheet_entry, so a stale set here cannot corrupt
+   * anything — at worst the employee is asked and the answer is discarded. */
+  const [billableProjects, setBillableProjects] = useState<Set<string>>(new Set());
 
   // Timesheet data
   const [header,    setHeader]    = useState<TimesheetHeader | null>(null);
@@ -655,6 +683,15 @@ export default function MyTimesheet() {
     })();
     return () => { live = false; };
   }, [subjectId, year, month]);
+
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      const { data } = await supabase.rpc('billable_project_ids');
+      if (live && data) setBillableProjects(new Set((data as { id: string }[]).map(r => r.id)));
+    })();
+    return () => { live = false; };
+  }, []);
 
   /* The unfiltered pool, fetched only when some active time type asks for it.
    * Until an administrator switches such a type on this costs nothing, and the
@@ -914,7 +951,7 @@ export default function MyTimesheet() {
       .select(`
         id, header_id, entry_date, entry_kind, project_id, time_type_id,
         hours_minutes, notes, activities, is_system_generated, created_at, updated_at,
-        timesheet_entry_activities ( id, activity_name, hours_minutes, display_order, created_at ),
+        timesheet_entry_activities ( id, activity_name, hours_minutes, display_order, created_at, is_billable ),
         time_types ( name, code, category, requires_project, uses_related_project ),
         projects!project_id ( name ),
         related_projects:projects!related_project_id ( name )
@@ -1031,7 +1068,7 @@ export default function MyTimesheet() {
     if (!header) return entries;
     const { data: ents } = await supabase
       .from('timesheet_entries')
-      .select(`id, header_id, entry_date, entry_kind, project_id, time_type_id, hours_minutes, notes, activities, is_system_generated, created_at, updated_at, timesheet_entry_activities(id, activity_name, hours_minutes, display_order, created_at), time_types(name,code,category,requires_project,uses_related_project), projects!project_id(name), related_projects:projects!related_project_id(name)`)
+      .select(`id, header_id, entry_date, entry_kind, project_id, time_type_id, hours_minutes, notes, activities, is_system_generated, created_at, updated_at, timesheet_entry_activities(id, activity_name, hours_minutes, display_order, created_at, is_billable), time_types(name,code,category,requires_project,uses_related_project), projects!project_id(name), related_projects:projects!related_project_id(name)`)
       .eq('header_id', header.id)
       .order('entry_date').order('created_at');
     const list = (ents ?? []) as unknown as TimesheetEntry[];
@@ -1265,7 +1302,7 @@ export default function MyTimesheet() {
     // still uses the Hours/Minutes boxes.
     let totalMins: number;
     if (tt?.requires_project) {
-      const bad = validateActRows(form.actRows);
+      const bad = validateActRows(form.actRows, askBillableFor(form.typeId, form.projId));
       if (bad) { fail(bad); return; }
       totalMins = actTotal(form.actRows);
       if (totalMins > 960) { fail('Total hours cannot exceed 16h in a single day.'); return; }
@@ -1277,7 +1314,7 @@ export default function MyTimesheet() {
     }
 
     setCreating(true); setFormErr(''); setCreateErr(null);
-    const actRowsPayload = tt?.requires_project ? actPayload(form.actRows) : null;
+    const actRowsPayload = tt?.requires_project ? actPayload(form.actRows, askBillableFor(form.typeId, form.projId)) : null;
     const acts = (actRowsPayload ?? []).map(a => a.name);
     const { data, error: rpcErr } = await supabase.rpc('bulk_create_timesheet_entries', {
       p_header_id: header.id,
@@ -1801,7 +1838,7 @@ export default function MyTimesheet() {
     // Project time is itemised: its duration is the sum of the activity rows.
     let totalMins: number;
     if (needsProject) {
-      const bad = validateActRows(form.actRows);
+      const bad = validateActRows(form.actRows, askBillableFor(form.typeId, form.projId));
       if (bad) { setFormErr(bad); return; }
       totalMins = actTotal(form.actRows);
     } else {
@@ -1839,7 +1876,7 @@ export default function MyTimesheet() {
     // would be two transactions: a failure between them leaves an entry whose
     // rows do not add up to its own hours. save_timesheet_entry also checks the
     // header status, which no direct table write ever did.
-    const cleanActivities = needsProject ? actPayload(form.actRows).map(a => a.name) : null;
+    const cleanActivities = needsProject ? actPayload(form.actRows, askBillableFor(form.typeId, form.projId)).map(a => a.name) : null;
     const { data: saveRes, error: saveErr } = await supabase.rpc('save_timesheet_entry', {
       p_header_id: header.id,
       p_entry_id:  editingEntry?.id ?? null,
@@ -1850,7 +1887,7 @@ export default function MyTimesheet() {
         notes:         form.notes.trim() || null,
         hours_minutes: needsProject ? null : totalMins,
       },
-      p_activities: needsProject ? actPayload(form.actRows) : null,
+      p_activities: needsProject ? actPayload(form.actRows, askBillableFor(form.typeId, form.projId)) : null,
     });
 
     if (saveErr)      { setFormErr(saveErr.message); setSaving(false); return; }
@@ -2058,6 +2095,16 @@ export default function MyTimesheet() {
     return entries.some(e => e.project_id === p.id && e.entry_date === d);
   }
 
+  /* mig 821/823. The question applies only where somebody is paying: the type
+   * books to a project (rather than naming one it HELPED), and that project is
+   * billable. One definition, read by the form and by every save path, because
+   * two definitions of this would disagree the first time either changed. */
+  function askBillableFor(typeId: string, projId: string) {
+    const t = timeTypes.find(x => x.id === typeId);
+    return !!t?.requires_project && !t?.uses_related_project
+        && !!projId && billableProjects.has(projId);
+  }
+
   function projectActiveOn(p: Project, dates: string[]) {
     return dates.every(d =>
       alreadyBookedOn(p, d) || (
@@ -2077,8 +2124,13 @@ export default function MyTimesheet() {
   //                  the fix is. The Create modal must not: its body scrolls and
   //                  a message at the end can sit below the fold, so every
   //                  failure there goes to the pinned banner above the body.
-  function renderEntryFields(opts?: { projectDates?: string[]; gap?: number; showErr?: boolean }) {
+  function renderEntryFields(opts?: { projectDates?: string[]; gap?: number; showErr?: boolean; scope?: string }) {
     const gap          = opts?.gap ?? 8;
+    /* Radio groups are scoped by `name` across the whole document, and these
+     * fields render in three places. Without a per-instance prefix, picking
+     * Billable in the Create modal would clear the day panel's choice on the
+     * same row index. */
+    const scope        = opts?.scope ?? 'entry';
     const showErr      = opts?.showErr ?? true;
     const projectDates = opts?.projectDates ?? [];
     const selTT        = timeTypes.find(t => t.id === form.typeId);
@@ -2138,7 +2190,14 @@ export default function MyTimesheet() {
             <Label>{usesRelated ? 'Project you helped' : 'Project'}</Label>
             <select
               value={form.projId}
-              onChange={e => { setForm(f => ({ ...f, projId: e.target.value })); setFormErr(''); }}
+              onChange={e => {
+                const v = e.target.value;
+                // The answers belong to the project they were given for. Keeping
+                // them across a change would leave a hidden value on a row whose
+                // control is no longer on screen.
+                setForm(f => ({ ...f, projId: v, actRows: f.actRows.map(r => ({ ...r, billable: null })) }));
+                setFormErr('');
+              }}
               style={selectSt}
             >
               <option value="">— Select —</option>
@@ -2166,6 +2225,7 @@ export default function MyTimesheet() {
             field people try to change. */}
         {selTT?.requires_project && (() => {
           const total   = actTotal(form.actRows);
+          const askBill = askBillableFor(form.typeId, form.projId);
           const setRows = (fn: (rows: ActRow[]) => ActRow[]) =>
             setForm(f => ({ ...f, actRows: fn(f.actRows) }));
           const numSt   = { ...inputSt, width: 54, textAlign: 'center' as const, flex: '0 0 auto' };
@@ -2173,17 +2233,29 @@ export default function MyTimesheet() {
             <div style={{ marginBottom: gap }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
                 <Label>Activities &amp; hours *</Label>
+                <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                  {askBill && namedRows(form.actRows).length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => { setRows(rows => rows.map(r => ({ ...r, billable: false }))); setFormErr(''); }}
+                      style={{ background: 'none', border: 'none', color: '#6B7280', fontSize: 11, fontWeight: 600, cursor: 'pointer', padding: '0 2px' }}
+                    >
+                      Mark all not billable
+                    </button>
+                  )}
                 <button
                   type="button"
-                  onClick={() => { setRows(rows => [...rows, { name: '', h: '', m: '' }]); setFormErr(''); }}
+                  onClick={() => { setRows(rows => [...rows, { name: '', h: '', m: '', billable: null }]); setFormErr(''); }}
                   style={{ background: 'none', border: 'none', color: '#2563EB', fontSize: 11, fontWeight: 700, cursor: 'pointer', padding: '0 2px' }}
                 >
                   + Add
                 </button>
+                </div>
               </div>
 
               {form.actRows.map((row, idx) => (
-                <div key={idx} style={{ display: 'flex', gap: 5, marginBottom: 5, alignItems: 'flex-start' }}>
+                <div key={idx}>
+                <div style={{ display: 'flex', gap: 5, marginBottom: 5, alignItems: 'flex-start' }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <ActivityAutocomplete
                       value={row.name}
@@ -2215,6 +2287,30 @@ export default function MyTimesheet() {
                       ×
                     </button>
                   )}
+                </div>
+                {/* A second line rather than a fourth control on the first: the
+                    row already holds a name and two number boxes, and a
+                    segmented toggle squeezed beside them is unreadable on the
+                    day panel. Radios with neither preselected, because a
+                    checkbox has no unanswered state and this must be answered. */}
+                {askBill && (
+                  <div style={{ display: 'flex', gap: 14, alignItems: 'center', margin: '-1px 0 7px 2px' }}>
+                    {([[true, 'Billable'], [false, 'Not billable']] as [boolean, string][]).map(([val, label]) => (
+                      <label key={label} style={{ display: 'flex', gap: 5, alignItems: 'center', fontSize: 11.5,
+                                                  color: row.billable === val ? '#0F766E' : '#6B7280',
+                                                  fontWeight: row.billable === val ? 700 : 500, cursor: 'pointer' }}>
+                        <input
+                          type="radio"
+                          name={`bill-${scope}-${idx}`}
+                          checked={row.billable === val}
+                          onChange={() => { setRows(rows => rows.map((r, i) => i === idx ? { ...r, billable: val } : r)); setFormErr(''); }}
+                          style={{ width: 13, height: 13, cursor: 'pointer' }}
+                        />
+                        {label}
+                      </label>
+                    ))}
+                  </div>
+                )}
                 </div>
               ))}
 
@@ -3184,7 +3280,7 @@ export default function MyTimesheet() {
                             </button>
                           </div>
                         )}
-                        {renderEntryFields({ projectDates: selectedDate ? [selectedDate] : [] })}
+                        {renderEntryFields({ projectDates: selectedDate ? [selectedDate] : [], scope: 'day' })}
                         <div style={{ display: 'flex', gap: 7 }}>
                           {/* title on the wrapper — a disabled button never
                               receives hover, so a tooltip on it is invisible */}
@@ -3285,7 +3381,7 @@ export default function MyTimesheet() {
                     );
                   })()}
 
-                  {renderEntryFields({ projectDates: selectedDate ? [selectedDate] : [] })}
+                  {renderEntryFields({ projectDates: selectedDate ? [selectedDate] : [], scope: 'add' })}
 
                   <div style={{ display: 'flex', gap: 7 }}>
                     <span title={saveBlocked || undefined} style={{ flex: 1, display: 'flex' }}>
@@ -3666,7 +3762,7 @@ export default function MyTimesheet() {
               {/* Attendance form — the same fields the day panel renders.
                   Projects are intersected across every selected date. */}
               <div style={{ border: '1px solid #BFDBFE', borderRadius: 10, background: '#F8FBFF', padding: 14, marginBottom: 4 }}>
-                {renderEntryFields({ projectDates: [...createDates].sort(), gap: 10, showErr: false })}
+                {renderEntryFields({ projectDates: [...createDates].sort(), gap: 10, showErr: false, scope: 'create' })}
               </div>
             </div>
 
