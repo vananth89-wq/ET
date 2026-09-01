@@ -89,7 +89,8 @@ function EntryPanel({ ts, onClose }: { ts: TimesheetRow; onClose: () => void }) 
         .from('timesheet_entries')
         .select(`
           id, entry_date, entry_kind, hours_minutes, notes, is_system_generated,
-          projects ( name ),
+          projects!project_id ( name ),
+          related_projects:projects!related_project_id ( name ),
           time_types ( name )
         `)
         .eq('header_id', ts.id)
@@ -102,7 +103,10 @@ function EntryPanel({ ts, onClose }: { ts: TimesheetRow; onClose: () => void }) 
         hours_minutes:       e.hours_minutes,
         notes:               e.notes,
         is_system_generated: e.is_system_generated,
-        project_name:        e.projects?.name ?? null,
+        // A support entry books to no project and names the one it HELPED in
+        // the other relationship. Falling back keeps the row from reading as
+        // project-less when it is anything but.
+        project_name:        e.projects?.name ?? e.related_projects?.name ?? null,
         time_type_name:      e.time_types?.name ?? null,
       })));
       setLoading(false);

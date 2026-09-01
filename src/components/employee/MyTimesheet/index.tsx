@@ -915,8 +915,9 @@ export default function MyTimesheet() {
         id, header_id, entry_date, entry_kind, project_id, time_type_id,
         hours_minutes, notes, activities, is_system_generated, created_at, updated_at,
         timesheet_entry_activities ( id, activity_name, hours_minutes, display_order, created_at ),
-        time_types ( name, code, category, requires_project ),
-        projects ( name )
+        time_types ( name, code, category, requires_project, uses_related_project ),
+        projects!project_id ( name ),
+        related_projects:projects!related_project_id ( name )
       `)
       .eq('header_id', headerId)
       .order('entry_date')
@@ -1030,7 +1031,7 @@ export default function MyTimesheet() {
     if (!header) return entries;
     const { data: ents } = await supabase
       .from('timesheet_entries')
-      .select(`id, header_id, entry_date, entry_kind, project_id, time_type_id, hours_minutes, notes, activities, is_system_generated, created_at, updated_at, timesheet_entry_activities(id, activity_name, hours_minutes, display_order, created_at), time_types(name,code,category,requires_project,uses_related_project), projects(name), related_projects:projects!related_project_id(name)`)
+      .select(`id, header_id, entry_date, entry_kind, project_id, time_type_id, hours_minutes, notes, activities, is_system_generated, created_at, updated_at, timesheet_entry_activities(id, activity_name, hours_minutes, display_order, created_at), time_types(name,code,category,requires_project,uses_related_project), projects!project_id(name), related_projects:projects!related_project_id(name)`)
       .eq('header_id', header.id)
       .order('entry_date').order('created_at');
     const list = (ents ?? []) as unknown as TimesheetEntry[];
