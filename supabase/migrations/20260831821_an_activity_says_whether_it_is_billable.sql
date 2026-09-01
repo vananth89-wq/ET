@@ -79,6 +79,18 @@ COMMENT ON TABLE public.timesheet_entry_activities IS
 
 
 -- ── 2. The two entry-writing RPCs ────────────────────────────────────────────
+--
+-- TWO FUNCTIONS, FOUR WRITE PATHS
+--   save_timesheet_entry was rewritten by 733 and returns from two places: one
+--   that APPENDS to an existing entry and one that CREATES a new one. Both
+--   write activity rows, so both need the flags applied, and missing either
+--   would leave a whole path silently unflagged -- which a test exercising the
+--   other path would never notice.
+--
+--   bulk_create_timesheet_entries has two loops and accumulates an id in each.
+--   One of them does so BEFORE inserting child rows, so applying there would
+--   find nothing to update. It gets a single apply after both loops, keyed on
+--   every id the call produced.
 
 DO $mig$
 DECLARE
@@ -87,9 +99,9 @@ DECLARE
   -- (a) Decide applicability and refuse an unanswered row, both BEFORE any
   --     write and AFTER mig 801 has routed a support entry's project into
   --     v_rel_id. The order matters: run this first and v_proj_id still holds
-  --     the project a support entry NAMED, so support would be asked a
-  --     question it must never be asked. The whole 801 routing block is the
-  --     anchor for exactly that reason.
+  --     the project a support entry NAMED, so support would be asked a question
+  --     it must never be asked. The whole 801 routing block is the anchor for
+  --     exactly that reason.
   a_chk CONSTANT text :=
 '  v_rel_id := NULL;' || E'\n' ||
 '  IF COALESCE(v_type.uses_related_project, false) THEN' || E'\n' ||
@@ -122,9 +134,7 @@ DECLARE
 '      ''message'', ''Say whether each activity is billable before saving.'');' || E'\n' ||
 '  END IF;' || E'\n';
 
-  -- (b) Apply the flags once the child rows exist. Keyed on the lowered name,
-  --     which is what 727's unique index folds on, so it finds the same row the
-  --     fold produced whatever that fold did to the spelling.
+  -- (b) The apply, in three indentations for the three places it is needed.
   b_apply CONSTANT text :=
 '  -- mig 821. Applied after the child rows exist rather than threaded through' || E'\n' ||
 '  -- the fold that builds them: that fold has been rewritten by 728 and 729,' || E'\n' ||
@@ -141,6 +151,47 @@ DECLARE
 '     WHERE t.entry_id = v_id AND t.is_billable IS NOT NULL;' || E'\n' ||
 '  END IF;' || E'\n' ||
 '' || E'\n';
+
+  b_apply8 CONSTANT text :=
+'        -- mig 821. The append path writes child rows too, so it needs the same' || E'\n' ||
+'        -- treatment as the create path. Two returns, two applies.' || E'\n' ||
+'        IF v_bill_applies THEN' || E'\n' ||
+'          UPDATE timesheet_entry_activities t' || E'\n' ||
+'             SET is_billable = (b.value->>''billable'')::boolean' || E'\n' ||
+'            FROM jsonb_array_elements(COALESCE(p_activities, ''[]''::jsonb)) b' || E'\n' ||
+'           WHERE t.entry_id = v_id' || E'\n' ||
+'             AND lower(btrim(t.activity_name)) = lower(btrim(COALESCE(b.value->>''name'', '''')));' || E'\n' ||
+'        ELSE' || E'\n' ||
+'          UPDATE timesheet_entry_activities t' || E'\n' ||
+'             SET is_billable = NULL' || E'\n' ||
+'           WHERE t.entry_id = v_id AND t.is_billable IS NOT NULL;' || E'\n' ||
+'        END IF;' || E'\n' ||
+'' || E'\n';
+
+  a_bulk CONSTANT text :=
+'  PERFORM recalc_timesheet_recorded_minutes(p_header_id);' || E'\n';
+  b_bulk CONSTANT text :=
+'  -- mig 821. One apply for every entry this call produced. The two loops' || E'\n' ||
+'  -- insert their child rows at different points and one accumulates its id' || E'\n' ||
+'  -- before inserting any, so this is the only point that is after all of them.' || E'\n' ||
+'  IF v_bill_applies THEN' || E'\n' ||
+'    UPDATE timesheet_entry_activities t' || E'\n' ||
+'       SET is_billable = (b.value->>''billable'')::boolean' || E'\n' ||
+'      FROM jsonb_array_elements(COALESCE(p_activities, ''[]''::jsonb)) b' || E'\n' ||
+'     WHERE t.entry_id = ANY(v_ids)' || E'\n' ||
+'       AND lower(btrim(t.activity_name)) = lower(btrim(COALESCE(b.value->>''name'', '''')));' || E'\n' ||
+'  ELSE' || E'\n' ||
+'    UPDATE timesheet_entry_activities t' || E'\n' ||
+'       SET is_billable = NULL' || E'\n' ||
+'     WHERE t.entry_id = ANY(v_ids) AND t.is_billable IS NOT NULL;' || E'\n' ||
+'  END IF;' || E'\n' ||
+'' || E'\n' ||
+'  PERFORM recalc_timesheet_recorded_minutes(p_header_id);' || E'\n';
+
+  a_ret_append CONSTANT text :=
+'        RETURN jsonb_build_object(''ok'', true, ''appended'', true, ''entry_id'', v_id,' || E'\n';
+  a_ret_create CONSTANT text :=
+'  RETURN jsonb_build_object(''ok'', true, ''appended'', false, ''entry_id'', v_id,' || E'\n';
 BEGIN
   FOREACH v_fn IN ARRAY ARRAY['save_timesheet_entry', 'bulk_create_timesheet_entries']
   LOOP
@@ -150,6 +201,17 @@ BEGIN
 
     IF v_src IS NULL THEN
       RAISE EXCEPTION 'MIG 821: % not found.', v_fn;
+    END IF;
+
+    -- One signature, or none of this is safe. SELECT ... INTO takes whichever
+    -- row comes first, so with two overloads this would patch one at random and
+    -- leave the other enforcing nothing -- and the half that was missed is the
+    -- half nobody tests.
+    SELECT count(*) INTO v_hits
+    FROM   pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE  n.nspname = 'public' AND p.proname = v_fn;
+    IF v_hits <> 1 THEN
+      RAISE EXCEPTION 'MIG 821: % has % overloads, expected 1. Resolve them before patching.', v_fn, v_hits;
     END IF;
     IF position('v_rel_id' IN v_src) = 0 THEN
       RAISE EXCEPTION 'MIG 821: mig 801 must run first -- the anchor is the routing block it adds to %.', v_fn;
@@ -162,39 +224,36 @@ BEGIN
 
     v_new := v_src;
 
-    -- The declaration.
     v_new := regexp_replace(v_new, '(\n[ \t]*v_rel_id[ \t]+uuid;)',
                             E'\\1\n  v_bill_applies boolean;');
     IF position('v_bill_applies boolean;' IN v_new) = 0 THEN
       RAISE EXCEPTION 'MIG 821: could not declare v_bill_applies in %.', v_fn;
     END IF;
 
-    -- The check.
     v_hits := (length(v_new) - length(replace(v_new, a_chk, ''))) / length(a_chk);
     IF v_hits <> 1 THEN
       RAISE EXCEPTION 'MIG 821: the routing anchor matched % times in %, expected 1.', v_hits, v_fn;
     END IF;
     v_new := replace(v_new, a_chk, b_chk);
 
-    -- The application, immediately before the success return.
     IF v_fn = 'save_timesheet_entry' THEN
-      v_hits := (length(v_new) - length(replace(v_new, '  RETURN jsonb_build_object(''ok'', true, ''entry_id''', '')))
-                / length('  RETURN jsonb_build_object(''ok'', true, ''entry_id''');
-      IF v_hits < 1 THEN
-        RAISE EXCEPTION 'MIG 821: no success return found in %.', v_fn;
-      END IF;
-      v_new := replace(v_new, '  RETURN jsonb_build_object(''ok'', true, ''entry_id''',
-                              b_apply || '  RETURN jsonb_build_object(''ok'', true, ''entry_id''');
-    ELSE
-      -- bulk writes one entry per date, so the flags are applied per entry
-      -- inside the loop rather than once at the end.
-      v_hits := (length(v_new) - length(replace(v_new, '      v_ids := v_ids || v_id;', '')))
-                / length('      v_ids := v_ids || v_id;');
+      v_hits := (length(v_new) - length(replace(v_new, a_ret_append, ''))) / length(a_ret_append);
       IF v_hits <> 1 THEN
-        RAISE EXCEPTION 'MIG 821: the per-date accumulator matched % times in %, expected 1.', v_hits, v_fn;
+        RAISE EXCEPTION 'MIG 821: the append return matched % times in %, expected 1.', v_hits, v_fn;
       END IF;
-      v_new := replace(v_new, '      v_ids := v_ids || v_id;',
-                              '      v_ids := v_ids || v_id;' || E'\n' || b_apply);
+      v_new := replace(v_new, a_ret_append, b_apply8 || a_ret_append);
+
+      v_hits := (length(v_new) - length(replace(v_new, a_ret_create, ''))) / length(a_ret_create);
+      IF v_hits <> 1 THEN
+        RAISE EXCEPTION 'MIG 821: the create return matched % times in %, expected 1.', v_hits, v_fn;
+      END IF;
+      v_new := replace(v_new, a_ret_create, b_apply || a_ret_create);
+    ELSE
+      v_hits := (length(v_new) - length(replace(v_new, a_bulk, ''))) / length(a_bulk);
+      IF v_hits <> 1 THEN
+        RAISE EXCEPTION 'MIG 821: the recalc anchor matched % times in %, expected 1.', v_hits, v_fn;
+      END IF;
+      v_new := replace(v_new, a_bulk, b_bulk);
     END IF;
 
     EXECUTE v_new;
