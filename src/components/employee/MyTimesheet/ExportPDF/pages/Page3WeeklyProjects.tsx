@@ -6,6 +6,13 @@ import { styles, colors, rankColors } from '../utils/pdfStyles';
  *  a segment in a bar and a slice in the donut are visibly the same fact. */
 const NEUTRAL = ['#94A3B8', '#CBD5E1', '#B8C0CC', '#DDE3EA'];
 const LEAVE_BLUE = '#93C5FD';
+/* The chargeable bar's three inks. Green is the same one the Utilisation
+   report's Billable share tile uses, so the figure reads as one fact wherever
+   it appears. Amber for unclassified rather than a third neutral: it is a
+   question nobody has answered yet, not a settled "no". */
+const BILL_GREEN = '#047857';
+const BILL_GREY  = '#B8C0CC';
+const BILL_AMBER = '#E0A33A';
 import { PDFHeader } from '../components/PDFHeader';
 import { PDFFooter } from '../components/PDFFooter';
 import { SectionHead } from '../components/SectionHead';
@@ -51,6 +58,10 @@ export function Page3WeeklyProjects({ data }: { data: TimesheetExportData }) {
   const deferredPlan = deferred.reduce((s, w) => s + w.planned, 0);
 
   const projTotal = data.projects.reduce((s, p) => s + p.minutes, 0);
+  /* Same rule as the hero strip on page 2, so the two never disagree about
+     whether this month has a chargeable story at all. */
+  const showBill  = data.billSplit.billable > 0 || data.billSplit.unclassified > 0
+                 || data.projectActivities.some(p => p.cls === 'billable');
 
   return (
     <Page size="A4" style={styles.page}>
@@ -251,6 +262,66 @@ export function Page3WeeklyProjects({ data }: { data: TimesheetExportData }) {
                     );
                   });
                 })()}
+              </View>
+            </View>
+          )}
+
+          {/* ── What of it can be invoiced ───────────────────────────────────
+              A SECOND CHART, deliberately, rather than a second encoding on the
+              donut above. The donut answers "where did the month go" and sums to
+              RECORDED. This answers "what of it is chargeable" and is measured
+              over WORKED -- leave is out of the denominator, or a fortnight of
+              annual leave would read as a fortnight of lost revenue. Two
+              questions with two different totals cannot share one ring without
+              one of them being read wrong, and the wrong reading is the one that
+              reaches an invoice.
+
+              Shown only when there is something to say. On a month with no
+              billable project this is a permanent 0% on a document the
+              employee's approver reads, which is a fact about the projects they
+              are staffed on and not a finding about their month. */}
+          {showBill && data.billSplit.worked > 0 && (
+            <View style={styles.cbWrap}>
+              <View style={styles.cbHead}>
+                <Text style={styles.cbTitle}>CHARGEABLE</Text>
+                <Text style={styles.cbSub}>
+                  of {fmtHM(data.billSplit.worked)} worked · leave excluded
+                </Text>
+              </View>
+
+              <View style={styles.cbTrack}>
+                {([
+                  ['billable',     data.billSplit.billable,     BILL_GREEN],
+                  ['non_billable', data.billSplit.nonBillable,  BILL_GREY],
+                  ['unclassified', data.billSplit.unclassified, BILL_AMBER],
+                ] as const).map(([key, mins, colour]) => (
+                  mins > 0 ? (
+                    <View key={key} style={{ ...styles.cbSeg, backgroundColor: colour,
+                      width: `${(mins / data.billSplit.worked) * 100}%` }} />
+                  ) : null
+                ))}
+              </View>
+
+              {/* The figures live in the key, not on the segments: a 4% sliver
+                  has no room for a label and the one that gets clipped is
+                  always the one somebody wanted. */}
+              <View style={styles.cbKeys}>
+                {([
+                  ['Billable',       data.billSplit.billable,     BILL_GREEN],
+                  ['Not billable',   data.billSplit.nonBillable,  BILL_GREY],
+                  ['Not classified', data.billSplit.unclassified, BILL_AMBER],
+                ] as const).map(([label, mins, colour]) => (
+                  mins > 0 ? (
+                    <View key={label} style={styles.cbKey}>
+                      <View style={{ ...styles.cbDot, backgroundColor: colour }} />
+                      <Text style={styles.cbLbl}>{label}</Text>
+                      <Text style={styles.cbVal}>{fmtHM(mins)}</Text>
+                      <Text style={styles.cbPct}>
+                        {Math.round((mins / data.billSplit.worked) * 100)}%
+                      </Text>
+                    </View>
+                  ) : null
+                ))}
               </View>
             </View>
           )}

@@ -427,6 +427,29 @@ export const styles = StyleSheet.create({
   dnHrs:     { fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: colors.ink, marginRight: 8 },
   dnPct:     { width: 24, textAlign: 'right', fontSize: 8, color: colors.ink4 },
 
+  // ── The chargeable bar (migs 820-826) ────────────────────────────────────
+  // A SECOND CHART, not a second encoding on the first. Splitting the donut's
+  // slices by billability would have doubled a five-slice ring to nine, taken
+  // two colours per project out of a ramp that means one project one colour,
+  // and -- the part that actually misleads -- invited a percentage to be read
+  // off a ring that sums to RECORDED when the billable share is over WORKED.
+  // Leave is 8h of the difference. So: its own bar, its own caption, its own
+  // stated denominator, beside the donut rather than inside it.
+  cbWrap:    { marginTop: 12, paddingTop: 10,
+               borderTopWidth: 1, borderTopColor: '#EEF1F5', borderTopStyle: 'solid' },
+  cbHead:    { flexDirection: 'row', alignItems: 'baseline', marginBottom: 5 },
+  cbTitle:   { fontSize: 6.4, fontFamily: 'Helvetica-Bold', color: '#94A0B0', letterSpacing: 0.9 },
+  cbSub:     { flex: 1, fontSize: 6.4, color: '#A9B2BF', marginLeft: 8 },
+  cbTrack:   { flexDirection: 'row', height: 7, borderRadius: 3.5,
+               backgroundColor: '#EEF1F5', overflow: 'hidden' },
+  cbSeg:     { height: 7 },
+  cbKeys:    { flexDirection: 'row', marginTop: 6 },
+  cbKey:     { flexDirection: 'row', alignItems: 'center', marginRight: 16 },
+  cbDot:     { width: 6, height: 6, borderRadius: 2, marginRight: 6 },
+  cbLbl:     { fontSize: 8, color: colors.ink3, marginRight: 6 },
+  cbVal:     { fontSize: 8, fontFamily: 'Helvetica-Bold', color: colors.ink, marginRight: 5 },
+  cbPct:     { fontSize: 7.5, color: colors.ink4 },
+
 
   docLine:   { textAlign: 'center', fontSize: 7, color: colors.ink4, marginTop: 5 },
 

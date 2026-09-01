@@ -90,6 +90,11 @@ const LEAVE_BLUE = '#93C5FD';
 /** Chargeable time. Deliberately the same green the Utilisation report's
  *  Billable share tile uses, so the two read as one fact in two places. */
 const BILL_GREEN = '#047857';
+/** The chargeable bar's other two inks. Amber for unclassified rather than a
+ *  second grey: it is a question nobody has answered yet, not a settled "no",
+ *  and the two should not look alike. */
+const BILL_GREY  = '#B8C0CC';
+const BILL_AMBER = '#E0A33A';
 
 /** One colour rule, used by the donut and by its legend, so the two can never
  *  disagree about which slice is which. */
@@ -705,6 +710,68 @@ export default function SummarySection({
                       {donutPcts[i]}%
                     </span>
                   </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ── What of it can be invoiced ─────────────────────────────────
+              A SECOND CHART, deliberately, rather than a second encoding on the
+              donut above. The donut answers "where did the month go" and sums to
+              RECORDED. This answers "what of it is chargeable" and is measured
+              over WORKED — leave is out of the denominator, or a fortnight of
+              annual leave would read as a fortnight of lost revenue. Two
+              questions with two different totals cannot share one ring without
+              one of them being read wrong, and the wrong reading is the one that
+              reaches an invoice.
+
+              Splitting the donut's slices instead would also have doubled a
+              five-slice ring to nine and taken two colours per project out of a
+              ramp whose whole rule is one project, one colour — held from the
+              donut through the legend to the cards below.
+
+              Shown on the same condition as the KPI tile, so the two cannot
+              disagree about whether this month has a chargeable story at all. */}
+          {d.showBill && d.bill.worked > 0 && (
+            <div style={{ marginTop: 18, paddingTop: 15, borderTop: `1px solid ${C.hair}` }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 7 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: C.ink2 }}>Chargeable</span>
+                <span style={{ fontSize: 11, color: C.ink4 }}>
+                  of {h1(d.bill.worked)}h worked · leave excluded
+                </span>
+              </div>
+
+              <div style={{ display: 'flex', height: 8, borderRadius: 99, background: C.track, overflow: 'hidden' }}>
+                {([
+                  ['billable',     d.bill.billable,     BILL_GREEN],
+                  ['non_billable', d.bill.nonBillable,  BILL_GREY],
+                  ['unclassified', d.bill.unclassified, BILL_AMBER],
+                ] as const).filter(([, mins]) => mins > 0).map(([key, mins, colour]) => (
+                  <div key={key} style={{
+                    height: 8, background: colour,
+                    width: `${(mins / d.bill.worked) * 100}%`,
+                    transition: 'width 0.4s ease-out',
+                  }} />
+                ))}
+              </div>
+
+              {/* The figures live in the key, not on the segments: a 4% sliver
+                  has no room for a label, and the one that gets clipped is
+                  always the one somebody wanted to read. */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 18px', marginTop: 9 }}>
+                {([
+                  ['Billable',       d.bill.billable,     BILL_GREEN],
+                  ['Not billable',   d.bill.nonBillable,  BILL_GREY],
+                  ['Not classified', d.bill.unclassified, BILL_AMBER],
+                ] as const).filter(([, mins]) => mins > 0).map(([label, mins, colour]) => (
+                  <span key={label} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                    <span style={{ width: 9, height: 9, borderRadius: 3, flex: 'none', background: colour }} />
+                    <span style={{ fontSize: 12, color: C.ink3 }}>{label}</span>
+                    <span style={{ fontSize: 12.5, fontWeight: 700, color: C.ink }}>{h1(mins)}h</span>
+                    <span style={{ fontSize: 11.5, color: C.ink4 }}>
+                      {Math.round((mins / d.bill.worked) * 100)}%
+                    </span>
+                  </span>
                 ))}
               </div>
             </div>

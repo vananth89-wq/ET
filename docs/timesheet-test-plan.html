@@ -2,7 +2,7 @@
 {
   "name": "Timesheet Test Plan",
   "schemaVersion": 1,
-  "description": "Prowess timesheet test plan, migrations 726–826. 377 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
+  "description": "Prowess timesheet test plan, migrations 726–826. 382 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
   "mcpTools": [],
   "mcpServerNames": []
 }
@@ -5257,6 +5257,61 @@ order  by created_at desc limit 6;</div>
       <p>Open, as the approver, a month containing <b>Support to Another Project</b> hours.</p>
       <div class="exp"><b>Expect:</b> the entry appears with its hours but <b>no project name</b>. Record as an observation, not a failure.</div>
       <div class="why">The approval payload joins the project on <code>project_id</code>, which a support entry leaves NULL (801); it has never been taught about <code>related_project_id</code>. The hours and the time type are correct and nothing is lost &mdash; but the approver cannot see which project was helped, and that belongs with the approval-screen work.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AU13</span>
+      <span class="title">The chargeable bar, and the total it is NOT measured against</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>In <b>By Project &amp; Type</b> on screen, and in <b>Month Split</b> on the PDF, read the <b>Chargeable</b> bar under the donut. Add its segments up by hand.</p>
+      <div class="exp"><b>Expect:</b> the segments total <b>worked</b> hours &mdash; recorded <i>minus</i> leave &mdash; and the caption says exactly that: <i>of 152h worked &middot; leave excluded</i>. The donut above still totals <b>recorded</b>, leave included.</div>
+      <div class="warn">The two figures in one panel are <b>deliberately different</b>, and each states its own denominator. If the bar ever sums to the same total as the donut, leave has been let into a revenue figure &mdash; a month with two weeks of annual leave would then read as two weeks of lost billing.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AU14</span>
+      <span class="title">The bar agrees with the tile above it</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Compare the bar&rsquo;s <b>Billable</b> figure and percentage with the <b>Billable</b> KPI tile at the top of the summary, and with the <b>BILLABLE</b> cell on the PDF&rsquo;s hero strip.</p>
+      <div class="exp"><b>Expect:</b> identical hours and identical percentage in all three.</div>
+      <div class="why">Three renderings of one computation. They are drawn from the same split object rather than each doing their own arithmetic, so a mismatch here means something is re-deriving that should not be.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AU15</span>
+      <span class="title">The donut is unchanged</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Compare the donut against a screenshot from before this change: slice count, colours, legend order, percentages.</p>
+      <div class="exp"><b>Expect:</b> <b>nothing about it has moved.</b> One project is still one colour, held from the donut through the legend to the project cards below.</div>
+      <div class="why">Splitting the slices by billability was considered and rejected: it doubles a five-slice ring to nine, costs two colours per project out of a ramp whose entire rule is one project one colour, and invites a percentage to be read off a ring measured over the wrong total. The bar is a second chart precisely so the first one keeps answering one question.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AU16</span>
+      <span class="title">A third segment when something is unclassified</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Include hours on a project with <b>no type set</b>, then read the bar.</p>
+      <div class="exp"><b>Expect:</b> a third <b>amber</b> segment labelled <b>Not classified</b>, with its own hours and share. Amber, not a second grey &mdash; it is a question nobody has answered, not a settled no.</div>
+      <div class="why">Same three words as the Utilisation report (AU4). A segment that never appears means either no project is untyped, or the third state is being folded into &ldquo;not billable&rdquo; somewhere.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AU17</span>
+      <span class="title">No bar where there is nothing to say</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Open an internal-only month &mdash; no billable project, nothing untyped &mdash; on screen and as a PDF.</p>
+      <div class="exp"><b>Expect:</b> <b>no Chargeable bar and no Billable tile</b>, on either. The donut and Attainment sit together exactly as they did before.</div>
+      <div class="why">The bar and the tile are shown on one shared condition, so they can never disagree about whether the month has a chargeable story. An empty bar at 0% on a document the approver reads is a statement about the projects someone is staffed on, dressed up as a statement about them.</div>
     </div>
   </div>
 </section>
