@@ -2327,7 +2327,10 @@ export default function MyTimesheet() {
     // opposite responses -- one means wait for the dates to line up, the other
     // means you are using the wrong time type. Collapsing them into one "not
     // available" line would leave the employee unable to tell which.
-    const withheld = projectDates.length
+    // Only the ordinary picker names what it withheld -- see the comment on the
+    // hint below. Scoped here rather than only at the render site, so the list
+    // does not sit around computed and unused, inviting somebody to print it.
+    const withheld = !usesRelated && projectDates.length
       // Never name the project that is currently selected. "Not available:
       // AMPTJ" printed under a picker reading AMPTJ is a screen arguing with
       // itself, and the employee cannot tell which half to believe.
@@ -2383,7 +2386,23 @@ export default function MyTimesheet() {
               <option value="">— Select —</option>
               {options.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
-            {withheld.length > 0 && (
+            {/* NOT on the help picker, and the difference is the size of the
+                pool it is describing.
+
+                On the ordinary picker this list is YOURS -- the handful of
+                projects you are allocated to. You know them by name, so a gap
+                is conspicuous, and a project vanishing with no reason given is
+                indistinguishable from a bug. Naming what went, and why, is the
+                whole value.
+
+                The help picker offers every active project in the company
+                (bookable_projects_all, 801). The employee came here for one of
+                them and has no idea the other thirty exist, so in the usual
+                case this named three projects nobody was looking for -- and it
+                gets worse with every project added, since in any month several
+                of forty sit outside their own windows. An explanation of an
+                absence only helps somebody who noticed the absence. */}
+            {!usesRelated && withheld.length > 0 && (
               <div style={{ marginTop: 5, fontSize: 11.5, color: '#8A97A8', lineHeight: 1.45 }}>
                 <i className="fa-solid fa-circle-info" style={{ marginRight: 5 }} />
                 Not available for {projectDates.length === 1
@@ -2391,9 +2410,7 @@ export default function MyTimesheet() {
                   : `all ${projectDates.length} selected days`}:{' '}
                 {withheld.slice(0, 4).map(p => p.name).join(', ')}
                 {withheld.length > 4 ? ` and ${withheld.length - 4} more` : ''}
-                {' — '}{usesRelated
-                  ? 'outside the project\u2019s dates.'
-                  : 'outside the project\u2019s dates or your allocation to it.'}
+                {' — '}outside the project\u2019s dates or your allocation to it.
               </div>
             )}
             {/* NO NAMES, deliberately -- unlike the line above it.

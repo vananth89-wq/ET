@@ -4939,7 +4939,7 @@ order  by created_at desc limit 6;</div>
     <div class="body">
       <span class="lbl">Do</span>
       <p>Pick <b>Support to Another Project</b> on a day, and open <b>Project you helped</b>. Compare the list with the projects the ordinary <b>Work</b> type offers you on that same day.</p>
-      <div class="exp"><b>Expect:</b> the two lists do not overlap. Every project appears in <b>exactly one</b> of them, and the support list carries the line <i>&ldquo;Projects you are assigned to are not listed &mdash; record that time as ordinary work, so it counts towards the project.&rdquo;</i></div>
+      <div class="exp"><b>Expect:</b> the two lists do not overlap. Every project appears in <b>exactly one</b> of them, and the support list carries exactly <b>one</b> grey line: <i>&ldquo;Projects you are assigned to are not listed &mdash; record that time as ordinary work, so it counts towards the project.&rdquo;</i></div>
       <div class="why">Your own project&rsquo;s hours belong in its utilisation, burn and cost. Recording them as help takes them out of all three and out of the billable share &mdash; quieter and worse than a typo, because no screen would show the project had consumed them. The test is not a second definition of membership: it asks the other picker. If a project is offered as Work for those dates it is yours, so it cannot be somewhere you are helping, and the two lists cannot drift because there is one rule behind both.</div>
     </div>
   </div>
@@ -4960,9 +4960,9 @@ order  by created_at desc limit 6;</div>
       <span class="title">It is an offer, not a refusal &mdash; and the two hints stay apart</span></div>
     <div class="body">
       <span class="lbl">Do</span>
-      <p>Arrange a day where one project is outside its own dates and another is one you are allocated to. Read both grey lines under the picker. Then check the server: a direct API call recording help for your own project is <b>not</b> refused.</p>
-      <div class="exp"><b>Expect:</b> two separate lines with two different reasons &mdash; the first <b>naming</b> the projects that fell outside their dates, the second stating the assignment rule with <b>no names at all</b>. The API call succeeds. Record the second half as an observation.</div>
-      <div class="why">Both reasons hide a project and they call for opposite responses: one means wait for the dates to line up, the other means you are using the wrong time type. Collapsed into one &ldquo;not available&rdquo; line the employee cannot tell which. They are also worded differently on purpose &mdash; see AR31. And no server refusal was added deliberately: allocations lag reality &mdash; people leave projects months before anybody updates the row &mdash; and a hard block would refuse a true statement with no way round it from the screen. Same standing position as the project dropdown itself (section AT).</div>
+      <p>Arrange a day where one project is outside its own dates and another is one you are allocated to. Read the grey lines under <b>both</b> pickers &mdash; ordinary <b>Work</b>, then <b>Support</b>. Then check the server: a direct API call recording help for your own project is <b>not</b> refused.</p>
+      <div class="exp"><b>Expect:</b> the <b>Work</b> picker names what it withheld and why. The <b>Support</b> picker shows only the assignment sentence, with no names and nothing about dates. The API call succeeds &mdash; record that half as an observation.</div>
+      <div class="why">The dates hint explains an absence, and that only helps somebody who noticed one. On the Work picker the pool is your own handful of projects, so a gap is conspicuous and worth naming. The Support picker offers every active project in the company (801) &mdash; the employee came for one and does not know the other thirty exist, so naming three they never looked for is noise that grows with every project added. No server refusal was added deliberately: allocations lag reality, people leave projects months before anybody updates the row, and a hard block would refuse a true statement with no way round it from the screen. Same standing position as the project dropdown itself (section AT).</div>
     </div>
   </div>
 
@@ -4973,7 +4973,7 @@ order  by created_at desc limit 6;</div>
       <span class="lbl">Do</span>
       <p>Open the support picker as somebody allocated to <b>six or more</b> projects covering that day.</p>
       <div class="exp"><b>Expect:</b> still <b>one sentence, no project names</b> &mdash; the same line an employee with one assignment sees. The dates line above it still names its projects, capped at four plus &ldquo;and N more&rdquo;.</div>
-      <div class="why">The two hints look alike and do different jobs. The dates line answers <i>&ldquo;where is the project I was looking for?&rdquo;</i>, so it has to say which went and why. This one answers nothing of the sort &mdash; nobody opens the help picker hunting for a project they are staffed on &mdash; so there is no absence to explain, only a rule to state once. Naming them would print six names, or sixty, to tell somebody what they already know about their own allocations, in the place they are least likely to look for it.</div>
+      <div class="why">A hint that <b>names</b> things is answering &ldquo;where did X go?&rdquo;; a hint that <b>states a rule</b> should name nothing. Mixing the two gives you a list that grows with the data and stops being read. Nobody opens the help picker hunting for a project they are staffed on, so there is no absence to explain here &mdash; only a rule, stated once. Naming them would print six names, or sixty, to tell somebody what they already know about their own allocations, in the place they are least likely to look for it. The same reasoning removed the dates hint from this picker entirely (AR30).</div>
     </div>
   </div>
 </section>
