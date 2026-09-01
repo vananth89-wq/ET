@@ -2,7 +2,7 @@
 {
   "name": "Timesheet Test Plan",
   "schemaVersion": 1,
-  "description": "Prowess timesheet test plan, migrations 726–826. 390 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
+  "description": "Prowess timesheet test plan, migrations 726–827. 395 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
   "mcpTools": [],
   "mcpServerNames": []
 }
@@ -4850,31 +4850,86 @@ order  by created_at desc limit 6;</div>
       <span class="title">A support entry says the hours were given, not booked</span></div>
     <div class="body">
       <span class="lbl">Do</span>
-      <p>On a day that carries both, compare an ordinary <b>Work</b> entry on QCC with a <b>Support to Another Project</b> entry naming AZAD &mdash; in the day panel, and in the calendar cell behind it.</p>
-      <div class="exp"><b>Expect:</b> the panel reads <b>QCC</b> and <b>Helping AZAD</b>. The cell reads <b>QCC</b> and <b>&rarr; AZAD</b>, and hovering the arrow says the hours do not count towards that project.</div>
+      <p>On a day carrying both, compare an ordinary <b>Work</b> entry on QCC with a <b>Support to Another Project</b> entry naming AZAD &mdash; in the day panel, and in the calendar cell behind it.</p>
+      <div class="exp"><b>Expect:</b> both read <b>QCC</b> and <b>AZAD (Support)</b>. Hovering the support row says the hours do not count towards that project.</div>
       <div class="why">A row reading plain &ldquo;AZAD&rdquo; asserts the hours are AZAD&rsquo;s, which is exactly the claim 801 exists to deny &mdash; they are kept out of that project&rsquo;s utilisation, burn and cost on purpose. The row was not under-labelled, it was wrong. Ordinary rows are deliberately left bare: their label is already true, and a &ldquo;(Work)&rdquo; suffix on every row of every day would carry nothing on any of them.</div>
     </div>
   </div>
 
   <div class="case">
     <div class="head"><input type="checkbox"><span class="id">AR21</span>
-      <span class="title">The wording follows the columns, not the configuration</span></div>
+      <span class="title">The word comes from the time type, not from the code</span></div>
     <div class="body">
       <span class="lbl">Do</span>
-      <p>With support hours already recorded, have an administrator open <b>Time Types</b> and try to turn <b>Support to Another Project</b> back into an ordinary project type. Then reopen the timesheet.</p>
-      <div class="exp"><b>Expect:</b> the administrator is refused with <b>TYPE_IN_USE</b> (802). The recorded entries still read <b>Helping AZAD</b> and <b>&rarr; AZAD</b>.</div>
-      <div class="why">The label is decided by the entry&rsquo;s own columns &mdash; <code>related_project_id</code> set, <code>project_id</code> NULL &mdash; not by what the time type is configured to do today. What an entry DID is a fact about that entry; what its type does is a setting. Reading the setting would have relabelled history the moment somebody changed a checkbox.</div>
+      <p>In <b>Time Types</b>, open the support type and change <b>Short label</b> from <code>Support</code> to <code>Peer Review</code>. Save, then reopen a timesheet containing those hours.</p>
+      <div class="exp"><b>Expect:</b> every one of those entries now reads <b>AZAD (Peer Review)</b> &mdash; calendar cell, day panel and exported PDF alike &mdash; with no deploy.</div>
+      <div class="warn">This is the case the field exists for. The first version hardcoded the word <i>Helping</i> in the timesheet, which is right for the one type that exists today and wrong the moment somebody adds &ldquo;Peer Review for Another Project&rdquo; or &ldquo;Knowledge Transfer&rdquo; &mdash; both of which would carry the flag honestly and read as nonsense. A word describing a configurable thing belongs with the configuration.</div>
     </div>
   </div>
 
   <div class="case">
     <div class="head"><input type="checkbox"><span class="id">AR22</span>
+      <span class="title">An empty label falls back to the type&rsquo;s own name</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Clear <b>Short label</b> entirely and save. Reopen the timesheet.</p>
+      <div class="exp"><b>Expect:</b> the entries read <b>AZAD (Support to Another Project)</b> &mdash; the type&rsquo;s own name, truncated in the calendar cell where it does not fit. Not a blank qualifier, and not a word the screen chose.</div>
+      <div class="why">Showing what an administrator did call it is honest; inventing a shorter word here is the exact habit the field was added to end. That the fallback looks cramped is the argument for filling the box in, and the hint under it says so.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR23</span>
+      <span class="title">The label cannot outlive the flag</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>On a type with <b>no hours recorded against it</b>, set a short label, save, then untick <b>Records help given to another project</b> and save again. Reopen the type.</p>
+      <div class="exp"><b>Expect:</b> the <b>Short label</b> field is gone from the form, and the stored label has been cleared &mdash; not kept in the background waiting to reappear.</div>
+      <div class="why">Enforced server-side in <code>upsert_time_type</code>, not just hidden by the form. A type that stopped recording help would otherwise carry a word describing help, ready to resurface the next time somebody ticked the box.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR24</span>
+      <span class="title">Turning the flag on and naming it in one save</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>On a fresh attendance type with <b>Requires Project</b> ticked, tick <b>Records help given to another project</b> <i>and</i> type a short label, then save <b>once</b>.</p>
+      <div class="exp"><b>Expect:</b> both the flag and the word are stored. Reopening shows the label you typed.</div>
+      <div class="warn">The label is gated on the flag, and both are written as follow-up updates. Written in the wrong order, the label is cleared by the very save that switches the flag on &mdash; and only by that save, which is the kind of defect nobody reproduces afterwards. The migration asserts the order; this is the behaviour behind it.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR25</span>
+      <span class="title">The wording follows the columns, not the configuration</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>With support hours already recorded, have an administrator try to turn the type back into an ordinary project type.</p>
+      <div class="exp"><b>Expect:</b> refused with <b>TYPE_IN_USE</b> (802). The recorded entries still read <b>AZAD (Support)</b>.</div>
+      <div class="why">Whether a row is support is decided by its own columns &mdash; <code>related_project_id</code> set, <code>project_id</code> NULL &mdash; not by what the type is configured to do today. What an entry DID is a fact about that entry; what its type does is a setting. Reading the setting would have relabelled history the moment somebody changed a checkbox.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR26</span>
       <span class="title">Leave and holiday rows are untouched</span></div>
     <div class="body">
       <span class="lbl">Do</span>
-      <p>Look at a full-day <b>Annual Leave</b> day and a <b>Public Holiday</b> in the calendar, and at the message you get trying to add attendance to a fully absent day.</p>
-      <div class="exp"><b>Expect:</b> no arrows anywhere, and the message still reads &ldquo;<i>Annual Leave covers the full day</i>&rdquo; with no stray glyph in the sentence.</div>
-      <div class="why">The cell label helper is also used inside a sentence. An arrow baked into it would have read &ldquo;&rarr; Annual Leave covers the full day&rdquo; on a screen nobody would think to check &mdash; which is why the prefix is applied where the cell is drawn rather than inside the helper.</div>
+      <p>Look at a full-day <b>Annual Leave</b> day and a <b>Public Holiday</b>, and at the message you get trying to add attendance to a fully absent day.</p>
+      <div class="exp"><b>Expect:</b> no qualifiers anywhere, and the message still reads &ldquo;<i>Annual Leave covers the full day</i>&rdquo; with nothing appended.</div>
+      <div class="why">The cell label helper is also used inside a sentence. A qualifier baked into it would have read &ldquo;Annual Leave (Support) covers the full day&rdquo; on a screen nobody would think to check &mdash; which is why the qualifier is applied where a row is drawn rather than inside the helper.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR27</span>
+      <span class="title">The PDF groups given hours separately from booked ones</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>In a month where you both <b>worked on</b> AZAD and <b>gave help to</b> AZAD, export the PDF and read the <b>Month Split</b> donut and the <b>By Project &amp; Activity</b> cards.</p>
+      <div class="exp"><b>Expect:</b> <b>two entries</b> &mdash; <b>AZAD</b> and <b>AZAD (Support)</b> &mdash; not one merged slice. Record as an observation, not a failure.</div>
+      <div class="why">They are two facts. Merging them would report that AZAD received all of those hours when only the booked ones are its own, which is the claim migration 810 already refuses to make in the project summary. Two rows with one name is the price of that being true, and it is the cheaper mistake.</div>
     </div>
   </div>
 </section>

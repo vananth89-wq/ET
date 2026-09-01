@@ -88,11 +88,24 @@ interface TimesheetEntry {
   updated_at:    string;
   // joined
   timesheet_entry_activities?: TimesheetEntryActivity[] | null;
-  time_types?:  { name: string; code: string; category: string; requires_project: boolean } | { name: string; code: string; category: string; requires_project: boolean }[];
+  time_types?:  TimesheetEntryType | TimesheetEntryType[];
   projects?:    { name: string } | { name: string }[];
   /** mig 801. A support entry books to no project and names the one it HELPED
    *  here instead. Joined separately because it is a different foreign key. */
   related_projects?: { name: string } | { name: string }[];
+}
+
+/** Only what an ENTRY reads off its time type. The admin screen's TimeType is a
+ *  different, wider shape; naming this one separately keeps the timesheet from
+ *  depending on columns it never looks at. */
+interface TimesheetEntryType {
+  name:  string;
+  code:  string;
+  category: string;
+  requires_project: boolean;
+  uses_related_project?: boolean;
+  /** Mig 827. The short word this type wants after the helped project name. */
+  related_project_label?: string | null;
 }
 
 /** The project an entry names, whichever column holds it. Support entries carry
@@ -407,6 +420,33 @@ function fmtDayHours(minutes: number, status: DayStatus): string {
  */
 function isSupportEntry(ent: { project_id?: string | null; related_project_id?: string | null }): boolean {
   return !ent.project_id && !!ent.related_project_id;
+}
+
+/**
+ * How a support entry names itself: the project it helped, qualified.
+ *
+ * THE WORD IS NOT WRITTEN HERE. It comes from `time_types.related_project_label`
+ * (mig 827), because it describes a configurable thing and a screen has no
+ * business owning vocabulary for one. The first version hardcoded "Helping",
+ * which is accurate for the one type that exists today and would be wrong the
+ * moment somebody adds "Peer Review for Another Project" or "Knowledge
+ * Transfer" -- both of which would carry `uses_related_project` honestly and
+ * read as nonsense under that word.
+ *
+ * A NOUN in parentheses rather than a verb in front, for the same reason: the
+ * label has to work in a calendar cell, in the day panel, as a column value in
+ * the exported report and as a grouping key in it. "Helping AZAD" works in one
+ * of those. "AZAD (Support)" works in all four, so one column feeds them all.
+ *
+ * Falls back to the TYPE'S OWN NAME when no short label is set -- show what an
+ * administrator did call it rather than inventing a word here, which is the
+ * whole thing this function exists to stop.
+ */
+function entryDisplayName(ent: TimesheetEntry, projectName: string): string {
+  if (!isSupportEntry(ent)) return projectName;
+  const t = Array.isArray(ent.time_types) ? ent.time_types[0] : ent.time_types;
+  const word = (t?.related_project_label ?? '').trim() || (t?.name ?? '').trim();
+  return word ? `${projectName} (${word})` : projectName;
 }
 
 // Calendar cell label: the project name when there is one, else the time type.
@@ -1002,7 +1042,7 @@ export default function MyTimesheet() {
         id, header_id, entry_date, entry_kind, project_id, time_type_id,
         hours_minutes, notes, activities, is_system_generated, created_at, updated_at,
         timesheet_entry_activities ( id, activity_name, hours_minutes, display_order, created_at, is_billable ),
-        time_types ( name, code, category, requires_project, uses_related_project ),
+        time_types ( name, code, category, requires_project, uses_related_project, related_project_label ),
         projects!project_id ( name ),
         related_project_id,
         related_projects:projects!related_project_id ( name )
@@ -1119,7 +1159,7 @@ export default function MyTimesheet() {
     if (!header) return entries;
     const { data: ents } = await supabase
       .from('timesheet_entries')
-      .select(`id, header_id, entry_date, entry_kind, project_id, related_project_id, time_type_id, hours_minutes, notes, activities, is_system_generated, created_at, updated_at, timesheet_entry_activities(id, activity_name, hours_minutes, display_order, created_at, is_billable), time_types(name,code,category,requires_project,uses_related_project), projects!project_id(name), related_projects:projects!related_project_id(name)`)
+      .select(`id, header_id, entry_date, entry_kind, project_id, related_project_id, time_type_id, hours_minutes, notes, activities, is_system_generated, created_at, updated_at, timesheet_entry_activities(id, activity_name, hours_minutes, display_order, created_at, is_billable), time_types(name,code,category,requires_project,uses_related_project,related_project_label), projects!project_id(name), related_projects:projects!related_project_id(name)`)
       .eq('header_id', header.id)
       .order('entry_date').order('created_at');
     const list = (ents ?? []) as unknown as TimesheetEntry[];
@@ -1656,7 +1696,12 @@ export default function MyTimesheet() {
         date:       e.entry_date,
         kind:       e.entry_kind === 'leave' ? 'leave' : e.entry_kind === 'holiday' ? 'holiday' : 'work',
         typeName:   t?.name ?? (e.entry_kind === 'holiday' ? 'Holiday' : '—'),
-        project:    p?.name ?? null,
+        // Qualified for support entries, exactly as on screen (827). The
+        // report GROUPS by this string, so "AZAD (Support)" becomes its own
+        // slice rather than merging into your own AZAD work -- the honest
+        // reading, since 3h booked to AZAD and 5h given to it are two facts,
+        // and mig 810 already separates them in the project summary.
+        project:    p?.name ? entryDisplayName(e, p.name) : null,
         // The BOOKED project's class, from project_id — never from the label
         // above, which falls back to the project that was HELPED (801). Help
         // given to a client's project is not chargeable to it, and reading the
@@ -3025,15 +3070,17 @@ export default function MyTimesheet() {
                                   letterSpacing: '-0.01em',
                                   whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                                 }}
-                                  /* One character, because there is no room for
-                                     a word here and none is needed: an arrow
-                                     reads as "out to". The title carries the
-                                     sentence for anyone who wants it. */
+                                  /* The qualifier is a word, not a glyph. An
+                                     arrow was the compact option, but it is a
+                                     private convention that has to be learnt
+                                     and needs the hover to decode -- and the
+                                     word turns out to fit here, even beside a
+                                     long project name. */
                                   title={isSupportEntry(ent)
-                                    ? `Support given to ${getCellLabel(ent)} — these hours do not count towards that project.`
+                                    ? `These hours were given to ${getCellLabel(ent)} — they do not count towards that project.`
                                     : undefined}
                                 >
-                                  {isSupportEntry(ent) ? `→ ${getCellLabel(ent)}` : getCellLabel(ent)}
+                                  {entryDisplayName(ent, getCellLabel(ent))}
                                 </span>
                                 <span style={{
                                   flex: '0 0 34px', width: 34, textAlign: 'right',
@@ -3296,16 +3343,14 @@ export default function MyTimesheet() {
                     {(() => {
                       const t = Array.isArray(ent.time_types) ? ent.time_types[0] : ent.time_types;
                       const p = entryProject(ent);
-                      /* "Helping AZAD", not "AZAD". The verb is the whole
-                         point -- it says the hours were given rather than
-                         booked -- and it echoes the wording of the field that
-                         captured them, which is labelled "Project you helped".
-                         Ordinary rows are left alone: their label is already
-                         true, and a suffix on every one of them would carry
-                         nothing on any of them. */
-                      const primaryText = isSupportEntry(ent) && p?.name
-                        ? `Helping ${p.name}`
-                        : p?.name ?? t?.name ?? (ent.entry_kind === 'holiday' ? 'Holiday' : ent.entry_kind);
+                      /* "AZAD (Support)", not "AZAD". A bare project name
+                         asserts the hours are that project's, which is the one
+                         claim these entries exist to deny. Ordinary rows are
+                         left alone: their label is already true, and a suffix
+                         on every one of them would carry nothing on any. */
+                      const primaryText = p?.name
+                        ? entryDisplayName(ent, p.name)
+                        : t?.name ?? (ent.entry_kind === 'holiday' ? 'Holiday' : ent.entry_kind);
                       return (
                         <div style={{ display: 'flex', alignItems: 'center', padding: '0 10px 0 12px', height: 44, gap: 8 }}>
                           {/* Colored dot */}

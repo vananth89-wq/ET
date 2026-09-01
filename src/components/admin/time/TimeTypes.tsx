@@ -25,6 +25,10 @@ interface TimeType {
   requires_project:       boolean;
   is_billable:            boolean;   // attendance only - mig 800
   uses_related_project:   boolean;   // only where a project is required - mig 801
+  /** Mig 827. The short word the timesheet puts after the helped project name:
+   *  "AZAD (Support)". Meaningful only where uses_related_project is true.
+   *  NULL means nobody set one and the timesheet falls back to `name`. */
+  related_project_label:  string | null;
   is_active:              boolean;
   created_at:             string | null;
   updated_at:             string | null;
@@ -65,7 +69,7 @@ const ruleLabelSt: React.CSSProperties = { fontSize: 13, fontWeight: 600, color:
 const ruleHintSt:  React.CSSProperties = { gridColumn: 2, fontSize: 11.5, color: '#9CA3AF', lineHeight: 1.55 };
 
 const EMPTY: Omit<TimeType, 'id'> & { id: string } = {
-  id: '', name: '', code: '', category: 'attendance', allows_half_day: false, allows_future: false, is_system_managed: false, requires_project: false, is_billable: false, uses_related_project: false, is_active: true, created_at: null, updated_at: null, creator: null,
+  id: '', name: '', code: '', category: 'attendance', allows_half_day: false, allows_future: false, is_system_managed: false, requires_project: false, is_billable: false, uses_related_project: false, related_project_label: '', is_active: true, created_at: null, updated_at: null, creator: null,
 };
 
 export default function TimeTypes() {
@@ -83,7 +87,7 @@ export default function TimeTypes() {
     setError(null);
     const { data, error: e } = await supabase
       .from('time_types')
-      .select('id, name, code, category, allows_half_day, allows_future, is_system_managed, requires_project, is_billable, uses_related_project, is_active, created_at, updated_at, creator:profiles!created_by(employees!employee_id(name))')
+      .select('id, name, code, category, allows_half_day, allows_future, is_system_managed, requires_project, is_billable, uses_related_project, related_project_label, is_active, created_at, updated_at, creator:profiles!created_by(employees!employee_id(name))')
       .order('category')
       .order('name');
     if (e) { setError(e.message); setLoading(false); return; }
@@ -129,6 +133,12 @@ export default function TimeTypes() {
       // upsert_time_type, which gates on requires_project rather than category.
       uses_related_project: form.category === 'attendance' && form.requires_project
                               ? form.uses_related_project : false,
+      // Sent only where it can mean anything. upsert_time_type clears it
+      // server-side wherever the flag is off (827), so this is the screen
+      // agreeing with the rule rather than a second copy of it.
+      related_project_label: form.category === 'attendance' && form.requires_project
+                             && form.uses_related_project
+                              ? (form.related_project_label ?? '').trim() : null,
       is_active: form.is_active,
     };
 
@@ -266,6 +276,31 @@ export default function TimeTypes() {
                   this type, this setting can no longer be changed.
                 </span>
               </label>
+            )}
+
+            {/* Mig 827. The timesheet has to say that these hours were GIVEN to
+                the project they name, or the row asserts they are that
+                project's -- which is the one thing this type exists to deny.
+                The word doing that belongs HERE and not in the timesheet's
+                code: a second type carrying this flag might be Peer Review or
+                Knowledge Transfer, and no screen can guess that. */}
+            {form.category === 'attendance' && form.requires_project && form.uses_related_project && (
+              <div className="form-group" style={{ maxWidth: 260, marginLeft: 28 }}>
+                <label>Short label</label>
+                <input
+                  type="text" placeholder="e.g. Support" maxLength={24}
+                  value={form.related_project_label ?? ''}
+                  onChange={e => setForm(p => ({ ...p, related_project_label: e.target.value }))}
+                />
+                <small style={{ display: 'block', marginTop: 5, fontSize: 11.5, color: '#9CA3AF', lineHeight: 1.55 }}>
+                  Shown on the timesheet after the project that was helped &mdash;{' '}
+                  <b style={{ color: '#6B7280' }}>
+                    AZAD ({(form.related_project_label ?? '').trim() || form.name.trim() || 'Support'})
+                  </b>. A noun, not a verb: it has to read correctly in a calendar
+                  cell as well as in the report. Leave it empty to use this
+                  type&rsquo;s own name.
+                </small>
+              </div>
             )}
 
             {form.category === 'absence' && (
