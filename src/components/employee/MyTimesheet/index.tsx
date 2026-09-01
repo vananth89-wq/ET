@@ -30,6 +30,7 @@ import type { TimesheetExportData }                    from './ExportPDF/types';
 // buildMonthSplit moved behind assembleExportData -- this page no longer derives
 // any part of the report itself, so an approver's copy cannot diverge from it.
 import { entryMinutes }                               from './ExportPDF/utils/dataTransforms';
+import type { ProjectClass }                          from './billability';
 import { loadLogoDataUrl }                            from './ExportPDF/logo';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -559,11 +560,24 @@ export default function MyTimesheet() {
    * `projects` rather than merged into it: that list is narrowed on purpose and
    * every rule already written against it stays true. */
   const [allProjects, setAllProjects] = useState<Project[]>([]);
-  /* mig 823. Which projects anybody is paying for. The screen needs this only
-   * to decide whether to OFFER the billable question; what is stored is decided
-   * server-side by save_timesheet_entry, so a stale set here cannot corrupt
-   * anything — at worst the employee is asked and the answer is discarded. */
-  const [billableProjects, setBillableProjects] = useState<Set<string>>(new Set());
+  /* mig 823/825. What each project is worth, in the same three words the
+   * Utilisation report uses. The entry form needs only the yes/no of it — to
+   * decide whether to OFFER the billable question; what is stored is decided
+   * server-side by save_timesheet_entry, so a stale map here cannot corrupt
+   * anything, and at worst the employee is asked and the answer is discarded.
+   *
+   * The Monthly Summary needs the third word as well. A project with no type
+   * set is UNCLASSIFIED on the Utilisation report, and folding it into "not
+   * billable" here would have this page and that report describing the same
+   * hour differently. */
+  const [projectClass, setProjectClass] = useState<Map<string, ProjectClass>>(new Map());
+  const billableProjects = useMemo(
+    () => new Set([...projectClass].filter(([, c]) => c === 'billable').map(([id]) => id)),
+    [projectClass]);
+  /** Stable identity, so SummarySection's memo does not rebuild every render. */
+  const classOfProject = useCallback(
+    (id: string | null | undefined) => (id ? projectClass.get(id) ?? null : null),
+    [projectClass]);
 
   // Timesheet data
   const [header,    setHeader]    = useState<TimesheetHeader | null>(null);
@@ -694,8 +708,14 @@ export default function MyTimesheet() {
   useEffect(() => {
     let live = true;
     (async () => {
-      const { data } = await supabase.rpc('billable_project_ids');
-      if (live && data) setBillableProjects(new Set((data as { id: string }[]).map(r => r.id)));
+      /* mig 825. project_billability() supersedes billable_project_ids(): same
+       * rule, one more word. 823's function still exists and still delegates to
+       * this one, so nothing breaks if a browser is holding an older bundle. */
+      const { data } = await supabase.rpc('project_billability');
+      if (live && data) {
+        setProjectClass(new Map(
+          (data as { id: string; cls: ProjectClass }[]).map(r => [r.id, r.cls])));
+      }
     })();
     return () => { live = false; };
   }, []);
@@ -1597,17 +1617,27 @@ export default function MyTimesheet() {
 
       const activities = acts.length
         ? [...acts].sort((a, b) => a.display_order - b.display_order)
-            .map(r => ({ name: r.activity_name, minutes: r.hours_minutes }))
+            // mig 821/824: the answer travels with the row. Since 824 one name
+            // can appear twice with different answers, and the report must
+            // print two lines rather than folding them back into one.
+            .map(r => ({ name: r.activity_name, minutes: r.hours_minutes,
+                         billable: r.is_billable ?? null }))
         // A pre-727 entry has names and no split. Reported at zero minutes so
         // the name still appears in the Activities column while the totals
         // chart refuses to invent a measurement nobody took.
-        : (e.activities ?? []).filter(Boolean).map(n => ({ name: n, minutes: 0 }));
+        : (e.activities ?? []).filter(Boolean)
+            .map(n => ({ name: n, minutes: 0, billable: null }));
 
       return {
         date:       e.entry_date,
         kind:       e.entry_kind === 'leave' ? 'leave' : e.entry_kind === 'holiday' ? 'holiday' : 'work',
         typeName:   t?.name ?? (e.entry_kind === 'holiday' ? 'Holiday' : '—'),
         project:    p?.name ?? null,
+        // The BOOKED project's class, from project_id — never from the label
+        // above, which falls back to the project that was HELPED (801). Help
+        // given to a client's project is not chargeable to it, and reading the
+        // class off the display name is how it would become so.
+        projectClass: classOfProject(e.project_id),
         minutes:    entryMinutes(e.hours_minutes, acts.map(r => ({ minutes: r.hours_minutes }))),
         rawMinutes: e.hours_minutes,
         notes:      e.notes,
@@ -3015,6 +3045,7 @@ export default function MyTimesheet() {
                   holidayByDate={holidayByDate}
                   todayIso={todayIso}
                   onJumpToDate={jumpToDate}
+                  classOfProject={classOfProject}
                 />
               </div>
             </>

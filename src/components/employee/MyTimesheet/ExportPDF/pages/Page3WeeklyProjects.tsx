@@ -301,14 +301,36 @@ export function Page3WeeklyProjects({ data }: { data: TimesheetExportData }) {
                       <Text style={styles.pPct}>{p.pctOfProjectTime}%</Text>
                     </View>
 
+                    {/* Only where somebody is paying. On an internal project
+                        the question was never put, and "Billable 0h" would read
+                        as a judgement on work never meant to be charged for. */}
+                    {p.cls === 'billable' && (
+                      <View style={styles.pSplit}>
+                        <Text style={styles.pSplitB}>Billable {fmtHMWide(p.split.billable)}</Text>
+                        <Text style={styles.pSplitN}>Not billable {fmtHMWide(p.split.nonBillable)}</Text>
+                      </View>
+                    )}
+                    {p.cls === 'unclassified' && (
+                      <Text style={styles.pSplitU}>
+                        No project type set — these hours are reported as not classified.
+                      </Text>
+                    )}
+
                     <View style={styles.pActs}>
+                      {/* KEYED ON THE ANSWER TOO. Since mig 824 one name can
+                          appear twice in this list with different answers. */}
                       {p.activities.map((a, j) => (
-                        <View key={`${a.name}-${j}`} style={styles.pActRow}>
+                        <View key={`${a.name}-${a.billable}-${j}`} style={styles.pActRow}>
                           <View style={styles.pActTop}>
                             <Text style={styles.pActNo}>{j + 1}.</Text>
                             <Text style={a.itemised ? styles.pActName : styles.pActNameQ}>
                               {a.name}
                             </Text>
+                            {p.cls === 'billable' && a.billable !== null && (
+                              <Text style={a.billable ? styles.pActBill : styles.pActNBill}>
+                                {a.billable ? 'Billable' : 'Not billable'}
+                              </Text>
+                            )}
                             <Text style={a.itemised ? styles.pActHrs : styles.pActHrsQ}>
                               {fmtHMWide(a.minutes)}
                             </Text>
@@ -318,7 +340,9 @@ export function Page3WeeklyProjects({ data }: { data: TimesheetExportData }) {
                               <View style={{
                                 ...styles.pActFill,
                                 width: `${Math.max(1.5, (a.minutes / widest) * 100)}%`,
-                                backgroundColor: a.itemised ? colour : '#D1D5DB',
+                                backgroundColor: !a.itemised ? '#D1D5DB'
+                                  : p.cls === 'billable' && a.billable === false ? '#CBD5E1'
+                                  : colour,
                               }} />
                             </View>
                           </View>

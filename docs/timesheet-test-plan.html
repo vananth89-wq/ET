@@ -2,7 +2,7 @@
 {
   "name": "Timesheet Test Plan",
   "schemaVersion": 1,
-  "description": "Prowess timesheet test plan, migrations 726–824. 365 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
+  "description": "Prowess timesheet test plan, migrations 726–826. 377 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
   "mcpTools": [],
   "mcpServerNames": []
 }
@@ -167,7 +167,8 @@
     <a class="toc" href="#aqb">AQ · Billability (800)</a>
     <a class="toc" href="#arh">AR · Help given to another project (801 &middot; 802 &middot; 810)</a>
     <a class="toc" href="#asb">AS · Which hours are chargeable (820&ndash;823)</a>
-    <a class="toc" href="#at">AT · Known and deliberate (780&ndash;824)</a>
+    <a class="toc" href="#at">AT · Known and deliberate (780&ndash;826)</a>
+    <a class="toc" href="#au">AU · The split reaches every report (825 &middot; 826)</a>
   </div>
 
   <div class="bar">
@@ -5095,7 +5096,7 @@ order  by created_at desc limit 6;</div>
   </div>
 </section>
 <section id="at">
-  <h2><span class="k">AT</span> Known and deliberate (780&ndash;824)</h2>
+  <h2><span class="k">AT</span> Known and deliberate (780&ndash;826)</h2>
   <p class="lede">Seven behaviours read as bugs without the context. Record them as observations, not failures.</p>
   <div class="qnote"><b>The dropdown is an offer, not a rule.</b> A direct API call can still write an entry
     against any active project. No enforcement trigger has been added: it is the one change that can stop
@@ -5123,6 +5124,143 @@ order  by created_at desc limit 6;</div>
     project-closed event and deserves its own message to the whole team rather than a lead
     notification as a side effect — so the trigger watches <code>manager_id</code> only.</div>
 </section>
+<section id="au">
+  <h2><span class="k">AU</span> The split reaches the summary, the PDF and the approver (825 &middot; 826)</h2>
+  <p class="lede">824 made the two answers recordable. These cases are about every place that then has to report them without contradicting any other place. Three surfaces read one rule: the Monthly Summary on screen, the monthly PDF, and the approver&rsquo;s copy of that same PDF. AU1 is the case that catches all three disagreeing.</p>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AU1</span>
+      <span class="title">One month, three documents, one answer</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Record the AS16 day &mdash; on <b>AMPTJ</b>, <b>Testing</b> 10:00 <b>Not billable</b> and <b>Testing</b> 2:00 <b>Billable</b>. Then read the <b>Billable</b> figure in four places: the Monthly Summary tile, the <b>Summary</b> PDF, the <b>Detail</b> PDF, and the PDF an approver downloads for the same month.</p>
+      <div class="exp"><b>Expect:</b> <b>2.0h billable</b> in all four, over the same worked-hours denominator, with the same percentage.</div>
+      <div class="warn">This is the load-bearing case of the whole section. The employee&rsquo;s page and the approver&rsquo;s screen do not share a data source &mdash; one holds rows it loaded, the other holds a single payload blob &mdash; so they agree only because 826 puts the same two facts in both. If the approver&rsquo;s copy shows no split at all, 826 did not deploy.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AU2</span>
+      <span class="title">The tile and Recorded do not contradict each other</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>On a month with billable work, internal work, help given to another project and some leave, add up <b>Billable</b>, <b>Not billable</b>, <b>Not classified</b> and the leave hours by hand.</p>
+      <div class="exp"><b>Expect:</b> they total exactly <b>Recorded</b>. The Billable tile&rsquo;s own denominator is Recorded <i>minus</i> leave, and its caption says so.</div>
+      <div class="why">Two tiles sitting side by side that cannot be reconciled is the specific failure this arithmetic is arranged to prevent. Leave is out of the denominator on purpose &mdash; including it would make a fortnight of annual leave read as a fortnight of lost revenue.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AU3</span>
+      <span class="title">The summary agrees with the Utilisation report</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Open <b>Utilisation</b> for the same employee and the same month, and compare its <b>Billable share</b> with the Monthly Summary&rsquo;s.</p>
+      <div class="exp"><b>Expect:</b> the same percentage, to the whole point.</div>
+      <div class="why">One is computed in SQL and one in the browser, from different rows. They match because both were written from the same three-word rule &mdash; 822 in the database, <code>billability.ts</code> on the client. Two reports disagreeing about revenue is worse than either being wrong, because the disagreement is what gets argued about.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AU4</span>
+      <span class="title">A project with no type set is named, not folded</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Book time to a project whose <b>project type</b> is blank, then read the Billable tile&rsquo;s caption.</p>
+      <div class="exp"><b>Expect:</b> those hours are called out as sitting on <b>a project with no type set</b>. They are in the denominator and not in the numerator &mdash; the same treatment Utilisation gives them, and never silently counted as not billable.</div>
+      <div class="warn">This is the entire reason migration 825 exists. Before it the screen had a yes/no list of billable projects, so an untyped project could only be reported as &ldquo;not billable&rdquo; here while the report called it &ldquo;unclassified&rdquo; &mdash; two words for one hour. If the caption never appears, check whether any active project actually has a blank type.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AU5</span>
+      <span class="title">The project card splits its own hours</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>In <b>By Project &amp; Activity</b>, read the AMPTJ card.</p>
+      <div class="exp"><b>Expect:</b> a <b>Billable 2.0h &middot; Not billable 10.0h</b> line under the header, two separate Testing rows each tagged, and the two figures summing to the card&rsquo;s own header total.</div>
+      <div class="why">The card is where an employee checks their own answer before submitting. A subtotal that does not match the rows above it is the failure that made two summaries in the PDF disagree once already.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AU6</span>
+      <span class="title">No tag where the question was never asked</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Look at the cards for an <b>Internal</b> project and for a project with no type set.</p>
+      <div class="exp"><b>Expect:</b> <b>no Billable / Not billable tags at all</b>, and no billable subtotal line. The untyped project instead carries one line saying its hours are reported as not classified.</div>
+      <div class="why">A stored NULL means nobody was asked, which is not the same as an answer of &ldquo;no&rdquo;. Printing &ldquo;Not billable&rdquo; against it would be the report inventing an answer, and on an internal project it would read as a judgement on work that was never meant to be charged for.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AU7</span>
+      <span class="title">Help given to another project is not chargeable to it</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Record time on <b>Support to Another Project</b> naming <b>AMPTJ</b> &mdash; a billable project you are not on. Read the Billable tile.</p>
+      <div class="exp"><b>Expect:</b> those hours count as <b>not billable</b>. No billable question is offered while recording them, and none appears afterwards.</div>
+      <div class="why">Support entries leave <code>project_id</code> NULL by design (801), so they fall out of the billable test without being named by it &mdash; the same way they fall out of that project&rsquo;s burn. The label on screen names the project that was <i>helped</i>; reading the classification off that label instead of off the booked project is how these hours would have become chargeable to a client.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AU8</span>
+      <span class="title">The tile stays away when it has nothing to say</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Open a month for an employee who is only on internal work, with no billable project and no untyped one.</p>
+      <div class="exp"><b>Expect:</b> <b>no Billable tile</b> &mdash; six tiles, as before. Not a tile reading 0%.</div>
+      <div class="why">A permanent 0% is not a finding about that person&rsquo;s month; it is a fact about the projects they are staffed on, and it does not belong in a strip of numbers measuring them. The same rule hides the figure on the PDF, which goes to their approver.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AU9</span>
+      <span class="title">Both PDFs print two lines, not one</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Export the AS16 month as <b>Summary</b> and again as <b>Detail</b>, and find the AMPTJ activities in each.</p>
+      <div class="exp"><b>Expect:</b> <b>two Testing lines</b> in both, one marked billable at 2:00 and one not billable at 10:00. Never a single 12:00 line.</div>
+      <div class="warn">Both reports folded activity rows by name alone. After 824 that fold is wrong, and the document that leaves the building is the worst place for it to still be happening.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AU10</span>
+      <span class="title">An old month, unchanged</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Before deploying, note the Billable share on <b>Utilisation</b> for a closed month. After deploying, open that month&rsquo;s Monthly Summary and its PDF.</p>
+      <div class="exp"><b>Expect:</b> the same figures. Nothing about a past month changes because a screen learned to display it.</div>
+      <div class="why">822 already backfilled history so that past hours on billable projects stayed billable. This checks that the client-side rule reaches the same conclusion about the same rows &mdash; particularly entries with no activity rows at all, where the project answers rather than the row.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AU11</span>
+      <span class="title">What the approver still cannot see on screen</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Open the timesheet in the approval screen &mdash; the screen itself, not the PDF.</p>
+      <div class="exp"><b>Expect:</b> <b>no billable split in the page</b>. Record this as a known gap. The downloaded PDF does carry it (AU1).</div>
+      <div class="why">826 put the two facts into the approval payload, so the data is there and the report reads it. Teaching the approval screen to show and question the split is the next piece of work, and it is where the employee-proposes / approver-confirms decision actually lands.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AU12</span>
+      <span class="title">The approver&rsquo;s copy still names no helped project</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Open, as the approver, a month containing <b>Support to Another Project</b> hours.</p>
+      <div class="exp"><b>Expect:</b> the entry appears with its hours but <b>no project name</b>. Record as an observation, not a failure.</div>
+      <div class="why">The approval payload joins the project on <code>project_id</code>, which a support entry leaves NULL (801); it has never been taught about <code>related_project_id</code>. The hours and the time type are correct and nothing is lost &mdash; but the approver cannot see which project was helped, and that belongs with the approval-screen work.</div>
+    </div>
+  </div>
+</section>
+
 
   <footer>
     <p><b>If something fails</b>, the "why this matters" note on each case names the rule it is

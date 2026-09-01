@@ -145,6 +145,10 @@ export const styles = StyleSheet.create({
   cardProj:   { fontSize: 9.5, fontFamily: 'Helvetica-Bold', color: colors.ink },
   cardAct:    { fontSize: 9, color: colors.ink2, marginBottom: 1 },
   cardActNil: { fontSize: 9, color: colors.ink4 },
+  // Migs 821/824, on the detail report's activity lines.
+  actBill:    { width: '22%', fontSize: 6.5, fontFamily: 'Helvetica-Bold',
+                color: '#047857', paddingRight: 4 },
+  actNBill:   { width: '22%', fontSize: 6.5, color: colors.ink4, paddingRight: 4 },
   cardHrs:    { fontSize: 9.5, fontFamily: 'Helvetica-Bold', color: colors.ink, textAlign: 'right' },
   // The activities column is a two-column list of its own: name left, hours
   // right-aligned, a hairline between each. The question this block gets asked
@@ -337,6 +341,18 @@ export const styles = StyleSheet.create({
   pActNameQ: { flex: 1, fontSize: 8.5, color: colors.ink4 },
   pActHrs:   { fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: colors.ink },
   pActHrsQ:  { fontSize: 8.5, color: colors.ink3 },
+  // Migs 821/824. Printed only where the question was actually put -- on a
+  // billable project, on a row that carries an answer. NULL means nobody was
+  // asked, and a "Not billable" tag against it would be an answer invented by
+  // the report.
+  pActBill:  { fontSize: 7, fontFamily: 'Helvetica-Bold', color: '#047857',
+               marginRight: 7, marginLeft: 6 },
+  pActNBill: { fontSize: 7, color: colors.ink3, marginRight: 7, marginLeft: 6 },
+  // The card's own subtotal line, under the header and above the activities.
+  pSplit:    { flexDirection: 'row', paddingHorizontal: 8, paddingTop: 5 },
+  pSplitB:   { fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: '#047857', marginRight: 12 },
+  pSplitN:   { fontSize: 7.5, color: colors.ink3 },
+  pSplitU:   { fontSize: 7.5, color: colors.ink4, paddingHorizontal: 8, paddingTop: 5 },
   // The indent lives on a WRAPPER, not on the track. width:'100%' resolves
   // against the parent's content box and marginLeft is applied afterwards, so
   // putting both on one View made every bar overrun the card border by exactly

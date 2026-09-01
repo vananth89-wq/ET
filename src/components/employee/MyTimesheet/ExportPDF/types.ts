@@ -9,11 +9,23 @@
  * timesheet_headers carries submitted_at / approved_at with no _by columns.
  */
 
+import type { ProjectClass, BillSplit } from '../billability';
+export type { ProjectClass, BillSplit };
+
 export type ExportEntryKind = 'work' | 'leave' | 'holiday';
 
 export interface ExportActivity {
   name:    string;
   minutes: number;
+  /**
+   * The per-activity billable answer (migs 821, 824). NULL means the question
+   * was never asked — every activity outside a billable project is in that
+   * state, and it must not be printed as "no".
+   *
+   * Since 824 one activity NAME can appear twice on one entry with different
+   * answers, so a reader folding these must key on the name AND the answer.
+   */
+  billable: boolean | null;
 }
 
 /** Null once the sheet's current approval covers this row. */
@@ -27,6 +39,12 @@ export interface ExportEntry {
   kind:       ExportEntryKind;
   typeName:   string;          // the time type, e.g. 'Work'
   project:    string | null;
+  /**
+   * What the BOOKED project is worth (mig 825). Null where there is no booked
+   * project — cross-project help (801) included, whose `project` label names
+   * the project that was HELPED and whose hours are not chargeable to it.
+   */
+  projectClass: ProjectClass | null;
   minutes:    number;
   notes:      string | null;
   activities: ExportActivity[];
@@ -85,6 +103,8 @@ export interface ExportProjectActivity {
   minutes: number;
   /** false only for the synthetic "Not itemised" remainder row. */
   itemised: boolean;
+  /** As ExportActivity.billable. Two lines of one name is the normal case. */
+  billable: boolean | null;
 }
 
 /**
@@ -105,6 +125,11 @@ export interface ExportProjectBreakdown {
    *  the set — largest-remainder, so five round-ups cannot make it 102. */
   pctOfProjectTime: number;
   activities: ExportProjectActivity[];
+  /** What this project is worth (mig 825), or null if the report's rows never
+   *  said. Decides whether the card prints a billable line at all. */
+  cls: ProjectClass | null;
+  /** This project's own hours, split. Sums to `minutes`. */
+  split: BillSplit;
 }
 
 /**
@@ -182,6 +207,13 @@ export interface TimesheetExportData {
   overtimeMinutes: number;
   leaveDays:       number;
   workingDays:     number;
+  /**
+   * The month's hours by what they are worth (migs 820/822/825), computed by
+   * the same function the Monthly Summary on screen uses. The four buckets sum
+   * to recordedMinutes, so the split can sit beside Recorded on the same page
+   * without the two contradicting each other.
+   */
+  billSplit:       BillSplit;
   daysPresent:     number;
   utilisationPct:  number;
   varianceMinutes: number;      // recorded - planned, signed

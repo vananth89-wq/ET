@@ -7,6 +7,8 @@ type HeaderStatus = TimesheetExportData['status'];
 import {
   buildWeeks, buildProjects, buildProjectActivities, buildNonProjectTypes, buildMonthSplit,
 } from './utils/dataTransforms';
+import { splitEntry, EMPTY_SPLIT } from '../billability';
+import type { ProjectClass } from '../billability';
 
 /**
  * The report, assembled once.
@@ -58,8 +60,15 @@ export interface AssembleRow {
    */
   rawMinutes: number;
   notes:      string | null;
-  activities: Array<{ name: string; minutes: number }>;
+  activities: Array<{ name: string; minutes: number; billable?: boolean | null }>;
   changeMark: ExportChangeMark;
+  /**
+   * What the BOOKED project is worth (mig 825). Null where there is no booked
+   * project. Every caller must read this off `project_id`, never off the
+   * project NAME it puts in `project` — that label falls back to the project
+   * that was HELPED (801), whose hours are not chargeable to it.
+   */
+  projectClass?: ProjectClass | null;
 }
 
 export interface AssembleInput {
@@ -155,9 +164,10 @@ export function assembleExportData(input: AssembleInput): TimesheetExportData {
       kind:       r.kind,
       typeName:   r.typeName,
       project:    r.project,
+      projectClass: r.projectClass ?? null,
       minutes:    r.minutes,
       notes:      r.notes,
-      activities: r.activities,
+      activities: r.activities.map(a => ({ ...a, billable: a.billable ?? null })),
       isHoliday,
       isWeekend:  !isHoliday && hasSchedule && plannedForDow(dow) === 0,
       changeMark: r.changeMark,
@@ -195,6 +205,26 @@ export function assembleExportData(input: AssembleInput): TimesheetExportData {
     leaveDays:       monthDays.filter(d => d.isLeave).length,
     workingDays:     monthDays.filter(d => d.planned > 0).length,
     daysPresent,
+    // The same function the Monthly Summary on screen calls, on the same rows.
+    // Not a second implementation: a document that contradicts the page it was
+    // exported from is worse than one that omits the figure entirely.
+    billSplit:       entries.reduce((acc, e) => {
+      const s = splitEntry({
+        entry_kind:    e.kind === 'leave' ? 'leave' : 'work',
+        hours_minutes: e.minutes,
+        // The class already travels with the row, so the id is only needed here
+        // as a "was there a booked project at all" flag.
+        project_id:    e.projectClass ? e.project : null,
+        activities:    e.activities.map(a => ({ hours_minutes: a.minutes, is_billable: a.billable })),
+      }, e.projectClass);
+      return {
+        billable:     acc.billable     + s.billable,
+        nonBillable:  acc.nonBillable  + s.nonBillable,
+        unclassified: acc.unclassified + s.unclassified,
+        absence:      acc.absence      + s.absence,
+        worked:       acc.worked       + s.worked,
+      };
+    }, { ...EMPTY_SPLIT }),
     utilisationPct:  planned > 0 ? (recorded / planned) * 100 : 0,
     varianceMinutes: recorded - planned,
 

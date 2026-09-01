@@ -102,9 +102,25 @@ function EntryCard({ e }: { e: ExportEntry }) {
 
           <View style={{ width: '56%', paddingRight: 8 }}>
             {e.activities.length === 0 && <Text style={styles.cardActNil}>—</Text>}
-            {e.activities.map((a, i) => (
-              <View key={`${a.name}-${i}`} style={styles.actLine}>
-                <Text style={styles.actName}>{a.name}</Text>
+            {/* KEYED ON THE ANSWER TOO -- since mig 824 one name can appear
+                twice on one entry with different answers, and this is the page
+                that has to show both. */}
+            {e.activities.map((a, i) => {
+              // Only where the question was actually put. NULL means nobody was
+              // asked -- every activity outside a billable project is in that
+              // state, and tagging those would invent an answer.
+              const tag = e.projectClass === 'billable' && a.billable !== null;
+              return (
+              <View key={`${a.name}-${a.billable}-${i}`} style={styles.actLine}>
+                {/* The row is three fixed columns. The name gives up the width
+                    the tag needs rather than the figure column doing it --
+                    hours are what this page is read for. */}
+                <Text style={tag ? { ...styles.actName, width: '46%' } : styles.actName}>{a.name}</Text>
+                {tag && (
+                  <Text style={a.billable ? styles.actBill : styles.actNBill}>
+                    {a.billable ? 'BILLABLE' : 'NOT BILLABLE'}
+                  </Text>
+                )}
                 {/* A pre-727 entry carries names with no split. A blank cell in
                     a column of figures reads as a rendering fault; a dash says
                     the thing that is true — no figure was ever recorded. */}
@@ -112,7 +128,8 @@ function EntryCard({ e }: { e: ExportEntry }) {
                   ? <Text style={styles.actMins}>{fmtHMWide(a.minutes)}</Text>
                   : <Text style={styles.actMinsNil}>—</Text>}
               </View>
-            ))}
+              );
+            })}
           </View>
 
           <Text style={{ ...styles.cardHrs, width: '18%' }}>{fmtHM(e.minutes)}</Text>

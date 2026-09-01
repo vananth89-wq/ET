@@ -3,6 +3,8 @@ import type {
   ExportProjectActivity, ExportProjectBreakdown, ExportNonProjectType,
   ExportMonthSplit,
 } from '../types';
+import { splitEntry, EMPTY_SPLIT } from '../../billability';
+import type { ProjectClass, BillSplit } from '../../billability';
 
 /**
  * Pure shaping functions. Nothing here touches Supabase or React — give it rows,
@@ -224,24 +226,36 @@ export function wholePercents(values: number[], total: number): number[] {
 export function buildProjectActivities(entries: ExportEntry[]): ExportProjectBreakdown[] {
   const byProject = new Map<string, {
     minutes: number; days: Set<string>; acts: Map<string, ExportProjectActivity>;
+    cls: ProjectClass | null; split: BillSplit;
   }>();
 
   for (const e of entries) {
     if (!e.project || e.minutes <= 0) continue;
     const row = byProject.get(e.project)
-      ?? { minutes: 0, days: new Set<string>(), acts: new Map<string, ExportProjectActivity>() };
+      ?? { minutes: 0, days: new Set<string>(), acts: new Map<string, ExportProjectActivity>(),
+           cls: e.projectClass, split: { ...EMPTY_SPLIT } };
     row.minutes += e.minutes;
     row.days.add(e.date);
 
-    const add = (name: string, minutes: number, itemised: boolean) => {
-      const cur = row.acts.get(name);
+    /**
+     * KEYED ON THE NAME **AND** THE ANSWER, since mig 824.
+     *
+     * The unique index behind these rows is (entry, name, is_billable), so
+     * "Testing" billable and "Testing" not billable are two rows and two facts
+     * — ten hours exploring a ticket and two writing the fix. Folding on the
+     * name alone would print one twelve-hour line, and the document that leaves
+     * the building would disagree with the screen it was exported from.
+     */
+    const add = (name: string, minutes: number, itemised: boolean, billable: boolean | null) => {
+      const key = `${name}\u0000${billable === null ? '' : billable}`;
+      const cur = row.acts.get(key);
       if (cur) { cur.minutes += minutes; cur.itemised = cur.itemised && itemised; }
-      else row.acts.set(name, { name, minutes, itemised });
+      else row.acts.set(key, { name, minutes, itemised, billable });
     };
 
     let itemised = 0;
     for (const a of e.activities) {
-      if (a.minutes > 0) { add(a.name, a.minutes, true); itemised += a.minutes; }
+      if (a.minutes > 0) { add(a.name, a.minutes, true, a.billable ?? null); itemised += a.minutes; }
     }
 
     // A pre-727 entry carries activity NAMES with no hours split, so `itemised`
@@ -249,7 +263,19 @@ export function buildProjectActivities(entries: ExportEntry[]): ExportProjectBre
     // imply a measurement that was never taken; dropping the difference would
     // leave a card whose lines do not add up to its own header. Named instead.
     const gap = e.minutes - itemised;
-    if (gap > 0) add('Not itemised', gap, false);
+    if (gap > 0) add('Not itemised', gap, false, null);
+
+    row.cls = e.projectClass;
+    const s = splitEntry(
+      { entry_kind: e.kind === 'leave' ? 'leave' : 'work', hours_minutes: e.minutes,
+        project_id: e.projectClass ? e.project : null,
+        activities: e.activities.map(a => ({ hours_minutes: a.minutes, is_billable: a.billable })) },
+      e.projectClass);
+    row.split.billable     += s.billable;
+    row.split.nonBillable  += s.nonBillable;
+    row.split.unclassified += s.unclassified;
+    row.split.absence      += s.absence;
+    row.split.worked       += s.worked;
 
     byProject.set(e.project, row);
   }
@@ -260,6 +286,8 @@ export function buildProjectActivities(entries: ExportEntry[]): ExportProjectBre
       minutes:    r.minutes,
       daysActive: r.days.size,
       pctOfProjectTime: 0,
+      cls:   r.cls,
+      split: r.split,
       activities: [...r.acts.values()].sort((a, b) =>
         // The caveat row sits last however big it is, so real work reads first.
         a.itemised === b.itemised ? b.minutes - a.minutes : a.itemised ? -1 : 1),

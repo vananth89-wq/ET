@@ -29,9 +29,16 @@ export interface TsPayloadEntry {
   /** Names only. Kept for anything already reading it; MIG 745 added the split. */
   activities:             string[];
   /** MIG 745: the same activities WITH their minutes. Absent on an older API. */
-  activity_rows?:         { name: string; minutes: number }[] | null;
+  /** `billable` since mig 826 — true / false, or null where the question was
+   *  never asked (which is every activity outside a billable project). */
+  activity_rows?:         { name: string; minutes: number; billable?: boolean | null }[] | null;
   project_id:             string | null;
   project_name:           string | null;
+  /** Mig 826. What the BOOKED project is worth, decided server-side by
+   *  project_billability(). Null where there is no booked project — including
+   *  cross-project help (801), whose hours are not chargeable to the project
+   *  its label names. Absent on a payload from before 826. */
+  project_class?:         'billable' | 'non_billable' | 'unclassified' | null;
   time_type_id:           string | null;
   time_type_name:         string | null;
   is_system_generated:    boolean;
@@ -53,7 +60,9 @@ export interface TsRemoved {
   notes:          string | null;
   activities:     string[];
   /** MIG 745. Always minutes 0 -- a deleted entry's activity rows went with it. */
-  activity_rows?: { name: string; minutes: number }[] | null;
+  /** Deleted rows never carry an answer: an entry's activity rows cascade with
+   *  it and the audit row kept only the legacy names. Absent, i.e. null. */
+  activity_rows?: { name: string; minutes: number; billable?: boolean | null }[] | null;
   project_name:   string | null;
   time_type_name: string | null;
   removed_at:     string;

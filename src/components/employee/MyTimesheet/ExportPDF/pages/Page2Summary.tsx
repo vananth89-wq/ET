@@ -3,6 +3,7 @@ import { styles, colors, matrixTone } from '../utils/pdfStyles';
 import { PDFHeader } from '../components/PDFHeader';
 import { PDFFooter } from '../components/PDFFooter';
 import { SectionHead } from '../components/SectionHead';
+import { billableSharePct } from '../../billability';
 import { fmtHM, fmtHMClock } from '../utils/dataTransforms';
 import { buildSummaryMatrix } from '../utils/summaryMatrix';
 import type { MatrixTone, MatrixColumn, MatrixMonthRow } from '../utils/summaryMatrix';
@@ -116,6 +117,12 @@ export function Page2Summary({ data }: { data: TimesheetExportData }) {
     : m.totalMinutes >= m.plannedMinutes ? 'met'
     : 'short';
 
+  // Shown only where the month actually has chargeable time to report, or an
+  // untyped project whose hours nobody has classified yet.
+  const billShare = billableSharePct(data.billSplit);
+  const showBill  = data.billSplit.billable > 0 || data.billSplit.unclassified > 0
+                 || data.projectActivities.some(p => p.cls === 'billable');
+
   return (
     <Page size="A4" style={styles.page}>
       <PDFHeader data={data} subtitle={`Monthly Summary · ${data.periodLabel}`} />
@@ -136,6 +143,20 @@ export function Page2Summary({ data }: { data: TimesheetExportData }) {
             <Text style={styles.mxHeroLbl}>COMPLETE</Text>
             <Text style={{ ...styles.mxHeroVal, color: toneInk(monthTone) }}>{monthPct}%</Text>
           </View>
+          {/* Migs 820/822/825. Hours over WORKED hours -- absence is out of the
+              denominator, exactly as on the Utilisation report and on the
+              Monthly Summary this file is exported from. Printed only when
+              there is something to say: an employee who never touches a
+              billable project would otherwise carry a permanent 0% on a
+              document that goes to their approver. */}
+          {showBill && (
+            <View style={styles.mxHeroCell}>
+              <Text style={styles.mxHeroLbl}>BILLABLE</Text>
+              <Text style={{ ...styles.mxHeroVal, color: '#047857' }}>
+                {fmtHM(data.billSplit.billable)}
+              </Text>
+            </View>
+          )}
           <View style={styles.mxHeroBar}>
             <View style={styles.mxTrack}>
               <View style={{ ...styles.mxTrackFill,
@@ -144,6 +165,9 @@ export function Page2Summary({ data }: { data: TimesheetExportData }) {
             </View>
             <Text style={styles.mxHeroCap}>
               {fmtHM(m.totalMinutes)} of {fmtHM(m.plannedMinutes)} recorded · {n} {n === 1 ? 'column' : 'columns'} this month
+              {showBill && billShare !== null && ` · ${billShare}% of ${fmtHM(data.billSplit.worked)} worked is billable`}
+              {showBill && data.billSplit.unclassified > 0 &&
+                ` · ${fmtHM(data.billSplit.unclassified)} on a project with no type set`}
             </Text>
           </View>
         </View>

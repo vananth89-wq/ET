@@ -11,6 +11,8 @@
  * if a third consumer ever appears.
  */
 import { useMemo } from 'react';
+import { splitEntry, EMPTY_SPLIT, billableSharePct } from './billability';
+import type { ProjectClass, BillSplit } from './billability';
 
 /** Structurally compatible with MyTimesheet's TimesheetEntry, without coupling
  *  to it. Only the fields this panel reads are named. */
@@ -18,12 +20,17 @@ interface SumEntry {
   entry_date:    string;
   entry_kind:    'project' | 'time_type' | 'holiday' | 'leave';
   hours_minutes: number;
+  /** The BOOKED project. NULL on cross-project help (801), where the id the
+   *  employee chose lives in related_project_id instead. */
+  project_id?: string | null;
   projects?:  { name: string } | { name: string }[];
   time_types?: { name: string } | { name: string }[];
   /** Mig 727's itemised rows. Already loaded with every entry by the page
-   *  above; this panel simply never read them until the project breakdown. */
+   *  above; this panel simply never read them until the project breakdown.
+   *  `is_billable` since 821 — true, false, or NULL for "never asked". */
   timesheet_entry_activities?: Array<{
     activity_name: string; hours_minutes: number; display_order: number;
+    is_billable?: boolean | null;
   }> | null;
   /** Legacy names with no hours against them, from before 727. */
   activities?: string[] | null;
@@ -80,6 +87,9 @@ const NEUTRAL = ['#94A3B8', '#CBD5E1', '#B8C0CC', '#DDE3EA'];
 /** Leave is the exception — it keeps the tint the weekly bars already use for
  *  it, so the segment in a bar and the slice in the donut are the same fact. */
 const LEAVE_BLUE = '#93C5FD';
+/** Chargeable time. Deliberately the same green the Utilisation report's
+ *  Billable share tile uses, so the two read as one fact in two places. */
+const BILL_GREEN = '#047857';
 
 /** One colour rule, used by the donut and by its legend, so the two can never
  *  disagree about which slice is which. */
@@ -173,10 +183,20 @@ export interface SummarySectionProps {
   todayIso: string;
   /** Chip click and the back link both come through here. */
   onJumpToDate: (dateStr: string | null) => void;
+  /**
+   * What a project is worth — billable, non_billable or unclassified, from
+   * `project_billability()` (mig 825). NULL for an id this page has not heard
+   * of, and for no id at all.
+   *
+   * A callback rather than the map itself, for the same reason `plannedFor` is
+   * one: this panel depends on nothing it does not read.
+   */
+  classOfProject: (projectId: string | null | undefined) => ProjectClass | null;
 }
 
 export default function SummarySection({
   year, month, entries, plannedMinutes, plannedFor, holidayByDate, todayIso, onJumpToDate,
+  classOfProject,
 }: SummarySectionProps) {
 
   const d = useMemo(() => {
@@ -288,30 +308,58 @@ export default function SummarySection({
     // sit under, and inventing a card for each would make this block a second,
     // worse version of the donut above — which is exactly why the donut stays.
     // The two answer different questions and say so in their headings.
-    type Act  = { name: string; minutes: number; itemised: boolean };
-    type Proj = { name: string; minutes: number; days: number; acts: Act[] };
+    type Act  = { name: string; minutes: number; itemised: boolean; billable: boolean | null };
+    type Proj = { name: string; minutes: number; days: number; acts: Act[];
+                  cls: ProjectClass | null; split: BillSplit };
 
-    const projMap = new Map<string, { minutes: number; days: Set<string>; acts: Map<string, Act> }>();
+    const projMap = new Map<string, {
+      minutes: number; days: Set<string>; acts: Map<string, Act>;
+      cls: ProjectClass | null; split: BillSplit;
+    }>();
     for (const e of entries) {
       if (e.hours_minutes <= 0) continue;
       const p = Array.isArray(e.projects) ? e.projects[0] : e.projects;
       if (!p?.name) continue;
 
-      const row = projMap.get(p.name) ?? { minutes: 0, days: new Set<string>(), acts: new Map() };
+      const cls = classOfProject(e.project_id);
+      const row = projMap.get(p.name)
+        ?? { minutes: 0, days: new Set<string>(), acts: new Map(), cls, split: { ...EMPTY_SPLIT } };
       row.minutes += e.hours_minutes;
       row.days.add(e.entry_date);
 
-      const add = (name: string, minutes: number, itemised: boolean) => {
-        const cur = row.acts.get(name);
+      const s = splitEntry(
+        { entry_kind: e.entry_kind, hours_minutes: e.hours_minutes, project_id: e.project_id,
+          activities: e.timesheet_entry_activities ?? [] }, cls);
+      row.split.billable     += s.billable;
+      row.split.nonBillable  += s.nonBillable;
+      row.split.unclassified += s.unclassified;
+      row.split.absence      += s.absence;
+      row.split.worked       += s.worked;
+
+      /**
+       * KEYED ON THE NAME **AND** THE ANSWER, since mig 824.
+       *
+       * "Testing" billable and "Testing" not billable are two rows in the
+       * database and two different facts about the day — ten hours exploring a
+       * ticket and two writing the fix. Folding them on the name alone, as this
+       * did, would print one twelve-hour line and quietly contradict both the
+       * day panel above and the Utilisation report. The key here has to be the
+       * same key the unique index uses.
+       */
+      const add = (name: string, minutes: number, itemised: boolean, billable: boolean | null) => {
+        const key = `${name} ${billable === null ? '' : billable}`;
+        const cur = row.acts.get(key);
         if (cur) { cur.minutes += minutes; cur.itemised = cur.itemised && itemised; }
-        else row.acts.set(name, { name, minutes, itemised });
+        else row.acts.set(key, { name, minutes, itemised, billable });
       };
 
       const rows = e.timesheet_entry_activities ?? [];
-      const itemisedTotal = rows.reduce((s, a) => s + (a.hours_minutes ?? 0), 0);
+      const itemisedTotal = rows.reduce((s2, a) => s2 + (a.hours_minutes ?? 0), 0);
 
       for (const a of rows) {
-        if ((a.hours_minutes ?? 0) > 0) add(a.activity_name, a.hours_minutes, true);
+        if ((a.hours_minutes ?? 0) > 0) {
+          add(a.activity_name, a.hours_minutes, true, a.is_billable ?? null);
+        }
       }
 
       // The safety net. Every entry saved through the app is itemised, so this
@@ -320,14 +368,14 @@ export default function SummarySection({
       // an unexplained gap is worse than a named one. Covers a pre-727 entry
       // (names, no hours) and anything written straight to the table.
       const gap = e.hours_minutes - itemisedTotal;
-      if (gap > 0) add('Not itemised', gap, false);
+      if (gap > 0) add('Not itemised', gap, false, null);
 
       projMap.set(p.name, row);
     }
 
     const projectActs: Proj[] = [...projMap.entries()]
       .map(([name, r]) => ({
-        name, minutes: r.minutes, days: r.days.size,
+        name, minutes: r.minutes, days: r.days.size, cls: r.cls, split: r.split,
         acts: [...r.acts.values()].sort((a, b) =>
           // "Not itemised" is a caveat, not a finding: it sits last whatever
           // its size, so the real work reads first.
@@ -337,18 +385,44 @@ export default function SummarySection({
 
     const projectTotal = projectActs.reduce((s, p) => s + p.minutes, 0);
 
+    // ── The month's billable split ──────────────────────────────────────
+    // Every entry, not just the project-bearing ones, so the four buckets add
+    // up to Recorded and the tile below cannot contradict the tile beside it.
+    // The rule itself is in billability.ts, written once and shared with the
+    // PDF, and written to mirror mig 822 branch for branch.
+    const bill = { ...EMPTY_SPLIT };
+    for (const e of entries) {
+      const s = splitEntry(
+        { entry_kind: e.entry_kind, hours_minutes: e.hours_minutes, project_id: e.project_id,
+          activities: e.timesheet_entry_activities ?? [] },
+        classOfProject(e.project_id));
+      bill.billable     += s.billable;
+      bill.nonBillable  += s.nonBillable;
+      bill.unclassified += s.unclassified;
+      bill.absence      += s.absence;
+      bill.worked       += s.worked;
+    }
+    /* The tile is shown only when there is something for it to say. An
+     * employee who never touches a billable project would otherwise read a
+     * permanent "0%", which is not a finding about their month — it is a fact
+     * about the projects they are on, and it belongs nowhere near a strip of
+     * numbers measuring them. */
+    const showBill = bill.billable > 0 || bill.unclassified > 0
+                  || projectActs.some(p => p.cls === 'billable');
+
     return {
       days, working, recorded, logged, missing, todayOpen, aheadN, weeks, projects,
-      projectActs, projectTotal, leaveMinutes, leaveDays,
+      projectActs, projectTotal, leaveMinutes, leaveDays, bill, showBill,
       // Clamped: past plan this is negative, and "−12h to log" is not a thing.
       remaining: Math.max(0, plannedMinutes - recorded),
       over:      Math.max(0, recorded - plannedMinutes),
       attain:    plannedMinutes > 0 ? (recorded / plannedMinutes) * 100 : 0,
       avgPerDay: logged > 0 ? recorded / logged : 0,
     };
-  }, [year, month, entries, plannedMinutes, plannedFor, todayIso]);
+  }, [year, month, entries, plannedMinutes, plannedFor, todayIso, classOfProject]);
 
   const pace = d.aheadN > 0 ? d.remaining / d.aheadN : 0;
+  const billShare = billableSharePct(d.bill);
   const donutTotal = d.projects.reduce((s, p) => s + p.minutes, 0);
   const donutPcts  = wholePercents(d.projects.map(p => p.minutes), donutTotal);
   // Projects and non-project groups are ranked separately so each walks its own
@@ -376,7 +450,7 @@ export default function SummarySection({
 
       {/* ── KPI strip ─────────────────────────────────────────────────── */}
       <div style={{
-        display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', background: '#fff',
+        display: 'grid', gridTemplateColumns: `repeat(${d.showBill ? 7 : 6}, 1fr)`, background: '#fff',
         border: `1px solid ${C.rule}`, borderRadius: 12, overflow: 'hidden', marginBottom: 14,
       }}>
         <Kpi label="Recorded"  value={h1(d.recorded)} unit="h" tone={C.blue}
@@ -385,6 +459,19 @@ export default function SummarySection({
           ? <Kpi label="Over plan" value={h1(d.over)} unit="h" tone={C.amber} sub="beyond the month's target" />
           : <Kpi label="Remaining" value={h1(d.remaining)} unit="h"
                  tone={d.attain < 80 ? C.amber : C.green} sub="to log this month" />}
+        {/* Hours over WORKED hours, never over recorded — absence is out of the
+            denominator, or a fortnight of annual leave would read as a
+            fortnight of lost revenue. Same denominator as the Utilisation
+            report's tile, and the same three-word rule underneath, so the two
+            cannot describe the same hour differently. */}
+        {d.showBill && (
+          <Kpi label="Billable" value={h1(d.bill.billable)} unit="h" tone={BILL_GREEN}
+               sub={billShare === null
+                 ? 'no worked hours yet this month'
+                 : d.bill.unclassified > 0
+                   ? `${billShare}% of ${h1(d.bill.worked)}h worked · ${h1(d.bill.unclassified)}h on a project with no type set`
+                   : `${billShare}% of ${h1(d.bill.worked)}h worked`} />
+        )}
         {/* Attainment used to sit here and say exactly what the labelled bar in
             the panel below says, under the same word, with a whole sentence of
             context this tile could not carry. Leave had no home at all: eight
@@ -694,9 +781,36 @@ export default function SummarySection({
                     </span>
                   </div>
 
+                  {/* Only where somebody is paying. On an internal project the
+                      question was never put to the employee, and a line saying
+                      "Billable 0h" would read as a judgement on work that was
+                      never meant to be charged for. */}
+                  {p.cls === 'billable' && (
+                    <div style={{
+                      display: 'flex', gap: 14, alignItems: 'baseline',
+                      padding: '7px 12px 0', fontSize: 11.5,
+                    }}>
+                      <span style={{ color: BILL_GREEN, fontWeight: 700 }}>
+                        Billable {h1(p.split.billable)}h
+                      </span>
+                      <span style={{ color: C.ink4, fontWeight: 600 }}>
+                        Not billable {h1(p.split.nonBillable)}h
+                      </span>
+                    </div>
+                  )}
+                  {p.cls === 'unclassified' && (
+                    <div style={{ padding: '7px 12px 0', fontSize: 11.5, color: C.ink4 }}>
+                      This project has no type set, so its hours are reported as
+                      not classified rather than counted either way.
+                    </div>
+                  )}
+
                   <div style={{ padding: '4px 12px 10px' }}>
+                    {/* KEYED ON THE NAME AND THE ANSWER. Since mig 824 one name
+                        can appear twice in this list with different answers, and
+                        a key of `a.name` alone would collide and drop a row. */}
                     {p.acts.map((a, j) => (
-                      <div key={a.name} style={{ paddingTop: 8 }}>
+                      <div key={`${a.name} ${a.billable}`} style={{ paddingTop: 8 }}>
                         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
                           <span style={{ fontSize: 11, color: C.ink4, width: 14, flex: 'none' }}>
                             {j + 1}.
@@ -709,6 +823,18 @@ export default function SummarySection({
                             color: a.itemised ? C.ink2 : C.ink4,
                             fontStyle: a.itemised ? 'normal' : 'italic',
                           }}>{a.name}</span>
+                          {/* Only where the question was actually put. NULL is
+                              not "no" — it means nobody was asked, which is the
+                              state every activity outside a billable project is
+                              in, and marking those would be inventing an answer. */}
+                          {p.cls === 'billable' && a.billable !== null && (
+                            <span style={{
+                              fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 5,
+                              whiteSpace: 'nowrap', flex: 'none',
+                              background: a.billable ? '#ECFDF5' : '#F3F4F6',
+                              color:      a.billable ? BILL_GREEN : C.ink3,
+                            }}>{a.billable ? 'Billable' : 'Not billable'}</span>
+                          )}
                           <span style={{ fontSize: 12.5, fontWeight: 700,
                                          color: a.itemised ? C.ink : C.ink3 }}>
                             {h1(a.minutes)}h
@@ -719,7 +845,9 @@ export default function SummarySection({
                           <div style={{
                             height: 3, borderRadius: 99,
                             width: `${(a.minutes / widest) * 100}%`,
-                            background: a.itemised ? colour : '#D1D5DB',
+                            background: !a.itemised ? '#D1D5DB'
+                                      : p.cls === 'billable' && a.billable === false ? '#CBD5E1'
+                                      : colour,
                           }} />
                         </div>
                       </div>

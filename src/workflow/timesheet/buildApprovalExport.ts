@@ -52,11 +52,16 @@ export async function buildApprovalExportData(p: TsPayload): Promise<TimesheetEx
    * and those report at zero minutes -- exactly what the employee's export does
    * with a pre-727 entry, so the two stay identical either way.
    */
-  const activitiesOf = (e: { activity_rows?: Array<{ name: string; minutes: number }> | null;
+  const activitiesOf = (e: { activity_rows?: Array<{ name: string; minutes: number;
+                                                    billable?: boolean | null }> | null;
                              activities?: string[] | null }) =>
     (e.activity_rows?.length
-      ? e.activity_rows.map(a => ({ name: a.name, minutes: a.minutes }))
-      : (e.activities ?? []).filter(Boolean).map(n => ({ name: n, minutes: 0 })));
+      // `billable` arrives with the row since mig 826. A payload built before
+      // that migration simply has no such key, and `?? null` reads it as what it
+      // is -- unanswered -- rather than as "not billable", which would be an
+      // answer this report invented.
+      ? e.activity_rows.map(a => ({ name: a.name, minutes: a.minutes, billable: a.billable ?? null }))
+      : (e.activities ?? []).filter(Boolean).map(n => ({ name: n, minutes: 0, billable: null })));
   // NOTE: the zero-minute fallback above is for DISPLAY only. Never hand the
   // result to entryMinutes() -- see the call below.
 
@@ -67,6 +72,10 @@ export async function buildApprovalExportData(p: TsPayload): Promise<TimesheetEx
       kind:       kindOf(e),
       typeName:   e.time_type_name ?? (e.entry_kind === 'holiday' ? 'Holiday' : '—'),
       project:    e.project_name ?? null,
+      // Mig 826. Straight through: this file does no arithmetic about the
+      // month, and deciding billability here would be a second implementation
+      // of the rule the employee's own export reads from the database.
+      projectClass: e.project_class ?? null,
       // entryMinutes() treats ANY non-empty activity list as the source of
       // truth and sums it. `acts` is a DISPLAY list: for a pre-727 entry it
       // holds the legacy names at minutes 0, so passing it here summed to zero
