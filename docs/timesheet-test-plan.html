@@ -2,7 +2,7 @@
 {
   "name": "Timesheet Test Plan",
   "schemaVersion": 1,
-  "description": "Prowess timesheet test plan, migrations 726–800. 324 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
+  "description": "Prowess timesheet test plan, migrations 726–823. 355 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
   "mcpTools": [],
   "mcpServerNames": []
 }
@@ -11,7 +11,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Timesheet — Test Plan for migrations 726 to 800</title>
+<title>Timesheet — Test Plan for migrations 726 to 823</title>
 <style>
   :root{
     --ink:#0F172A; --ink2:#334155; --ink3:#64748B; --ink4:#94A3B8;
@@ -96,7 +96,7 @@
 <header class="top">
   <div class="wrap">
     <p class="eyebrow">Prowess · Time Management</p>
-    <h1>Test plan — migrations 726 to 800</h1>
+    <h1>Test plan — migrations 726 to 823</h1>
     <p class="sub">Multiple entries per day, day-occupancy rules, per-activity hours, advance-dating —
        and, from migration 730, an edit window that actually binds and a submission that goes
        somewhere. Every case says what to do, what should happen, and which rule it proves — so a
@@ -165,7 +165,9 @@
     <a class="toc" href="#ao">AO · Notification wording (796)</a>
     <a class="toc" href="#ap">AP · Lead changes (797 &middot; 799)</a>
     <a class="toc" href="#aqb">AQ · Billability (800)</a>
-    <a class="toc" href="#ar">AR · Known and deliberate (780&ndash;800)</a>
+    <a class="toc" href="#arh">AR · Help given to another project (801 &middot; 802 &middot; 810)</a>
+    <a class="toc" href="#asb">AS · Which hours are chargeable (820&ndash;823)</a>
+    <a class="toc" href="#at">AT · Known and deliberate (780&ndash;823)</a>
   </div>
 
   <div class="bar">
@@ -4625,8 +4627,365 @@ order  by created_at desc limit 6;</div>
     </div>
   </div>
 </section>
-<section id="ar">
-  <h2><span class="k">AR</span> Known and deliberate (780&ndash;800)</h2>
+<section id="arh">
+  <h2><span class="k">AR</span> Help given to another project (801 &middot; 802 &middot; 810)</h2>
+  <p class="lede">Somebody helping a team they are not assigned to had nowhere to record the hours &mdash; the dropdown blocked the first hour and permitted every hour after it. The hours now go to <code>related_project_id</code>, which no project report can see. The whole risk is that they leak into a project&rsquo;s numbers anyway.</p>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR1</span>
+      <span class="title">The fixture, and the switch</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>You need: <b>Ravi</b>, assigned to <b>Beta Migration</b> and <b>not</b> to <b>Acme Rollout</b>; Acme with a budget and some hours of its own; and a project whose end date is in the past. Note Acme&rsquo;s Hours, Consumed % and Contributors <i>before</i> anything else. Then, as an administrator, open <b>Time Types</b> and tick <b>Active</b> on <b>Support to Another Project</b>.</p>
+      <div class="exp"><b>Expect:</b> the type is inactive until you switch it on. Nobody could have reached this feature before that click.</div>
+      <div class="why">It ships inactive on purpose: the database and the frontend deploy separately, and until the screen was out the type would have offered the narrowed project list &mdash; the one list that cannot contain the project you want to help.</div>
+      <div class="warn">Write Acme&rsquo;s three figures down. AR6 cannot be checked without them.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR2</span>
+      <span class="title">The picker offers projects you are not on</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>As <b>Ravi</b>, add a timesheet entry and choose <b>Support to Another Project</b>.</p>
+      <div class="exp"><b>Expect:</b> a second field appears labelled <b>Project you helped</b>, listing <b>every</b> active project &mdash; Acme included &mdash; not just Ravi&rsquo;s own.</div>
+      <div class="why">Every other project picker in the product narrows to your allocations. This one deliberately does not; that is the entire point of it.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR3</span>
+      <span class="title">Bounded by the project&rsquo;s dates and nothing else</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Look for the project whose end date has passed, and for any inactive project.</p>
+      <div class="exp"><b>Expect:</b> neither is offered. The withheld hint says <b>&ldquo;outside the project&rsquo;s dates&rdquo;</b> and does <b>not</b> mention your allocation.</div>
+      <div class="why">Membership cannot be part of the test here &mdash; you are recording help on a project you were never on. The hint had to change with the rule, or it would give a reason that is not the reason.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR4</span>
+      <span class="title">Recording it</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Pick Acme, add an activity, enter 4:00 and save.</p>
+      <div class="exp"><b>Expect:</b> it saves. The entry card names <b>Acme Rollout</b>.</div>
+      <div class="why">The card reads the project name from a different column for these entries. If it saved but showed no project name, that join was missed &mdash; and two helps on one day would be indistinguishable.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR5</span>
+      <span class="title">It does not follow you around afterwards</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Still as Ravi, add a <i>normal</i> project entry on any date. Open the ordinary Project dropdown.</p>
+      <div class="exp"><b>Expect:</b> <b>Acme is not in it.</b> Ravi is still offered only Beta Migration.</div>
+      <div class="why">This is the sharpest regression in the set. The ordinary dropdown offers any project you have ever booked to, date-blind and for ever. Had the help landed in project_id, helping Acme once would have added it to Ravi&rsquo;s dropdown permanently.</div>
+      <div class="warn">If Acme appears here, the routing failed and every check below will also be wrong. Stop and report it.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR6</span>
+      <span class="title">Acme&rsquo;s own numbers have not moved</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Open <b>Project Summary</b> and compare Acme against the figures from AR1.</p>
+      <div class="exp"><b>Expect:</b> <b>Hours, Consumed % and Contributors are all unchanged.</b> A new <b>Support</b> column shows 4:00.</div>
+      <div class="why">Support hours are reported beside the project&rsquo;s figures and never inside them. Help does not consume a budget it was never planned into.</div>
+      <div class="warn">Any movement in Hours or Consumed means support was folded into the burn. That is the failure this whole design exists to prevent.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR7</span>
+      <span class="title">And the portfolio says so too</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Read the KPI strip on the same report.</p>
+      <div class="exp"><b>Expect:</b> a <b>Support received</b> tile appears, naming the hours and how many projects were helped, and saying it is not counted in hours, budget or billable share. With no help recorded anywhere, the tile is absent rather than showing zero.</div>
+      <div class="why">A tile reading &ldquo;0:00&rdquo; invites the reader to wonder whether the feature is broken. Absent says there is nothing to report.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR8</span>
+      <span class="title">Non-billable, via 800</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Check the Utilisation report&rsquo;s billable split for Ravi&rsquo;s period.</p>
+      <div class="exp"><b>Expect:</b> the 4:00 sits in <b>non-billable</b>, because the time type is not billable &mdash; not because of anything about Acme.</div>
+      <div class="why">The time type takes precedence over the project. Reading the project first would have filed the help under the client&rsquo;s billable hours.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR9</span>
+      <span class="title">The project cannot be left out</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Choose Support to Another Project, leave the project field empty, and save.</p>
+      <div class="exp"><b>Expect:</b> refused, naming the project as the thing that is missing.</div>
+      <div class="why">Optional would let the only fact that makes the entry meaningful go unrecorded.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR10</span>
+      <span class="title">Activities are still required</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Try to save one with a project but no activity line.</p>
+      <div class="exp"><b>Expect:</b> refused &mdash; the rule from 721 applies unchanged.</div>
+      <div class="why">Support time reuses the whole of existing project time: the activity requirement, the merge rules, the 16h cap. Nothing was re-implemented for it.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR11</span>
+      <span class="title">Two helps on one day stay two</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>On one day, record help to <b>Acme</b> and help to a <b>second</b> project. Then <b>Copy Day</b> onto an empty day.</p>
+      <div class="exp"><b>Expect:</b> the target day has <b>two</b> entries with the right hours against the right projects. The paste reports 2 created, 0 merged.</div>
+      <div class="why">Every support entry carries project_id NULL, so on the old collision key these two read as the same entry and the second merged into the first &mdash; help given to Acme summed with help given to another project under whichever name arrived first.</div>
+      <div class="warn">One entry on the target day means the collision key is wrong. The hours will look plausible, which is what makes it dangerous.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR12</span>
+      <span class="title">Pasting again merges like with like</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Copy the same source day onto that target day a second time.</p>
+      <div class="exp"><b>Expect:</b> each entry doubles against <b>its own</b> project. 2 merged, 0 created.</div>
+      <div class="why">The counterpart of AR11: distinct where they should be distinct, merged where they should merge.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR13</span>
+      <span class="title">The paste message names the project</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Read the message Copy Day shows.</p>
+      <div class="exp"><b>Expect:</b> it names the type <i>and</i> the helped project, not the type alone.</div>
+      <div class="why">Paste names entries as &ldquo;type &mdash; project&rdquo; from a column these entries leave empty. Without the fallback, a user with two support entries could not tell which one the message meant.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR14</span>
+      <span class="title">A type in use cannot be reclassified</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Back in <b>Time Types</b>, open Support to Another Project and untick <b>Records help given to another project</b>. Save. Then reopen it.</p>
+      <div class="exp"><b>Expect:</b> refused, with a message saying hours have already been recorded and to create a new time type instead. <b>Nothing else you changed in that same save was applied either</b> &mdash; check the name.</div>
+      <div class="why">Flipping the flag would leave old hours in one column and new ones in another, one type meaning two things, with nothing raised. The guard sits before the write, so a refusal never commits half an edit.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR15</span>
+      <span class="title">An unused type still reclassifies freely</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Create a throwaway attendance type with <b>Requires Project</b> ticked, tick and untick <b>Records help</b>, and save each time.</p>
+      <div class="exp"><b>Expect:</b> both saves succeed. The guard applies only once hours exist.</div>
+      <div class="why">A rule that fired on every type would make the setting unusable rather than safe.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR16</span>
+      <span class="title">Everyone can see every project name</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>As an ordinary employee with one small allocation, open the helped-project picker and read the list.</p>
+      <div class="exp"><b>Expect:</b> every active project in the period, including clients and prospects this person has nothing to do with. <b>This is intended</b>, not a leak &mdash; record it as an observation.</div>
+      <div class="why">Accepted deliberately (design decision D4). If it is ever to change, <code>bookable_projects_all</code> is the single function that changes.</div>
+    </div>
+  </div>
+</section>
+<section id="asb">
+  <h2><span class="k">AS</span> Which hours are chargeable (820 &middot; 821 &middot; 822 &middot; 823)</h2>
+  <p class="lede">A ticket on a billable project is ten hours exploring it and two hours writing the fix, and only the two can be invoiced. The flag now sits on the activity row. Two of these cases exist because the first two attempts at this shipped wrong.</p>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AS1</span>
+      <span class="title">The fixture, and the figures to write down</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>You need <b>AMPTJ</b> (or any project whose type is <b>Billable / P001</b>), one project typed <b>Internal</b>, one with <b>no type set</b>, and the <b>Support to Another Project</b> type active. Before anything else, open <b>Utilisation</b> for a period that already has data and note the <b>Billable share</b> and <b>Recorded</b> figures.</p>
+      <div class="exp"><b>Expect:</b> nothing yet. But without the before figures, AS4 cannot be checked at all.</div>
+      <div class="warn">This is the case that catches a migration rewriting history. Do not skip it.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AS2</span>
+      <span class="title">Ordinary project work reads as billable again</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>On a day already recorded against a billable project with <b>Work (WK)</b>, open Utilisation and read the Billable share tile.</p>
+      <div class="exp"><b>Expect:</b> a real percentage, not <b>0%</b>.</div>
+      <div class="why">Migration 800 classified each hour by asking the time type first. Nothing writes entry_kind = project, and all real work is recorded on WK &mdash; an attendance type that requires a project &mdash; so every hour took that branch and read a flag defaulting to false. Billable share was 0% for the whole company until 820 inverted the order.</div>
+      <div class="warn">If this reads 0%, migration 820 has not been applied.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AS3</span>
+      <span class="title">The order is absence, then project, then time type</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Record a day of <b>Annual Leave</b>, a day of <b>Training</b>, a day on an <b>Internal</b> project and a day on a <b>Billable</b> one. Read the four buckets.</p>
+      <div class="exp"><b>Expect:</b> leave in <b>absence</b>; Training in <b>non-billable</b>; the internal project in <b>non-billable</b>; the billable project in <b>billable</b>. The four buckets add up to <b>Recorded</b> exactly.</div>
+      <div class="why">Absence is asked first because leave is not worked time whatever else the row carries. The time type is only the fallback, for hours with no project behind them.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AS4</span>
+      <span class="title">Nothing that was recorded before this moved</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Compare Billable share and Recorded against the figures from AS1.</p>
+      <div class="exp"><b>Expect:</b> <b>both identical.</b></div>
+      <div class="why">Migration 821 added the column as NULL on every existing row. Read literally that made every hour ever recorded non-billable &mdash; last quarter changing because of a column that did not exist when last quarter was worked. 822 backfills billable projects to true, which is the value that leaves the past exactly as it was.</div>
+      <div class="warn">Any movement here means the backfill did not cover something. Report the exact before and after numbers.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AS5</span>
+      <span class="title">The ticket</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>On a <b>billable</b> project, add one entry with two activities: <b>Exploration 10:00</b> and <b>Fix 2:00</b>. Each row now offers <b>Billable</b> / <b>Not billable</b>. Mark Exploration not billable and Fix billable, and save.</p>
+      <div class="exp"><b>Expect:</b> it saves. In Utilisation, <b>2:00 is billable and 10:00 is not</b> &mdash; from one entry on one billable project.</div>
+      <div class="why">This is the whole feature. Before it, the project decided and all twelve hours were billable.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AS6</span>
+      <span class="title">The choice cannot be skipped</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Add another activity and try to save without answering it.</p>
+      <div class="exp"><b>Expect:</b> refused, <b>naming the activity</b> that was not answered. Nothing is written &mdash; reopen the day and confirm the entry is unchanged.</div>
+      <div class="why">Radios with neither preselected, not a checkbox: unticked <i>is</i> an answer, so a checkbox has no unanswered state and mandatory would be unenforceable. The refusal happens before the insert, so it never commits half an entry.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AS7</span>
+      <span class="title">The question is only asked where somebody is paying</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Switch the entry to an <b>Internal</b> project. Then to a project with <b>no type set</b>. Then choose <b>Training</b>.</p>
+      <div class="exp"><b>Expect:</b> the Billable choice <b>disappears</b> in all three, and the hours record as non-billable. On the untyped project the hours read as <b>unclassified</b> in the report, not billable.</div>
+      <div class="why">A payer means a project. An untyped project is reported as unclassified rather than assumed billable &mdash; a project silently defaulted to billable turns up in the billable share and nobody can see why.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AS8</span>
+      <span class="title">Support is never asked, and never billable</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Choose <b>Support to Another Project</b> and pick a <b>billable</b> project to help.</p>
+      <div class="exp"><b>Expect:</b> <b>no Billable choice appears at all</b>, the entry saves, and the hours are non-billable.</div>
+      <div class="why">Both types show a project dropdown, but support writes to related_project_id and leaves project_id NULL &mdash; so it falls out of the test without needing a rule of its own. You are helping, not billing.</div>
+      <div class="warn">If the choice appears here, the applicability test is running before the routing. That was a real defect during the build.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AS9</span>
+      <span class="title">Changing the project clears the answers</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>On a billable project, answer both rows. <b>Without saving</b>, switch the project to a different billable one.</p>
+      <div class="exp"><b>Expect:</b> both rows are back to <b>unanswered</b>, and saving is refused until you answer again.</div>
+      <div class="why">The answers belonged to the project they were given for. Carrying them across would leave a value on a row whose control is no longer on screen.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AS10</span>
+      <span class="title">Both save paths flag their rows</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>On a billable project, save an entry with two answered activities. Then, on the <b>same day and the same project</b>, add a third activity and save again &mdash; this appends rather than creating.</p>
+      <div class="exp"><b>Expect:</b> all three rows carry their answers. Read them back after a reload.</div>
+      <div class="why">save_timesheet_entry returns from two places since mig 733 &mdash; one appending, one creating. The first version of 821 patched only one, which would have written unflagged rows onto an entry that looked complete.</div>
+      <div class="warn">If the appended row comes back blank, only one path was patched.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AS11</span>
+      <span class="title">Multi-date create flags every date</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Use <b>Create</b> to record the same two activities across three dates on a billable project.</p>
+      <div class="exp"><b>Expect:</b> every date carries the answers, not just the first.</div>
+      <div class="why">bulk_create_timesheet_entries has two loops, and one accumulates its id before writing child rows. Applying the flags there would have updated nothing.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AS12</span>
+      <span class="title">Copy Day carries them, and merges conservatively</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Copy a day holding one billable and one non-billable activity onto an empty day. Then copy it onto that same day a second time.</p>
+      <div class="exp"><b>Expect:</b> first paste: both rows arrive with their answers. Second: the hours double and each keeps its own answer.</div>
+      <div class="why">On a name collision the merge uses AND, not OR. Merging a billable row with a non-billable one of the same name has no right answer, so it takes the one that loses billable minutes rather than inventing them &mdash; invented ones reach an invoice.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AS13</span>
+      <span class="title">The Billable checkbox on Time Types is gone</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Open <b>Time Types</b> and edit an attendance type.</p>
+      <div class="exp"><b>Expect:</b> no Billable checkbox. Billability is decided by the project and, within a billable project, by the activity.</div>
+      <div class="why">It had exactly one correct value for every type that will ever exist, because a payer means a project. A control with one right answer is a trap, not a setting. The column is still in the database, unread, in case a retainer without a project ever appears.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AS14</span>
+      <span class="title">Editing a returned timesheet keeps the answers</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Have an approver return a timesheet containing billable answers. Reopen it as the employee.</p>
+      <div class="exp"><b>Expect:</b> every row still shows what was chosen. Nothing comes back blank.</div>
+      <div class="why">A returned sheet that lost its answers would make the employee redo work they had already done, on the row the approver was querying.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AS15</span>
+      <span class="title">What the approver cannot yet see</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Open the same timesheet as the approver.</p>
+      <div class="exp"><b>Expect:</b> <b>no billable split is shown.</b> Record this as a known gap, not a failure.</div>
+      <div class="why">The decision was that the employee proposes and the approver confirms, returning rather than editing. The approval screen has not been built to show what is being confirmed. It is the next piece of work on this feature.</div>
+    </div>
+  </div>
+</section>
+<section id="at">
+  <h2><span class="k">AT</span> Known and deliberate (780&ndash;823)</h2>
   <p class="lede">Seven behaviours read as bugs without the context. Record them as observations, not failures.</p>
   <div class="qnote"><b>The dropdown is an offer, not a rule.</b> A direct API call can still write an entry
     against any active project. No enforcement trigger has been added: it is the one change that can stop
