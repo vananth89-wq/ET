@@ -242,9 +242,11 @@ export default function TimeTypes() {
                 />
                 <span style={ruleLabelSt}>Billable</span>
                 <span style={ruleHintSt}>
-                  Hours on this type count towards the billable share in Utilisation.
-                  Leave it off for internal work such as training. Absence types are
-                  never billable and are reported separately.
+                  Applies only when the entry names <b>no</b> project &mdash; for a type
+                  that requires one, the project&rsquo;s own type decides whether the hours
+                  are billable. So this governs types like Training, and it is what
+                  classifies them in the Utilisation billable share. Absence types are
+                  never billable and are reported in their own bucket.
                 </span>
               </label>
             )}
