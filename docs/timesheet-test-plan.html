@@ -2,7 +2,7 @@
 {
   "name": "Timesheet Test Plan",
   "schemaVersion": 1,
-  "description": "Prowess timesheet test plan, migrations 726–827. 399 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
+  "description": "Prowess timesheet test plan, migrations 726–828. 402 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
   "mcpTools": [],
   "mcpServerNames": []
 }
@@ -4974,6 +4974,39 @@ order  by created_at desc limit 6;</div>
       <p>Open the support picker as somebody allocated to <b>six or more</b> projects covering that day.</p>
       <div class="exp"><b>Expect:</b> still <b>one sentence, no project names</b> &mdash; the same line an employee with one assignment sees. The dates line above it still names its projects, capped at four plus &ldquo;and N more&rdquo;.</div>
       <div class="why">A hint that <b>names</b> things is answering &ldquo;where did X go?&rdquo;; a hint that <b>states a rule</b> should name nothing. Mixing the two gives you a list that grows with the data and stops being read. Nobody opens the help picker hunting for a project they are staffed on, so there is no absence to explain here &mdash; only a rule, stated once. Naming them would print six names, or sixty, to tell somebody what they already know about their own allocations, in the place they are least likely to look for it. The same reasoning removed the dates hint from this picker entirely (AR30).</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR32</span>
+      <span class="title">Help given to two projects on one day</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>On one day, record <b>Support to Another Project</b> helping <b>AZAD</b>. Save. Then add a second support entry on the <b>same day</b> helping <b>AMPTJ</b>.</p>
+      <div class="exp"><b>Expect:</b> both save, and the day shows two support entries.</div>
+      <div class="warn"><b>This failed before 828</b> with a raw <code>duplicate key value violates unique constraint &ldquo;ux_timesheet_entries_day_type_project&rdquo;</code>. Mig 726 keyed an entry on (timesheet, date, time type, <b>project</b>), and 801 made every support entry book to <b>no</b> project &mdash; so all of a day&rsquo;s help shared one key and only the first could be recorded. Mig 802 wrote down that exact reasoning and applied it to Copy Day&rsquo;s runtime key while the index underneath went untouched.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR33</span>
+      <span class="title">What the widened key must still refuse</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Three attempts, all of which must still be rejected: the <b>same</b> help twice on one day; two <b>Work</b> entries on the same project on one day; and <b>Training</b> twice on one day.</p>
+      <div class="exp"><b>Expect:</b> all three refused, exactly as before 828.</div>
+      <div class="why">The new key is strictly wider than 726&rsquo;s, so it can only ever permit MORE. These are the three rules it must not have loosened on the way &mdash; particularly the last, which is the one <code>NULLS NOT DISTINCT</code> exists for: without it every entry with no project escapes the rule instead of being covered by it.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR34</span>
+      <span class="title">Appending reaches the entry you meant</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>On a day already carrying help for AZAD <b>and</b> for AMPTJ, use <b>Create</b> over that date to add another activity to the <b>AMPTJ</b> help. Then do the same from the day panel.</p>
+      <div class="exp"><b>Expect:</b> the activity lands on the AMPTJ entry. AZAD&rsquo;s hours are untouched.</div>
+      <div class="warn">Three lookups &mdash; one in <code>save_timesheet_entry</code>, two in <code>bulk_create_timesheet_entries</code> &mdash; identified an entry by (date, type, project) and so found whichever support row came first. Fixing the index alone would have traded a hard error for this, which is the worse of the two: hours appended to somebody else&rsquo;s project with nothing on screen to say so.</div>
     </div>
   </div>
 </section>
