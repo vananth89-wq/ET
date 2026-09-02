@@ -2,7 +2,7 @@
 {
   "name": "Timesheet Test Plan",
   "schemaVersion": 1,
-  "description": "Prowess timesheet test plan, migrations 726–828. 402 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
+  "description": "Prowess timesheet test plan, migrations 726–830. 409 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
   "mcpTools": [],
   "mcpServerNames": []
 }
@@ -11,7 +11,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Timesheet — Test Plan for migrations 726 to 823</title>
+<title>Timesheet — Test Plan for migrations 726 to 830</title>
 <style>
   :root{
     --ink:#0F172A; --ink2:#334155; --ink3:#64748B; --ink4:#94A3B8;
@@ -96,7 +96,7 @@
 <header class="top">
   <div class="wrap">
     <p class="eyebrow">Prowess · Time Management</p>
-    <h1>Test plan — migrations 726 to 823</h1>
+    <h1>Test plan — migrations 726 to 830</h1>
     <p class="sub">Multiple entries per day, day-occupancy rules, per-activity hours, advance-dating —
        and, from migration 730, an edit window that actually binds and a submission that goes
        somewhere. Every case says what to do, what should happen, and which rule it proves — so a
@@ -114,6 +114,9 @@
       <span><b>AA–AG added</b> 25 Aug 2026</span>
       <span><b>AH–AN added</b> 26 Aug 2026</span>
       <span><b>AO–AP added</b> 26 Aug 2026</span>
+      <span><b>AQ–AS added</b> 31 Aug 2026</span>
+      <span><b>AT–AU added</b> 1 Sep 2026</span>
+      <span><b>AR35–AR41 added</b> 2 Sep 2026</span>
     </div>
   </div>
 </header>
@@ -165,7 +168,7 @@
     <a class="toc" href="#ao">AO · Notification wording (796)</a>
     <a class="toc" href="#ap">AP · Lead changes (797 &middot; 799)</a>
     <a class="toc" href="#aqb">AQ · Billability (800)</a>
-    <a class="toc" href="#arh">AR · Help given to another project (801 &middot; 802 &middot; 810)</a>
+    <a class="toc" href="#arh">AR · Help given to another project (801&ndash;830)</a>
     <a class="toc" href="#asb">AS · Which hours are chargeable (820&ndash;823)</a>
     <a class="toc" href="#at">AT · Known and deliberate (780&ndash;826)</a>
     <a class="toc" href="#au">AU · The split reaches every report (825 &middot; 826)</a>
@@ -4629,7 +4632,7 @@ order  by created_at desc limit 6;</div>
   </div>
 </section>
 <section id="arh">
-  <h2><span class="k">AR</span> Help given to another project (801 &middot; 802 &middot; 810)</h2>
+  <h2><span class="k">AR</span> Help given to another project (801 &middot; 802 &middot; 810 &middot; 827 &middot; 828 &middot; 829 &middot; 830)</h2>
   <p class="lede">Somebody helping a team they are not assigned to had nowhere to record the hours &mdash; the dropdown blocked the first hour and permitted every hour after it. The hours now go to <code>related_project_id</code>, which no project report can see. The whole risk is that they leak into a project&rsquo;s numbers anyway.</p>
 
   <div class="case">
@@ -5007,6 +5010,83 @@ order  by created_at desc limit 6;</div>
       <p>On a day already carrying help for AZAD <b>and</b> for AMPTJ, use <b>Create</b> over that date to add another activity to the <b>AMPTJ</b> help. Then do the same from the day panel.</p>
       <div class="exp"><b>Expect:</b> the activity lands on the AMPTJ entry. AZAD&rsquo;s hours are untouched.</div>
       <div class="warn">Three lookups &mdash; one in <code>save_timesheet_entry</code>, two in <code>bulk_create_timesheet_entries</code> &mdash; identified an entry by (date, type, project) and so found whichever support row came first. Fixing the index alone would have traded a hard error for this, which is the worse of the two: hours appended to somebody else&rsquo;s project with nothing on screen to say so.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR35</span>
+      <span class="title">The field appears for help and for nothing else</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Open <b>Create</b> and pick an ordinary <b>Work</b> type, then a <b>Support to Another Project</b> type, then <b>Training</b>. Watch the <b>Requested by</b> field.</p>
+      <div class="exp"><b>Expect:</b> present and required on the support type only; absent on the other two.</div>
+      <div class="why">The field is keyed on <code>uses_related_project</code>, the same flag that decides everything else about these entries &mdash; not on the type&rsquo;s name and not on a list of ids. A second type carrying the flag gets the field on the day it is created, with no deploy.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR36</span>
+      <span class="title">The names offered are that project&rsquo;s team, on that day</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Record help for <b>AZAD</b> on a day in August. Open <b>Requested by</b> and read the list. Then have an administrator end somebody&rsquo;s AZAD membership on 1 September, and reopen the same August entry.</p>
+      <div class="exp"><b>Expect:</b> AZAD&rsquo;s members, the project manager marked as <b>lead</b>, each person once. The August entry still offers August&rsquo;s team &mdash; the person removed in September is still there.</div>
+      <div class="why">Membership carries effective dates (786/787), so &ldquo;is on AZAD&rdquo; is a question about a date, not a boolean. <code>project_team_on</code> takes the day the hours were worked. A picker of all 200 employees would make the field a formality &mdash; any name as easy to choose as the right one, which is the state 829 exists to end.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR37</span>
+      <span class="title">Rule (i), in both directions</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Two attempts, both from SQL so the screen cannot help: insert a support entry with <code>help_requested_by</code> NULL; then insert an ordinary <b>Work</b> entry <i>with</i> a <code>help_requested_by</code> set.</p>
+      <div class="exp"><b>Expect:</b> both refused &mdash; the first by rule (i) (the RPC path answers <code>HELP_REQUESTER_REQUIRED</code> first, with a sentence a person can act on), the second because an entry that gave no help cannot name who asked for it.</div>
+      <div class="why">Half a rule is a rule that will be worked around. Without the second direction the column becomes a free-text field on ordinary rows, and the day somebody reports on it, it means nothing.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR38</span>
+      <span class="title">A requester who has left is still named</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>After AR36, reopen the August entry whose requester was removed from AZAD in September, and read the day panel and the form.</p>
+      <div class="exp"><b>Expect:</b> the stored name is <b>shown and still selected</b>. Saving without touching the field does not change it and is not refused.</div>
+      <div class="why">The same rule as AR18 and the project picker: the value already held is always an option. The team reader answers for a date and a project; a requester who has since left is not in that answer, and the entry is the only thing that still knows who they were &mdash; which is why the name is read off the entry rather than looked up.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR39</span>
+      <span class="title">Copy Day carries who asked</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Copy a day carrying two support entries &mdash; AZAD requested by one person, AMPTJ by another &mdash; and paste into an empty day. Then paste the same day twice.</p>
+      <div class="exp"><b>Expect:</b> the pasted entries carry both requesters unchanged. The second paste is refused as a duplicate, not doubled.</div>
+      <div class="warn">Paste both carries the column and keys on it. Without the first, every pasted support day is refused by rule (i) and the whole paste fails; without the second, two helps that differ only in who asked are folded into one.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR40</span>
+      <span class="title">Help given has its own block on the summary</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>On a month carrying help for two projects, open the <b>Monthly Summary</b>. Read <b>By Project &amp; Activity</b>, then the <b>Help given to other projects</b> block, then the <b>Month Split</b> donut.</p>
+      <div class="exp"><b>Expect:</b> help hours appear <b>only</b> in the help block, one row per helped project, each carrying who asked. The donut&rsquo;s help slices use the same colour as the block&rsquo;s cards. The project rows above are unchanged by the help.</div>
+      <div class="why">A second block beside the first, never a column inside it. A Support column on the project table would put hours on a row headed by a project they are deliberately not counted against &mdash; the exact reading 801 exists to prevent &mdash; and a reader who skipped this sentence would add the two columns together.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR41</span>
+      <span class="title">The copy picker names the project, not the type</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>On a day carrying Work on QCC and help for <b>two</b> different projects, press <b>Copy Day</b> and read the &ldquo;Select entries to copy&rdquo; list.</p>
+      <div class="exp"><b>Expect:</b> <b>QCC</b>, <b>AZAD (Support)</b> and <b>WISAYAH (Support)</b> &mdash; three rows a person can tell apart.</div>
+      <div class="why">This row looked the project up in the loaded project list by <code>project_id</code>, which is NULL on every support entry, so both help rows fell through to the time type&rsquo;s name and read identically: &ldquo;Support to Another Project&rdquo;, twice. A picker whose whole job is choosing between rows had made them indistinguishable &mdash; and 828 exists precisely so that day can hold both.</div>
     </div>
   </div>
 </section>

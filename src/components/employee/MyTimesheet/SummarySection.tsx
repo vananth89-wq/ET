@@ -24,7 +24,14 @@ interface SumEntry {
    *  employee chose lives in related_project_id instead. */
   project_id?: string | null;
   projects?:  { name: string } | { name: string }[];
-  time_types?: { name: string } | { name: string }[];
+  /** mig 801/827/829. Help given: the project HELPED, the short word its time
+   *  type wants after it, and who asked. These hours are the employee's own
+   *  work and belong in their month; they are deliberately not the helped
+   *  project's, which is why they are grouped apart from it everywhere. */
+  related_project_id?: string | null;
+  related_projects?: { name: string } | { name: string }[];
+  help_requester?: { name: string } | { name: string }[];
+  time_types?: SumType | SumType[];
   /** Mig 727's itemised rows. Already loaded with every entry by the page
    *  above; this panel simply never read them until the project breakdown.
    *  `is_billable` since 821 — true, false, or NULL for "never asked". */
@@ -34,6 +41,32 @@ interface SumEntry {
   }> | null;
   /** Legacy names with no hours against them, from before 727. */
   activities?: string[] | null;
+}
+
+interface SumType {
+  name: string;
+  related_project_label?: string | null;
+}
+
+/** One value of the pair, whichever shape PostgREST returned. */
+const one = <T,>(v: T | T[] | undefined | null): T | null =>
+  (Array.isArray(v) ? v[0] : v) ?? null;
+
+/**
+ * "AMPTJ (Support)" for a help entry, null for anything else.
+ *
+ * The same rule as MyTimesheet's entryDisplayName, and the word comes from the
+ * TIME TYPE (827) rather than from here. Restated because this panel depends on
+ * nothing — the same reason its date helpers are duplicated — but if the rule
+ * changes, both change.
+ */
+function supportLabel(e: SumEntry): string | null {
+  if (e.project_id || !e.related_project_id) return null;
+  const name = one(e.related_projects)?.name;
+  if (!name) return null;
+  const t = one(e.time_types);
+  const word = (t?.related_project_label ?? '').trim() || (t?.name ?? '').trim();
+  return word ? `${name} (${word})` : name;
 }
 
 const MONTHS = ['January','February','March','April','May','June',
@@ -95,6 +128,10 @@ const BILL_GREEN = '#047857';
  *  and the two should not look alike. */
 const BILL_GREY  = '#B8C0CC';
 const BILL_AMBER = '#E0A33A';
+/** Fallback ink for a help card the donut did not draw. Normally these cards
+ *  take the colour of their own slice above -- one thing, one colour, the rule
+ *  this panel already holds for projects. */
+const HELP_INK = '#7C3AED';
 
 /** One colour rule, used by the donut and by its legend, so the two can never
  *  disagree about which slice is which. */
@@ -285,6 +322,17 @@ export default function SummarySection({
       const p = Array.isArray(e.projects) ? e.projects[0] : e.projects;
       if (p?.name) { byName.set(p.name, (byName.get(p.name) ?? 0) + e.hours_minutes); continue; }
 
+      /* Help given, named per project HELPED -- "AMPTJ (Support)" -- rather
+       * than collapsed into one slice called after the time type.
+       *
+       * This block read `e.projects`, which is NULL on a help entry, so all of
+       * a month's help fell through to the time-type name below and became a
+       * single grey slice. The PDF's donut had already learnt to group these
+       * per project when the label was carried through, so the same month drew
+       * one slice on screen and three in the file. Two shapes of one fact. */
+      const help = supportLabel(e);
+      if (help) { byName.set(help, (byName.get(help) ?? 0) + e.hours_minutes); continue; }
+
       const t = Array.isArray(e.time_types) ? e.time_types[0] : e.time_types;
       const key = t?.name ?? 'Other attendance';
       const cur = byOther.get(key);
@@ -390,6 +438,59 @@ export default function SummarySection({
 
     const projectTotal = projectActs.reduce((s, p) => s + p.minutes, 0);
 
+    // ── Help given to other projects ────────────────────────────────────
+    // A SEPARATE block, not extra cards in the one above. Merging 5h of help
+    // into AMPTJ's card would report that AMPTJ got 63h when 58 are its own --
+    // the exact claim these hours are kept out of the project's burn to avoid.
+    // Same arrangement as the server side, where 810 reports support through
+    // its own CTEs rather than by widening the ones that measure the project.
+    type Help = { name: string; minutes: number; days: number;
+                  askers: string[]; acts: Act[] };
+    const helpMap = new Map<string, {
+      minutes: number; days: Set<string>; askers: Set<string>; acts: Map<string, Act>;
+    }>();
+    for (const e of entries) {
+      if (e.hours_minutes <= 0) continue;
+      const label = supportLabel(e);
+      if (!label) continue;
+
+      const row = helpMap.get(label)
+        ?? { minutes: 0, days: new Set<string>(), askers: new Set<string>(), acts: new Map() };
+      row.minutes += e.hours_minutes;
+      row.days.add(e.entry_date);
+      const asker = one(e.help_requester)?.name;
+      if (asker) row.askers.add(asker);
+
+      // No billable key here, and none is possible: help is never chargeable to
+      // the project it helped, so every one of these rows carries NULL and a
+      // tag would be an answer nobody gave.
+      const add = (name: string, minutes: number, itemised: boolean) => {
+        const cur = row.acts.get(name);
+        if (cur) { cur.minutes += minutes; cur.itemised = cur.itemised && itemised; }
+        else row.acts.set(name, { name, minutes, itemised, billable: null });
+      };
+      const rows = e.timesheet_entry_activities ?? [];
+      const itemisedTotal = rows.reduce((s2, a) => s2 + (a.hours_minutes ?? 0), 0);
+      for (const a of rows) {
+        if ((a.hours_minutes ?? 0) > 0) add(a.activity_name, a.hours_minutes, true);
+      }
+      const gap = e.hours_minutes - itemisedTotal;
+      if (gap > 0) add('Not itemised', gap, false);
+
+      helpMap.set(label, row);
+    }
+
+    const helpActs: Help[] = [...helpMap.entries()]
+      .map(([name, r]) => ({
+        name, minutes: r.minutes, days: r.days.size,
+        askers: [...r.askers].sort(),
+        acts: [...r.acts.values()].sort((a, b) =>
+          a.itemised === b.itemised ? b.minutes - a.minutes : a.itemised ? -1 : 1),
+      }))
+      .sort((a, b) => b.minutes - a.minutes);
+
+    const helpTotal = helpActs.reduce((s, h) => s + h.minutes, 0);
+
     // ── The month's billable split ──────────────────────────────────────
     // Every entry, not just the project-bearing ones, so the four buckets add
     // up to Recorded and the tile below cannot contradict the tile beside it.
@@ -417,7 +518,7 @@ export default function SummarySection({
 
     return {
       days, working, recorded, logged, missing, todayOpen, aheadN, weeks, projects,
-      projectActs, projectTotal, leaveMinutes, leaveDays, bill, showBill,
+      projectActs, projectTotal, helpActs, helpTotal, leaveMinutes, leaveDays, bill, showBill,
       // Clamped: past plan this is negative, and "−12h to log" is not a thing.
       remaining: Math.max(0, plannedMinutes - recorded),
       over:      Math.max(0, recorded - plannedMinutes),
@@ -438,6 +539,12 @@ export default function SummarySection({
     return d.projects.map(p => sliceColor(p, p.noProject ? 0 : r++, p.noProject ? o++ : 0));
   })();
   const projPcts   = wholePercents(d.projectActs.map(p => p.minutes), d.projectTotal);
+  /* ONE THING, ONE COLOUR. The help cards below name the same slices the donut
+   * draws, so they take the donut's ink rather than a colour of their own --
+   * this panel already holds that rule for projects and it is not worth less
+   * for help. HELP_INK is the fallback for a slice the donut never drew, which
+   * can only happen if a help entry has hours and no helped project name. */
+  const donutInk = new Map(d.projects.map((p, i) => [p.name, donutColors[i]]));
 
   return (
     <div style={{ marginTop: 26 }}>
@@ -915,6 +1022,89 @@ export default function SummarySection({
                             background: !a.itemised ? '#D1D5DB'
                                       : p.cls === 'billable' && a.billable === false ? '#CBD5E1'
                                       : colour,
+                          }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── Help given to other projects ────────────────────────────────
+          Its own block, and its own subtotal, because these hours are the
+          employee's own work and are deliberately NOT the helped project's.
+          Folding them into the cards above would report that project as having
+          consumed hours it is explicitly not charged for -- which is the one
+          claim mig 801 exists to deny, and the reason 810 reports support
+          through separate CTEs rather than by widening the project's own.
+
+          The requester is named here because this is the employee's own record
+          of who asked, and because a card of hours with nobody attached is the
+          state migration 829 was written to end. */}
+      {d.helpActs.length > 0 && (
+        <div style={{ ...panelSt, marginTop: 14 }}>
+          <div style={pTitleSt}>
+            Help given to other projects
+            <em style={{ fontStyle: 'normal', fontSize: 11, fontWeight: 600, color: C.ink4 }}>
+              {h1(d.helpTotal)}h · not counted towards those projects
+            </em>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12 }}>
+            {d.helpActs.map(hp => {
+              const widest = Math.max(...hp.acts.map(a => a.minutes), 1);
+              return (
+                <div key={hp.name} style={{
+                  border: `1px solid ${C.rule}`, borderRadius: 10, overflow: 'hidden', background: '#fff',
+                }}>
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    padding: '10px 12px', background: '#FBFCFD',
+                    borderBottom: `1px solid ${C.hair}`,
+                  }}>
+                    {/* The neutral ink, not a project colour. These are not a
+                        project's hours and should not read as one. */}
+                    <span style={{ width: 9, height: 9, borderRadius: 3, flex: 'none',
+                                   background: donutInk.get(hp.name) ?? HELP_INK }} />
+                    <span style={{ flex: 1, fontSize: 13, fontWeight: 750, color: C.ink }}>{hp.name}</span>
+                    <span style={{ fontSize: 11.5, color: C.ink4 }}>
+                      {hp.days} {hp.days === 1 ? 'day' : 'days'}
+                    </span>
+                    <span style={{ fontSize: 13, fontWeight: 750, color: C.ink }}>{h1(hp.minutes)}h</span>
+                  </div>
+
+                  {hp.askers.length > 0 && (
+                    <div style={{ padding: '7px 12px 0', fontSize: 11.5, color: C.ink3 }}>
+                      Requested by{' '}
+                      <b style={{ color: C.ink2, fontWeight: 700 }}>{hp.askers.join(', ')}</b>
+                    </div>
+                  )}
+
+                  <div style={{ padding: '4px 12px 10px' }}>
+                    {hp.acts.map((a, j) => (
+                      <div key={a.name} style={{ paddingTop: 8 }}>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                          <span style={{ fontSize: 11, color: C.ink4, width: 14, flex: 'none' }}>{j + 1}.</span>
+                          <span style={{
+                            flex: 1, fontSize: 12.5, minWidth: 0,
+                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                            color: a.itemised ? C.ink2 : C.ink4,
+                            fontStyle: a.itemised ? 'normal' : 'italic',
+                          }}>{a.name}</span>
+                          <span style={{ fontSize: 12.5, fontWeight: 700, color: a.itemised ? C.ink : C.ink3 }}>
+                            {h1(a.minutes)}h
+                          </span>
+                        </div>
+                        <div style={{ marginTop: 4, marginLeft: 22, height: 3, borderRadius: 99,
+                                      background: C.track, overflow: 'hidden' }}>
+                          <div style={{
+                            height: 3, borderRadius: 99,
+                            width: `${(a.minutes / widest) * 100}%`,
+                            background: a.itemised ? (donutInk.get(hp.name) ?? HELP_INK) : '#D1D5DB',
                           }} />
                         </div>
                       </div>

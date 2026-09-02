@@ -3922,11 +3922,18 @@ export default function MyTimesheet() {
 
               {work.map(e => {
                 const tt   = timeTypes.find(t => t.id === e.time_type_id);
-                const proj = projects.find(p => p.id === e.project_id);
+                /* The entry's OWN join, not a lookup in `projects` by
+                   project_id. A support entry has no project_id -- its project
+                   is in related_project_id -- so the lookup returned nothing
+                   and the row fell through to the time type's name: "Support to
+                   Another Project", which is the type, not what was helped. Two
+                   help entries on one day (828) then read identically here, and
+                   the picker's whole job is telling rows apart. */
+                const proj = entryProject(e);
                 const h    = Math.floor(e.hours_minutes / 60);
                 const m    = e.hours_minutes % 60;
                 const dur  = h ? `${h}h${m ? ` ${m}m` : ''}` : `${m}m`;
-                const label = proj ? `${proj.name}` : (tt?.name ?? 'Entry');
+                const label = proj?.name ? entryDisplayName(e, proj.name) : (tt?.name ?? 'Entry');
                 const acts  = e.activities?.join(', ') ?? '';
                 const ticked = copyPickerSel.has(e.id);
                 return (
