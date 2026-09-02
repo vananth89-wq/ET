@@ -79,6 +79,9 @@ interface TimesheetEntry {
   /** mig 801. The project this entry HELPED, on a type that records support.
    *  Mutually exclusive with project_id -- rule (h) enforces it. */
   related_project_id: string | null;
+  /** mig 829. Who asked for this help. Set only on entries that gave help;
+   *  rule (i) refuses it anywhere else and refuses its absence here. */
+  help_requested_by: string | null;
   time_type_id:  string | null;
   hours_minutes: number;
   notes:         string | null;
@@ -93,6 +96,8 @@ interface TimesheetEntry {
   /** mig 801. A support entry books to no project and names the one it HELPED
    *  here instead. Joined separately because it is a different foreign key. */
   related_projects?: { name: string } | { name: string }[];
+  /** The requester's name, joined. The ID is the fact; this is for reading. */
+  help_requester?: { name: string } | { name: string }[];
 }
 
 /** Only what an ENTRY reads off its time type. The admin screen's TimeType is a
@@ -442,6 +447,16 @@ function isSupportEntry(ent: { project_id?: string | null; related_project_id?: 
  * administrator did call it rather than inventing a word here, which is the
  * whole thing this function exists to stop.
  */
+/** The name behind a stored requester id, taken from the ENTRY rather than
+ *  looked up. The team reader answers for a date and a project; a requester who
+ *  has since left the project is not in that answer, and the entry is the only
+ *  thing that still knows who they were. */
+function requesterName(ent: TimesheetEntry | null, reqId: string): string | null {
+  if (!ent || ent.help_requested_by !== reqId) return null;
+  const r = Array.isArray(ent.help_requester) ? ent.help_requester[0] : ent.help_requester;
+  return r?.name ?? null;
+}
+
 function entryDisplayName(ent: TimesheetEntry, projectName: string): string {
   if (!isSupportEntry(ent)) return projectName;
   const t = Array.isArray(ent.time_types) ? ent.time_types[0] : ent.time_types;
@@ -721,7 +736,7 @@ export default function MyTimesheet() {
   const [activityHistory, setActivityHistory] = useState<ActivityHistoryItem[]>([]);
 
   // Entry form
-  const emptyForm = { kind: 'time_type' as 'time_type' | 'project', typeId: '', projId: '', hours: '', mins: '', notes: '', actRows: [{ name: '', h: '', m: '' }] as ActRow[], ttCategory: '' as '' | 'attendance' | 'absence' };
+  const emptyForm = { kind: 'time_type' as 'time_type' | 'project', typeId: '', projId: '', reqId: '', hours: '', mins: '', notes: '', actRows: [{ name: '', h: '', m: '' }] as ActRow[], ttCategory: '' as '' | 'attendance' | 'absence' };
   const [form,    setForm]    = useState(emptyForm);
   const [formErr, setFormErr] = useState('');
   /** What the edit form held when it opened. NULL while adding — there is
@@ -782,6 +797,40 @@ export default function MyTimesheet() {
     })();
     return () => { live = false; };
   }, []);
+
+  /* mig 830. Who is on the project being helped, on the day worked. Loaded on
+   * demand -- the pair is only ever set while a help entry is being written, so
+   * an ordinary timesheet never asks for it and never discloses anything. */
+  const [team, setTeam] = useState<Array<{ employee_id: string; name: string; employee_code: string; is_lead: boolean }>>([]);
+  const [teamLoading, setTeamLoading] = useState(false);
+
+  /* The date the team is read for: the day being edited, or the earliest of the
+   * dates a Create is spanning. Membership is per date (830), so this is the
+   * question being asked and not a detail -- somebody who joined the project
+   * mid-selection is not who you asked on the first day of it. */
+  const helpTeamDate = useMemo(() => {
+    if (createOpen) return [...createDates].sort()[0] ?? '';
+    return selectedDate ?? '';
+  }, [createOpen, createDates, selectedDate]);
+
+  useEffect(() => {
+    const projectId = form.projId;
+    if (!usesRelatedFor(form.typeId) || !projectId || !helpTeamDate) { setTeam([]); return; }
+    let live = true;
+    setTeamLoading(true);
+    (async () => {
+      const { data } = await supabase.rpc('project_team_on', {
+        p_project_id: projectId, p_on_date: helpTeamDate,
+      });
+      if (!live) return;
+      setTeam((data ?? []) as typeof team);
+      setTeamLoading(false);
+    })();
+    return () => { live = false; };
+    // usesRelatedFor reads timeTypes, which is loaded once and never changes
+    // identity per keystroke; listing it would refetch the team on every load.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.typeId, form.projId, helpTeamDate]);
 
   /* The unfiltered pool, fetched only when some active time type asks for it.
    * Until an administrator switches such a type on this costs nothing, and the
@@ -1045,7 +1094,9 @@ export default function MyTimesheet() {
         time_types ( name, code, category, requires_project, uses_related_project, related_project_label ),
         projects!project_id ( name ),
         related_project_id,
-        related_projects:projects!related_project_id ( name )
+        related_projects:projects!related_project_id ( name ),
+        help_requested_by,
+        help_requester:employees!help_requested_by ( name )
       `)
       .eq('header_id', headerId)
       .order('entry_date')
@@ -1159,7 +1210,7 @@ export default function MyTimesheet() {
     if (!header) return entries;
     const { data: ents } = await supabase
       .from('timesheet_entries')
-      .select(`id, header_id, entry_date, entry_kind, project_id, related_project_id, time_type_id, hours_minutes, notes, activities, is_system_generated, created_at, updated_at, timesheet_entry_activities(id, activity_name, hours_minutes, display_order, created_at, is_billable), time_types(name,code,category,requires_project,uses_related_project,related_project_label), projects!project_id(name), related_projects:projects!related_project_id(name)`)
+      .select(`id, header_id, entry_date, entry_kind, project_id, related_project_id, time_type_id, hours_minutes, notes, activities, is_system_generated, created_at, updated_at, timesheet_entry_activities(id, activity_name, hours_minutes, display_order, created_at, is_billable), time_types(name,code,category,requires_project,uses_related_project,related_project_label), projects!project_id(name), related_projects:projects!related_project_id(name), help_requested_by, help_requester:employees!help_requested_by(name)`)
       .eq('header_id', header.id)
       .order('entry_date').order('created_at');
     const list = (ents ?? []) as unknown as TimesheetEntry[];
@@ -1389,6 +1440,7 @@ export default function MyTimesheet() {
 
     const tt = timeTypes.find(t => t.id === form.typeId);
     if (tt?.requires_project && !form.projId) { fail('Please select a project for this time type.'); return; }
+    if (usesRelatedFor(form.typeId) && !form.reqId) { fail('Please say who asked for this help.'); return; }
     // Project time takes its duration from the activity rows; everything else
     // still uses the Hours/Minutes boxes.
     let totalMins: number;
@@ -1865,6 +1917,7 @@ export default function MyTimesheet() {
        * cell behind it. The picker is one control; the storage is two columns;
        * the form has to know that. */
       projId:     ent.project_id ?? ent.related_project_id ?? '',
+      reqId:      ent.help_requested_by ?? '',
       hours:      String(Math.floor(totalM / 60)),
       mins:       String(totalM % 60),
       notes:      ent.notes ?? '',
@@ -1940,6 +1993,10 @@ export default function MyTimesheet() {
       selectedTimeType?.category === 'absence' ? 'leave' : 'time_type';
 
     if (needsProject && !form.projId) { setFormErr('Please select a project for this time type.'); return; }
+    // mig 829. Refused here for the message and by rule (i) for the guarantee.
+    if (usesRelatedFor(form.typeId) && !form.reqId) {
+      setFormErr('Please say who asked for this help.'); return;
+    }
 
     // Mig 729 (h). Checked here so the message names the type, not just the date.
     if (!editingEntry) {
@@ -1996,6 +2053,11 @@ export default function MyTimesheet() {
         entry_date:    selectedDate,
         time_type_id:  form.typeId,
         project_id:    needsProject ? form.projId : null,
+        // Sent only where it can mean anything; the RPC ignores it elsewhere
+        // and rule (i) refuses it outright. Three agreeing is not redundancy --
+        // the screen states intent, the RPC gives the message, the rule gives
+        // the guarantee.
+        help_requested_by: usesRelatedFor(form.typeId) ? form.reqId : null,
         notes:         form.notes.trim() || null,
         hours_minutes: needsProject ? null : totalMins,
       },
@@ -2211,6 +2273,12 @@ export default function MyTimesheet() {
    * books to a project (rather than naming one it HELPED), and that project is
    * billable. One definition, read by the form and by every save path, because
    * two definitions of this would disagree the first time either changed. */
+  /** Does this time type record help? One definition, read by the form, both
+   *  refusals and both payloads -- the same reason askBillableFor exists. */
+  function usesRelatedFor(typeId: string) {
+    return !!timeTypes.find(x => x.id === typeId)?.uses_related_project;
+  }
+
   function askBillableFor(typeId: string, projId: string) {
     const t = timeTypes.find(x => x.id === typeId);
     return !!t?.requires_project && !t?.uses_related_project
@@ -2347,7 +2415,7 @@ export default function MyTimesheet() {
           <Label>{form.ttCategory === 'absence' ? 'Leave / Absence Type' : 'Attendance Type'}</Label>
           <select
             value={form.typeId}
-            onChange={e => { setForm(f => ({ ...f, typeId: e.target.value, projId: '' })); setFormErr(''); }}
+            onChange={e => { setForm(f => ({ ...f, typeId: e.target.value, projId: '', reqId: '' })); setFormErr(''); }}
             style={selectSt}
           >
             <option value="">— Select —</option>
@@ -2378,7 +2446,10 @@ export default function MyTimesheet() {
                 // The answers belong to the project they were given for. Keeping
                 // them across a change would leave a hidden value on a row whose
                 // control is no longer on screen.
-                setForm(f => ({ ...f, projId: v, actRows: f.actRows.map(r => ({ ...r, billable: null })) }));
+                // The requester goes with the project they were asked about.
+                // Keeping it across a change would leave somebody named against
+                // help given to a project they have nothing to do with.
+                setForm(f => ({ ...f, projId: v, reqId: '', actRows: f.actRows.map(r => ({ ...r, billable: null })) }));
                 setFormErr('');
               }}
               style={selectSt}
@@ -2437,6 +2508,60 @@ export default function MyTimesheet() {
             )}
           </div>
         )}
+
+        {/* ── Who asked (migs 829/830) ────────────────────────────────────
+            Only once a project is chosen: the question is "who on THAT project
+            asked", so it has no meaning until there is a that.
+
+            The list is the helped project's team on the day worked, not today.
+            The lead is marked because they are the likeliest asker and the
+            employee, not being on the project, may know nobody else on it.
+
+            The value already stored is always an option, whatever the team
+            reads now -- the same rule the project picker carries. A requester
+            who has since left the project must still be nameable, or reopening
+            an old entry would quietly drop them. */}
+        {usesRelated && form.projId && (() => {
+          const stored = form.reqId && !team.some(t => t.employee_id === form.reqId)
+            ? { employee_id: form.reqId,
+                name: requesterName(editingEntry, form.reqId) ?? 'Currently recorded',
+                employee_code: '', is_lead: false }
+            : null;
+          const options = stored ? [stored, ...team] : team;
+
+          return (
+            <div style={{ marginBottom: gap }}>
+              <Label>Requested by *</Label>
+              <select
+                value={form.reqId}
+                onChange={e => { setForm(f => ({ ...f, reqId: e.target.value })); setFormErr(''); }}
+                style={selectSt}
+              >
+                <option value="">{teamLoading ? 'Loading…' : '— Select —'}</option>
+                {options.map(t => (
+                  <option key={t.employee_id} value={t.employee_id}>
+                    {t.name}{t.employee_code ? ` (${t.employee_code})` : ''}{t.is_lead ? ' · lead' : ''}
+                  </option>
+                ))}
+              </select>
+              {!teamLoading && team.length === 0 && (
+                <div style={{ marginTop: 5, fontSize: 11.5, color: '#8A97A8', lineHeight: 1.45 }}>
+                  <i className="fa-solid fa-circle-info" style={{ marginRight: 5 }} />
+                  Nobody is recorded on this project for
+                  {projectDates.length === 1 ? ` ${fmtChip(projectDates[0])}` : ' the selected days'}.
+                  Ask an administrator to check its team before recording help against it.
+                </div>
+              )}
+              {!teamLoading && team.length > 0 && (
+                <div style={{ marginTop: 5, fontSize: 11.5, color: '#8A97A8', lineHeight: 1.45 }}>
+                  <i className="fa-solid fa-circle-info" style={{ marginRight: 5 }} />
+                  The person on that project who asked you for this. Their project
+                  lead can see it.
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Activities with their own hours — mig 727. For project time these rows
             ARE the duration, which is why the Hours/Minutes pair below is gone
@@ -3551,8 +3676,21 @@ export default function MyTimesheet() {
                            * name, so they get no tag -- which is correct, not an
                            * omission. */
                           const cls = classOfProject(ent.project_id);
+                          const asker = Array.isArray(ent.help_requester)
+                            ? ent.help_requester[0] : ent.help_requester;
                           return (
                             <div style={{ marginBottom: ent.notes ? 8 : 0 }}>
+                              {/* mig 829. The second person in the record, and
+                                  the whole reason this entry can be questioned
+                                  by anybody. Above the activities because it is
+                                  a fact about the entry, not about one row. */}
+                              {asker?.name && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                                  <i className="fa-solid fa-hand-holding-heart" style={{ fontSize: 10, color: '#7C3AED' }} />
+                                  <span style={{ fontSize: 11.5, color: '#6B7280' }}>Requested by</span>
+                                  <span style={{ fontSize: 12, fontWeight: 700, color: '#374151' }}>{asker.name}</span>
+                                </div>
+                              )}
                               <div style={{ fontSize: 9, fontWeight: 800, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
                                 Activities
                               </div>
