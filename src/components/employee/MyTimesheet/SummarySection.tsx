@@ -126,7 +126,23 @@ const BILL_GREEN = '#047857';
 /** The chargeable bar's other two inks. Amber for unclassified rather than a
  *  second grey: it is a question nobody has answered yet, not a settled "no",
  *  and the two should not look alike. */
-const BILL_GREY  = '#B8C0CC';
+/* NOT-CHARGEABLE TIME, WHEREVER IT IS DRAWN -- the month's Chargeable bar and
+ * every project card below it. It was #B8C0CC, which measures 1.6:1 against
+ * the #F1F2F5 track these bars sit on: under the 3:1 floor for a non-text
+ * graphic, and on a 4px bar the segment simply was not there. The activity
+ * bars had the same fault one shade lighter.
+ *
+ * SLATE RATHER THAN A WARNING COLOUR. Non-billable hours are not a failure --
+ * internal rework, training, a fixed-price overrun are all legitimate. Drawing
+ * them in red would put quiet pressure on the person filling the sheet to
+ * record fewer of them, and the honesty of that number is the only thing this
+ * whole feature rests on.
+ *
+ * Close to RANK[6] (#64748B), which is the colour a 7th-and-beyond project
+ * takes. Accepted: seven projects on one month's sheet is rare, and the
+ * project's own ink appears only in the card's header dot once a card has a
+ * chargeability story to tell. */
+const BILL_SLATE = '#475569';
 const BILL_AMBER = '#E0A33A';
 /** Fallback ink for a help card the donut did not draw. Normally these cards
  *  take the colour of their own slice above -- one thing, one colour, the rule
@@ -400,7 +416,7 @@ export default function SummarySection({
        * same key the unique index uses.
        */
       const add = (name: string, minutes: number, itemised: boolean, billable: boolean | null) => {
-        const key = `${name} ${billable === null ? '' : billable}`;
+        const key = `${name}\u0000${billable === null ? '' : billable}`;
         const cur = row.acts.get(key);
         if (cur) { cur.minutes += minutes; cur.itemised = cur.itemised && itemised; }
         else row.acts.set(key, { name, minutes, itemised, billable });
@@ -851,7 +867,7 @@ export default function SummarySection({
               <div style={{ display: 'flex', height: 8, borderRadius: 99, background: C.track, overflow: 'hidden' }}>
                 {([
                   ['billable',     d.bill.billable,     BILL_GREEN],
-                  ['non_billable', d.bill.nonBillable,  BILL_GREY],
+                  ['non_billable', d.bill.nonBillable,  BILL_SLATE],
                   ['unclassified', d.bill.unclassified, BILL_AMBER],
                 ] as const).filter(([, mins]) => mins > 0).map(([key, mins, colour]) => (
                   <div key={key} style={{
@@ -868,7 +884,7 @@ export default function SummarySection({
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 18px', marginTop: 9 }}>
                 {([
                   ['Billable',       d.bill.billable,     BILL_GREEN],
-                  ['Not billable',   d.bill.nonBillable,  BILL_GREY],
+                  ['Not billable',   d.bill.nonBillable,  BILL_SLATE],
                   ['Not classified', d.bill.unclassified, BILL_AMBER],
                 ] as const).filter(([, mins]) => mins > 0).map(([label, mins, colour]) => (
                   <span key={label} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
@@ -937,6 +953,39 @@ export default function SummarySection({
               // nothing; within a card the question is which activity dominated.
               const widest  = Math.max(...p.acts.map(a => a.minutes), 1);
 
+              /* THE SPLIT THE CARD IS ORGANISED BY.
+               *
+               * Two groups, and the test is `splitEntry`'s branch rather than the
+               * raw flag, because those are not the same question:
+               *
+               *   - the un-itemised remainder (`itemised: false`) has no activity
+               *     row and no answer, and the split counts it BILLABLE -- 822's
+               *     `WHEN a.id IS NULL THEN 'billable'` applied to the part of an
+               *     entry that has no row. Grouping it by its NULL flag would put
+               *     it under "Not billable" while the bar above counted it the
+               *     other way, and the card would contradict itself in 60px.
+               *   - an itemised row with a NULL flag is counted NON-billable
+               *     (`if (a.is_billable === true)`, never a COALESCE).
+               *
+               * So the two groups sum, provably, to p.split.billable and
+               * p.split.nonBillable -- which is why the group headings can print
+               * those figures rather than re-totalling the rows beneath them.
+               *
+               * Only a billable project gets grouped. Elsewhere there is nothing
+               * to separate, and the bars keep the PROJECT's ink; here they take
+               * the two chargeability inks instead, because once a card has a
+               * chargeable story that is what its bars are answering. The
+               * project's own colour survives in the header dot and the donut. */
+              const grouped = p.cls === 'billable';
+              const groups  = grouped
+                ? ([
+                    { key: 'billable', word: 'Billable',     ink: BILL_GREEN, mins: p.split.billable,
+                      acts: p.acts.filter(a => !a.itemised || a.billable === true) },
+                    { key: 'non',      word: 'Not billable', ink: BILL_SLATE, mins: p.split.nonBillable,
+                      acts: p.acts.filter(a => a.itemised && a.billable !== true) },
+                  ]).filter(g => g.acts.length > 0)
+                : [{ key: 'all', word: '', ink: colour, mins: p.minutes, acts: p.acts }];
+
               return (
                 <div key={p.name} style={{
                   border: `1px solid ${C.rule}`, borderRadius: 10, overflow: 'hidden',
@@ -955,23 +1004,59 @@ export default function SummarySection({
                     </span>
                   </div>
 
-                  {/* Only where somebody is paying. On an internal project the
+                  {/* THE CARD'S OWN CHARGEABLE BAR -- the same three inks and the
+                      same idiom as the month's bar above, one level down, so a
+                      project card reads as a miniature of the panel it sits in.
+                      It replaced two bare figures, which said nothing about the
+                      proportion and left the reader to divide.
+
+                      Built from `p.split`, NOT totalled from the rows listed
+                      under it. The split is this file's mirror of mig 822 and is
+                      what the Utilisation report and both PDFs read; a bar
+                      totalled from the activity rows instead would be a fourth
+                      opinion on revenue, which is the one thing this panel must
+                      not add.
+
+                      Only where somebody is paying. On an internal project the
                       question was never put to the employee, and a line saying
                       "Billable 0h" would read as a judgement on work that was
                       never meant to be charged for. */}
-                  {p.cls === 'billable' && (
-                    <div style={{
-                      display: 'flex', gap: 14, alignItems: 'baseline',
-                      padding: '7px 12px 0', fontSize: 11.5,
-                    }}>
-                      <span style={{ color: BILL_GREEN, fontWeight: 700 }}>
-                        Billable {h1(p.split.billable)}h
-                      </span>
-                      <span style={{ color: C.ink4, fontWeight: 600 }}>
-                        Not billable {h1(p.split.nonBillable)}h
-                      </span>
-                    </div>
-                  )}
+                  {p.cls === 'billable' && (() => {
+                    const worked = p.split.worked > 0 ? p.split.worked : p.minutes;
+                    const parts  = ([
+                      ['Billable',       p.split.billable,     BILL_GREEN],
+                      ['Not billable',   p.split.nonBillable,  BILL_SLATE],
+                      ['Not classified', p.split.unclassified, BILL_AMBER],
+                    ] as const);
+                    // Floor-and-distribute, so the figures printed under the bar
+                    // total 100 rather than 99 on a month that divides badly.
+                    const pcts  = wholePercents(parts.map(([, m]) => m), worked);
+                    const shown = parts
+                      .map(([label, mins, ink], i) => ({ label, mins, ink, pct: pcts[i] }))
+                      .filter(x => x.mins > 0);
+                    return (
+                      <div style={{ padding: '10px 12px 0' }}>
+                        <div style={{ display: 'flex', height: 7, borderRadius: 99,
+                                      background: C.track, overflow: 'hidden' }}>
+                          {shown.map(x => (
+                            <div key={x.label} style={{
+                              height: 7, background: x.ink,
+                              width: `${(x.mins / worked) * 100}%`,
+                              transition: 'width 0.4s ease-out',
+                            }} />
+                          ))}
+                        </div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 14px',
+                                      marginTop: 7, fontSize: 11.5 }}>
+                          {shown.map(x => (
+                            <span key={x.label} style={{ color: x.ink, fontWeight: 700 }}>
+                              {x.label} {h1(x.mins)}h &middot; {x.pct}%
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
                   {p.cls === 'unclassified' && (
                     <div style={{ padding: '7px 12px 0', fontSize: 11.5, color: C.ink4 }}>
                       This project has no type set, so its hours are reported as
@@ -980,50 +1065,85 @@ export default function SummarySection({
                   )}
 
                   <div style={{ padding: '4px 12px 10px' }}>
-                    {/* KEYED ON THE NAME AND THE ANSWER. Since mig 824 one name
-                        can appear twice in this list with different answers, and
-                        a key of `a.name` alone would collide and drop a row. */}
-                    {p.acts.map((a, j) => (
-                      <div key={`${a.name} ${a.billable}`} style={{ paddingTop: 8 }}>
-                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                          <span style={{ fontSize: 11, color: C.ink4, width: 14, flex: 'none' }}>
-                            {j + 1}.
-                          </span>
-                          <span style={{
-                            flex: 1, fontSize: 12.5, minWidth: 0,
-                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                            // The caveat row is muted and italic so it never
-                            // reads as something somebody typed.
-                            color: a.itemised ? C.ink2 : C.ink4,
-                            fontStyle: a.itemised ? 'normal' : 'italic',
-                          }}>{a.name}</span>
-                          {/* Only where the question was actually put. NULL is
-                              not "no" — it means nobody was asked, which is the
-                              state every activity outside a billable project is
-                              in, and marking those would be inventing an answer. */}
-                          {p.cls === 'billable' && a.billable !== null && (
-                            <span style={{
-                              fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 5,
-                              whiteSpace: 'nowrap', flex: 'none',
-                              background: a.billable ? '#ECFDF5' : '#F3F4F6',
-                              color:      a.billable ? BILL_GREEN : C.ink3,
-                            }}>{a.billable ? 'Billable' : 'Not billable'}</span>
-                          )}
-                          <span style={{ fontSize: 12.5, fontWeight: 700,
-                                         color: a.itemised ? C.ink : C.ink3 }}>
-                            {h1(a.minutes)}h
-                          </span>
-                        </div>
-                        <div style={{ marginTop: 4, marginLeft: 22, height: 3, borderRadius: 99,
-                                      background: C.track, overflow: 'hidden' }}>
-                          <div style={{
-                            height: 3, borderRadius: 99,
-                            width: `${(a.minutes / widest) * 100}%`,
-                            background: !a.itemised ? '#D1D5DB'
-                                      : p.cls === 'billable' && a.billable === false ? '#CBD5E1'
-                                      : colour,
-                          }} />
-                        </div>
+                    {groups.map(g => (
+                      <div key={g.key}>
+                        {/* Headings only when there is something to separate. A
+                            project with nothing non-billable would otherwise carry
+                            a "NOT BILLABLE 0h" rule with nothing under it -- a
+                            heading whose only content is that a group is absent. */}
+                        {groups.length > 1 && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 7,
+                                        padding: '12px 0 1px' }}>
+                            <span style={{ width: 7, height: 7, borderRadius: 2,
+                                           flex: 'none', background: g.ink }} />
+                            <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.05em',
+                                           textTransform: 'uppercase', color: g.ink }}>{g.word}</span>
+                            <span style={{ flex: 1, height: 1, background: C.hair }} />
+                            <span style={{ fontSize: 11.5, fontWeight: 700, color: C.ink2 }}>
+                              {h1(g.mins)}h
+                            </span>
+                          </div>
+                        )}
+                        {/* KEYED ON THE NAME AND THE ANSWER. Since mig 824 one name
+                            can appear twice in this list with different answers, and
+                            a key of `a.name` alone would collide and drop a row. The
+                            grouping is what finally makes that legible: "Testing 2h"
+                            under Billable and "Testing 6h" under Not billable are two
+                            facts, where one flat list of both read as a duplicate. */}
+                        {g.acts.map((a, j) => (
+                          <div key={`${a.name}\u0000${a.billable}`} style={{ paddingTop: 8 }}>
+                            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                              <span style={{ fontSize: 11, color: C.ink4, width: 14, flex: 'none' }}>
+                                {j + 1}.
+                              </span>
+                              <span style={{
+                                flex: 1, fontSize: 12.5, minWidth: 0,
+                                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                // The caveat row is muted and italic so it never
+                                // reads as something somebody typed.
+                                color: a.itemised ? C.ink2 : C.ink4,
+                                fontStyle: a.itemised ? 'normal' : 'italic',
+                              }}>{a.name}</span>
+                              {/* The per-row Billable / Not billable chip is gone: the
+                                  heading above says it, and repeating it on every row
+                                  was a column of the same two words.
+
+                                  What the chip could say and a heading cannot is that
+                                  nobody was ever ASKED. Those rows are counted as
+                                  non-billable -- by mig 822 and by splitEntry, so the
+                                  heading is not lying -- but NULL is not "no", and a
+                                  row sitting under that heading for want of an answer
+                                  should say which it is. They exist on rows written
+                                  before 821, and on anything mass-created between 821
+                                  and 824. */}
+                              {p.cls === 'billable' && a.itemised && a.billable === null && (
+                                <span style={{
+                                  fontSize: 10, fontWeight: 600, color: C.ink4,
+                                  whiteSpace: 'nowrap', flex: 'none', fontStyle: 'italic',
+                                }}>never asked</span>
+                              )}
+                              <span style={{ fontSize: 12.5, fontWeight: 700,
+                                             color: a.itemised ? C.ink : C.ink3 }}>
+                                {h1(a.minutes)}h
+                              </span>
+                            </div>
+                            {/* 4px, not 3. These bars sit on a #F1F2F5 track, and at
+                                3px a low-contrast fill is not a short bar, it is no
+                                bar at all. */}
+                            <div style={{ marginTop: 4, marginLeft: 22, height: 4, borderRadius: 99,
+                                          background: C.track, overflow: 'hidden' }}>
+                              <div style={{
+                                height: 4, borderRadius: 99,
+                                width: `${(a.minutes / widest) * 100}%`,
+                                // The group's ink, the un-itemised caveat row included:
+                                // it is counted as billable, so drawing it in a pale
+                                // grey under a green heading would contradict the bar
+                                // above. The italic name is what marks it as a caveat.
+                                background: g.ink,
+                              }} />
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     ))}
                   </div>

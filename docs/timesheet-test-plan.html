@@ -2,7 +2,7 @@
 {
   "name": "Timesheet Test Plan",
   "schemaVersion": 1,
-  "description": "Prowess timesheet test plan, migrations 726–830. 409 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
+  "description": "Prowess timesheet test plan, migrations 726–830. 415 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
   "mcpTools": [],
   "mcpServerNames": []
 }
@@ -117,6 +117,7 @@
       <span><b>AQ–AS added</b> 31 Aug 2026</span>
       <span><b>AT–AU added</b> 1 Sep 2026</span>
       <span><b>AR35–AR41 added</b> 2 Sep 2026</span>
+      <span><b>AU18–AU23 added</b> 2 Sep 2026</span>
     </div>
   </div>
 </header>
@@ -5612,6 +5613,72 @@ order  by created_at desc limit 6;</div>
       <p>Open an internal-only month &mdash; no billable project, nothing untyped &mdash; on screen and as a PDF.</p>
       <div class="exp"><b>Expect:</b> <b>no Chargeable bar and no Billable tile</b>, on either. The donut and Attainment sit together exactly as they did before.</div>
       <div class="why">The bar and the tile are shown on one shared condition, so they can never disagree about whether the month has a chargeable story. An empty bar at 0% on a document the approver reads is a statement about the projects someone is staffed on, dressed up as a statement about them.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AU18</span>
+      <span class="title">The non-billable bar is actually there</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>On a month with some non-billable hours, look at the <b>Chargeable</b> bar and at any project card carrying non-billable time. Then look at the same screen on a laptop panel at low brightness, and in greyscale if you can.</p>
+      <div class="exp"><b>Expect:</b> the non-billable segment is <b>plainly visible</b> against the track in all three.</div>
+      <div class="why">It was <code>#B8C0CC</code> on a <code>#F1F2F5</code> track &mdash; 1.6:1, against a 3:1 floor for a non-text graphic &mdash; and the activity bars were a shade lighter again at 1.3:1. On a 3px bar that is not a faint bar, it is no bar: QCC&rsquo;s largest non-billable activity rendered as empty track. Now <code>#475569</code>, and the bars are 4px.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AU19</span>
+      <span class="title">The card&rsquo;s bar and its two groups agree</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>On a billable project carrying both answers, read the card&rsquo;s bar, then add up the hours on the <b>BILLABLE</b> and <b>NOT BILLABLE</b> group headings below it. Compare both against the month&rsquo;s Chargeable bar and the PDF.</p>
+      <div class="exp"><b>Expect:</b> the group headings equal the bar&rsquo;s two figures exactly, and the project&rsquo;s share of the month&rsquo;s bar is the same number again.</div>
+      <div class="why">The bar is built from <code>p.split</code> &mdash; this file&rsquo;s mirror of mig 822, which is what the Utilisation report and both PDFs read. Totalling the bar from the rows listed under it instead would have made the card a fourth opinion on revenue. The groups can print the split&rsquo;s figures only because they are partitioned by the same branch, which is the next case.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AU20</span>
+      <span class="title">Un-itemised hours sit under Billable, not against it</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Find a pre-727 entry on a billable project &mdash; one whose activity rows total less than the entry &mdash; and open the Monthly Summary.</p>
+      <div class="exp"><b>Expect:</b> the italic <i>Not itemised</i> row appears under <b>BILLABLE</b>, and the bar above counts it there too.</div>
+      <div class="why">Its flag is NULL, so grouping on the raw flag would file it under Not billable while <code>splitEntry</code> counts it billable (822&rsquo;s <code>WHEN a.id IS NULL THEN &lsquo;billable&rsquo;</code>, applied to the part of an entry that has no row). The card would then contradict itself within 60 pixels. The groups are partitioned by the split&rsquo;s branch, not by the column.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AU21</span>
+      <span class="title">A row nobody was asked about says so</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Find an itemised activity row on a billable project with <code>is_billable</code> NULL &mdash; written before 821, or mass-created between 821 and 824 &mdash; and read its line.</p>
+      <div class="exp"><b>Expect:</b> it sits under <b>NOT BILLABLE</b> and carries a small italic <i>never asked</i>.</div>
+      <div class="warn">This is the one thing the removed per-row chip could say that a group heading cannot. The heading is not lying &mdash; 822 and <code>splitEntry</code> both count those minutes non-billable, because NULL is not a yes &mdash; but NULL is not a no either, and a row filed there for want of an answer should say which it is. The tag is also how the 821&ndash;824 mass-create defect becomes visible on screen rather than only in a data check.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AU22</span>
+      <span class="title">No headings where there is nothing to separate</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Compare three cards on one month: a billable project with both answers, a billable project that is 100% billable, and an internal project.</p>
+      <div class="exp"><b>Expect:</b> only the first carries group headings. The second shows its bar and a flat list. The third has <b>no bar and no headings</b>, and its activity bars keep the <b>project&rsquo;s own colour</b>.</div>
+      <div class="why">A &ldquo;NOT BILLABLE 0h&rdquo; rule with nothing under it is a heading whose only content is that a group is absent. And where a card has no chargeable story its bars have nothing to answer, so they go back to saying which project this is &mdash; which is also the trade this change makes: on a grouped card the project&rsquo;s colour survives only in the header dot and the donut.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AU23</span>
+      <span class="title">Bars stay comparable across the two groups</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>On a card where the largest activity is billable and the second largest is not &mdash; QCC with MDF Create 8h and Testing 6h &mdash; compare the two bar lengths.</p>
+      <div class="exp"><b>Expect:</b> the 6h bar is three quarters of the 8h bar. It is <b>not</b> full-width in its own group.</div>
+      <div class="why">Every bar is still scaled to the largest activity on the card, not the largest in its group. Re-scaling per group would make the biggest non-billable row look like the biggest row on the card &mdash; the same misreading the old grey caused, in the opposite direction.</div>
     </div>
   </div>
 </section>
