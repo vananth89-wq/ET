@@ -972,14 +972,30 @@ export default function SummarySection({
                * those figures rather than re-totalling the rows beneath them.
                *
                * Only a billable project gets grouped. Elsewhere there is nothing
-               * to separate, and the bars keep the PROJECT's ink; here they take
-               * the two chargeability inks instead, because once a card has a
-               * chargeable story that is what its bars are answering. The
-               * project's own colour survives in the header dot and the donut. */
+               * to separate.
+               *
+               * THE BILLABLE GROUP KEEPS THE PROJECT'S OWN INK, and only the
+               * non-billable one takes a chargeability colour. Painting both
+               * groups green and slate was tried first and read as one anonymous
+               * card repeated three times: every project's activities the same
+               * green, and the only thing left saying which project you were
+               * looking at was an 8px dot in the header. The bar at the top of
+               * the card carries the shared green -- it is the same statement as
+               * the month's Chargeable bar and the PDF, and it is what the two
+               * have to agree on -- while the list below it is this project's
+               * contents and says so.
+               *
+               * The heading dot therefore matches the bars beneath it rather
+               * than the bar above it, which is what a heading dot is for.
+               *
+               * Known collision: a 7th-and-beyond project takes RANK[6]
+               * (#64748B), which is close enough to BILL_SLATE that its two
+               * groups would look alike. Rare enough to accept; the headings
+               * still name them. */
               const grouped = p.cls === 'billable';
               const groups  = grouped
                 ? ([
-                    { key: 'billable', word: 'Billable',     ink: BILL_GREEN, mins: p.split.billable,
+                    { key: 'billable', word: 'Billable',     ink: colour,     mins: p.split.billable,
                       acts: p.acts.filter(a => !a.itemised || a.billable === true) },
                     { key: 'non',      word: 'Not billable', ink: BILL_SLATE, mins: p.split.nonBillable,
                       acts: p.acts.filter(a => a.itemised && a.billable !== true) },

@@ -5666,8 +5666,8 @@ order  by created_at desc limit 6;</div>
     <div class="body">
       <span class="lbl">Do</span>
       <p>Compare three cards on one month: a billable project with both answers, a billable project that is 100% billable, and an internal project.</p>
-      <div class="exp"><b>Expect:</b> only the first carries group headings. The second shows its bar and a flat list. The third has <b>no bar and no headings</b>, and its activity bars keep the <b>project&rsquo;s own colour</b>.</div>
-      <div class="why">A &ldquo;NOT BILLABLE 0h&rdquo; rule with nothing under it is a heading whose only content is that a group is absent. And where a card has no chargeable story its bars have nothing to answer, so they go back to saying which project this is &mdash; which is also the trade this change makes: on a grouped card the project&rsquo;s colour survives only in the header dot and the donut.</div>
+      <div class="exp"><b>Expect:</b> only the first carries group headings. The second shows its bar and a flat list. The third has <b>no bar and no headings</b>. On all three, the <b>billable</b> activity bars are the <b>project&rsquo;s own colour</b> &mdash; blue for WISAYAH, violet for AMPTJ, teal for QCC &mdash; and only the non-billable group is slate.</div>
+      <div class="why">A &ldquo;NOT BILLABLE 0h&rdquo; rule with nothing under it is a heading whose only content is that a group is absent. On the colour: painting both groups green and slate was built first and rejected on sight &mdash; every project&rsquo;s activities came out the same green, and the only thing left saying which project you were reading was an 8px dot in the header. The bar at the top of a card carries the shared green, because that is the same statement as the month&rsquo;s Chargeable bar and the PDF and the three have to agree; the list below it is this project&rsquo;s contents. So a group&rsquo;s heading dot matches the bars beneath it, not the bar above it.</div>
     </div>
   </div>
 
