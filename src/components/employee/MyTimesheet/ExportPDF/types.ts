@@ -45,6 +45,13 @@ export interface ExportEntry {
    * the project that was HELPED and whose hours are not chargeable to it.
    */
   projectClass: ProjectClass | null;
+  /**
+   * Help given to another project (801). Mig 836 made this its own bucket,
+   * and `projectClass` cannot carry it: help and Training both leave the
+   * booked project NULL, so without this flag the two are the same row to
+   * every reader downstream.
+   */
+  isSupport:  boolean;
   minutes:    number;
   notes:      string | null;
   activities: ExportActivity[];

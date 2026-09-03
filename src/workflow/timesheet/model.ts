@@ -39,6 +39,10 @@ export interface TsPayloadEntry {
    *  cross-project help (801), whose hours are not chargeable to the project
    *  its label names. Absent on a payload from before 826. */
   project_class?:         'billable' | 'non_billable' | 'unclassified' | null;
+  /** Mig 836. WHICH project was helped (801). project_class is NULL for help
+   *  and NULL for Training alike, so it cannot tell them apart -- and since 836
+   *  they are two different buckets. Absent on a payload from before 836. */
+  related_project_id?:    string | null;
   time_type_id:           string | null;
   time_type_name:         string | null;
   is_system_generated:    boolean;

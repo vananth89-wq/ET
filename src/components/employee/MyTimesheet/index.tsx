@@ -1759,6 +1759,7 @@ export default function MyTimesheet() {
         // given to a client's project is not chargeable to it, and reading the
         // class off the display name is how it would become so.
         projectClass: classOfProject(e.project_id),
+        isSupport:    isSupportEntry(e),
         minutes:    entryMinutes(e.hours_minutes, acts.map(r => ({ minutes: r.hours_minutes }))),
         rawMinutes: e.hours_minutes,
         notes:      e.notes,

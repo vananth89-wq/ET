@@ -47,6 +47,10 @@ export interface AssembleRow {
   kind:     ExportEntryKind;
   typeName: string;
   project:  string | null;
+  /** Help given to another project (801), which 836 made its own bucket.
+   *  Optional so a caller written before 836 still compiles; false is the
+   *  right default, because everything that is not help is not help. */
+  isSupport?: boolean;
   /**
    * What the entry DISPLAYS -- post-727 that is the sum of its activity rows.
    * Callers apply `entryMinutes()` before handing the row over.
@@ -165,6 +169,7 @@ export function assembleExportData(input: AssembleInput): TimesheetExportData {
       typeName:   r.typeName,
       project:    r.project,
       projectClass: r.projectClass ?? null,
+      isSupport:    r.isSupport ?? false,
       minutes:    r.minutes,
       notes:      r.notes,
       activities: r.activities.map(a => ({ ...a, billable: a.billable ?? null })),
@@ -215,11 +220,16 @@ export function assembleExportData(input: AssembleInput): TimesheetExportData {
         // The class already travels with the row, so the id is only needed here
         // as a "was there a booked project at all" flag.
         project_id:    e.projectClass ? e.project : null,
+        // And the same for help: with no booked project, this is the only
+        // thing separating support from Training (836).
+        related_project_id: e.isSupport ? e.project : null,
         activities:    e.activities.map(a => ({ hours_minutes: a.minutes, is_billable: a.billable })),
       }, e.projectClass);
       return {
         billable:     acc.billable     + s.billable,
         nonBillable:  acc.nonBillable  + s.nonBillable,
+        internal:     acc.internal     + s.internal,
+        support:      acc.support      + s.support,
         unclassified: acc.unclassified + s.unclassified,
         absence:      acc.absence      + s.absence,
         worked:       acc.worked       + s.worked,

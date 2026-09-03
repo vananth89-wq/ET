@@ -16,15 +16,21 @@
  *
  *     absence                        -> absence      (leave is not worked time)
  *     project set, no type on it     -> unclassified (never assumed to be either)
- *     project set, type is not P001  -> non_billable
+ *     project set, type is not P001  -> internal     (836)
  *     project set, P001, no activity -> billable     (nobody was ever asked)
  *     project set, P001, row is true -> billable
  *     project set, P001, otherwise   -> non_billable
- *     no project at all              -> non_billable (a payer means a project)
+ *     no project, related project    -> support      (836)
+ *     no project at all              -> internal     (836)
  *
- * The last line is what puts cross-project help (mig 801) on the right side
- * without naming it: those entries leave `project_id` NULL by design, so they
- * fall out here exactly as they fall out of the report.
+ * MIG 836 SPLIT non_billable INTO THREE. It was absorbing four unrelated facts
+ * -- an hour somebody declined to charge, an internal project, help given
+ * elsewhere, and Training -- so the figure said nothing. `non_billable` now
+ * means only what its name says: a client project, and a person answered no.
+ *
+ * `billable` and the denominator are deliberately UNTOUCHED by that split.
+ * Billable share is still billable over worked, and worked is still all of
+ * these, so the number Finance quotes reads the same before and after.
  */
 
 /** The three words `project_billability()` (mig 825) returns. */
@@ -32,16 +38,24 @@ export type ProjectClass = 'billable' | 'non_billable' | 'unclassified';
 
 export interface BillSplit {
   billable:     number;
+  /** A client project, and somebody answered no. Mig 836 narrowed this. */
   nonBillable:  number;
+  /** Never chargeable by nature: Internal and Overhead projects, plus
+   *  attendance types that carry no project at all -- Training, On-Site Visit. */
+  internal:     number;
+  /** Help given to a project you are not staffed on (801). Its own bucket
+   *  since 836; it used to be swept into nonBillable, where it was invisible. */
+  support:      number;
   unclassified: number;
   /** Leave. Excluded from `worked`, and therefore from the share's denominator. */
   absence:      number;
-  /** billable + nonBillable + unclassified. The share's denominator. */
+  /** Every worked bucket summed. The share's denominator, unchanged by 836. */
   worked:       number;
 }
 
 export const EMPTY_SPLIT: BillSplit = {
-  billable: 0, nonBillable: 0, unclassified: 0, absence: 0, worked: 0,
+  billable: 0, nonBillable: 0, internal: 0, support: 0,
+  unclassified: 0, absence: 0, worked: 0,
 };
 
 /** The minimum an entry has to expose to be classified. */
@@ -50,6 +64,9 @@ export interface BillEntry {
   hours_minutes: number;
   /** NULL on cross-project help (801) and on every non-project time type. */
   project_id?:   string | null;
+  /** Set only on help given to another project. What tells `support` apart
+   *  from `internal` once project_id is NULL for both. */
+  related_project_id?: string | null;
   activities:    Array<{ hours_minutes: number | null; is_billable?: boolean | null }>;
 }
 
@@ -73,17 +90,28 @@ export function splitEntry(e: BillEntry, cls: ProjectClass | null): BillSplit {
 
   if (e.entry_kind === 'leave') { out.absence = mins; out.worked = 0; return out; }
 
-  const put = (k: 'billable' | 'nonBillable' | 'unclassified', v: number) => {
+  const put = (k: 'billable' | 'nonBillable' | 'internal' | 'support' | 'unclassified',
+               v: number) => {
     out[k] += v; out.worked += v;
   };
 
-  // No project, or a project this screen has never heard of. Both mean nobody
-  // to charge. An id with no classification is the more interesting case: it
-  // happens when a project was created after this page loaded its list, and
-  // guessing "billable" there would put a number nobody chose into a share.
-  if (!e.project_id || !cls)   { put('nonBillable',  mins); return out; }
+  // No project at all. Two different facts, and 836 stopped merging them: help
+  // given to another project names the project it helped (801) and everything
+  // else -- Training, On-Site Visit -- names nothing.
+  if (!e.project_id) {
+    put(e.related_project_id ? 'support' : 'internal', mins);
+    return out;
+  }
+  // A project id this screen has never heard of, which happens when a project
+  // was created after the page loaded its list. Unclassified rather than a
+  // guess: we do not know what it is worth, and inventing an answer is how a
+  // number nobody chose gets into a share.
+  if (!cls)                    { put('unclassified', mins); return out; }
   if (cls === 'unclassified')  { put('unclassified', mins); return out; }
-  if (cls !== 'billable')      { put('nonBillable',  mins); return out; }
+  // Internal and Overhead. The billable question is only put on a P001
+  // project, so these rows carry NULL and always did -- calling them
+  // non-billable reported a decision nobody was ever asked to make.
+  if (cls !== 'billable')      { put('internal',     mins); return out; }
 
   const rows = e.activities ?? [];
   let itemised = 0;
@@ -113,6 +141,8 @@ export function splitEntries(
     const s = splitEntry(e, classOf(e.project_id));
     total.billable     += s.billable;
     total.nonBillable  += s.nonBillable;
+    total.internal     += s.internal;
+    total.support      += s.support;
     total.unclassified += s.unclassified;
     total.absence      += s.absence;
     total.worked       += s.worked;

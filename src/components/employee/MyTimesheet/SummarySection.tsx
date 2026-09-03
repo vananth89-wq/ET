@@ -167,6 +167,14 @@ const BILL_GREEN = '#0F8A6A';
  * project's own ink appears only in the card's header dot once a card has a
  * chargeability story to tell. */
 const BILL_SLATE = '#64748B';
+/* Never chargeable by nature -- Internal and Overhead projects, and
+ * attendance types with no project at all. Cyan because it has to be
+ * told apart from BILL_SLATE beside it, and the pair this replaces
+ * (#64748B against #78716C) differed by 1.01:1 in lightness -- the same
+ * value, and both nearly achromatic, so nothing separated them at 8px.
+ * Chroma does the work here, not lightness: cyan is only 1.3:1 lighter
+ * than slate but obviously not grey. Collides with no project ink. */
+const BILL_CYAN  = '#0891B2';
 const BILL_AMBER = '#E0A33A';
 /** Fallback ink for a help card the donut did not draw. Normally these cards
  *  take the colour of their own slice above -- one thing, one colour, the rule
@@ -904,6 +912,12 @@ export default function SummarySection({
                 {([
                   ['billable',     d.bill.billable,     BILL_GREEN],
                   ['non_billable', d.bill.nonBillable,  BILL_SLATE],
+                  /* Mig 836. Carved out of non_billable, which was absorbing an
+                     internal project, a training course and help given to
+                     another team alongside the one thing it should mean. The
+                     five still total worked, so the bar still fills. */
+                  ['internal',     d.bill.internal,     BILL_CYAN],
+                  ['support',      d.bill.support,      HELP_INK],
                   ['unclassified', d.bill.unclassified, BILL_AMBER],
                 ] as const).filter(([, mins]) => mins > 0).map(([key, mins, colour], i) => (
                   <div key={key} style={{
@@ -932,6 +946,8 @@ export default function SummarySection({
                 {([
                   ['Billable',       d.bill.billable,     BILL_GREEN],
                   ['Not billable',   d.bill.nonBillable,  BILL_SLATE],
+                  ['Internal',       d.bill.internal,     BILL_CYAN],
+                  ['Support given',  d.bill.support,      HELP_INK],
                   ['Not classified', d.bill.unclassified, BILL_AMBER],
                 ] as const).filter(([, mins]) => mins > 0).map(([label, mins, colour]) => (
                   <span key={label} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>

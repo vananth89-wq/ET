@@ -15,6 +15,12 @@ const BILL_GREEN = '#0F8A6A';
  * screen and worse in print. The same slate the Monthly Summary uses, so the
  * sheet and its PDF cannot disagree about which grey means not billable. */
 const BILL_SLATE = '#64748B';
+/* Mig 836. Never chargeable by nature -- internal projects and Training.
+ * The same cyan the screen uses, for the same reason: against BILL_SLATE
+ * it is separated by chroma, which survives a greyscale print better than
+ * the two mid-greys it replaces. */
+const BILL_CYAN  = '#0891B2';
+const HELP_INK   = '#7C3AED';
 const BILL_AMBER = '#E0A33A';
 import { PDFHeader } from '../components/PDFHeader';
 import { PDFFooter } from '../components/PDFFooter';
@@ -296,6 +302,8 @@ export function Page3WeeklyProjects({ data }: { data: TimesheetExportData }) {
                 {([
                   ['billable',     data.billSplit.billable,     BILL_GREEN],
                   ['non_billable', data.billSplit.nonBillable,  BILL_SLATE],
+                  ['internal',     data.billSplit.internal,     BILL_CYAN],
+                  ['support',      data.billSplit.support,      HELP_INK],
                   ['unclassified', data.billSplit.unclassified, BILL_AMBER],
                 ] as const).filter(([, mins]) => mins > 0).map(([key, mins, colour], i) => (
                   /* The 2px white cut between segments, as on screen -- the two
@@ -318,6 +326,8 @@ export function Page3WeeklyProjects({ data }: { data: TimesheetExportData }) {
                 {([
                   ['Billable',       data.billSplit.billable,     BILL_GREEN],
                   ['Not billable',   data.billSplit.nonBillable,  BILL_SLATE],
+                  ['Internal',       data.billSplit.internal,     BILL_CYAN],
+                  ['Support given',  data.billSplit.support,      HELP_INK],
                   ['Not classified', data.billSplit.unclassified, BILL_AMBER],
                 ] as const).map(([label, mins, colour]) => (
                   mins > 0 ? (
