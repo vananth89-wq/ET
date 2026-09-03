@@ -111,10 +111,19 @@ function h1(mins: number): string {
 const C = {
   blue: '#2563EB', green: '#059669', amber: '#B45309', ink: '#111827',
   ink2: '#374151', ink3: '#6B7280', ink4: '#9CA3AF', rule: '#E5E7EB',
-  hair: '#F1F2F5', track: '#F1F2F5',
+  hair: '#F1F2F5',
+  /* The bar TRACK, no longer the same value as the hairline. They were one hex
+   * doing two jobs, and only one of them wants to be darker: every fill that
+   * sits on this is measured against it. */
+  track: '#E9EEF3',
 };
 /** Donut + legend colours by rank, so a project keeps one colour throughout. */
-const RANK = ['#2563EB', '#7C3AED', '#0F766E', '#10B981', '#F59E0B', '#F97316', '#64748B'];
+/* The last entry was #64748B until BILL_SLATE took that exact hex. RANK[6] is
+ * the ink EVERY 7th-and-beyond project takes, so a month with seven projects
+ * would have drawn one of them in the colour that means "not billable"
+ * everywhere else on the same screen. Changed now because it is free to change
+ * now: nobody has seven projects in a month yet, so nothing on screen moves. */
+const RANK = ['#2563EB', '#7C3AED', '#0F766E', '#10B981', '#F59E0B', '#F97316', '#A21CAF'];
 /** Non-project time: a neutral ramp, deliberately quieter than the projects. */
 const NEUTRAL = ['#94A3B8', '#CBD5E1', '#B8C0CC', '#DDE3EA'];
 /** Leave is the exception — it keeps the tint the weekly bars already use for
@@ -122,7 +131,7 @@ const NEUTRAL = ['#94A3B8', '#CBD5E1', '#B8C0CC', '#DDE3EA'];
 const LEAVE_BLUE = '#93C5FD';
 /** Chargeable time. Deliberately the same green the Utilisation report's
  *  Billable share tile uses, so the two read as one fact in two places. */
-const BILL_GREEN = '#047857';
+const BILL_GREEN = '#0F8A6A';
 /** The chargeable bar's other two inks. Amber for unclassified rather than a
  *  second grey: it is a question nobody has answered yet, not a settled "no",
  *  and the two should not look alike. */
@@ -142,7 +151,7 @@ const BILL_GREEN = '#047857';
  * takes. Accepted: seven projects on one month's sheet is rare, and the
  * project's own ink appears only in the card's header dot once a card has a
  * chargeability story to tell. */
-const BILL_SLATE = '#475569';
+const BILL_SLATE = '#64748B';
 const BILL_AMBER = '#E0A33A';
 /** Fallback ink for a help card the donut did not draw. Normally these cards
  *  take the colour of their own slice above -- one thing, one colour, the rule
@@ -869,10 +878,21 @@ export default function SummarySection({
                   ['billable',     d.bill.billable,     BILL_GREEN],
                   ['non_billable', d.bill.nonBillable,  BILL_SLATE],
                   ['unclassified', d.bill.unclassified, BILL_AMBER],
-                ] as const).filter(([, mins]) => mins > 0).map(([key, mins, colour]) => (
+                ] as const).filter(([, mins]) => mins > 0).map(([key, mins, colour], i) => (
                   <div key={key} style={{
                     height: 8, background: colour,
                     width: `${(mins / d.bill.worked) * 100}%`,
+                    /* A 2px white cut between segments, never before the first.
+                       The two inks sit at nearly the same LIGHTNESS -- 1.1:1
+                       against each other -- so the boundary is carried by hue
+                       alone, and hue alone is what colour-blind vision and a
+                       greyscale print both lose. Without it the bar reads as one
+                       part-filled progress bar rather than two categories.
+
+                       An inset shadow rather than a border or a gap because it
+                       costs no layout: the widths still total exactly 100%, so a
+                       3% sliver is still 3% wide. */
+                    boxShadow: i > 0 ? '-2px 0 0 0 #FFFFFF' : undefined,
                     transition: 'width 0.4s ease-out',
                   }} />
                 ))}
@@ -1052,12 +1072,18 @@ export default function SummarySection({
                       .filter(x => x.mins > 0);
                     return (
                       <div style={{ padding: '10px 12px 0' }}>
-                        <div style={{ display: 'flex', height: 7, borderRadius: 99,
+                        {/* 6px. Thinner than the month's 8px bar above it and
+                            thicker than the 4px activity bars below, so the three
+                            read in the order they contain each other. 4px is the
+                            floor: at 4 this bar and the rows it summarises carry
+                            the same weight. */}
+                        <div style={{ display: 'flex', height: 6, borderRadius: 99,
                                       background: C.track, overflow: 'hidden' }}>
-                          {shown.map(x => (
+                          {shown.map((x, i) => (
                             <div key={x.label} style={{
-                              height: 7, background: x.ink,
+                              height: 6, background: x.ink,
                               width: `${(x.mins / worked) * 100}%`,
+                              boxShadow: i > 0 ? '-2px 0 0 0 #FFFFFF' : undefined,
                               transition: 'width 0.4s ease-out',
                             }} />
                           ))}

@@ -2,7 +2,7 @@
 {
   "name": "Timesheet Test Plan",
   "schemaVersion": 1,
-  "description": "Prowess timesheet test plan, migrations 726–830. 416 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
+  "description": "Prowess timesheet test plan, migrations 726–830. 419 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
   "mcpTools": [],
   "mcpServerNames": []
 }
@@ -119,6 +119,7 @@
       <span><b>AR35–AR41 added</b> 2 Sep 2026</span>
       <span><b>AU18–AU23 added</b> 2 Sep 2026</span>
       <span><b>AR42 added</b> 3 Sep 2026</span>
+      <span><b>AU24–AU26 added</b> 3 Sep 2026</span>
     </div>
   </div>
 </header>
@@ -5636,7 +5637,40 @@ order  by created_at desc limit 6;</div>
       <span class="lbl">Do</span>
       <p>On a month with some non-billable hours, look at the <b>Chargeable</b> bar and at any project card carrying non-billable time. Then look at the same screen on a laptop panel at low brightness, and in greyscale if you can.</p>
       <div class="exp"><b>Expect:</b> the non-billable segment is <b>plainly visible</b> against the track in all three.</div>
-      <div class="why">It was <code>#B8C0CC</code> on a <code>#F1F2F5</code> track &mdash; 1.6:1, against a 3:1 floor for a non-text graphic &mdash; and the activity bars were a shade lighter again at 1.3:1. On a 3px bar that is not a faint bar, it is no bar: QCC&rsquo;s largest non-billable activity rendered as empty track. Now <code>#475569</code>, and the bars are 4px.</div>
+      <div class="why">It was <code>#B8C0CC</code> on a <code>#F1F2F5</code> track &mdash; 1.6:1, against a 3:1 floor for a non-text graphic &mdash; and the activity bars were a shade lighter again at 1.3:1. On a 3px bar that is not a faint bar, it is no bar: QCC&rsquo;s largest non-billable activity rendered as empty track. Now <code>#64748B</code> on an <code>#E9EEF3</code> track &mdash; 4.1:1 &mdash; and the activity bars are 4px.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AU24</span>
+      <span class="title">The divider, and why it is not decoration</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>On a month split roughly half and half, look at the <b>Chargeable</b> bar and at a project card&rsquo;s bar. Then print the PDF in <b>greyscale</b>, or look at both through a colour-blindness simulator.</p>
+      <div class="exp"><b>Expect:</b> a <b>2px white gap</b> between every pair of segments, on screen and on paper, and <b>never before the first</b>. In greyscale the boundary is still there.</div>
+      <div class="warn">Billable <code>#0F8A6A</code> and non-billable <code>#64748B</code> sit within <b>1.1:1</b> of each other in lightness. The boundary between them is carried by hue alone &mdash; and hue alone is exactly what colour-blind vision and a greyscale print both discard. Without the cut the bar reads as one part-filled progress bar rather than two categories, which is the misreading it exists to prevent. Two mechanisms, one result: an inset shadow in the browser (no layout cost, so a 3% sliver stays 3% wide) and a left border in the PDF, because react-pdf has no box-shadow and Yoga measures a border inside the width.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AU25</span>
+      <span class="title">One billable green, in all four places</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Put side by side: the Monthly Summary&rsquo;s <b>Billable</b> tile and Chargeable bar, a project card&rsquo;s bar, the day panel&rsquo;s <b>Billable</b> chip, the monthly <b>PDF</b>, and <b>Admin &rarr; Reports &rarr; Utilisation</b>&rsquo;s <b>Billable share</b> tile.</p>
+      <div class="exp"><b>Expect:</b> one green, <code>#0F8A6A</code>, in every one of them.</div>
+      <div class="warn">They had already drifted, and a comment hid it: the Monthly Summary used <code>#047857</code> and said in prose that it was &ldquo;the same green the Utilisation report&rsquo;s Billable share tile uses&rdquo;. That tile was <code>#0F766E</code> &mdash; which is also <code>RANK[2]</code>, the ink QCC itself is drawn in, so on one screen the same hex meant both &ldquo;billable&rdquo; and &ldquo;QCC&rdquo;. A comment asserting two constants are equal is not a mechanism for keeping them equal.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AU26</span>
+      <span class="title">A seventh project is not the not-billable colour</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Record time against <b>seven or more</b> projects in one month and open the Monthly Summary. Read the donut, the legend and the seventh project&rsquo;s card.</p>
+      <div class="exp"><b>Expect:</b> the seventh project is <b>magenta</b> (<code>#A21CAF</code>), and nothing on the screen draws a project in the slate that means not billable.</div>
+      <div class="why"><code>RANK</code> clamps, so the 7th project and every one after it share its last entry &mdash; which was <code>#64748B</code>, the exact hex the non-billable ink now takes. Changed while it was still free to change: nobody has seven projects in a month yet, so nothing anybody has seen moves.</div>
     </div>
   </div>
 

@@ -354,7 +354,11 @@ export default function TimesheetUtilisation({ shared, setShared }: ReportTabPro
           <Kpi label="Employees"   value={String(t?.employee_count ?? 0)} />
           <Kpi label="Projects"    value={String(t?.project_count ?? 0)} />
           <Kpi label="Billable share" value={billShare}
-               tone={split && workedMin > 0 ? '#0F766E' : undefined}
+               /* The one billable green. This tile read #0F766E -- which is also RANK[2],
+                  the ink QCC is drawn in on the timesheet -- while the Monthly Summary
+                  read #047857 and its comment claimed the two were the same value.
+                  They were not. Both are #0F8A6A now. */
+               tone={split && workedMin > 0 ? '#0F8A6A' : undefined}
                caption={
                  !split
                    ? 'Not reported by this database yet.'

@@ -10,8 +10,11 @@ const LEAVE_BLUE = '#93C5FD';
    report's Billable share tile uses, so the figure reads as one fact wherever
    it appears. Amber for unclassified rather than a third neutral: it is a
    question nobody has answered yet, not a settled "no". */
-const BILL_GREEN = '#047857';
-const BILL_GREY  = '#B8C0CC';
+const BILL_GREEN = '#0F8A6A';
+/* Was #B8C0CC, 1.6:1 against the track it is drawn on -- barely there on
+ * screen and worse in print. The same slate the Monthly Summary uses, so the
+ * sheet and its PDF cannot disagree about which grey means not billable. */
+const BILL_SLATE = '#64748B';
 const BILL_AMBER = '#E0A33A';
 import { PDFHeader } from '../components/PDFHeader';
 import { PDFFooter } from '../components/PDFFooter';
@@ -292,13 +295,19 @@ export function Page3WeeklyProjects({ data }: { data: TimesheetExportData }) {
               <View style={styles.cbTrack}>
                 {([
                   ['billable',     data.billSplit.billable,     BILL_GREEN],
-                  ['non_billable', data.billSplit.nonBillable,  BILL_GREY],
+                  ['non_billable', data.billSplit.nonBillable,  BILL_SLATE],
                   ['unclassified', data.billSplit.unclassified, BILL_AMBER],
-                ] as const).map(([key, mins, colour]) => (
-                  mins > 0 ? (
-                    <View key={key} style={{ ...styles.cbSeg, backgroundColor: colour,
-                      width: `${(mins / data.billSplit.worked) * 100}%` }} />
-                  ) : null
+                ] as const).filter(([, mins]) => mins > 0).map(([key, mins, colour], i) => (
+                  /* The 2px white cut between segments, as on screen -- the two
+                     inks are within 1.1:1 of each other in lightness, so without
+                     it this prints as one part-filled bar. A LEFT BORDER rather
+                     than the inset shadow the browser gets: react-pdf has no
+                     box-shadow, and Yoga measures a border inside the width, so
+                     the segments still total 100%. */
+                  <View key={key} style={{ ...styles.cbSeg, backgroundColor: colour,
+                    borderLeftWidth:  i > 0 ? 2 : 0,
+                    borderLeftColor: '#FFFFFF',
+                    width: `${(mins / data.billSplit.worked) * 100}%` }} />
                 ))}
               </View>
 
@@ -308,7 +317,7 @@ export function Page3WeeklyProjects({ data }: { data: TimesheetExportData }) {
               <View style={styles.cbKeys}>
                 {([
                   ['Billable',       data.billSplit.billable,     BILL_GREEN],
-                  ['Not billable',   data.billSplit.nonBillable,  BILL_GREY],
+                  ['Not billable',   data.billSplit.nonBillable,  BILL_SLATE],
                   ['Not classified', data.billSplit.unclassified, BILL_AMBER],
                 ] as const).map(([label, mins, colour]) => (
                   mins > 0 ? (

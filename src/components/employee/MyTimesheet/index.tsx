@@ -3712,7 +3712,7 @@ export default function MyTimesheet() {
                                           // shape as the summary's tags, one step darker so it
                                           // still reads as one.
                                           background: r.is_billable ? '#ECFDF5' : '#EDEFF2',
-                                          color:      r.is_billable ? '#047857' : '#6B7280',
+                                          color:      r.is_billable ? '#0F8A6A' : '#6B7280',
                                         }}>{r.is_billable ? 'Billable' : 'Not billable'}</span>
                                       )}
                                       <span style={{ fontSize: 11, color: '#6B7280', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{fmtMins(r.hours_minutes)}</span>

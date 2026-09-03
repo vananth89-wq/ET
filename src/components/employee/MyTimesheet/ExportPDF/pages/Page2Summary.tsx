@@ -152,7 +152,7 @@ export function Page2Summary({ data }: { data: TimesheetExportData }) {
           {showBill && (
             <View style={styles.mxHeroCell}>
               <Text style={styles.mxHeroLbl}>BILLABLE</Text>
-              <Text style={{ ...styles.mxHeroVal, color: '#047857' }}>
+              <Text style={{ ...styles.mxHeroVal, color: '#0F8A6A' }}>
                 {fmtHM(data.billSplit.billable)}
               </Text>
             </View>

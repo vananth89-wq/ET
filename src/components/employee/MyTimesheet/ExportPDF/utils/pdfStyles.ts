@@ -147,7 +147,7 @@ export const styles = StyleSheet.create({
   cardActNil: { fontSize: 9, color: colors.ink4 },
   // Migs 821/824, on the detail report's activity lines.
   actBill:    { width: '22%', fontSize: 6.5, fontFamily: 'Helvetica-Bold',
-                color: '#047857', paddingRight: 4 },
+                color: '#0F8A6A', paddingRight: 4 },
   actNBill:   { width: '22%', fontSize: 6.5, color: colors.ink4, paddingRight: 4 },
   cardHrs:    { fontSize: 9.5, fontFamily: 'Helvetica-Bold', color: colors.ink, textAlign: 'right' },
   // The activities column is a two-column list of its own: name left, hours
@@ -345,12 +345,12 @@ export const styles = StyleSheet.create({
   // billable project, on a row that carries an answer. NULL means nobody was
   // asked, and a "Not billable" tag against it would be an answer invented by
   // the report.
-  pActBill:  { fontSize: 7, fontFamily: 'Helvetica-Bold', color: '#047857',
+  pActBill:  { fontSize: 7, fontFamily: 'Helvetica-Bold', color: '#0F8A6A',
                marginRight: 7, marginLeft: 6 },
   pActNBill: { fontSize: 7, color: colors.ink3, marginRight: 7, marginLeft: 6 },
   // The card's own subtotal line, under the header and above the activities.
   pSplit:    { flexDirection: 'row', paddingHorizontal: 8, paddingTop: 5 },
-  pSplitB:   { fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: '#047857', marginRight: 12 },
+  pSplitB:   { fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: '#0F8A6A', marginRight: 12 },
   pSplitN:   { fontSize: 7.5, color: colors.ink3 },
   pSplitU:   { fontSize: 7.5, color: colors.ink4, paddingHorizontal: 8, paddingTop: 5 },
   // The indent lives on a WRAPPER, not on the track. width:'100%' resolves
@@ -441,7 +441,7 @@ export const styles = StyleSheet.create({
   cbTitle:   { fontSize: 6.4, fontFamily: 'Helvetica-Bold', color: '#94A0B0', letterSpacing: 0.9 },
   cbSub:     { flex: 1, fontSize: 6.4, color: '#A9B2BF', marginLeft: 8 },
   cbTrack:   { flexDirection: 'row', height: 7, borderRadius: 3.5,
-               backgroundColor: '#EEF1F5', overflow: 'hidden' },
+               backgroundColor: '#E9EEF3', overflow: 'hidden' },
   cbSeg:     { height: 7 },
   cbKeys:    { flexDirection: 'row', marginTop: 6 },
   cbKey:     { flexDirection: 'row', alignItems: 'center', marginRight: 16 },
