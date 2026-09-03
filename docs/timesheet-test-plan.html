@@ -2,7 +2,7 @@
 {
   "name": "Timesheet Test Plan",
   "schemaVersion": 1,
-  "description": "Prowess timesheet test plan, migrations 726–830. 419 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
+  "description": "Prowess timesheet test plan, migrations 726–830. 421 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
   "mcpTools": [],
   "mcpServerNames": []
 }
@@ -120,6 +120,7 @@
       <span><b>AU18–AU23 added</b> 2 Sep 2026</span>
       <span><b>AR42 added</b> 3 Sep 2026</span>
       <span><b>AU24–AU26 added</b> 3 Sep 2026</span>
+      <span><b>AR43–AR44 added</b> 3 Sep 2026</span>
     </div>
   </div>
 </header>
@@ -5102,6 +5103,28 @@ order  by created_at desc limit 6;</div>
       <div class="exp"><b>Expect:</b> every one of them shows the new name where the NAME is shown, and every one still reads <b>AZAD (Support)</b> where the <b>label</b> is shown. Nothing anywhere prints the old name. No deploy.</div>
       <div class="warn">The two are different fields and this case is the one that proves it. The parenthetical is <code>related_project_label</code> (827) and follows the <b>Short label</b> box, not the name &mdash; which is the whole point of having it: a suffix repeated in a calendar cell, a day row, a PDF column and a grouping key has to be short, and &ldquo;AZAD (Cross-project Support)&rdquo; is not. Changing the name and expecting the suffix to move is the natural first assumption, and it is wrong by design.</div>
       <div class="why">Nothing in the application carries this type&rsquo;s name: a sweep of <code>src/</code> after the rename found it only inside comments giving examples. The one literal that did exist was the admin form&rsquo;s own live preview, which fell back to the word &ldquo;Support&rdquo; when a type had neither a label nor a name yet &mdash; a word the screen chose, sitting in the field built to stop the screen choosing words. It is an ellipsis now.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR43</span>
+      <span class="title">The block&rsquo;s heading is the administrator&rsquo;s word too</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>On a month carrying help, read the heading of the <b>Monthly Summary</b>&rsquo;s help block. Then change the type&rsquo;s <b>Short label</b> from <code>Support</code> to <code>Peer Review</code> and reload.</p>
+      <div class="exp"><b>Expect:</b> <b>&ldquo;Support given to other projects&rdquo;</b>, then <b>&ldquo;Peer Review given to other projects&rdquo;</b> &mdash; the heading and the cards under it moving together, from one field, with no deploy.</div>
+      <div class="why">It read &ldquo;<b>Help</b> given to other projects&rdquo;: a word the screen chose for a thing the administrator names, standing one line above the cards that get it right. The same fault as the hardcoded &ldquo;Helping&rdquo;, surviving in the heading because that is the one place a single string had to cover every card at once. Both now come from <code>supportWord()</code>, so they cannot drift.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR44</span>
+      <span class="title">Two help types in one month, one heading</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Activate a <b>second</b> type with <b>Records help given to another project</b> ticked &mdash; label it <code>Knowledge Transfer</code> &mdash; and record hours on both types in the same month.</p>
+      <div class="exp"><b>Expect:</b> the heading falls back to <b>&ldquo;Help given to other projects&rdquo;</b>. Each card below still carries <b>its own</b> word: <b>AZAD (Support)</b> and <b>BETA (Knowledge Transfer)</b>.</div>
+      <div class="warn">One heading cannot name two words, and picking either one mislabels the other&rsquo;s cards. &ldquo;Help&rdquo; is defensible <i>here and nowhere else</i>: it is what the administrator&rsquo;s own checkbox calls this class of type &mdash; <i>Records help given to another project</i> &mdash; rather than a synonym the timesheet invented for one of them.</div>
     </div>
   </div>
 </section>

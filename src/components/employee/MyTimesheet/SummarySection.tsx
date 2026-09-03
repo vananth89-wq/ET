@@ -60,12 +60,27 @@ const one = <T,>(v: T | T[] | undefined | null): T | null =>
  * nothing — the same reason its date helpers are duplicated — but if the rule
  * changes, both change.
  */
+/**
+ * The qualifying word this entry's time type supplies -- `related_project_label`
+ * (827), falling back to the type's own NAME when no short label is set.
+ *
+ * Pulled out of supportLabel so the block's HEADING can be built from the same
+ * value the cards inside it are. It read "Help given to other projects", which
+ * is a word the screen chose for a thing the administrator names -- the exact
+ * fault 827 exists to fix, left standing one line above sixty cards that get it
+ * right.
+ */
+function supportWord(e: SumEntry): string | null {
+  const t = one(e.time_types);
+  const word = (t?.related_project_label ?? '').trim() || (t?.name ?? '').trim();
+  return word || null;
+}
+
 function supportLabel(e: SumEntry): string | null {
   if (e.project_id || !e.related_project_id) return null;
   const name = one(e.related_projects)?.name;
   if (!name) return null;
-  const t = one(e.time_types);
-  const word = (t?.related_project_label ?? '').trim() || (t?.name ?? '').trim();
+  const word = supportWord(e);
   return word ? `${name} (${word})` : name;
 }
 
@@ -474,10 +489,16 @@ export default function SummarySection({
     const helpMap = new Map<string, {
       minutes: number; days: Set<string>; askers: Set<string>; acts: Map<string, Act>;
     }>();
+    /* Every qualifying word in play this month. One means the heading can use
+     * it; several means it cannot, because two types with different words share
+     * this block and naming one of them would mislabel the other's cards. */
+    const helpWords = new Set<string>();
     for (const e of entries) {
       if (e.hours_minutes <= 0) continue;
       const label = supportLabel(e);
       if (!label) continue;
+      const word = supportWord(e);
+      if (word) helpWords.add(word);
 
       const row = helpMap.get(label)
         ?? { minutes: 0, days: new Set<string>(), askers: new Set<string>(), acts: new Map() };
@@ -515,6 +536,12 @@ export default function SummarySection({
       .sort((a, b) => b.minutes - a.minutes);
 
     const helpTotal = helpActs.reduce((s, h) => s + h.minutes, 0);
+    /* NULL where the month mixes two types, and the heading falls back to the
+     * category's own word. "Help" is defensible THERE and nowhere else: it is
+     * what the administrator's own checkbox calls this class of type --
+     * "Records help given to another project" -- rather than a synonym the
+     * timesheet picked for one type. */
+    const helpWord = helpWords.size === 1 ? [...helpWords][0] : null;
 
     // ── The month's billable split ──────────────────────────────────────
     // Every entry, not just the project-bearing ones, so the four buckets add
@@ -543,7 +570,7 @@ export default function SummarySection({
 
     return {
       days, working, recorded, logged, missing, todayOpen, aheadN, weeks, projects,
-      projectActs, projectTotal, helpActs, helpTotal, leaveMinutes, leaveDays, bill, showBill,
+      projectActs, projectTotal, helpActs, helpTotal, helpWord, leaveMinutes, leaveDays, bill, showBill,
       // Clamped: past plan this is negative, and "−12h to log" is not a thing.
       remaining: Math.max(0, plannedMinutes - recorded),
       over:      Math.max(0, recorded - plannedMinutes),
@@ -1210,7 +1237,12 @@ export default function SummarySection({
       {d.helpActs.length > 0 && (
         <div style={{ ...panelSt, marginTop: 14 }}>
           <div style={pTitleSt}>
-            Help given to other projects
+            {/* The administrator's word, not the screen's. A noun reads correctly
+                in front of "given to other projects" whatever it is -- Support,
+                Peer Review, Knowledge Transfer -- which is the same property the
+                cards below rely on when they print "AZAD (Support)". */}
+            {d.helpWord ? `${d.helpWord} given to other projects`
+                        : 'Help given to other projects'}
             <em style={{ fontStyle: 'normal', fontSize: 11, fontWeight: 600, color: C.ink4 }}>
               {h1(d.helpTotal)}h · not counted towards those projects
             </em>

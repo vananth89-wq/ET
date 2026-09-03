@@ -281,7 +281,7 @@ function HistoryPanel({
                           <i className="fa-solid fa-pen-to-square" style={{ fontSize: 10 }} /> Edit
                         </button>
                       )}
-                      {canDelete && !isCurrent && (
+                      {canDelete && (
                         <button
                           onClick={() => { setDeleteErr(''); setConfirmDelId(s.id); }}
                           style={{ background: 'none', border: '1px solid #FCA5A5', borderRadius: 5, padding: '3px 10px', fontSize: 11.5, color: '#DC2626', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}
