@@ -295,7 +295,12 @@ export default function TimeTypes() {
                 <small style={{ display: 'block', marginTop: 5, fontSize: 11.5, color: '#9CA3AF', lineHeight: 1.55 }}>
                   Shown on the timesheet after the project that was helped &mdash;{' '}
                   <b style={{ color: '#6B7280' }}>
-                    AZAD ({(form.related_project_label ?? '').trim() || form.name.trim() || 'Support'})
+                    {/* No literal fallback. This preview had 'Support' as its last
+                        resort, which is a word the screen chose -- the exact thing mig
+                        827 exists to stop, sitting in the field that exists to stop it.
+                        It only ever showed on a type with no label AND no name yet, so
+                        an ellipsis says the same thing without naming anything. */}
+                    AZAD ({(form.related_project_label ?? '').trim() || form.name.trim() || '\u2026'})
                   </b>. A noun, not a verb: it has to read correctly in a calendar
                   cell as well as in the report. Leave it empty to use this
                   type&rsquo;s own name.

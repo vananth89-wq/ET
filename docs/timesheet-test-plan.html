@@ -2,7 +2,7 @@
 {
   "name": "Timesheet Test Plan",
   "schemaVersion": 1,
-  "description": "Prowess timesheet test plan, migrations 726–830. 415 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
+  "description": "Prowess timesheet test plan, migrations 726–830. 416 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
   "mcpTools": [],
   "mcpServerNames": []
 }
@@ -118,6 +118,7 @@
       <span><b>AT–AU added</b> 1 Sep 2026</span>
       <span><b>AR35–AR41 added</b> 2 Sep 2026</span>
       <span><b>AU18–AU23 added</b> 2 Sep 2026</span>
+      <span><b>AR42 added</b> 3 Sep 2026</span>
     </div>
   </div>
 </header>
@@ -4641,7 +4642,7 @@ order  by created_at desc limit 6;</div>
       <span class="title">The fixture, and the switch</span></div>
     <div class="body">
       <span class="lbl">Do</span>
-      <p>You need: <b>Ravi</b>, assigned to <b>Beta Migration</b> and <b>not</b> to <b>Acme Rollout</b>; Acme with a budget and some hours of its own; and a project whose end date is in the past. Note Acme&rsquo;s Hours, Consumed % and Contributors <i>before</i> anything else. Then, as an administrator, open <b>Time Types</b> and tick <b>Active</b> on <b>Support to Another Project</b>.</p>
+      <p>You need: <b>Ravi</b>, assigned to <b>Beta Migration</b> and <b>not</b> to <b>Acme Rollout</b>; Acme with a budget and some hours of its own; and a project whose end date is in the past. Note Acme&rsquo;s Hours, Consumed % and Contributors <i>before</i> anything else. Then, as an administrator, open <b>Time Types</b> and tick <b>Active</b> on <b>Cross-project Support</b>.</p>
       <div class="exp"><b>Expect:</b> the type is inactive until you switch it on. Nobody could have reached this feature before that click.</div>
       <div class="why">It ships inactive on purpose: the database and the frontend deploy separately, and until the screen was out the type would have offered the narrowed project list &mdash; the one list that cannot contain the project you want to help.</div>
       <div class="warn">Write Acme&rsquo;s three figures down. AR6 cannot be checked without them.</div>
@@ -4653,7 +4654,7 @@ order  by created_at desc limit 6;</div>
       <span class="title">The picker offers projects you are not on</span></div>
     <div class="body">
       <span class="lbl">Do</span>
-      <p>As <b>Ravi</b>, add a timesheet entry and choose <b>Support to Another Project</b>.</p>
+      <p>As <b>Ravi</b>, add a timesheet entry and choose <b>Cross-project Support</b>.</p>
       <div class="exp"><b>Expect:</b> a second field appears labelled <b>Project you helped</b>, listing <b>every</b> active project &mdash; Acme included &mdash; not just Ravi&rsquo;s own.</div>
       <div class="why">Every other project picker in the product narrows to your allocations. This one deliberately does not; that is the entire point of it.</div>
     </div>
@@ -4732,7 +4733,7 @@ order  by created_at desc limit 6;</div>
       <span class="title">The project cannot be left out</span></div>
     <div class="body">
       <span class="lbl">Do</span>
-      <p>Choose Support to Another Project, leave the project field empty, and save.</p>
+      <p>Choose Cross-project Support, leave the project field empty, and save.</p>
       <div class="exp"><b>Expect:</b> refused, naming the project as the thing that is missing.</div>
       <div class="why">Optional would let the only fact that makes the entry meaningful go unrecorded.</div>
     </div>
@@ -4788,7 +4789,7 @@ order  by created_at desc limit 6;</div>
       <span class="title">A type in use cannot be reclassified</span></div>
     <div class="body">
       <span class="lbl">Do</span>
-      <p>Back in <b>Time Types</b>, open Support to Another Project and untick <b>Records help given to another project</b>. Save. Then reopen it.</p>
+      <p>Back in <b>Time Types</b>, open Cross-project Support and untick <b>Records help given to another project</b>. Save. Then reopen it.</p>
       <div class="exp"><b>Expect:</b> refused, with a message saying hours have already been recorded and to create a new time type instead. <b>Nothing else you changed in that same save was applied either</b> &mdash; check the name.</div>
       <div class="why">Flipping the flag would leave old hours in one column and new ones in another, one type meaning two things, with nothing raised. The guard sits before the write, so a refusal never commits half an edit.</div>
     </div>
@@ -4821,7 +4822,7 @@ order  by created_at desc limit 6;</div>
       <span class="title">Reopening a support entry still shows the project it helped</span></div>
     <div class="body">
       <span class="lbl">Do</span>
-      <p>Record <b>Support to Another Project</b> naming <b>AMPTJ</b>, save, then click the pencil to edit that entry.</p>
+      <p>Record <b>Cross-project Support</b> naming <b>AMPTJ</b>, save, then click the pencil to edit that entry.</p>
       <div class="exp"><b>Expect:</b> <b>Project you helped</b> reads <b>AMPTJ</b>, not <i>— Select —</i>. Change only the hours and press <b>Update</b>: it saves, and the helped project is unchanged.</div>
       <div class="warn">Found on Dev 2026-09-01. The picker is one control but the storage is two columns &mdash; on a support type the chosen id is routed to <code>related_project_id</code> and <code>project_id</code> is left NULL (801) &mdash; and the form read <code>project_id</code> alone. <b>The consequence was not cosmetic: every support entry was uneditable</b>, because Update then submitted no project and was refused with &ldquo;Please select a project for this time type&rdquo; over a field showing nothing. The day cell behind it read AMPTJ the whole time.</div>
     </div>
@@ -4854,7 +4855,7 @@ order  by created_at desc limit 6;</div>
       <span class="title">A support entry says the hours were given, not booked</span></div>
     <div class="body">
       <span class="lbl">Do</span>
-      <p>On a day carrying both, compare an ordinary <b>Work</b> entry on QCC with a <b>Support to Another Project</b> entry naming AZAD &mdash; in the day panel, and in the calendar cell behind it.</p>
+      <p>On a day carrying both, compare an ordinary <b>Work</b> entry on QCC with a <b>Cross-project Support</b> entry naming AZAD &mdash; in the day panel, and in the calendar cell behind it.</p>
       <div class="exp"><b>Expect:</b> both read <b>QCC</b> and <b>AZAD (Support)</b>. Hovering the support row says the hours do not count towards that project.</div>
       <div class="why">A row reading plain &ldquo;AZAD&rdquo; asserts the hours are AZAD&rsquo;s, which is exactly the claim 801 exists to deny &mdash; they are kept out of that project&rsquo;s utilisation, burn and cost on purpose. The row was not under-labelled, it was wrong. Ordinary rows are deliberately left bare: their label is already true, and a &ldquo;(Work)&rdquo; suffix on every row of every day would carry nothing on any of them.</div>
     </div>
@@ -4877,7 +4878,7 @@ order  by created_at desc limit 6;</div>
     <div class="body">
       <span class="lbl">Do</span>
       <p>Clear <b>Short label</b> entirely and save. Reopen the timesheet.</p>
-      <div class="exp"><b>Expect:</b> the entries read <b>AZAD (Support to Another Project)</b> &mdash; the type&rsquo;s own name, truncated in the calendar cell where it does not fit. Not a blank qualifier, and not a word the screen chose.</div>
+      <div class="exp"><b>Expect:</b> the entries read <b>AZAD (Cross-project Support)</b> &mdash; the type&rsquo;s own name, truncated in the calendar cell where it does not fit. Not a blank qualifier, and not a word the screen chose.</div>
       <div class="why">Showing what an administrator did call it is honest; inventing a shorter word here is the exact habit the field was added to end. That the fallback looks cramped is the argument for filling the box in, and the hint under it says so.</div>
     </div>
   </div>
@@ -4942,7 +4943,7 @@ order  by created_at desc limit 6;</div>
       <span class="title">You cannot record help for a project you are on</span></div>
     <div class="body">
       <span class="lbl">Do</span>
-      <p>Pick <b>Support to Another Project</b> on a day, and open <b>Project you helped</b>. Compare the list with the projects the ordinary <b>Work</b> type offers you on that same day.</p>
+      <p>Pick <b>Cross-project Support</b> on a day, and open <b>Project you helped</b>. Compare the list with the projects the ordinary <b>Work</b> type offers you on that same day.</p>
       <div class="exp"><b>Expect:</b> the two lists do not overlap. Every project appears in <b>exactly one</b> of them, and the support list carries exactly <b>one</b> grey line: <i>&ldquo;Projects you are assigned to are not listed &mdash; record that time as ordinary work, so it counts towards the project.&rdquo;</i></div>
       <div class="why">Your own project&rsquo;s hours belong in its utilisation, burn and cost. Recording them as help takes them out of all three and out of the billable share &mdash; quieter and worse than a typo, because no screen would show the project had consumed them. The test is not a second definition of membership: it asks the other picker. If a project is offered as Work for those dates it is yours, so it cannot be somewhere you are helping, and the two lists cannot drift because there is one rule behind both.</div>
     </div>
@@ -4986,7 +4987,7 @@ order  by created_at desc limit 6;</div>
       <span class="title">Help given to two projects on one day</span></div>
     <div class="body">
       <span class="lbl">Do</span>
-      <p>On one day, record <b>Support to Another Project</b> helping <b>AZAD</b>. Save. Then add a second support entry on the <b>same day</b> helping <b>AMPTJ</b>.</p>
+      <p>On one day, record <b>Cross-project Support</b> helping <b>AZAD</b>. Save. Then add a second support entry on the <b>same day</b> helping <b>AMPTJ</b>.</p>
       <div class="exp"><b>Expect:</b> both save, and the day shows two support entries.</div>
       <div class="warn"><b>This failed before 828</b> with a raw <code>duplicate key value violates unique constraint &ldquo;ux_timesheet_entries_day_type_project&rdquo;</code>. Mig 726 keyed an entry on (timesheet, date, time type, <b>project</b>), and 801 made every support entry book to <b>no</b> project &mdash; so all of a day&rsquo;s help shared one key and only the first could be recorded. Mig 802 wrote down that exact reasoning and applied it to Copy Day&rsquo;s runtime key while the index underneath went untouched.</div>
     </div>
@@ -5019,7 +5020,7 @@ order  by created_at desc limit 6;</div>
       <span class="title">The field appears for help and for nothing else</span></div>
     <div class="body">
       <span class="lbl">Do</span>
-      <p>Open <b>Create</b> and pick an ordinary <b>Work</b> type, then a <b>Support to Another Project</b> type, then <b>Training</b>. Watch the <b>Requested by</b> field.</p>
+      <p>Open <b>Create</b> and pick an ordinary <b>Work</b> type, then a <b>Cross-project Support</b> type, then <b>Training</b>. Watch the <b>Requested by</b> field.</p>
       <div class="exp"><b>Expect:</b> present and required on the support type only; absent on the other two.</div>
       <div class="why">The field is keyed on <code>uses_related_project</code>, the same flag that decides everything else about these entries &mdash; not on the type&rsquo;s name and not on a list of ids. A second type carrying the flag gets the field on the day it is created, with no deploy.</div>
     </div>
@@ -5087,7 +5088,19 @@ order  by created_at desc limit 6;</div>
       <span class="lbl">Do</span>
       <p>On a day carrying Work on QCC and help for <b>two</b> different projects, press <b>Copy Day</b> and read the &ldquo;Select entries to copy&rdquo; list.</p>
       <div class="exp"><b>Expect:</b> <b>QCC</b>, <b>AZAD (Support)</b> and <b>WISAYAH (Support)</b> &mdash; three rows a person can tell apart.</div>
-      <div class="why">This row looked the project up in the loaded project list by <code>project_id</code>, which is NULL on every support entry, so both help rows fell through to the time type&rsquo;s name and read identically: &ldquo;Support to Another Project&rdquo;, twice. A picker whose whole job is choosing between rows had made them indistinguishable &mdash; and 828 exists precisely so that day can hold both.</div>
+      <div class="why">This row looked the project up in the loaded project list by <code>project_id</code>, which is NULL on every support entry, so both help rows fell through to the time type&rsquo;s name and read identically: &ldquo;Cross-project Support&rdquo;, twice. A picker whose whole job is choosing between rows had made them indistinguishable &mdash; and 828 exists precisely so that day can hold both.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR42</span>
+      <span class="title">Renaming the type is not a code change</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>In <b>Time Types</b>, rename the support type &mdash; it was seeded by 801 as &ldquo;Support to Another Project&rdquo; and is now <b>Cross-project Support</b>. Save, then walk every surface that names it: the entry form&rsquo;s type picker, the day panel, the calendar cell, the Copy Day picker, the Monthly Summary, and both PDFs. Leave <b>Short label</b> alone.</p>
+      <div class="exp"><b>Expect:</b> every one of them shows the new name where the NAME is shown, and every one still reads <b>AZAD (Support)</b> where the <b>label</b> is shown. Nothing anywhere prints the old name. No deploy.</div>
+      <div class="warn">The two are different fields and this case is the one that proves it. The parenthetical is <code>related_project_label</code> (827) and follows the <b>Short label</b> box, not the name &mdash; which is the whole point of having it: a suffix repeated in a calendar cell, a day row, a PDF column and a grouping key has to be short, and &ldquo;AZAD (Cross-project Support)&rdquo; is not. Changing the name and expecting the suffix to move is the natural first assumption, and it is wrong by design.</div>
+      <div class="why">Nothing in the application carries this type&rsquo;s name: a sweep of <code>src/</code> after the rename found it only inside comments giving examples. The one literal that did exist was the admin form&rsquo;s own live preview, which fell back to the word &ldquo;Support&rdquo; when a type had neither a label nor a name yet &mdash; a word the screen chose, sitting in the field built to stop the screen choosing words. It is an ellipsis now.</div>
     </div>
   </div>
 </section>
@@ -5100,7 +5113,7 @@ order  by created_at desc limit 6;</div>
       <span class="title">The fixture, and the figures to write down</span></div>
     <div class="body">
       <span class="lbl">Do</span>
-      <p>You need <b>AMPTJ</b> (or any project whose type is <b>Billable / P001</b>), one project typed <b>Internal</b>, one with <b>no type set</b>, and the <b>Support to Another Project</b> type active. Before anything else, open <b>Utilisation</b> for a period that already has data and note the <b>Billable share</b> and <b>Recorded</b> figures.</p>
+      <p>You need <b>AMPTJ</b> (or any project whose type is <b>Billable / P001</b>), one project typed <b>Internal</b>, one with <b>no type set</b>, and the <b>Cross-project Support</b> type active. Before anything else, open <b>Utilisation</b> for a period that already has data and note the <b>Billable share</b> and <b>Recorded</b> figures.</p>
       <div class="exp"><b>Expect:</b> nothing yet. But without the before figures, AS4 cannot be checked at all.</div>
       <div class="warn">This is the case that catches a migration rewriting history. Do not skip it.</div>
     </div>
@@ -5179,7 +5192,7 @@ order  by created_at desc limit 6;</div>
       <span class="title">Support is never asked, and never billable</span></div>
     <div class="body">
       <span class="lbl">Do</span>
-      <p>Choose <b>Support to Another Project</b> and pick a <b>billable</b> project to help.</p>
+      <p>Choose <b>Cross-project Support</b> and pick a <b>billable</b> project to help.</p>
       <div class="exp"><b>Expect:</b> <b>no Billable choice appears at all</b>, the entry saves, and the hours are non-billable.</div>
       <div class="why">Both types show a project dropdown, but support writes to related_project_id and leaves project_id NULL &mdash; so it falls out of the test without needing a rule of its own. You are helping, not billing.</div>
       <div class="warn">If the choice appears here, the applicability test is running before the routing. That was a real defect during the build.</div>
@@ -5346,7 +5359,7 @@ order  by created_at desc limit 6;</div>
       <span class="title">Where the question does not apply, one name is still one row</span></div>
     <div class="body">
       <span class="lbl">Do</span>
-      <p>On an <b>Internal</b> project, or on <b>Training</b>, or on <b>Support to Another Project</b> &mdash; anywhere no billable choice is offered &mdash; try to record <b>Handover</b> twice on the same day.</p>
+      <p>On an <b>Internal</b> project, or on <b>Training</b>, or on <b>Cross-project Support</b> &mdash; anywhere no billable choice is offered &mdash; try to record <b>Handover</b> twice on the same day.</p>
       <div class="exp"><b>Expect:</b> they merge into one row, exactly as before. Two identical rows must not be possible.</div>
       <div class="warn">This is the case that proves <code>NULLS NOT DISTINCT</code> is actually on the index. Without it, every row where the question did not apply carries NULL, NULLs count as distinct by default, and all of those rows quietly escape the deduplication 727 exists to provide &mdash; Handover four times on one day and no complaint.</div>
     </div>
@@ -5390,7 +5403,7 @@ order  by created_at desc limit 6;</div>
       <span class="title">No tag in the panel where the question was never put</span></div>
     <div class="body">
       <span class="lbl">Do</span>
-      <p>Expand, in the same panel, an entry on an <b>internal</b> project and one recorded as <b>Support to Another Project</b>.</p>
+      <p>Expand, in the same panel, an entry on an <b>internal</b> project and one recorded as <b>Cross-project Support</b>.</p>
       <div class="exp"><b>Expect:</b> activity rows with hours and <b>no tag at all</b> on either.</div>
       <div class="why">A stored NULL means nobody was asked, not an answer of &ldquo;no&rdquo;. Support hours are read off the BOOKED project, which is NULL on those entries by design (801) &mdash; they are never chargeable to the project they name, so the absence of a tag there is correct rather than a gap.</div>
     </div>
@@ -5500,7 +5513,7 @@ order  by created_at desc limit 6;</div>
       <span class="title">Help given to another project is not chargeable to it</span></div>
     <div class="body">
       <span class="lbl">Do</span>
-      <p>Record time on <b>Support to Another Project</b> naming <b>AMPTJ</b> &mdash; a billable project you are not on. Read the Billable tile.</p>
+      <p>Record time on <b>Cross-project Support</b> naming <b>AMPTJ</b> &mdash; a billable project you are not on. Read the Billable tile.</p>
       <div class="exp"><b>Expect:</b> those hours count as <b>not billable</b>. No billable question is offered while recording them, and none appears afterwards.</div>
       <div class="why">Support entries leave <code>project_id</code> NULL by design (801), so they fall out of the billable test without being named by it &mdash; the same way they fall out of that project&rsquo;s burn. The label on screen names the project that was <i>helped</i>; reading the classification off that label instead of off the booked project is how these hours would have become chargeable to a client.</div>
     </div>
@@ -5555,7 +5568,7 @@ order  by created_at desc limit 6;</div>
       <span class="title">The approver&rsquo;s copy still names no helped project</span></div>
     <div class="body">
       <span class="lbl">Do</span>
-      <p>Open, as the approver, a month containing <b>Support to Another Project</b> hours.</p>
+      <p>Open, as the approver, a month containing <b>Cross-project Support</b> hours.</p>
       <div class="exp"><b>Expect:</b> the entry appears with its hours but <b>no project name</b>. Record as an observation, not a failure.</div>
       <div class="why">The approval payload joins the project on <code>project_id</code>, which a support entry leaves NULL (801); it has never been taught about <code>related_project_id</code>. The hours and the time type are correct and nothing is lost &mdash; but the approver cannot see which project was helped, and that belongs with the approval-screen work.</div>
     </div>
