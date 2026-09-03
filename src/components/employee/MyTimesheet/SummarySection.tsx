@@ -221,8 +221,26 @@ function KpiGroup({ label, cols, last, children }: {
 }) {
   return (
     <div style={{ borderRight: last ? 'none' : `1px solid ${C.rule}` }}>
+      {/* THE SAME TREATMENT THE PROJECT CARDS BELOW ALREADY USE for their own
+          headers -- tinted strip, hairline under it -- so the KPI row and the
+          cards further down this summary speak one language, and the three
+          labels read as a single band across one row rather than as three
+          separate panels.
+
+          Darker ink than the tile labels, which is the point: it was C.ink4,
+          the SAME value as RECORDED and MISSING beneath it, half a pixel apart
+          in size and one weight apart. Nothing said it was a level above.
+
+          Not a colour per group. Colour is load-bearing on this panel -- green
+          billable, slate not, cyan internal, purple help, amber untyped, and
+          six more hues are project identities in the donut below. Three
+          decorative header colours would be the only ones on screen meaning
+          nothing, directly above a legend where colour means everything. A
+          header needs to be a LEVEL, and level is weight, size and ink. */}
       <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.09em',
-                    textTransform: 'uppercase', color: C.ink4, padding: '11px 16px 0' }}>
+                    textTransform: 'uppercase', color: C.ink3,
+                    background: '#FBFCFD', borderBottom: `1px solid ${C.hair}`,
+                    padding: '9px 16px 8px' }}>
         {label}
       </div>
       {cols

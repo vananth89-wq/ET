@@ -2,7 +2,7 @@
 {
   "name": "Timesheet Test Plan",
   "schemaVersion": 1,
-  "description": "Prowess timesheet test plan, migrations 726–836. 428 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
+  "description": "Prowess timesheet test plan, migrations 726–836. 429 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
   "mcpTools": [],
   "mcpServerNames": []
 }
@@ -5772,6 +5772,17 @@ order  by created_at desc limit 6;</div>
       <p>Look below the donut, where the <b>Chargeable</b> bar used to sit between it and <b>Attainment</b>.</p>
       <div class="exp"><b>Expect:</b> it is gone. The donut and Attainment sit together, and the figures it carried are in the Productivity group at the top &mdash; including its denominator caption, now &ldquo;of Xh worked&rdquo; in the legend.</div>
       <div class="why">It drew the same split with fewer segments, one panel further down. Two places computing one fact is two places for it to drift. The donut is <i>not</i> that chart and stays: it answers &ldquo;where did the month go&rdquo; and sums to Recorded, while the chargeable split is measured over worked.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AU34</span>
+      <span class="title">A group header is a level, not a category</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Read <b>HOURS</b> against <b>RECORDED</b> directly beneath it, then compare the group headers with the header of any card in <b>By Project &amp; Activity</b> further down the same summary.</p>
+      <div class="exp"><b>Expect:</b> the group header is <b>darker</b> than the tile labels and sits on a <b>tinted strip with a hairline</b> under it &mdash; the same treatment the project cards use. All three headers read as one band across the row.</div>
+      <div class="why">It was <code>C.ink4</code>, the <i>same value</i> as the tile labels beneath it, half a pixel apart in size and one weight apart; nothing said it was a level above. Deliberately not a colour per group: colour is load-bearing on this panel &mdash; five chargeable inks plus six project identities in the donut &mdash; so three decorative header hues would be the only colours on screen that mean nothing, sitting directly above a legend where colour means everything.</div>
     </div>
   </div>
 
