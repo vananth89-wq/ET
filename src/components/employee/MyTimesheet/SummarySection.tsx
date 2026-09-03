@@ -207,6 +207,123 @@ function Kpi({ label, value, unit, sub, tone }: {
   );
 }
 
+/**
+ * One labelled block of the KPI strip.
+ *
+ * The strip was seven equal boxes with no hierarchy: to find one figure you
+ * read all seven. Grouping them costs a line of chrome and buys a first cut --
+ * and the grouping is not thematic, it is by UNIT. Hours, then days, then the
+ * chargeable split. That is why the three read as coherent rather than merely
+ * adjacent.
+ */
+function KpiGroup({ label, cols, last, children }: {
+  label: string; cols?: number; last?: boolean; children: React.ReactNode;
+}) {
+  return (
+    <div style={{ borderRight: last ? 'none' : `1px solid ${C.rule}` }}>
+      <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.09em',
+                    textTransform: 'uppercase', color: C.ink4, padding: '11px 16px 0' }}>
+        {label}
+      </div>
+      {cols
+        ? <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)` }}>{children}</div>
+        : children}
+    </div>
+  );
+}
+
+/**
+ * The month's chargeable split, as a bar rather than as tiles.
+ *
+ * FIVE FIGURES THAT TOTAL 100% ARE A STACKED BAR. Drawn as five boxes they ask
+ * the reader to add up numbers a bar would simply have shown them -- and five
+ * tiles in a third of the row are 130px each, which wraps every subtitle to six
+ * lines and triples the height of the whole strip for the sake of one group.
+ *
+ * It also ends a duplication: the standalone "Chargeable" block that used to
+ * sit beside Attainment drew this same split with fewer segments. This is that
+ * bar, promoted to where people look first, and the block is gone.
+ *
+ * The figures live in the LEGEND, never on the segments: a 4% sliver is twelve
+ * pixels wide, and the label that gets clipped is always the one somebody
+ * wanted to read.
+ */
+function ChargeBlock({ split, helpWord }: { split: BillSplit; helpWord: string | null }) {
+  const worked = split.worked;
+  if (worked <= 0) return null;
+
+  /* Mig 836's five buckets, in the order they are argued about. `support` is
+   * its own slice now rather than a subset of non-billable, so it can carry a
+   * percentage without inviting anybody to add it twice. */
+  const parts = ([
+    ['Billable',                     split.billable,     BILL_GREEN],
+    ['Not billable',                 split.nonBillable,  BILL_SLATE],
+    ['Internal',                     split.internal,     BILL_CYAN],
+    [`${helpWord ?? 'Help'} given`,  split.support,      HELP_INK],
+    ['Not classified',               split.unclassified, BILL_AMBER],
+  ] as const).filter(([, mins]) => mins > 0);
+
+  // Floor-and-distribute, so the legend totals 100 rather than 99.
+  const pcts = wholePercents(parts.map(([, m]) => m), worked);
+
+  /* BILLABLE IS PINNED TO THE SHARED FIGURE, not to this legend's own rounding.
+   * billableSharePct() rounds; wholePercents() floors and distributes, and the
+   * two can land a point apart -- which would put a Billable share on this
+   * screen that disagrees with the Utilisation report's tile for the same
+   * month, with nothing to say which is right. The +-1 is absorbed by the
+   * largest of the other buckets instead, so the legend still totals 100. */
+  const share = billableSharePct(split);
+  if (share !== null) {
+    const bi = parts.findIndex(([label]) => label === 'Billable');
+    if (bi >= 0 && pcts[bi] !== share) {
+      const diff = pcts[bi] - share;
+      pcts[bi] = share;
+      let big = -1;
+      for (let i = 0; i < pcts.length; i++) {
+        if (i !== bi && (big < 0 || pcts[i] > pcts[big])) big = i;
+      }
+      if (big >= 0) pcts[big] += diff;
+    }
+  }
+
+  return (
+    <div style={{ padding: '9px 16px 14px' }}>
+      <div style={{ display: 'flex', height: 8, borderRadius: 99,
+                    background: C.track, overflow: 'hidden', marginTop: 5 }}>
+        {parts.map(([label, mins], i) => (
+          <div key={label} style={{
+            height: 8, background: parts[i][2],
+            width: `${(mins / worked) * 100}%`,
+            /* The 2px white cut. Slate and cyan are 1.3:1 apart in lightness,
+               so a shared boundary between two segments is carried by hue
+               alone -- which greyscale and colour-blind vision both discard. */
+            boxShadow: i > 0 ? '-2px 0 0 0 #FFFFFF' : undefined,
+            transition: 'width 0.4s ease-out',
+          }} />
+        ))}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1px 18px', marginTop: 11 }}>
+        {parts.map(([label, mins, ink], i) => (
+          <span key={label} style={{ display: 'flex', alignItems: 'baseline', gap: 7,
+                                     fontSize: 11.5, padding: '2px 0' }}>
+            <span style={{ width: 8, height: 8, borderRadius: 2, flex: 'none',
+                           background: ink, position: 'relative', top: 1 }} />
+            <span style={{ flex: 1, color: C.ink3, whiteSpace: 'nowrap',
+                           overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+            <span style={{ fontWeight: 700, color: C.ink }}>{h1(mins)}h</span>
+            <span style={{ color: C.ink4, width: 30, textAlign: 'right' }}>{pcts[i]}%</span>
+          </span>
+        ))}
+        <span style={{ display: 'flex', alignItems: 'baseline', gap: 7,
+                       fontSize: 11.5, padding: '2px 0', color: C.ink4 }}>
+          <span style={{ width: 8, flex: 'none' }} />
+          <span style={{ flex: 1 }}>of {h1(worked)}h worked</span>
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function Bar({ pct, color }: { pct: number; color: string }) {
   return (
     <div style={{ height: 8, borderRadius: 99, background: C.track, overflow: 'hidden' }}>
@@ -552,18 +669,30 @@ export default function SummarySection({
     const helpWord = helpWords.size === 1 ? [...helpWords][0] : null;
 
     // ── The month's billable split ──────────────────────────────────────
-    // Every entry, not just the project-bearing ones, so the four buckets add
-    // up to Recorded and the tile below cannot contradict the tile beside it.
+    // Every entry, not just the project-bearing ones, so the buckets add up to
+    // Recorded and no figure on this panel can contradict the one beside it.
     // The rule itself is in billability.ts, written once and shared with the
-    // PDF, and written to mirror mig 822 branch for branch.
+    // PDF, and written to mirror mig 836 branch for branch.
+    //
+    // SUMMED FIELD BY FIELD RATHER THAN BY SPREAD, which is why 836 broke it
+    // silently: two new buckets arrived, `worked` grew to include them, and
+    // this loop went on adding the old four. The bar rendered 81% + 7% with a
+    // gap where 24 hours should have been, and nothing failed to compile. If a
+    // bucket is ever added again, it has to be added here too.
     const bill = { ...EMPTY_SPLIT };
     for (const e of entries) {
       const s = splitEntry(
         { entry_kind: e.entry_kind, hours_minutes: e.hours_minutes, project_id: e.project_id,
+          // Without this, help given to another project is indistinguishable
+          // from Training -- both have no booked project -- and every support
+          // hour on the month reads as internal (836).
+          related_project_id: e.related_project_id,
           activities: e.timesheet_entry_activities ?? [] },
         classOfProject(e.project_id));
       bill.billable     += s.billable;
       bill.nonBillable  += s.nonBillable;
+      bill.internal     += s.internal;
+      bill.support      += s.support;
       bill.unclassified += s.unclassified;
       bill.absence      += s.absence;
       bill.worked       += s.worked;
@@ -588,7 +717,6 @@ export default function SummarySection({
   }, [year, month, entries, plannedMinutes, plannedFor, todayIso, classOfProject]);
 
   const pace = d.aheadN > 0 ? d.remaining / d.aheadN : 0;
-  const billShare = billableSharePct(d.bill);
   const donutTotal = d.projects.reduce((s, p) => s + p.minutes, 0);
   const donutPcts  = wholePercents(d.projects.map(p => p.minutes), donutTotal);
   // Projects and non-project groups are ranked separately so each walks its own
@@ -620,45 +748,56 @@ export default function SummarySection({
         >↑ Back to calendar</button>
       </div>
 
-      {/* ── KPI strip ─────────────────────────────────────────────────── */}
+      {/* ── KPI strip ─────────────────────────────────────────────────
+          THREE GROUPS, AND THE SEAM IS THE UNIT. It was seven equal boxes with
+          no hierarchy: to find one figure you read all seven. Hours in hours,
+          Days in days, and the chargeable split -- which is why they read as
+          coherent rather than merely adjacent.
+
+          Widths follow content, not thirds. Productivity carries a bar and a
+          two-column legend and needs more room than three tiles do. */}
       <div style={{
-        display: 'grid', gridTemplateColumns: `repeat(${d.showBill ? 7 : 6}, 1fr)`, background: '#fff',
+        display: 'grid',
+        gridTemplateColumns: d.showBill ? '3fr 3fr 5fr' : '1fr 1fr',
+        background: '#fff',
         border: `1px solid ${C.rule}`, borderRadius: 12, overflow: 'hidden', marginBottom: 14,
       }}>
-        <Kpi label="Recorded"  value={h1(d.recorded)} unit="h" tone={C.blue}
-             sub={`of ${h1(plannedMinutes)}h planned`} />
-        {d.over > 0
-          ? <Kpi label="Over plan" value={h1(d.over)} unit="h" tone={C.amber} sub="beyond the month's target" />
-          : <Kpi label="Remaining" value={h1(d.remaining)} unit="h"
-                 tone={d.attain < 80 ? C.amber : C.green} sub="to log this month" />}
-        {/* Hours over WORKED hours, never over recorded — absence is out of the
-            denominator, or a fortnight of annual leave would read as a
-            fortnight of lost revenue. Same denominator as the Utilisation
-            report's tile, and the same three-word rule underneath, so the two
-            cannot describe the same hour differently. */}
+        <KpiGroup label="Hours" cols={3}>
+          <Kpi label="Recorded"  value={h1(d.recorded)} unit="h" tone={C.blue}
+               sub={`of ${h1(plannedMinutes)}h planned`} />
+          {d.over > 0
+            ? <Kpi label="Over plan" value={h1(d.over)} unit="h" tone={C.amber} sub="beyond the month's target" />
+            : <Kpi label="Remaining" value={h1(d.remaining)} unit="h"
+                   tone={d.attain < 80 ? C.amber : C.green} sub="to log this month" />}
+          <Kpi label="Avg / Day" value={h1(d.avgPerDay)} unit="h" tone="#475569" sub="on days present" />
+        </KpiGroup>
+
+        {/* Days, all three of them -- and Missing sits second rather than last
+            because it is the only figure on this strip with an action attached.
+            Leave had no home at all before the row was grouped: eight hours of
+            it landed in Recorded, in a day cell and in a weekly bar segment
+            without the word appearing once in the summary. */}
+        <KpiGroup label="Days" cols={3} last={!d.showBill}>
+          <Kpi label="Days Logged" value={String(d.logged)} tone={C.green}
+               sub={`of ${d.working.length} working days`} />
+          <Kpi label="Missing" value={String(d.missing.length)}
+               tone={d.missing.length ? C.amber : C.ink4}
+               sub={d.missing.length === 1 ? 'past day needs time logged' : 'past days need time logged'} />
+          <Kpi label="Leave" value={String(d.leaveDays)}
+               tone={d.leaveDays ? '#1D4ED8' : C.ink4}
+               sub={d.leaveDays === 0 ? 'no leave this month'
+                  : `${d.leaveDays === 1 ? 'day' : 'days'} · ${h1(d.leaveMinutes)}h recorded`} />
+        </KpiGroup>
+
+        {/* Shown on the same condition the Chargeable bar used to be, so a month
+            with no chargeable story at all still has none rather than a row of
+            zeroes. Absence is out of the denominator throughout: a fortnight of
+            annual leave must not read as a fortnight of lost revenue. */}
         {d.showBill && (
-          <Kpi label="Billable" value={h1(d.bill.billable)} unit="h" tone={BILL_GREEN}
-               sub={billShare === null
-                 ? 'no worked hours yet this month'
-                 : d.bill.unclassified > 0
-                   ? `${billShare}% of ${h1(d.bill.worked)}h worked · ${h1(d.bill.unclassified)}h on a project with no type set`
-                   : `${billShare}% of ${h1(d.bill.worked)}h worked`} />
+          <KpiGroup label="Productivity" last>
+            <ChargeBlock split={d.bill} helpWord={d.helpWord} />
+          </KpiGroup>
         )}
-        {/* Attainment used to sit here and say exactly what the labelled bar in
-            the panel below says, under the same word, with a whole sentence of
-            context this tile could not carry. Leave had no home at all: eight
-            hours of it landed in Recorded, in a day cell and in a weekly bar
-            segment without the word appearing once in this summary. */}
-        <Kpi label="Leave" value={String(d.leaveDays)}
-             tone={d.leaveDays ? '#1D4ED8' : C.ink4}
-             sub={d.leaveDays === 0 ? 'no leave this month'
-                : `${d.leaveDays === 1 ? 'day' : 'days'} · ${h1(d.leaveMinutes)}h recorded`} />
-        <Kpi label="Days Logged" value={String(d.logged)} tone={C.green}
-             sub={`of ${d.working.length} working days`} />
-        <Kpi label="Missing Entries" value={String(d.missing.length)}
-             tone={d.missing.length ? C.amber : C.ink4}
-             sub={d.missing.length === 1 ? 'past day needs time logged' : 'past days need time logged'} />
-        <Kpi label="Avg / Day" value={h1(d.avgPerDay)} unit="h" tone="#475569" sub="on days present" />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
@@ -882,86 +1021,23 @@ export default function SummarySection({
             </div>
           )}
 
-          {/* ── What of it can be invoiced ─────────────────────────────────
-              A SECOND CHART, deliberately, rather than a second encoding on the
-              donut above. The donut answers "where did the month go" and sums to
-              RECORDED. This answers "what of it is chargeable" and is measured
-              over WORKED — leave is out of the denominator, or a fortnight of
-              annual leave would read as a fortnight of lost revenue. Two
-              questions with two different totals cannot share one ring without
-              one of them being read wrong, and the wrong reading is the one that
-              reaches an invoice.
+          {/* ── The Chargeable bar used to sit here ───────────────────────
+              It drew the same split the Productivity group at the top of the
+              summary now draws, with fewer segments and one panel further down.
+              Two places computing one fact is two places for it to drift, and
+              the KPI strip is where people look first, so the bar was promoted
+              and this block removed rather than kept as a detailed twin.
 
-              Splitting the donut's slices instead would also have doubled a
-              five-slice ring to nine and taken two colours per project out of a
-              ramp whose whole rule is one project, one colour — held from the
-              donut through the legend to the cards below.
+              What was lost with it is one sentence -- "of Xh worked, leave
+              excluded" -- which the legend carries as "of Xh worked". The
+              denominator rule it stated is unchanged: absence stays out, or a
+              fortnight of annual leave reads as a fortnight of lost revenue.
 
-              Shown on the same condition as the KPI tile, so the two cannot
-              disagree about whether this month has a chargeable story at all. */}
-          {d.showBill && d.bill.worked > 0 && (
-            <div style={{ marginTop: 18, paddingTop: 15, borderTop: `1px solid ${C.hair}` }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 7 }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: C.ink2 }}>Chargeable</span>
-                <span style={{ fontSize: 11, color: C.ink4 }}>
-                  of {h1(d.bill.worked)}h worked · leave excluded
-                </span>
-              </div>
-
-              <div style={{ display: 'flex', height: 8, borderRadius: 99, background: C.track, overflow: 'hidden' }}>
-                {([
-                  ['billable',     d.bill.billable,     BILL_GREEN],
-                  ['non_billable', d.bill.nonBillable,  BILL_SLATE],
-                  /* Mig 836. Carved out of non_billable, which was absorbing an
-                     internal project, a training course and help given to
-                     another team alongside the one thing it should mean. The
-                     five still total worked, so the bar still fills. */
-                  ['internal',     d.bill.internal,     BILL_CYAN],
-                  ['support',      d.bill.support,      HELP_INK],
-                  ['unclassified', d.bill.unclassified, BILL_AMBER],
-                ] as const).filter(([, mins]) => mins > 0).map(([key, mins, colour], i) => (
-                  <div key={key} style={{
-                    height: 8, background: colour,
-                    width: `${(mins / d.bill.worked) * 100}%`,
-                    /* A 2px white cut between segments, never before the first.
-                       The two inks sit at nearly the same LIGHTNESS -- 1.1:1
-                       against each other -- so the boundary is carried by hue
-                       alone, and hue alone is what colour-blind vision and a
-                       greyscale print both lose. Without it the bar reads as one
-                       part-filled progress bar rather than two categories.
-
-                       An inset shadow rather than a border or a gap because it
-                       costs no layout: the widths still total exactly 100%, so a
-                       3% sliver is still 3% wide. */
-                    boxShadow: i > 0 ? '-2px 0 0 0 #FFFFFF' : undefined,
-                    transition: 'width 0.4s ease-out',
-                  }} />
-                ))}
-              </div>
-
-              {/* The figures live in the key, not on the segments: a 4% sliver
-                  has no room for a label, and the one that gets clipped is
-                  always the one somebody wanted to read. */}
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 18px', marginTop: 9 }}>
-                {([
-                  ['Billable',       d.bill.billable,     BILL_GREEN],
-                  ['Not billable',   d.bill.nonBillable,  BILL_SLATE],
-                  ['Internal',       d.bill.internal,     BILL_CYAN],
-                  ['Support given',  d.bill.support,      HELP_INK],
-                  ['Not classified', d.bill.unclassified, BILL_AMBER],
-                ] as const).filter(([, mins]) => mins > 0).map(([label, mins, colour]) => (
-                  <span key={label} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                    <span style={{ width: 9, height: 9, borderRadius: 3, flex: 'none', background: colour }} />
-                    <span style={{ fontSize: 12, color: C.ink3 }}>{label}</span>
-                    <span style={{ fontSize: 12.5, fontWeight: 700, color: C.ink }}>{h1(mins)}h</span>
-                    <span style={{ fontSize: 11.5, color: C.ink4 }}>
-                      {Math.round((mins / d.bill.worked) * 100)}%
-                    </span>
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
+              The donut above is deliberately NOT that chart. It answers "where
+              did the month go" and sums to RECORDED; the chargeable split is
+              measured over WORKED. Two questions with two different totals
+              cannot share one ring without one of them being read wrong, and
+              the wrong reading is the one that reaches an invoice. */}
 
           <div style={{ marginTop: 18, paddingTop: 15, borderTop: `1px solid ${C.hair}` }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>

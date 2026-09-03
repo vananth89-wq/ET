@@ -2,7 +2,7 @@
 {
   "name": "Timesheet Test Plan",
   "schemaVersion": 1,
-  "description": "Prowess timesheet test plan, migrations 726–830. 421 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
+  "description": "Prowess timesheet test plan, migrations 726–836. 428 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
   "mcpTools": [],
   "mcpServerNames": []
 }
@@ -11,7 +11,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Timesheet — Test Plan for migrations 726 to 830</title>
+<title>Timesheet — Test Plan for migrations 726 to 836</title>
 <style>
   :root{
     --ink:#0F172A; --ink2:#334155; --ink3:#64748B; --ink4:#94A3B8;
@@ -96,7 +96,7 @@
 <header class="top">
   <div class="wrap">
     <p class="eyebrow">Prowess · Time Management</p>
-    <h1>Test plan — migrations 726 to 830</h1>
+    <h1>Test plan — migrations 726 to 836</h1>
     <p class="sub">Multiple entries per day, day-occupancy rules, per-activity hours, advance-dating —
        and, from migration 730, an edit window that actually binds and a submission that goes
        somewhere. Every case says what to do, what should happen, and which rule it proves — so a
@@ -121,6 +121,7 @@
       <span><b>AR42 added</b> 3 Sep 2026</span>
       <span><b>AU24–AU26 added</b> 3 Sep 2026</span>
       <span><b>AR43–AR44 added</b> 3 Sep 2026</span>
+      <span><b>AU27–AU33 added</b> 3 Sep 2026</span>
     </div>
   </div>
 </header>
@@ -5694,6 +5695,83 @@ order  by created_at desc limit 6;</div>
       <p>Record time against <b>seven or more</b> projects in one month and open the Monthly Summary. Read the donut, the legend and the seventh project&rsquo;s card.</p>
       <div class="exp"><b>Expect:</b> the seventh project is <b>magenta</b> (<code>#A21CAF</code>), and nothing on the screen draws a project in the slate that means not billable.</div>
       <div class="why"><code>RANK</code> clamps, so the 7th project and every one after it share its last entry &mdash; which was <code>#64748B</code>, the exact hex the non-billable ink now takes. Changed while it was still free to change: nobody has seven projects in a month yet, so nothing anybody has seen moves.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AU27</span>
+      <span class="title">Four kinds of not-billable, and only one is a decision</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Record a month containing all of it: a client project with some activities marked not billable, an <b>Internal</b> project, a <b>Training</b> day, and help given to another project. Read the <b>Productivity</b> legend.</p>
+      <div class="exp"><b>Expect:</b> <b>Not billable</b> counts <i>only</i> the marked activities. Internal-project hours and Training sit under <b>Internal</b>; the help sits under <b>Support given</b>.</div>
+      <div class="why">One bucket was absorbing four unrelated facts, so &ldquo;29% non-billable&rdquo; said nothing &mdash; most of it was work nobody ever intended to charge for, reported as though somebody had declined to charge for it. Mig 836 separated them without touching the billable branch.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AU28</span>
+      <span class="title">Billable share did not move</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Before deploying 836, note <b>Billable share</b> for a month on <b>Admin &rarr; Reports &rarr; Utilisation</b> and the Billable figure on that employee&rsquo;s Monthly Summary. Deploy, then read both again.</p>
+      <div class="exp"><b>Expect:</b> <b>identical</b>. Same hours, same percentage.</div>
+      <div class="warn">This is the case 836 exists to be safe for. A narrower denominator &mdash; billable over client-project time only &mdash; was designed, mocked and rejected: it reads 87% where the present rule reads 71%, and redefining a figure Finance quotes under its existing name is a cost with no upside, because the complaint that started this is fixed by splitting the buckets and not by changing what they are divided by. The migration asserts both billable branches survived the patch.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AU29</span>
+      <span class="title">The strip is three groups, and the seam is the unit</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Open the Monthly Summary and read the KPI strip left to right.</p>
+      <div class="exp"><b>Expect:</b> <b>Hours</b> (h &middot; h &middot; h), <b>Days</b> (days &middot; days &middot; days), then <b>Productivity</b> as a bar with a legend. On a month with no chargeable story the third group is absent and the strip is two groups wide.</div>
+      <div class="why">It was seven equal boxes with no hierarchy: to find one figure you read all seven. The grouping is by unit rather than by theme, which is why the three read as coherent rather than merely adjacent &mdash; and five figures that total 100% are a stacked bar, so drawing them as five more boxes would have asked the reader to add up numbers a bar simply shows.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AU30</span>
+      <span class="title">The legend totals 100, and the bar fills</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Add up the percentages in the Productivity legend. Then add the hours and compare with <b>Recorded</b> minus leave.</p>
+      <div class="exp"><b>Expect:</b> the percentages total <b>exactly 100</b> and the bar has <b>no gap</b> at its right-hand end. The hours total the month&rsquo;s worked time.</div>
+      <div class="warn">The first build of this rendered <b>81% + 7%</b> with a gap where 24 hours should have been, and nothing failed to compile: the loop that sums the split adds field by field, two buckets arrived in 836, and it went on adding the old four while <code>worked</code> grew to include them. A gap at the right-hand end of this bar means a bucket is being computed and not summed.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AU31</span>
+      <span class="title">Billable&rsquo;s percentage is the shared one</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Compare the <b>Billable</b> percentage in the legend with <b>Billable share</b> on the Utilisation report for the same month, on a month whose figures divide badly.</p>
+      <div class="exp"><b>Expect:</b> the same whole number, to the point.</div>
+      <div class="why">The legend uses floor-and-distribute so five percentages total 100; the report rounds. The two can land a point apart, which would put a Billable share on one screen that disagrees with the other with nothing to say which is right. Billable is pinned to the shared figure and the &plusmn;1 is absorbed by the largest of the other buckets.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AU32</span>
+      <span class="title">Support is not Internal, on every surface</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>On a month with both help given and a Training day, compare the Monthly Summary, the monthly <b>PDF</b>, and the <b>approver&rsquo;s</b> copy of that PDF.</p>
+      <div class="exp"><b>Expect:</b> all three separate <b>Support given</b> from <b>Internal</b>, with the same hours in each.</div>
+      <div class="warn">Both leave the booked project NULL, so <code>project_class</code> cannot tell them apart &mdash; which is why 836 also adds <code>related_project_id</code> to the approval payload and <code>isSupport</code> to the export row. Without either, the approver&rsquo;s copy files every support hour under Internal while the sheet it was made from calls it Support, and the two disagree about a month neither of them got wrong.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AU33</span>
+      <span class="title">The Chargeable block is gone, and nothing went with it</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Look below the donut, where the <b>Chargeable</b> bar used to sit between it and <b>Attainment</b>.</p>
+      <div class="exp"><b>Expect:</b> it is gone. The donut and Attainment sit together, and the figures it carried are in the Productivity group at the top &mdash; including its denominator caption, now &ldquo;of Xh worked&rdquo; in the legend.</div>
+      <div class="why">It drew the same split with fewer segments, one panel further down. Two places computing one fact is two places for it to drift. The donut is <i>not</i> that chart and stays: it answers &ldquo;where did the month go&rdquo; and sums to Recorded, while the chargeable split is measured over worked.</div>
     </div>
   </div>
 
