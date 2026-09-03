@@ -108,6 +108,7 @@ interface HistorySet {
   is_active:      boolean;
   items: {
     relationship_code:     string;
+    manager_employee_id:   string;
     manager_name:          string;
     manager_employee_code: string;
   }[];
@@ -116,27 +117,91 @@ interface HistorySet {
 function HistoryPanel({
   employeeId,
   codeLabels,
+  canEdit = false,
+  canDelete = false,
 }: {
-  employeeId: string;
-  codeLabels: Record<string, string>;
+  employeeId:  string;
+  codeLabels:  Record<string, string>;
+  canEdit?:    boolean;
+  canDelete?:  boolean;
 }) {
   const [sets,    setSets]    = useState<HistorySet[]>([]);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState('');
   const [selIdx,  setSelIdx]  = useState(0);
 
+  // ── Edit-history state ────────────────────────────────────────────────────
+  const [editingId,  setEditingId]  = useState<string | null>(null);
+  const [editSlots,  setEditSlots]  = useState<Record<string, string | null>>({});
+  const [saving,     setSaving]     = useState(false);
+  const [saveErr,    setSaveErr]    = useState('');
+
+  // ── Delete-confirm state ──────────────────────────────────────────────────
+  const [confirmDelId, setConfirmDelId] = useState<string | null>(null);
+  const [deleting,     setDeleting]     = useState(false);
+  const [deleteErr,    setDeleteErr]    = useState('');
+
+  async function loadHistory() {
+    const { data, error: err } = await supabase.rpc(
+      'get_job_relationships_history',
+      { p_employee_id: employeeId }
+    );
+    if (err) { setError(err.message); setLoading(false); return; }
+    const payload = data as { ok: boolean; sets: HistorySet[] } | null;
+    setSets(payload?.sets ?? []);
+    setLoading(false);
+  }
+
   useEffect(() => {
-    (async () => {
-      const { data, error: err } = await supabase.rpc(
-        'get_job_relationships_history',
-        { p_employee_id: employeeId }
-      );
-      if (err) { setError(err.message); setLoading(false); return; }
-      const payload = data as { ok: boolean; sets: HistorySet[] } | null;
-      setSets(payload?.sets ?? []);
-      setLoading(false);
-    })();
+    loadHistory();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [employeeId]);
+
+  function startEdit(s: HistorySet) {
+    const slots: Record<string, string | null> = {};
+    JR_CODE_ORDER.forEach(code => {
+      const item = s.items.find(i => i.relationship_code === code);
+      slots[code] = item?.manager_employee_id ?? null;
+    });
+    setEditSlots(slots);
+    setSaveErr('');
+    setEditingId(s.id);
+  }
+
+  async function saveEdit() {
+    if (!editingId) return;
+    setSaving(true); setSaveErr('');
+    const items = JR_CODE_ORDER
+      .filter(code => editSlots[code])
+      .map(code => ({ relationship_code: code, manager_employee_id: editSlots[code]! }));
+    const { data, error: rpcErr } = await supabase.rpc('admin_update_job_relationship_set', {
+      p_set_id: editingId,
+      p_items:  items,
+    });
+    setSaving(false);
+    if (rpcErr) { setSaveErr(rpcErr.message); return; }
+    const result = data as { ok: boolean; error?: string } | null;
+    if (!result?.ok) { setSaveErr(result?.error ?? 'Update failed'); return; }
+    setEditingId(null);
+    setLoading(true);
+    await loadHistory();
+  }
+
+  async function confirmDelete() {
+    if (!confirmDelId) return;
+    setDeleting(true); setDeleteErr('');
+    const { data, error: rpcErr } = await supabase.rpc('admin_delete_job_relationship_set', {
+      p_set_id: confirmDelId,
+    });
+    setDeleting(false);
+    if (rpcErr) { setDeleteErr(rpcErr.message); return; }
+    const result = data as { ok: boolean; error?: string } | null;
+    if (!result?.ok) { setDeleteErr(result?.error ?? 'Delete failed'); return; }
+    setConfirmDelId(null);
+    setSelIdx(0);
+    setLoading(true);
+    await loadHistory();
+  }
 
   return (
     <div style={{ border: '1px solid #E0E7FF', borderRadius: 10, overflow: 'hidden', marginTop: 12 }}>
@@ -191,8 +256,11 @@ function HistoryPanel({
             const s = sets[selIdx];
             if (!s) return null;
             const isCurrent = s.effective_to === '9999-12-31' && s.is_active;
+            const isEditing = editingId === s.id;
+            const isConfirmingDelete = confirmDelId === s.id;
             return (
               <div style={{ flex: 1, padding: '14px 16px' }}>
+                {/* Header row with date + action buttons */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
                   <span style={{ fontSize: 12, fontWeight: 600, color: '#6B7280' }}>
                     {fmtDate(s.effective_from)} — {isCurrent ? 'Present' : fmtDate(s.effective_to)}
@@ -202,33 +270,116 @@ function HistoryPanel({
                       Current
                     </span>
                   )}
+                  {/* Edit / Delete buttons — right side */}
+                  {!isEditing && !isConfirmingDelete && (
+                    <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+                      {canEdit && (
+                        <button
+                          onClick={() => startEdit(s)}
+                          style={{ background: 'none', border: '1px solid #D1D5DB', borderRadius: 5, padding: '3px 10px', fontSize: 11.5, color: '#374151', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}
+                        >
+                          <i className="fa-solid fa-pen-to-square" style={{ fontSize: 10 }} /> Edit
+                        </button>
+                      )}
+                      {canDelete && !isCurrent && (
+                        <button
+                          onClick={() => { setDeleteErr(''); setConfirmDelId(s.id); }}
+                          style={{ background: 'none', border: '1px solid #FCA5A5', borderRadius: 5, padding: '3px 10px', fontSize: 11.5, color: '#DC2626', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}
+                        >
+                          <i className="fa-solid fa-trash-can" style={{ fontSize: 10 }} /> Delete
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
 
-                {s.items && s.items.length > 0 ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {JR_CODE_ORDER
-                      .filter(c => s.items.some(i => i.relationship_code === c))
-                      .map(code => {
-                        const item = s.items.find(i => i.relationship_code === code);
-                        if (!item) return null;
-                        return (
-                          <div key={code} style={{ display: 'flex', gap: 8, fontSize: 13 }}>
-                            <span style={{ minWidth: 130, color: '#6B7280', fontWeight: 500 }}>
-                              {codeLabels[code] ?? code}
-                              <span style={{ marginLeft: 5, fontSize: 10, color: '#9CA3AF' }}>{code}</span>
-                            </span>
-                            <span style={{ color: '#111827' }}>
-                              {item.manager_name}
-                              <span style={{ color: '#9CA3AF', marginLeft: 4 }}>({item.manager_employee_code})</span>
-                            </span>
+                {/* ── Delete confirmation ── */}
+                {isConfirmingDelete && (
+                  <div style={{ background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 8, padding: '12px 14px', marginBottom: 12 }}>
+                    <p style={{ margin: '0 0 10px', fontSize: 13, color: '#991B1B', fontWeight: 500 }}>
+                      <i className="fa-solid fa-triangle-exclamation" style={{ marginRight: 6 }} />
+                      Delete this historical record ({fmtDate(s.effective_from)} — {fmtDate(s.effective_to)})? This cannot be undone.
+                    </p>
+                    {deleteErr && <p style={{ margin: '0 0 8px', fontSize: 12, color: '#B91C1C' }}>{deleteErr}</p>}
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button onClick={() => { setConfirmDelId(null); setDeleteErr(''); }}
+                        style={{ background: '#fff', border: '1px solid #D1D5DB', borderRadius: 5, padding: '4px 12px', fontSize: 12, cursor: 'pointer', color: '#374151' }}>
+                        Cancel
+                      </button>
+                      <button onClick={confirmDelete} disabled={deleting}
+                        style={{ background: '#DC2626', border: 'none', borderRadius: 5, padding: '4px 12px', fontSize: 12, cursor: 'pointer', color: '#fff', display: 'flex', alignItems: 'center', gap: 5 }}>
+                        {deleting ? <><i className="fa-solid fa-spinner fa-spin" /> Deleting…</> : <><i className="fa-solid fa-trash-can" /> Confirm Delete</>}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Edit form ── */}
+                {isEditing ? (
+                  <div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 12 }}>
+                      {JR_CODE_ORDER.map(code => (
+                        <div key={code} style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                          <span style={{ minWidth: 130, fontSize: 12.5, fontWeight: 500, color: '#374151', paddingTop: 8 }}>
+                            {codeLabels[code] ?? code}
+                            <span style={{ marginLeft: 4, fontSize: 10, color: '#9CA3AF' }}>{code}</span>
+                          </span>
+                          <div style={{ flex: 1 }}>
+                            <EmployeePicker
+                              value={editSlots[code] ?? null}
+                              excludeId={employeeId}
+                              onChange={(id) => setEditSlots(prev => ({ ...prev, [code]: id }))}
+                            />
                           </div>
-                        );
-                      })}
+                        </div>
+                      ))}
+                    </div>
+                    {saveErr && (
+                      <p style={{ fontSize: 12, color: '#B91C1C', margin: '0 0 8px' }}>
+                        <i className="fa-solid fa-circle-exclamation" style={{ marginRight: 5 }} />{saveErr}
+                      </p>
+                    )}
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button onClick={() => { setEditingId(null); setSaveErr(''); }}
+                        style={{ background: '#fff', border: '1px solid #D1D5DB', borderRadius: 5, padding: '4px 12px', fontSize: 12, cursor: 'pointer', color: '#374151' }}>
+                        Cancel
+                      </button>
+                      <button onClick={saveEdit} disabled={saving}
+                        style={{ background: '#4F46E5', border: 'none', borderRadius: 5, padding: '4px 12px', fontSize: 12, cursor: 'pointer', color: '#fff', display: 'flex', alignItems: 'center', gap: 5 }}>
+                        {saving ? <><i className="fa-solid fa-spinner fa-spin" /> Saving…</> : <><i className="fa-solid fa-check" /> Save</>}
+                      </button>
+                    </div>
                   </div>
                 ) : (
-                  <p style={{ fontSize: 12.5, color: '#9CA3AF', fontStyle: 'italic', margin: 0 }}>
-                    No assignments in this period.
-                  </p>
+                  /* ── View mode items ── */
+                  !isConfirmingDelete && (
+                    s.items && s.items.length > 0 ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {JR_CODE_ORDER
+                          .filter(c => s.items.some(i => i.relationship_code === c))
+                          .map(code => {
+                            const item = s.items.find(i => i.relationship_code === code);
+                            if (!item) return null;
+                            return (
+                              <div key={code} style={{ display: 'flex', gap: 8, fontSize: 13 }}>
+                                <span style={{ minWidth: 130, color: '#6B7280', fontWeight: 500 }}>
+                                  {codeLabels[code] ?? code}
+                                  <span style={{ marginLeft: 5, fontSize: 10, color: '#9CA3AF' }}>{code}</span>
+                                </span>
+                                <span style={{ color: '#111827' }}>
+                                  {item.manager_name}
+                                  <span style={{ color: '#9CA3AF', marginLeft: 4 }}>({item.manager_employee_code})</span>
+                                </span>
+                              </div>
+                            );
+                          })}
+                      </div>
+                    ) : (
+                      <p style={{ fontSize: 12.5, color: '#9CA3AF', fontStyle: 'italic', margin: 0 }}>
+                        No assignments in this period.
+                      </p>
+                    )
+                  )
                 )}
               </div>
             );
@@ -756,7 +907,7 @@ export default function JobRelationshipsPortlet({
           {/* History replaces the table in-place */}
           {historyVisible ? (
             <div style={{ padding: '0 16px 16px' }}>
-              <HistoryPanel employeeId={employeeId} codeLabels={codeLabels} />
+              <HistoryPanel employeeId={employeeId} codeLabels={codeLabels} canEdit={canEdit && !readOnly} canDelete={canDelete && !readOnly} />
             </div>
           ) : (
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
