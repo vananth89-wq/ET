@@ -2,7 +2,7 @@
 {
   "name": "Timesheet Test Plan",
   "schemaVersion": 1,
-  "description": "Prowess timesheet test plan, migrations 726–836. 429 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
+  "description": "Prowess timesheet test plan, migrations 726–836. 431 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
   "mcpTools": [],
   "mcpServerNames": []
 }
@@ -5726,7 +5726,7 @@ order  by created_at desc limit 6;</div>
     <div class="body">
       <span class="lbl">Do</span>
       <p>Open the Monthly Summary and read the KPI strip left to right.</p>
-      <div class="exp"><b>Expect:</b> <b>Hours</b> (h &middot; h &middot; h), <b>Days</b> (days &middot; days &middot; days), then <b>Productivity</b> as a bar with a legend. On a month with no chargeable story the third group is absent and the strip is two groups wide.</div>
+      <div class="exp"><b>Expect:</b> <b>Hours</b> (h &middot; h &middot; h), <b>Days</b> (days &middot; days &middot; days), then <b>Productivity</b> as one tile per bucket, each with a swatch before its label. On a month with no chargeable story the third group is absent and the strip is two groups wide.</div>
       <div class="why">It was seven equal boxes with no hierarchy: to find one figure you read all seven. The grouping is by unit rather than by theme, which is why the three read as coherent rather than merely adjacent &mdash; and five figures that total 100% are a stacked bar, so drawing them as five more boxes would have asked the reader to add up numbers a bar simply shows.</div>
     </div>
   </div>
@@ -5737,8 +5737,8 @@ order  by created_at desc limit 6;</div>
     <div class="body">
       <span class="lbl">Do</span>
       <p>Add up the percentages in the Productivity legend. Then add the hours and compare with <b>Recorded</b> minus leave.</p>
-      <div class="exp"><b>Expect:</b> the percentages total <b>exactly 100</b> and the bar has <b>no gap</b> at its right-hand end. The hours total the month&rsquo;s worked time.</div>
-      <div class="warn">The first build of this rendered <b>81% + 7%</b> with a gap where 24 hours should have been, and nothing failed to compile: the loop that sums the split adds field by field, two buckets arrived in 836, and it went on adding the old four while <code>worked</code> grew to include them. A gap at the right-hand end of this bar means a bucket is being computed and not summed.</div>
+      <div class="exp"><b>Expect:</b> the percentages total <b>exactly 100</b>, and the hours total the month&rsquo;s worked time &mdash; the figure printed in the group header.</div>
+      <div class="warn">An earlier build of this rendered <b>81% + 7%</b> and lost 24 hours, and nothing failed to compile: the loop that sums the split adds field by field, two buckets arrived in 836, and it went on adding the old four while <code>worked</code> grew to include them. Tiles that do not total 100 mean a bucket is being computed and not summed.</div>
     </div>
   </div>
 
@@ -5783,6 +5783,28 @@ order  by created_at desc limit 6;</div>
       <p>Read <b>HOURS</b> against <b>RECORDED</b> directly beneath it, then compare the group headers with the header of any card in <b>By Project &amp; Activity</b> further down the same summary.</p>
       <div class="exp"><b>Expect:</b> the group header is <b>darker</b> than the tile labels and sits on a <b>tinted strip with a hairline</b> under it &mdash; the same treatment the project cards use. All three headers read as one band across the row.</div>
       <div class="why">It was <code>C.ink4</code>, the <i>same value</i> as the tile labels beneath it, half a pixel apart in size and one weight apart; nothing said it was a level above. Deliberately not a colour per group: colour is load-bearing on this panel &mdash; five chargeable inks plus six project identities in the donut &mdash; so three decorative header hues would be the only colours on screen that mean nothing, sitting directly above a legend where colour means everything.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AU35</span>
+      <span class="title">The strip widens for a fifth bucket rather than squeezing four</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Compare an ordinary month with one where a project has <b>no type set</b>, at a laptop width around 1280px.</p>
+      <div class="exp"><b>Expect:</b> four Productivity tiles normally and five when the untyped hours exist &mdash; and on the five-tile month the <b>whole group is wider</b>, so no label truncates. Hours and Days keep their own widths.</div>
+      <div class="why">At a fixed <code>3fr 3fr 5fr</code> the tiles are 144px each at four and 115px at five, which is where <i>NOT CLASSIFIED</i> and <i>SUPPORT GIVEN</i> begin to clip &mdash; on precisely the month somebody needs to read them. The strip goes to <code>3fr 3fr 6fr</code> instead.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AU36</span>
+      <span class="title">The denominator is said once, and the swatches carry the colour</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Read the Productivity group: the header, then each tile.</p>
+      <div class="exp"><b>Expect:</b> <b>&ldquo;of 162h worked&rdquo;</b> once, right-aligned in the group header. Each tile shows hours, a bare percentage, and a <b>swatch before its label</b> in that bucket&rsquo;s ink.</div>
+      <div class="why">Four tiles each ending &ldquo;of 162h worked&rdquo; is the same sentence four times, and it is what pushed the subtitles onto two lines and dragged the whole strip&rsquo;s height with them. The swatches exist because the tiles replaced a bar: each ink used to appear on a segment <i>and</i> on its legend row, and as boxes the only place a colour appears is the number.</div>
     </div>
   </div>
 

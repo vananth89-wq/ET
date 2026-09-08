@@ -191,12 +191,22 @@ function sliceColor(p: { noProject: boolean; isLeave: boolean }, rank: number, o
 
 // ─── Small presentational pieces ─────────────────────────────────────────────
 
-function Kpi({ label, value, unit, sub, tone }: {
+function Kpi({ label, value, unit, sub, tone, dot }: {
   label: string; value: string; unit?: string; sub: string; tone: string;
+  /** A swatch before the label. Only the chargeable tiles carry one, and they
+   *  carry it because they lost something when they stopped being a bar: each
+   *  ink used to appear on a segment AND on its legend row, and as boxes the
+   *  only place a colour appears is the number. The swatch is what the segment
+   *  was doing. */
+  dot?: string;
 }) {
   return (
     <div style={{ padding: '14px 16px', borderRight: `1px solid ${C.hair}` }}>
-      <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.06em', color: C.ink4, textTransform: 'uppercase' }}>
+      <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.06em', color: C.ink4,
+                    textTransform: 'uppercase', whiteSpace: 'nowrap',
+                    overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        {dot && <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: 2,
+                               background: dot, marginRight: 6, verticalAlign: 1 }} />}
         {label}
       </div>
       <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-0.02em', marginTop: 5, lineHeight: 1, color: tone }}>
@@ -216,8 +226,8 @@ function Kpi({ label, value, unit, sub, tone }: {
  * chargeable split. That is why the three read as coherent rather than merely
  * adjacent.
  */
-function KpiGroup({ label, cols, last, children }: {
-  label: string; cols?: number; last?: boolean; children: React.ReactNode;
+function KpiGroup({ label, note, cols, last, children }: {
+  label: string; note?: string; cols?: number; last?: boolean; children: React.ReactNode;
 }) {
   return (
     <div style={{ borderRight: last ? 'none' : `1px solid ${C.rule}` }}>
@@ -240,8 +250,14 @@ function KpiGroup({ label, cols, last, children }: {
       <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.09em',
                     textTransform: 'uppercase', color: C.ink3,
                     background: '#FBFCFD', borderBottom: `1px solid ${C.hair}`,
-                    padding: '9px 16px 8px' }}>
+                    padding: '9px 16px 8px',
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
         {label}
+        {/* The denominator, once, where it belongs to the whole group rather
+            than to any one tile. Four tiles each ending "of 162h worked" is the
+            same sentence four times, and it is what pushed them to two lines. */}
+        {note && <em style={{ fontStyle: 'normal', fontSize: 10, fontWeight: 600,
+                              letterSpacing: 0, textTransform: 'none', color: C.ink4 }}>{note}</em>}
       </div>
       {cols
         ? <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)` }}>{children}</div>
@@ -251,45 +267,52 @@ function KpiGroup({ label, cols, last, children }: {
 }
 
 /**
- * The month's chargeable split, as a bar rather than as tiles.
+ * The month's chargeable split, as one tile per bucket.
  *
- * FIVE FIGURES THAT TOTAL 100% ARE A STACKED BAR. Drawn as five boxes they ask
- * the reader to add up numbers a bar would simply have shown them -- and five
- * tiles in a third of the row are 130px each, which wraps every subtitle to six
- * lines and triples the height of the whole strip for the sake of one group.
+ * WHY TILES AND NOT THE BAR. Five figures that total 100% are a stacked bar, and
+ * it was one -- which showed the proportion before you read a single number.
+ * Tiles give that up: 89 / 4 / 1 / 6 are four values you compare by reading.
+ * What they buy is that every figure gets the same treatment as Recorded and
+ * Days Logged, so the strip is one kind of thing rather than two.
  *
- * It also ends a duplication: the standalone "Chargeable" block that used to
- * sit beside Attainment drew this same split with fewer segments. This is that
- * bar, promoted to where people look first, and the block is gone.
+ * Two consequences the tiles have to answer for, and do:
  *
- * The figures live in the LEGEND, never on the segments: a 4% sliver is twelve
- * pixels wide, and the label that gets clipped is always the one somebody
- * wanted to read.
+ *   * THE COLOURS LOST THEIR ANCHOR. In the bar each ink appeared on a segment
+ *     and again on its legend row. Here the only place it appears is the value,
+ *     so every tile carries a swatch before its label. That is the segment's
+ *     job, moved.
+ *
+ *   * THE DENOMINATOR IS SAID ONCE. "of 162h worked" belongs to the group, not
+ *     to any one tile -- four tiles each ending in that phrase is the same
+ *     sentence four times, and it is what pushed the subtitles onto two lines
+ *     and dragged the whole strip's height with them. It sits in the group
+ *     header now, and each subtitle is a bare percentage.
  */
 function ChargeBlock({ split, helpWord }: { split: BillSplit; helpWord: string | null }) {
   const worked = split.worked;
   if (worked <= 0) return null;
 
-  /* Mig 836's five buckets, in the order they are argued about. `support` is
-   * its own slice now rather than a subset of non-billable, so it can carry a
-   * percentage without inviting anybody to add it twice. */
+  /* Mig 836's five buckets. `support` is its own slice rather than a subset of
+   * non-billable, so it can carry a percentage without inviting anybody to add
+   * it in twice. Empty buckets are dropped: a permanent "Not classified 0h"
+   * spends a fifth of this group saying nothing is wrong. */
   const parts = ([
-    ['Billable',                     split.billable,     BILL_GREEN],
-    ['Not billable',                 split.nonBillable,  BILL_SLATE],
-    ['Internal',                     split.internal,     BILL_CYAN],
-    [`${helpWord ?? 'Help'} given`,  split.support,      HELP_INK],
-    ['Not classified',               split.unclassified, BILL_AMBER],
+    ['Billable',                    split.billable,     BILL_GREEN],
+    ['Not billable',                split.nonBillable,  BILL_SLATE],
+    ['Internal',                    split.internal,     BILL_CYAN],
+    [`${helpWord ?? 'Help'} given`, split.support,      HELP_INK],
+    ['Not classified',              split.unclassified, BILL_AMBER],
   ] as const).filter(([, mins]) => mins > 0);
 
-  // Floor-and-distribute, so the legend totals 100 rather than 99.
+  // Floor-and-distribute, so the tiles total 100 rather than 99.
   const pcts = wholePercents(parts.map(([, m]) => m), worked);
 
-  /* BILLABLE IS PINNED TO THE SHARED FIGURE, not to this legend's own rounding.
+  /* BILLABLE IS PINNED TO THE SHARED FIGURE, not to this group's own rounding.
    * billableSharePct() rounds; wholePercents() floors and distributes, and the
    * two can land a point apart -- which would put a Billable share on this
    * screen that disagrees with the Utilisation report's tile for the same
    * month, with nothing to say which is right. The +-1 is absorbed by the
-   * largest of the other buckets instead, so the legend still totals 100. */
+   * largest of the other buckets instead, so the tiles still total 100. */
   const share = billableSharePct(split);
   if (share !== null) {
     const bi = parts.findIndex(([label]) => label === 'Billable');
@@ -305,42 +328,24 @@ function ChargeBlock({ split, helpWord }: { split: BillSplit; helpWord: string |
   }
 
   return (
-    <div style={{ padding: '9px 16px 14px' }}>
-      <div style={{ display: 'flex', height: 8, borderRadius: 99,
-                    background: C.track, overflow: 'hidden', marginTop: 5 }}>
-        {parts.map(([label, mins], i) => (
-          <div key={label} style={{
-            height: 8, background: parts[i][2],
-            width: `${(mins / worked) * 100}%`,
-            /* The 2px white cut. Slate and cyan are 1.3:1 apart in lightness,
-               so a shared boundary between two segments is carried by hue
-               alone -- which greyscale and colour-blind vision both discard. */
-            boxShadow: i > 0 ? '-2px 0 0 0 #FFFFFF' : undefined,
-            transition: 'width 0.4s ease-out',
-          }} />
-        ))}
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1px 18px', marginTop: 11 }}>
-        {parts.map(([label, mins, ink], i) => (
-          <span key={label} style={{ display: 'flex', alignItems: 'baseline', gap: 7,
-                                     fontSize: 11.5, padding: '2px 0' }}>
-            <span style={{ width: 8, height: 8, borderRadius: 2, flex: 'none',
-                           background: ink, position: 'relative', top: 1 }} />
-            <span style={{ flex: 1, color: C.ink3, whiteSpace: 'nowrap',
-                           overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
-            <span style={{ fontWeight: 700, color: C.ink }}>{h1(mins)}h</span>
-            <span style={{ color: C.ink4, width: 30, textAlign: 'right' }}>{pcts[i]}%</span>
-          </span>
-        ))}
-        <span style={{ display: 'flex', alignItems: 'baseline', gap: 7,
-                       fontSize: 11.5, padding: '2px 0', color: C.ink4 }}>
-          <span style={{ width: 8, flex: 'none' }} />
-          <span style={{ flex: 1 }}>of {h1(worked)}h worked</span>
-        </span>
-      </div>
+    <div style={{ display: 'grid', gridTemplateColumns: `repeat(${parts.length}, 1fr)` }}>
+      {parts.map(([label, mins, ink], i) => (
+        <Kpi key={label} label={label} value={h1(mins)} unit="h" tone={ink}
+             dot={ink} sub={`${pcts[i]}%`} />
+      ))}
     </div>
   );
 }
+
+/** How many tiles the chargeable group will draw. The strip widens for the
+ *  fifth rather than squeezing four into the space made for it -- a fifth
+ *  bucket appears only when a project has no type set, which is the month you
+ *  least want the labels truncating. */
+function chargeTileCount(split: BillSplit): number {
+  return [split.billable, split.nonBillable, split.internal,
+          split.support, split.unclassified].filter(m => m > 0).length;
+}
+
 
 function Bar({ pct, color }: { pct: number; color: string }) {
   return (
@@ -776,7 +781,14 @@ export default function SummarySection({
           two-column legend and needs more room than three tiles do. */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: d.showBill ? '3fr 3fr 5fr' : '1fr 1fr',
+        // Widths follow tile count. The chargeable group draws four tiles on an
+        // ordinary month and five when a project has no type set, and that
+        // fifth must not be paid for by squeezing the other four -- 5fr over
+        // four tiles is 144px each, over five it is 115px and the labels start
+        // truncating on exactly the month somebody needs to read them.
+        gridTemplateColumns: !d.showBill ? '1fr 1fr'
+                           : chargeTileCount(d.bill) > 4 ? '3fr 3fr 6fr'
+                           : '3fr 3fr 5fr',
         background: '#fff',
         border: `1px solid ${C.rule}`, borderRadius: 12, overflow: 'hidden', marginBottom: 14,
       }}>
@@ -812,7 +824,7 @@ export default function SummarySection({
             zeroes. Absence is out of the denominator throughout: a fortnight of
             annual leave must not read as a fortnight of lost revenue. */}
         {d.showBill && (
-          <KpiGroup label="Productivity" last>
+          <KpiGroup label="Productivity" note={`of ${h1(d.bill.worked)}h worked`} last>
             <ChargeBlock split={d.bill} helpWord={d.helpWord} />
           </KpiGroup>
         )}
