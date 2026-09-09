@@ -2,7 +2,7 @@
 {
   "name": "Timesheet Test Plan",
   "schemaVersion": 1,
-  "description": "Prowess timesheet test plan, migrations 726–836. 437 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
+  "description": "Prowess timesheet test plan, migrations 726–836. 439 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
   "mcpTools": [],
   "mcpServerNames": []
 }
@@ -123,6 +123,7 @@
       <span><b>AR43–AR44 added</b> 3 Sep 2026</span>
       <span><b>AU27–AU33 added</b> 3 Sep 2026</span>
       <span><b>AU37–AU42 added</b> 9 Sep 2026</span>
+      <span><b>AR45 · AS28 added</b> 9 Sep 2026</span>
     </div>
   </div>
 </header>
@@ -5129,6 +5130,17 @@ order  by created_at desc limit 6;</div>
       <div class="warn">One heading cannot name two words, and picking either one mislabels the other&rsquo;s cards. &ldquo;Help&rdquo; is defensible <i>here and nowhere else</i>: it is what the administrator&rsquo;s own checkbox calls this class of type &mdash; <i>Records help given to another project</i> &mdash; rather than a synonym the timesheet invented for one of them.</div>
     </div>
   </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AR45</span>
+      <span class="title">Changing only the requester enables Update</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Open a saved <b>Cross-project Support</b> entry for editing. Touch nothing but <b>Requested by</b> &mdash; move it from one name to another. Press <b>Update</b>, reopen the entry, and read the field back.</p>
+      <div class="exp"><b>Expect:</b> the button lights the moment the picker moves, and the reopened entry carries the <b>new</b> name.</div>
+      <div class="warn">It did not. <code>formUnchanged()</code> compares type, project, hours, notes and activity rows &mdash; the fields that existed when it was written &mdash; and never learned about <code>reqId</code>, which 829 added afterwards. So the picker moved, <code>editUnchanged</code> stayed true, Update stayed grey, and the entry kept the name it had. <b>A control that cannot represent what is stored is a silent edit</b>, and a dirty-check that ignores a field is the same fault wearing a different hat: the form showed one requester and the database held another, with no error anywhere to say so. Every future field on this form has to be added here as well as to the save.</div>
+    </div>
+  </div>
 </section>
 <section id="asb">
   <h2><span class="k">AS</span> Which hours are chargeable (820 &middot; 821 &middot; 822 &middot; 823 &middot; 824)</h2>
@@ -5432,6 +5444,17 @@ order  by created_at desc limit 6;</div>
       <p>Expand, in the same panel, an entry on an <b>internal</b> project and one recorded as <b>Cross-project Support</b>.</p>
       <div class="exp"><b>Expect:</b> activity rows with hours and <b>no tag at all</b> on either.</div>
       <div class="why">A stored NULL means nobody was asked, not an answer of &ldquo;no&rdquo;. Support hours are read off the BOOKED project, which is NULL on those entries by design (801) &mdash; they are never chargeable to the project they name, so the absence of a tag there is correct rather than a gap.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AS28</span>
+      <span class="title">Changing only a billable answer enables Update</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Open a saved entry on a <b>billable</b> project. Change nothing but one activity&rsquo;s radio &mdash; <b>Billable</b> to <b>Not billable</b>. Press <b>Update</b>, reopen, and read the radio back.</p>
+      <div class="exp"><b>Expect:</b> the button lights on the click, and the reopened entry holds the <b>new</b> answer.</div>
+      <div class="warn">Found beside AR45 and caused the same way: <code>formUnchanged()</code> compared each activity row&rsquo;s name and hours and ignored <code>billable</code>, which 821 added to the row afterwards. Correcting an hour booked to the wrong side of the invoice was refused with <i>&ldquo;Nothing has changed in this entry yet.&rdquo;</i> &mdash; on the one field the whole Utilisation report is computed from. The comparison is <code>(r.billable ?? null) === (s.billable ?? null)</code>: three states, so null (&ldquo;never asked&rdquo;) must not collapse into false.</div>
     </div>
   </div>
 </section>

@@ -1972,6 +1972,11 @@ export default function MyTimesheet() {
 
   function formUnchanged(a: typeof emptyForm, b: typeof emptyForm): boolean {
     if (a.typeId !== b.typeId || a.projId !== b.projId) return false;
+    // mig 829. The requester is stored on the entry, so moving the picker IS a
+    // change. Omitted when this function was written, because the field did not
+    // exist yet -- which made "Requested by" a silent edit: the picker moved,
+    // Update stayed disabled, and the entry kept the name it had.
+    if (a.reqId !== b.reqId) return false;
     if (!numEq(a.hours, b.hours) || !numEq(a.mins, b.mins)) return false;
     if ((a.notes ?? '').trim() !== (b.notes ?? '').trim()) return false;
     if (a.actRows.length !== b.actRows.length) return false;
@@ -1979,7 +1984,11 @@ export default function MyTimesheet() {
     // different sequence IS a change even though the set is identical.
     return a.actRows.every((r, i) => {
       const s = b.actRows[i];
-      return r.name.trim() === s.name.trim() && numEq(r.h, s.h) && numEq(r.m, s.m);
+      return r.name.trim() === s.name.trim() && numEq(r.h, s.h) && numEq(r.m, s.m)
+        // mig 821, and the same omission: the billable answer is stored per
+        // activity row, so flipping it is a change on its own. Compared as
+        // stored, three states -- null ("never asked") is not false.
+        && (r.billable ?? null) === (s.billable ?? null);
     });
   }
 
