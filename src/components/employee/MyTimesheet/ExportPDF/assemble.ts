@@ -39,8 +39,6 @@ const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June',
                      'July', 'August', 'September', 'October', 'November', 'December'];
 const DAY_ABBR = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-const pad2 = (n: number) => String(n).padStart(2, '0');
-const isoDate = (y: number, m: number, d: number) => `${y}-${pad2(m)}-${pad2(d)}`;
 
 /** One recorded row, already normalised by whichever surface loaded it. */
 export interface AssembleRow {
@@ -82,6 +80,11 @@ export interface AssembleInput {
   year:      number;
   month:     number;                      // 1-12
   totalDays: number;
+  /** Mig 837: every date in the period, in order. The report used to walk
+   *  1..totalDays off `month`, which cannot describe 26 Jul - 25 Aug -- it would
+   *  have printed July's days under an August heading. `year` and `month` stay
+   *  because they are what the period is CALLED, not what it contains. */
+  days:      string[];
 
   /** Planned minutes for a specific date. Must already return 0 on a holiday. */
   plannedForDate: (iso: string) => number;
@@ -129,7 +132,7 @@ export interface AssembleInput {
 }
 
 export function assembleExportData(input: AssembleInput): TimesheetExportData {
-  const { year, month, totalDays, plannedForDate, plannedForDow, hasSchedule,
+  const { year, month, totalDays, days, plannedForDate, plannedForDow, hasSchedule,
           holidayByDate, rows, header, labels } = input;
 
   const rowsByDate = rows.reduce<Record<string, AssembleRow[]>>((acc, r) => {
@@ -137,11 +140,12 @@ export function assembleExportData(input: AssembleInput): TimesheetExportData {
     return acc;
   }, {});
 
-  // ── The month grid ──────────────────────────────────────────────────
+  // ── The period grid ─────────────────────────────────────────────────
   const monthDays: ExportDay[] = [];
-  for (let d = 1; d <= totalDays; d++) {
-    const date      = isoDate(year, month, d);
-    const dow       = new Date(year, month - 1, d).getDay();
+  for (const date of days) {
+    const [dy, dm, dd] = date.split('-').map(Number);
+    const d         = dd;
+    const dow       = new Date(dy, dm - 1, dd).getDay();
     const dayRows   = rowsByDate[date] ?? [];
     const isHoliday = !!holidayByDate[date];
     monthDays.push({
@@ -201,7 +205,13 @@ export function assembleExportData(input: AssembleInput): TimesheetExportData {
     holidayCalendar: labels.holidayCalendar,
     manager:         labels.manager,
     workSchedule:    labels.workSchedule,
-    periodLabel:     `1 – ${totalDays} ${MONTH_NAMES[month - 1]} ${year}`,
+    /* A period that is a calendar month reads exactly as it always did. One
+     * that is not says so, because "1 - 31 August" over a grid starting on the
+     * 26th of July is a caption that contradicts the page under it. */
+    periodLabel:     days.length > 0 && days[0].slice(0, 7) !== days[days.length - 1].slice(0, 7)
+      ? `${Number(days[0].slice(8))} ${MONTH_NAMES[Number(days[0].slice(5, 7)) - 1].slice(0, 3)}`
+        + ` – ${Number(days[days.length - 1].slice(8))} ${MONTH_NAMES[Number(days[days.length - 1].slice(5, 7)) - 1].slice(0, 3)} ${year}`
+      : `1 – ${totalDays} ${MONTH_NAMES[month - 1]} ${year}`,
     monthSlug:       `${MONTH_NAMES[month - 1].slice(0, 3)}${year}`,
     status:          header.status,
 

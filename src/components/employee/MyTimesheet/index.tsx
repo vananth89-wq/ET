@@ -2,7 +2,10 @@
  * MyTimesheet — Employee self-service timesheet (v2).
  *
  * Schema facts (from migrations 703–706):
- *   timesheet_headers.period          → DATE, always 1st of month (e.g. 2026-08-01)
+ *   timesheet_headers.period          → DATE, the FIRST DAY OF THE PERIOD. The 1st
+ *                                       only when the configured cycle starts on
+ *                                       the 1st (mig 837). On a 26-to-25 cycle,
+ *                                       2026-07-26 is the period CALLED August.
  *   timesheet_headers.external_code   → NOT NULL UNIQUE — format: {employee_code}_{YYYYMM}
  *   timesheet_headers.work_schedule_id → snapshotted from employee_employment
  *   timesheet_headers.planned_minutes → integer (minutes)
@@ -30,6 +33,10 @@ import type { TimesheetExportData }                    from './ExportPDF/types';
 // buildMonthSplit moved behind assembleExportData -- this page no longer derives
 // any part of the report itself, so an approver's copy cannot diverge from it.
 import { entryMinutes }                               from './ExportPDF/utils/dataTransforms';
+/* mig 837. A timesheet period is a CYCLE, not a calendar month. Everything that
+ * used to be worked out here from (year, month) now comes from one window. */
+import { buildPeriodWindow, DEFAULT_PERIOD_START_DAY } from './period';
+import type { PeriodWindow }                          from './period';
 import type { ProjectClass }                          from './billability';
 import { loadLogoDataUrl }                            from './ExportPDF/logo';
 
@@ -38,7 +45,11 @@ import { loadLogoDataUrl }                            from './ExportPDF/logo';
 interface TimesheetHeader {
   id:                  string;
   employee_id:         string;
-  period:              string;   // 'YYYY-MM-01'
+  period:              string;   // first day of the period — see period.ts
+  /** Mig 837: the cycle this sheet was OPENED under, snapshot like the schedule.
+   *  Every guard compares against this and never against the live setting, so
+   *  changing the setting cannot re-slice a sheet that is already closed. */
+  period_start_day:    number;
   external_code:       string;
   status:              'to_be_submitted' | 'to_be_approved' | 'approved';
   work_schedule_id:    string | null;
@@ -305,8 +316,6 @@ function fmtChip(iso: string) {
   return `${parseInt(d, 10)} ${MONTH_NAMES[parseInt(m, 10) - 1].slice(0, 3)}`;
 }
 function isoDate(y: number, m: number, d: number) { return `${y}-${pad2(m)}-${pad2(d)}`; }
-function daysInMonth(y: number, m: number) { return new Date(y, m, 0).getDate(); }
-function firstDow(y: number, m: number) { return new Date(y, m - 1, 1).getDay(); }
 
 function fmtMins(mins: number): string {
   if (!mins) return '0 min';
@@ -322,23 +331,26 @@ function dowToDayNumber(dow: number, startDow: number): number {
   return ((dow - startDow + 7) % 7) + 1;
 }
 
-/** Calculate total planned minutes for a month from schedule + holidays */
+/** Total planned minutes over a period, from schedule + holidays.
+ *
+ *  Mig 837: takes the period's OWN list of dates rather than a year and a month.
+ *  A 26-to-25 period is 28-31 days straddling two calendar months, and walking
+ *  1..daysInMonth would have planned the wrong days AND the wrong number of
+ *  them -- silently, because a plausible total still comes out. */
 function calcPlannedMinutes(
-  year: number,
-  month: number,
+  days: string[],
   schedule: WorkSchedule,
   holidayDates: string[],
 ): number {
-  const total = daysInMonth(year, month);
+  const holi = new Set(holidayDates);
   let mins = 0;
-  for (let d = 1; d <= total; d++) {
-    const dow       = new Date(year, month - 1, d).getDay();
+  for (const dateStr of days) {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const dow       = new Date(y, m - 1, d).getDay();
     const dayNum    = dowToDayNumber(dow, schedule.start_day_of_week);
     const line      = schedule.lines.find(l => l.day_number === dayNum);
     const planned   = line?.planned_minutes ?? 0;
-    const dateStr   = isoDate(year, month, d);
-    const isHoliday = holidayDates.includes(dateStr);
-    mins += isHoliday ? 0 : planned;
+    mins += holi.has(dateStr) ? 0 : planned;
   }
   return mins;
 }
@@ -621,6 +633,32 @@ export default function MyTimesheet() {
   const urlSeed = parsePeriod(searchParams.get('period'));
   const [year,  setYear]  = useState(urlSeed?.y ?? today.getFullYear());
   const [month, setMonth] = useState(urlSeed?.m ?? today.getMonth() + 1);
+  /* mig 837. The configured cycle. NULL until it loads, and the period cannot be
+   * opened before then: a header created against the wrong anchor is a row the
+   * overlap constraint will refuse for the rest of the month. tec_select is
+   * USING (true), so every authenticated user can read this one number. */
+  const [periodStartDay, setPeriodStartDay] = useState<number | null>(null);
+  useEffect(() => {
+    let live = true;
+    supabase.from('time_edit_config').select('period_start_day').limit(1).maybeSingle()
+      .then(({ data }) => {
+        if (!live) return;
+        // Falling back to 1 is the pre-837 behaviour, which is right for a
+        // database where the column does not exist yet.
+        setPeriodStartDay(
+          typeof (data as { period_start_day?: number } | null)?.period_start_day === 'number'
+            ? (data as { period_start_day: number }).period_start_day
+            : DEFAULT_PERIOD_START_DAY);
+      });
+    return () => { live = false; };
+  }, []);
+
+  /** The period being shown, as dates. `year`/`month` above are its LABEL --
+   *  the month it ends in -- and are what the URL and the headings carry. */
+  const win: PeriodWindow = useMemo(
+    () => buildPeriodWindow(year, month, periodStartDay ?? DEFAULT_PERIOD_START_DAY),
+    [year, month, periodStartDay]);
+
   /** Earliest month the employee may reach, as YYYY-MM -- their hire month.
    *  NULL until the employment row loads, and NULL means NO floor: failing open
    *  the way editFloor does, so a slow or refused read never traps someone. */
@@ -772,8 +810,8 @@ export default function MyTimesheet() {
   useEffect(() => {
     if (!subjectId) return;
     let live = true;
-    const from = `${year}-${pad2(month)}-01`;
-    const to   = `${year}-${pad2(month)}-${pad2(new Date(year, month, 0).getDate())}`;
+    const from = win.start;
+    const to   = win.end;
     (async () => {
       const { data } = await supabase.rpc('my_timesheet_projects', {
         p_employee_id: subjectId, p_period_start: from, p_period_end: to,
@@ -781,7 +819,7 @@ export default function MyTimesheet() {
       if (live && data) setProjects(data as Project[]);
     })();
     return () => { live = false; };
-  }, [subjectId, year, month]);
+  }, [subjectId, win.start, win.end]);
 
   useEffect(() => {
     let live = true;
@@ -838,8 +876,8 @@ export default function MyTimesheet() {
   useEffect(() => {
     if (!timeTypes.some(t => t.uses_related_project)) { setAllProjects([]); return; }
     let live = true;
-    const from = `${year}-${pad2(month)}-01`;
-    const to   = `${year}-${pad2(month)}-${pad2(new Date(year, month, 0).getDate())}`;
+    const from = win.start;
+    const to   = win.end;
     (async () => {
       const { data } = await supabase.rpc('bookable_projects_all', {
         p_period_start: from, p_period_end: to,
@@ -847,15 +885,19 @@ export default function MyTimesheet() {
       if (live && data) setAllProjects(data as Project[]);
     })();
     return () => { live = false; };
-  }, [timeTypes, year, month]);
+  }, [timeTypes, win.start, win.end]);
 
   // ── Load / auto-create header + entries for the period ─────────────────
   const loadPeriod = useCallback(async () => {
-    if (!subjectId || !empCode) return;
+    // periodStartDay gates this deliberately. Opening a period creates a header
+    // if none exists, and a header written on the wrong anchor is not a stale
+    // read that fixes itself -- it is a row the overlap constraint then blocks
+    // the correct one from replacing.
+    if (!subjectId || !empCode || periodStartDay == null) return;
     setLoading(true);
     setError(null);
 
-    const periodDate = `${year}-${pad2(month)}-01`;
+    const periodDate = win.start;
 
     // 0. Resolve the employee's CURRENT schedule + holiday calendar.
     //    This used to live inside the "header does not exist" branch, which meant
@@ -903,7 +945,7 @@ export default function MyTimesheet() {
     // 1. Find existing header
     let { data: hdr, error: hErr } = await supabase
       .from('timesheet_headers')
-      .select('id, employee_id, period, external_code, status, work_schedule_id, holiday_calendar_id, planned_minutes, recorded_minutes, submitted_at, approved_at, content_changed_at')
+      .select('id, employee_id, period, period_start_day, external_code, status, work_schedule_id, holiday_calendar_id, planned_minutes, recorded_minutes, submitted_at, approved_at, content_changed_at')
       .eq('employee_id', subjectId)
       .eq('period', periodDate)
       .maybeSingle();
@@ -955,13 +997,13 @@ export default function MyTimesheet() {
           .from('time_calendar_entries')
           .select('entry_date')
           .eq('calendar_id', hcId)
-          .gte('entry_date', periodDate)
-          .lte('entry_date', isoDate(year, month, daysInMonth(year, month)));
+          .gte('entry_date', win.start)
+          .lte('entry_date', win.end);
         if (hdErr) { setError(hdErr.message); setLoading(false); return; }
         hdDates = (hdData ?? []).map((h: any) => h.entry_date);
       }
 
-      if (ws) plannedMins = calcPlannedMinutes(year, month, ws, hdDates);
+      if (ws) plannedMins = calcPlannedMinutes(win.days, ws, hdDates);
 
       // 2d. Create header
       const externalCode = `${empCode}_${year}${pad2(month)}`;
@@ -970,6 +1012,9 @@ export default function MyTimesheet() {
         .insert({
           employee_id:         subjectId,
           period:              periodDate,
+          // Snapshot, not a copy of the setting for convenience: this is the
+          // cycle the sheet is judged by for the rest of its life.
+          period_start_day:    win.startDay,
           external_code:       externalCode,
           status:              'to_be_submitted',
           work_schedule_id:    wsId,
@@ -979,7 +1024,7 @@ export default function MyTimesheet() {
           planned_minutes:     plannedMins,
           recorded_minutes:    0,
         })
-        .select('id, employee_id, period, external_code, status, work_schedule_id, holiday_calendar_id, planned_minutes, recorded_minutes, submitted_at, approved_at, content_changed_at')
+        .select('id, employee_id, period, period_start_day, external_code, status, work_schedule_id, holiday_calendar_id, planned_minutes, recorded_minutes, submitted_at, approved_at, content_changed_at')
         .single();
 
       if (cErr) { setError(cErr.message); setLoading(false); return; }
@@ -1025,8 +1070,8 @@ export default function MyTimesheet() {
         .from('time_calendar_entries')
         .select('entry_date, time_holidays!inner(holiday_name)')
         .eq('calendar_id', calId)
-        .gte('entry_date', periodDate)
-        .lte('entry_date', isoDate(year, month, daysInMonth(year, month)));
+        .gte('entry_date', win.start)
+        .lte('entry_date', win.end);
       // Surface it. Swallowing this error is exactly how the wrong table went
       // unnoticed: the query 400'd, data came back null, and the month simply
       // rendered as if the calendar were empty.
@@ -1076,7 +1121,7 @@ export default function MyTimesheet() {
     //     has been submitted, and freezing them would mean a holiday added in
     //     arrears leaves the planned figure permanently wrong.
     if (wsLive && hdr!.status !== 'to_be_approved') {
-      const truePlanned = calcPlannedMinutes(year, month, wsLive, hdRows.map(h => h.holiday_date));
+      const truePlanned = calcPlannedMinutes(win.days, wsLive, hdRows.map(h => h.holiday_date));
       if (truePlanned !== hdr!.planned_minutes) {
         await supabase.from('timesheet_headers').update({ planned_minutes: truePlanned }).eq('id', hdr!.id);
         hdr = { ...hdr!, planned_minutes: truePlanned } as typeof hdr;
@@ -1105,7 +1150,7 @@ export default function MyTimesheet() {
     if (eErr) { setError(eErr.message); setLoading(false); return; }
     setEntries((ents ?? []) as unknown as TimesheetEntry[]);
     setLoading(false);
-  }, [subjectId, empCode, year, month]);
+  }, [subjectId, empCode, win, year, month, periodStartDay]);
 
   useEffect(() => {
     if (empCode) loadPeriod();
@@ -1775,6 +1820,9 @@ export default function MyTimesheet() {
 
     return assembleExportData({
       year, month, totalDays,
+      // mig 837. The report's grid is the PERIOD's days, not 1..daysInMonth --
+      // year and month above stay, because they are what it is CALLED.
+      days: win.days,
       plannedForDate: plannedFor,
       plannedForDow:  dow => (schedule ? plannedForDay(dow, schedule) : 0),
       hasSchedule:    !!schedule,
@@ -1820,8 +1868,8 @@ export default function MyTimesheet() {
     }, {}),
   [holidays]);
 
-  const totalDays  = daysInMonth(year, month);
-  const startDow   = firstDow(year, month);
+  const totalDays  = win.days.length;
+  const startDow   = new Date(win.start + 'T12:00').getDay();
   const todayIso   = isoDate(today.getFullYear(), today.getMonth() + 1, today.getDate());
   const status     = header?.status ?? 'to_be_submitted';
   const statusM    = STATUS_META[status];
@@ -1838,7 +1886,7 @@ export default function MyTimesheet() {
   //     and it closes an APPROVED month too, which is the point: with no
   //     workflow configured, approved is the normal resting state, so if
   //     approved meant read-only nobody could ever correct anything.
-  const monthStart   = isoDate(year, month, 1);
+  const monthStart   = win.start;
   const monthClosed  = editFloor != null && monthStart < editFloor;
   const pending      = status === 'to_be_approved';
   // mayEdit is user_can('timesheet','edit', subject) — see the top of this
@@ -1892,9 +1940,13 @@ export default function MyTimesheet() {
   const dayEntries = selectedDate ? (entriesByDate[selectedDate] ?? []) : [];
 
   // Calendar cells
-  const cells: (number | null)[] = [
+  /* Mig 837: dates, not day numbers. The grid used to be seeded from the 1st and
+   * counted to daysInMonth, which cannot express 26 Jul - 25 Aug at all. It is
+   * still one contiguous run of days -- only the run no longer starts where a
+   * calendar month does. */
+  const cells: (string | null)[] = [
     ...Array(startDow).fill(null),
-    ...Array.from({ length: totalDays }, (_, i) => i + 1),
+    ...win.days,
   ];
   while (cells.length % 7 !== 0) cells.push(null);
 
@@ -3022,11 +3074,19 @@ export default function MyTimesheet() {
 
               {/* Day cells */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 3 }}>
-                {cells.map((day, idx) => {
-                  if (!day) return <div key={`b-${idx}`} style={{ minHeight: 118 }} />;
+                {cells.map((dateStr, idx) => {
+                  if (!dateStr) return <div key={`b-${idx}`} style={{ minHeight: 118 }} />;
 
-                  const dateStr    = isoDate(year, month, day);
-                  const dow        = (startDow + day - 1) % 7;
+                  const cellMonth  = Number(dateStr.slice(5, 7));
+                  const day        = Number(dateStr.slice(8, 10));
+                  // The grid's first column is Sunday and the run is contiguous,
+                  // so the column IS the day of week -- no arithmetic off a
+                  // month start, which is the thing that stopped being true.
+                  const dow        = idx % 7;
+                  /* On a period that crosses a calendar month, a bare "1" sitting
+                   * after "31" is genuinely ambiguous. Name the month where it
+                   * turns over, and only there. */
+                  const showMonthTag = win.spansTwoMonths && (day === 1 || idx === startDow);
                   const isToday    = dateStr === todayIso;
                   const isSelected = dateStr === selectedDate;
                   const isPast     = dateStr < todayIso;
@@ -3123,7 +3183,7 @@ export default function MyTimesheet() {
                       // holiday falling on a weekend still has something to show, so
                       // it stays keyboard-reachable and announces by name.
                       tabIndex={isOffDay && !isHoliday && dayEnts.length === 0 ? -1 : 0}
-                      aria-label={`${day} ${MONTH_NAMES[month - 1]}, ${
+                      aria-label={`${day} ${MONTH_NAMES[cellMonth - 1]}, ${
                         isHoliday   ? `public holiday${holidayName ? ' — ' + holidayName : ''}${isOffDay ? ', non-working day' : ''}`
                         : leaveName ? leaveName
                         : isOffDay  ? (dayEnts.length > 0
@@ -3207,6 +3267,12 @@ export default function MyTimesheet() {
                         }}>
                           {day}
                         </span>
+                        {showMonthTag && (
+                          <span style={{ fontSize: 9.5, fontWeight: 700, color: '#98A2B3',
+                                         letterSpacing: '0.04em', marginLeft: 4 }}>
+                            {MONTH_NAMES[cellMonth - 1].slice(0, 3).toUpperCase()}
+                          </span>
+                        )}
                         {showMetric && (
                           <span style={{ display: 'flex', alignItems: 'baseline', gap: 1, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
                             <b style={{ fontSize: 14, fontWeight: 800, letterSpacing: '-0.03em', color: metricColor }}>
@@ -3371,6 +3437,7 @@ export default function MyTimesheet() {
                 <SummarySection
                   year={year}
                   month={month}
+                  days={win.days}
                   entries={entries}
                   plannedMinutes={header?.planned_minutes ?? 0}
                   plannedFor={plannedFor}
@@ -4110,12 +4177,11 @@ export default function MyTimesheet() {
                     <button
                       onClick={() => {
                         const next = new Set(createDates);
-                        for (let d = 1; d <= totalDays; d++) {
-                          const ds = isoDate(year, month, d);
-                          const dow = (startDow + d - 1) % 7;
+                        win.days.forEach((ds, i) => {
+                          const dow = (startDow + i) % 7;
                           const planned = schedule ? plannedForDay(dow, schedule) : 0;
                           if (planned > 0 && !dateBlockedReason(ds)) next.add(ds);
-                        }
+                        });
                         setCreateDates(next); setCreateErr(null);
                       }}
                       style={{ border: 'none', background: 'none', color: '#2563EB', font: 'inherit', fontSize: 11, fontWeight: 600, cursor: 'pointer', padding: 0 }}
@@ -4140,18 +4206,24 @@ export default function MyTimesheet() {
                 {/* Always-open month picker — never closes on selection */}
                 <div style={{ border: '1px solid #E5E7EB', borderRadius: 8, marginTop: 8, overflow: 'hidden' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: '#FCFCFD', borderBottom: '1px solid #E5E7EB' }}>
-                    <b style={{ fontSize: 12.5, flex: 1 }}>{MONTH_NAMES[month - 1]} {year}</b>
-                    <span style={{ fontSize: 10.5, fontWeight: 600, color: '#98A2B3', background: '#F1F5F9', borderRadius: 5, padding: '2px 7px' }}>Timesheet month</span>
+                    <b style={{ fontSize: 12.5, flex: 1 }}>
+                      {MONTH_NAMES[month - 1]} {year}
+                      {win.spansTwoMonths && (
+                        <span style={{ fontWeight: 500, color: '#98A2B3', marginLeft: 6 }}>
+                          {fmtChip(win.start)} – {fmtChip(win.end)}
+                        </span>
+                      )}
+                    </b>
+                    <span style={{ fontSize: 10.5, fontWeight: 600, color: '#98A2B3', background: '#F1F5F9', borderRadius: 5, padding: '2px 7px' }}>Timesheet period</span>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 2, padding: 8 }}>
                     {DAY_ABBR.map(d => <div key={d} style={{ textAlign: 'center', fontSize: 9, fontWeight: 700, color: '#98A2B3', padding: '2px 0' }}>{d[0]}</div>)}
                     {Array.from({ length: startDow }).map((_, i) => <div key={`b${i}`} />)}
-                    {Array.from({ length: totalDays }).map((_, i) => {
-                      const d = i + 1;
-                      const ds = isoDate(year, month, d);
+                    {win.days.map((ds, i) => {
+                      const d = Number(ds.slice(8, 10));
                       const reason = dateBlockedReason(ds);
                       const on = createDates.has(ds);
-                      const dow = (startDow + d - 1) % 7;
+                      const dow = (startDow + i) % 7;
                       const nonWorking = (schedule ? plannedForDay(dow, schedule) : 0) === 0;
                       return (
                         <button

@@ -2,7 +2,7 @@
 {
   "name": "Timesheet Test Plan",
   "schemaVersion": 1,
-  "description": "Prowess timesheet test plan, migrations 726–836. 439 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
+  "description": "Prowess timesheet test plan, migrations 726–837. 452 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
   "mcpTools": [],
   "mcpServerNames": []
 }
@@ -96,7 +96,7 @@
 <header class="top">
   <div class="wrap">
     <p class="eyebrow">Prowess · Time Management</p>
-    <h1>Test plan — migrations 726 to 836</h1>
+    <h1>Test plan — migrations 726 to 837</h1>
     <p class="sub">Multiple entries per day, day-occupancy rules, per-activity hours, advance-dating —
        and, from migration 730, an edit window that actually binds and a submission that goes
        somewhere. Every case says what to do, what should happen, and which rule it proves — so a
@@ -124,6 +124,7 @@
       <span><b>AU27–AU33 added</b> 3 Sep 2026</span>
       <span><b>AU37–AU42 added</b> 9 Sep 2026</span>
       <span><b>AR45 · AS28 added</b> 9 Sep 2026</span>
+      <span><b>AV1–AV13 added</b> 9 Sep 2026</span>
     </div>
   </div>
 </header>
@@ -179,6 +180,7 @@
     <a class="toc" href="#asb">AS · Which hours are chargeable (820&ndash;823)</a>
     <a class="toc" href="#at">AT · Known and deliberate (780&ndash;826)</a>
     <a class="toc" href="#au">AU · The split reaches every report (825 &middot; 826)</a>
+    <a class="toc" href="#av">AV · A period is a cycle, not a month (837)</a>
   </div>
 
   <div class="bar">
@@ -5950,6 +5952,154 @@ order  by created_at desc limit 6;</div>
       <p>On a card where the largest activity is billable and the second largest is not &mdash; QCC with MDF Create 8h and Testing 6h &mdash; compare the two bar lengths.</p>
       <div class="exp"><b>Expect:</b> the 6h bar is three quarters of the 8h bar. It is <b>not</b> full-width in its own group.</div>
       <div class="why">Every bar is still scaled to the largest activity on the card, not the largest in its group. Re-scaling per group would make the biggest non-billable row look like the biggest row on the card &mdash; the same misreading the old grey caused, in the opposite direction.</div>
+    </div>
+  </div>
+</section>
+
+<section id="av">
+  <h2><span class="k">AV</span> A period is a cycle, not a month (837)</h2>
+  <p class="lede">Some employees are paid for a calendar month; some are paid from the 26th to the 25th. Nothing about the storage had to change for that &mdash; <code>period</code> was always a date, and the end has always been derived as <code>period + 1 month - 1 day</code>, which is already right for a 26th anchor. What was hardcoded is the INVERSE: <i>which period does this date belong to</i>, written eleven times as <code>date_trunc('month', X)</code> across the write paths, the recalc triggers, the edit-window floor and three report normalisers. It is one function now. These cases exist because most of the ways this breaks produce a plausible number rather than an error.</p>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AV1</span>
+      <span class="title">The fixture, and the dates to write down</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Confirm <b>Time Management &rarr; Edit window</b> shows a period start day of <b>26</b>, then open <b>My Timesheet</b> for <b>August 2026</b>.</p>
+      <div class="exp"><b>Expect:</b> the calendar runs <b>26 Jul to 25 Aug</b> &mdash; 31 cells, first cell Sunday 26 July, last cell Tuesday 25 August &mdash; under the heading <b>August 2026</b>.</div>
+      <div class="why">The month a period is CALLED is the month it ENDS in, because that is the month payroll pays it in. Every case below is read against this one window, so write the two dates down before starting.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AV2</span>
+      <span class="title">The turnover is named, once</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Look at the cell for <b>1 August</b> in that calendar.</p>
+      <div class="exp"><b>Expect:</b> the day number carries a small <b>AUG</b> beside it. No other cell does, apart from the first.</div>
+      <div class="why">A bare &ldquo;1&rdquo; sitting immediately after &ldquo;31&rdquo; is genuinely ambiguous, and a period that crosses a month boundary has exactly one place where that happens. Naming every cell would be noise; naming none of them is the bug.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AV3</span>
+      <span class="title">A day outside the period is not reachable</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Still in August 2026, try to record time on <b>25 July</b> or <b>26 August</b>.</p>
+      <div class="exp"><b>Expect:</b> neither day is on the calendar at all. Then open <b>September 2026</b>: it runs 26 Aug &ndash; 25 Sep, and 26 August is its first day.</div>
+      <div class="why">Consecutive periods must tile the calendar &mdash; the day after one ends is the day the next begins, with no gap and no day in both. 837 asserts this over four years of periods at both cycles before it will commit.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AV4</span>
+      <span class="title">Planned hours count the period, not the month</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>On a standard 8h five-day schedule, read <b>PLANNED</b> in the Monthly Summary for August 2026 and count the working days between 26 Jul and 25 Aug yourself.</p>
+      <div class="exp"><b>Expect:</b> they agree.</div>
+      <div class="warn">This is the failure that would have been hardest to notice. <code>calcPlannedMinutes</code> walked <code>1..daysInMonth</code>: for a 26&ndash;25 period it would have planned <i>the wrong days</i> and often <i>the wrong number of them</i> &mdash; and still printed a completely plausible total, against which every utilisation figure on the screen is then divided.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AV5</span>
+      <span class="title">A holiday inside the period lands in the right sheet</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Add a public holiday on <b>30 July 2026</b> to the calendar this employee is on, then reopen August 2026.</p>
+      <div class="exp"><b>Expect:</b> it appears in the August sheet and PLANNED drops by one day. It does <b>not</b> appear in July.</div>
+      <div class="why">The trigger used to turn the holiday date into a month and look for a header with that period, which for 30 July would have searched for one anchored 1 July and found nothing. It now asks which sheet CONTAINS the date &mdash; <code>h.span @&gt; date</code> &mdash; which is the only form that stays right when two employees are on different cycles.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AV6</span>
+      <span class="title">Copy Day works across the turnover</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Copy a day from <b>30 July</b> to <b>5 August</b>.</p>
+      <div class="exp"><b>Expect:</b> it is allowed &mdash; both days are in one period. Copying from 30 July to <b>26 August</b> is refused.</div>
+      <div class="why">The rule was never &ldquo;same calendar month&rdquo;; it was always &ldquo;same timesheet&rdquo;, and the two happened to coincide. <code>paste_timesheet_day</code> now asks the header which period a date is in, using that header&rsquo;s own cycle.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AV7</span>
+      <span class="title">An existing calendar-month sheet is untouched</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Open a timesheet that existed <b>before</b> 837 deployed &mdash; one anchored on the 1st.</p>
+      <div class="exp"><b>Expect:</b> it still runs 1 to 31, still accepts an entry on the 31st, and still refuses one outside its month. Nothing about it moved.</div>
+      <div class="warn">This is the case the whole snapshot design exists for. Every guard compares against <code>timesheet_headers.period_start_day</code> &mdash; the cycle the sheet was OPENED under &mdash; and never against the live setting. Had they read the setting, flipping it to 26 would have made every timesheet already in the database instantly un-writable: every save would compute 26 August and compare it against a header that says the 1st.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AV8</span>
+      <span class="title">Two sheets can never cover the same day</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>With a 1&ndash;31 August sheet already in place for an employee, try to open a <b>26 Aug &ndash; 25 Sep</b> sheet for them.</p>
+      <div class="exp"><b>Expect:</b> the database refuses it, naming <code>timesheet_headers_no_overlapping_span</code>.</div>
+      <div class="warn"><code>UNIQUE (employee_id, period)</code> stops two sheets sharing an ANCHOR. It never stopped them sharing a DAY, because calendar months cannot overlap. The moment a cycle changes they can &mdash; both sheets contain 28 August, both are approvable, and the same hours are counted twice with no error anywhere. It is a constraint rather than a convention precisely because nobody would remember the convention.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AV9</span>
+      <span class="title">A cycle of 31 is refused</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Try to set the period start day to <b>31</b>, or to insert a header claiming a start day of 31.</p>
+      <div class="exp"><b>Expect:</b> refused. The permitted range is 1 to 28.</div>
+      <div class="why">Month arithmetic clamps: 31 January plus a month is 28 February, so a 31st anchor loses a day every February and never climbs back. Below 29 every month has the day and the arithmetic is exact. The cap is what makes an entire class of silent drift unreachable rather than merely unlikely.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AV10</span>
+      <span class="title">The deadline is the period end, not the month end</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>With a submission offset of five days, check when <b>September 2026</b> (26 Aug &ndash; 25 Sep) is due.</p>
+      <div class="exp"><b>Expect:</b> <b>30 September</b> &mdash; five days after the period ends.</div>
+      <div class="why"><code>time_submission_due_date</code> truncated its argument to a month start first. That was a harmless no-op while every anchor was the 1st; on a 26th anchor it threw the deadline back to the start of the calendar month and made every sheet look overdue.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AV11</span>
+      <span class="title">The PDF prints the period it says it prints</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Export the Monthly Summary for August 2026 and read the caption under the title, then the day grid and the week rows.</p>
+      <div class="exp"><b>Expect:</b> the caption reads <b>26 Jul &ndash; 25 Aug 2026</b>; the grid opens on Sun 26 and closes on Tue 25; and Week 1 is labelled <b>26 Jul &ndash; 1 Aug</b>, naming both months.</div>
+      <div class="warn">Two separate lies were possible here. The caption was built as &ldquo;1 &ndash; 31 August&rdquo;, which would have contradicted the grid beneath it; and the week range named the month of the week&rsquo;s FIRST day only, printing &ldquo;26&ndash;1 Jul&rdquo; over a week that ends in August. Weeks could not straddle a month before, because they were clipped to one.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AV12</span>
+      <span class="title">The approver sees the same period</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Open the same sheet in the approval screen, and download the approver&rsquo;s copy of the PDF.</p>
+      <div class="exp"><b>Expect:</b> the same 31 days, the same totals, and a period label naming August with the real range beside it.</div>
+      <div class="why">The approver&rsquo;s model derives the window from <code>header.period</code> alone &mdash; the end is the anchor plus a month minus a day &mdash; so nothing had to be added to the approval payload for it to be right. Reading a year and a month off the anchor and walking <code>1..daysInMonth</code> would have built <i>July&rsquo;s</i> grid: the right number of days, all of them wrong.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AV13</span>
+      <span class="title">The client and the database agree on every day</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Nothing to click. <code>period.ts</code> mirrors 837&rsquo;s four SQL functions, and the mirror is checked against a real PostgreSQL over every date from 2024 to 2027 at cycles 1, 26 and 28 &mdash; 4,527 cases, plus the round trip from label to anchor and back, plus that consecutive periods tile with no gap.</p>
+      <div class="exp"><b>Expect:</b> if that check is not part of the build, run it before trusting a change to either side.</div>
+      <div class="why">Two definitions of one fact are two places for it to drift, and this pair cannot be collapsed into one &mdash; the browser needs the answer without a round trip, and the database needs it without the browser. Where a duplicate is unavoidable, the duplicate has to be <i>proved</i> equal rather than assumed equal.</div>
     </div>
   </div>
 </section>

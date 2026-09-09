@@ -16,6 +16,10 @@
 // The Summary report's own label heuristic, imported rather than reimplemented
 // so the screen and the PDF cannot drift on how AMPTJ, WISAYAH and QCC print.
 import { displayLabel } from '../../components/employee/MyTimesheet/ExportPDF/utils/summaryMatrix';
+/* mig 837. The period's own days, derived from the anchor alone -- the same
+ * function the employee's screen uses, imported rather than reimplemented for
+ * exactly the reason displayLabel is. */
+import { periodDays, periodLabel as periodLabelOf } from '../../components/employee/MyTimesheet/period';
 export { displayLabel };
 
 // ── Payload shape (mirrors time_approval_payload, mig 742) ───────────────────
@@ -226,17 +230,18 @@ export function hLabel(minutes: number): string {
   return minutes % 60 === 0 ? `${minutes / 60}h` : `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
-/** Local YYYY-MM-DD — never toISOString, which shifts across the date line. */
-function iso(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
 
 // ── Builder ──────────────────────────────────────────────────────────────────
 
 export function buildMonth(p: TsPayload, now: Date = new Date()): MonthModel {
-  const [y, mo] = p.header.period.split('-').map(Number);
-  const first   = new Date(y, mo - 1, 1);
-  const nDays   = new Date(y, mo, 0).getDate();
+  /* Mig 837. header.period is the FIRST DAY of the period, not necessarily the
+   * 1st of a month. Reading (y, mo) off it and walking 1..daysInMonth would have
+   * built July's grid for a period running 26 Jul - 25 Aug: the right number of
+   * days, all of them wrong, and no error anywhere to say so. */
+  const dayList = periodDays(p.header.period);
+  const first   = new Date(p.header.period + 'T12:00');
+  const nDays   = dayList.length;
+  const label   = periodLabelOf(p.header.period);
 
   // schedule: day_number 1..7 where 1 = Sunday, so day_number = getDay() + 1
   const plannedByDow = new Map<number, number>();
@@ -323,17 +328,23 @@ export function buildMonth(p: TsPayload, now: Date = new Date()): MonthModel {
   // "Today" only bites inside this month. A past month has nothing not-yet-due;
   // a future month has nothing missing.
   const monthStart = first;
-  const monthEnd   = new Date(y, mo - 1, nDays);
+  const monthEnd   = new Date(dayList[nDays - 1] + 'T12:00');
+  /* The COUNT of days elapsed in the period, which is what every "not yet due"
+   * figure divides by. It used to be now.getDate() -- the day of the calendar
+   * month -- which on a 26-to-25 period would call the 1st of August day one of
+   * a period already six days old. */
+  const todayIsoNow = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   const todayDay =
     now < monthStart ? 0 :
     now > monthEnd   ? nDays :
-    now.getDate();
+    Math.max(0, dayList.indexOf(todayIsoNow) + 1);
 
   const days: MonthDay[] = [];
-  for (let d = 1; d <= nDays; d++) {
-    const date  = new Date(y, mo - 1, d);
+  for (let i = 0; i < nDays; i++) {
+    const key   = dayList[i];
+    const date  = new Date(key + 'T12:00');
+    const d     = date.getDate();
     const dow   = date.getDay();
-    const key   = iso(date);
     const es    = entriesByDate.get(key) ?? [];
     const holidayName = holidayByDate.get(key) ?? null;
 
@@ -537,7 +548,13 @@ export function buildMonth(p: TsPayload, now: Date = new Date()): MonthModel {
   });
 
   return {
-    periodLabel: first.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }),
+    /* The month the period is CALLED -- the one it ENDS in -- with the real
+     * range beside it when the two are not the same thing. */
+    periodLabel: new Date(`${label.year}-${String(label.month).padStart(2, '0')}-01T12:00`)
+                   .toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
+                 + (p.header.period.slice(0, 7) === dayList[nDays - 1].slice(0, 7) ? ''
+                    : ` · ${first.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`
+                      + ` – ${monthEnd.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`),
     days, weeks, columns,
     planned, recorded, over,
     utilisation: planned ? Math.round((recorded / planned) * 100) : 0,

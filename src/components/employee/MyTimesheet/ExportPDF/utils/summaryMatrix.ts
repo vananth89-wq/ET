@@ -286,7 +286,13 @@ export function buildSummaryMatrix(data: TimesheetExportData): SummaryMatrix {
     rows.push({
       kind: 'week',
       label: `Week ${wi + 1}`,
-      range: `${dayNum(week[0].date)}–${dayNum(week[week.length - 1].date)} ${monLbl(week[0].date)}`,
+      /* Mig 837. The month used to be named once, from the week's FIRST day,
+       * because a week could not straddle two of them: weeks were clipped to
+       * the calendar month they sat in. On a 26-to-25 period they straddle by
+       * design, and this printed "26–1 Jul" over a week ending on 1 August. */
+      range: monLbl(week[0].date) === monLbl(week[week.length - 1].date)
+        ? `${dayNum(week[0].date)}–${dayNum(week[week.length - 1].date)} ${monLbl(week[0].date)}`
+        : `${dayNum(week[0].date)} ${monLbl(week[0].date)} – ${dayNum(week[week.length - 1].date)} ${monLbl(week[week.length - 1].date)}`,
       cells: weekCells,
       total: weekTotal,
       planned: weekPlanned,

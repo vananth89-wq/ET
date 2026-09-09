@@ -89,10 +89,6 @@ const MONTHS = ['January','February','March','April','May','June',
 const M3 = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const D3 = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
-const pad2 = (n: number) => String(n).padStart(2, '0');
-const iso  = (y: number, m: number, d: number) => `${y}-${pad2(m)}-${pad2(d)}`;
-const dim  = (y: number, m: number) => new Date(y, m, 0).getDate();
-
 /**
  * Whole percentages that total 100.
  *
@@ -399,8 +395,15 @@ const pTitleSt: React.CSSProperties = {
 // ─── The section ─────────────────────────────────────────────────────────────
 
 export interface SummarySectionProps {
+  /** The month the period is CALLED — the one it ends in (mig 837). Used for
+   *  the heading only; nothing here derives a date from it any more. */
   year: number;
   month: number;                              // 1-12
+  /** Mig 837: every date in the period, in order. This panel used to build its
+   *  own list from (year, month), which on a 26-to-25 cycle would have counted
+   *  the wrong days — and then reported the ones outside the period as
+   *  MISSING, which is the sort of wrong that generates chasing emails. */
+  days: string[];
   entries: SumEntry[];
   plannedMinutes: number;                     // header.planned_minutes
   /** Mirrors the calendar's own rule: 0 on a weekend or a holiday. */
@@ -425,16 +428,15 @@ export interface SummarySectionProps {
 }
 
 export default function SummarySection({
-  year, month, entries, plannedMinutes, plannedFor, holidayByDate, todayIso, onJumpToDate,
+  year, month, days: periodDates, entries, plannedMinutes, plannedFor, holidayByDate, todayIso, onJumpToDate,
   classOfProject,
 }: SummarySectionProps) {
 
   const d = useMemo(() => {
-    const total = dim(year, month);
-    const days = Array.from({ length: total }, (_, i) => {
-      const date = iso(year, month, i + 1);
+    const days = periodDates.map((date) => {
+      const [dy, dm, dd] = date.split('-').map(Number);
       return {
-        date, day: i + 1, dow: new Date(year, month - 1, i + 1).getDay(),
+        date, day: dd, dow: new Date(dy, dm - 1, dd).getDay(),
         planned: plannedFor(date),
         minutes: entries.filter(e => e.entry_date === date)
                         .reduce((s, e) => s + e.hours_minutes, 0),
@@ -479,9 +481,16 @@ export default function SummarySection({
     const flush = () => {
       if (!bucket.length) return;
       const f = bucket[0], l = bucket[bucket.length - 1];
+      /* Mig 837. The month was named once, from the label's own month, because a
+       * week could not straddle two of them — weeks were clipped to the calendar
+       * month. On a 26-to-25 period the first and last weeks straddle by design,
+       * and this read "26–1 Aug" over a week that starts in July. */
+      const fM = M3[Number(f.date.slice(5, 7)) - 1];
+      const lM = M3[Number(l.date.slice(5, 7)) - 1];
       weeks.push({
-        label: f.day === l.day ? `${f.day} ${M3[month - 1]}`
-                               : `${f.day}–${l.day} ${M3[month - 1]}`,
+        label: f.day === l.day ? `${f.day} ${fM}`
+             : fM === lM       ? `${f.day}–${l.day} ${fM}`
+                               : `${f.day} ${fM} – ${l.day} ${lM}`,
         start: f.date, end: l.date,
         planned:  bucket.reduce((s, x) => s + x.planned, 0),
         minutes:  bucket.reduce((s, x) => s + x.minutes, 0),
@@ -737,7 +746,7 @@ export default function SummarySection({
       attain:    plannedMinutes > 0 ? (recorded / plannedMinutes) * 100 : 0,
       avgPerDay: logged > 0 ? recorded / logged : 0,
     };
-  }, [year, month, entries, plannedMinutes, plannedFor, todayIso, classOfProject]);
+  }, [periodDates, month, entries, plannedMinutes, plannedFor, todayIso, classOfProject]);
 
   const pace = d.aheadN > 0 ? d.remaining / d.aheadN : 0;
   const donutTotal = d.projects.reduce((s, p) => s + p.minutes, 0);
@@ -763,6 +772,16 @@ export default function SummarySection({
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 14 }}>
         <div style={{ fontSize: 16, fontWeight: 750, color: C.ink }}>
           Monthly Summary <span style={{ fontWeight: 500, color: C.ink4 }}>— {MONTHS[month - 1]} {year}</span>
+          {periodDates.length > 0
+            && periodDates[0].slice(0, 7) !== periodDates[periodDates.length - 1].slice(0, 7) && (
+            /* The period is not the month it is named after, so say what it is.
+               Every figure in this panel is over these dates. */
+            <span style={{ fontWeight: 500, color: C.ink4, fontSize: 12.5, marginLeft: 8 }}>
+              {Number(periodDates[0].slice(8))} {MONTHS[Number(periodDates[0].slice(5, 7)) - 1].slice(0, 3)}
+              {' – '}
+              {Number(periodDates[periodDates.length - 1].slice(8))} {MONTHS[Number(periodDates[periodDates.length - 1].slice(5, 7)) - 1].slice(0, 3)}
+            </span>
+          )}
         </div>
         <button
           onClick={() => onJumpToDate(null)}

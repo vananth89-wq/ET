@@ -4,6 +4,7 @@ import type { TimesheetExportData } from '../../components/employee/MyTimesheet/
 import { loadLogoDataUrl } from '../../components/employee/MyTimesheet/ExportPDF/logo';
 import { entryMinutes } from '../../components/employee/MyTimesheet/ExportPDF/utils/dataTransforms';
 import type { TsPayload, TsPayloadEntry } from './model';
+import { periodDays, periodLabel } from '../../components/employee/MyTimesheet/period';
 
 /**
  * The approver's copy of the employee's report.
@@ -20,8 +21,13 @@ import type { TsPayload, TsPayloadEntry } from './model';
  * the screen the approver is looking at while they click the button.
  */
 export async function buildApprovalExportData(p: TsPayload): Promise<TimesheetExportData> {
-  const [y, m] = p.header.period.split('-').map(Number);
-  const totalDays = new Date(y, m, 0).getDate();
+  /* Mig 837. header.period is the period's FIRST DAY, which is the 1st only on a
+   * calendar-month cycle. The window follows from the anchor alone -- end is
+   * anchor + 1 month - 1 day -- so the approver's copy needs nothing added to the
+   * payload to get this right, and the label is the month it ENDS in. */
+  const days      = periodDays(p.header.period);
+  const totalDays = days.length;
+  const { year: y, month: m } = periodLabel(p.header.period);
 
   const holidayByDate: Record<string, string> = {};
   for (const h of p.holidays ?? []) holidayByDate[h.date] = h.name;
@@ -108,7 +114,7 @@ export async function buildApprovalExportData(p: TsPayload): Promise<TimesheetEx
   });
 
   return assembleExportData({
-    year: y, month: m, totalDays,
+    year: y, month: m, totalDays, days,
     plannedForDate,
     plannedForDow,
     hasSchedule: !!p.schedule,
