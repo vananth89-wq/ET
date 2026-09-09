@@ -52,6 +52,10 @@ export interface ExportEntry {
    * every reader downstream.
    */
   isSupport:  boolean;
+  /** Who asked for the help (mig 829). Null on everything that is not help.
+   *  829 made the field mandatory so a project lead could question the hours;
+   *  until now the document that reaches them did not carry it. */
+  requester:  string | null;
   minutes:    number;
   notes:      string | null;
   activities: ExportActivity[];
@@ -124,6 +128,24 @@ export interface ExportProjectActivity {
  * arithmetic visible: activities sum to their project, projects sum to
  * projectTotalMinutes, and what is left over is non-project time, named.
  */
+/**
+ * Help given to another project (801), grouped by the project that was HELPED.
+ *
+ * NOT an ExportProjectBreakdown, deliberately. It carries no `pctOfProjectTime`
+ * and no `cls`: a share "of project time" printed on one of these invites the
+ * reader to compare it with the cards above, and these hours are excluded from
+ * every one of those projects' numbers on purpose.
+ */
+export interface ExportHelpBreakdown {
+  /** The helped project, already qualified -- "AZAD (Support)". */
+  name:       string;
+  minutes:    number;
+  daysActive: number;
+  /** Everybody who asked, over the month. Usually one. */
+  requesters: string[];
+  activities: ExportProjectActivity[];
+}
+
 export interface ExportProjectBreakdown {
   name:       string;
   minutes:    number;
@@ -191,8 +213,13 @@ export interface TimesheetExportData {
    *  whenever something was deleted. */
   changedEntryCount: number;
 
-  /** Page 3's nested breakdown. Project-bearing entries only. */
+  /** Page 3's nested breakdown. Booked projects only -- help is excluded and
+   *  reported separately, because a card headed AZAD asserts the hours are
+   *  AZAD's, which is the one claim mig 801 exists to deny. */
   projectActivities: ExportProjectBreakdown[];
+  /** Help given to projects the employee is not staffed on. Its own block for
+   *  the reason above, and its own subtotal, so no reader adds it to the cards. */
+  helpGiven: ExportHelpBreakdown[];
   /** What page 3's nested breakdown deliberately excludes, named. */
   nonProjectTypes: ExportNonProjectType[];
   /** Page 3's donut: the whole month, projects and non-project types alike. */

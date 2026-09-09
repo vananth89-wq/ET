@@ -2,7 +2,7 @@
 {
   "name": "Timesheet Test Plan",
   "schemaVersion": 1,
-  "description": "Prowess timesheet test plan, migrations 726–836. 431 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
+  "description": "Prowess timesheet test plan, migrations 726–836. 437 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
   "mcpTools": [],
   "mcpServerNames": []
 }
@@ -122,6 +122,7 @@
       <span><b>AU24–AU26 added</b> 3 Sep 2026</span>
       <span><b>AR43–AR44 added</b> 3 Sep 2026</span>
       <span><b>AU27–AU33 added</b> 3 Sep 2026</span>
+      <span><b>AU37–AU42 added</b> 9 Sep 2026</span>
     </div>
   </div>
 </header>
@@ -5805,6 +5806,72 @@ order  by created_at desc limit 6;</div>
       <p>Read the Productivity group: the header, then each tile.</p>
       <div class="exp"><b>Expect:</b> <b>&ldquo;of 162h worked&rdquo;</b> once, right-aligned in the group header. Each tile shows hours, a bare percentage, and a <b>swatch before its label</b> in that bucket&rsquo;s ink.</div>
       <div class="why">Four tiles each ending &ldquo;of 162h worked&rdquo; is the same sentence four times, and it is what pushed the subtitles onto two lines and dragged the whole strip&rsquo;s height with them. The swatches exist because the tiles replaced a bar: each ink used to appear on a segment <i>and</i> on its legend row, and as boxes the only place a colour appears is the number.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AU37</span>
+      <span class="title">The PDF's chargeable key totals 100</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Export a month whose shares divide badly &mdash; one with billable, non-billable, internal and support hours &mdash; and add up the percentages under <b>CHARGEABLE</b> on page 3.</p>
+      <div class="exp"><b>Expect:</b> exactly <b>100</b>.</div>
+      <div class="warn">It printed <b>52 + 11 + 22 + 16 = 101%</b> on the first month ever generated. Each share was rounded on its own; five round-ups cannot be undone by the reader. <code>wholePercents</code> has existed in this codebase since a four-project month printed 99 &mdash; the PDF simply never used it. Nobody could have seen this without producing a document.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AU38</span>
+      <span class="title">Billable reads the same on paper as on screen</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>For one month, compare the <b>Billable</b> percentage in three places: the Monthly Summary&rsquo;s Productivity group, page 3 of the PDF, and <b>Billable share</b> on the Utilisation report.</p>
+      <div class="exp"><b>Expect:</b> the same whole number in all three.</div>
+      <div class="why">All three now pin Billable to <code>billableSharePct</code> and absorb the largest-remainder &plusmn;1 in another bucket. Without the pin, floor-and-distribute lands a point off the rounded figure often enough to matter &mdash; and a document that has left the building disagreeing with the screen it came from is the failure this pair exists to prevent.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AU39</span>
+      <span class="title">Help is not a project card, and it names who asked</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Export a month containing help given to another project. Read <b>By Project &amp; Activity</b>, then the block below it.</p>
+      <div class="exp"><b>Expect:</b> no <b>AZAD (Support)</b> card among the projects. A separate <b>HELP GIVEN TO OTHER PROJECTS</b> block with its own subtotal, the line <i>&ldquo;Not counted towards those projects&rdquo;</i>, and <b>Requested by &hellip;</b> on each card.</div>
+      <div class="warn">Until now the PDF listed <b>AZAD (Support)</b> beside INTERNAL TOOLS with <b>10% of project time</b> against it &mdash; a card headed AZAD, carrying a project share, for hours deliberately kept out of AZAD&rsquo;s utilisation, burn and cost. That is precisely the claim mig 801 exists to deny, printed on the document that leaves the building. The requester is here because 829 made the field mandatory so a project lead could ask why the help was given, and this is what reaches them.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AU40</span>
+      <span class="title">The PDF's project cards are the screen's project cards</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Put a billable project&rsquo;s card side by side on screen and in the PDF, on a month with some activities marked not billable and one nobody was asked about.</p>
+      <div class="exp"><b>Expect:</b> both show a chargeable bar, <b>BILLABLE</b> and <b>NOT BILLABLE</b> group headings with their hours, and <i>never asked</i> against the unanswered row. Same figures, same grouping.</div>
+      <div class="why">The PDF carried the pre-836 design: a text pair &ldquo;Billable 9h 00m &nbsp; Not billable 7h 00m&rdquo;, a chip on every row, and no grouping &mdash; so the row nobody was asked about sat silently inside the non-billable total with no chip at all. Grouping is also what makes 824&rsquo;s two &ldquo;Testing&rdquo; rows read as two facts rather than a duplicate.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AU41</span>
+      <span class="title">The section heading counts the cards under it</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>On a month with help, add up the hours on the project cards and compare with the figure in the <b>By Project &amp; Activity</b> heading.</p>
+      <div class="exp"><b>Expect:</b> they match.</div>
+      <div class="warn">Moving help out of the cards broke this in the same commit that fixed it: the heading summed <code>data.projects</code> &mdash; the <i>donut&rsquo;s</i> array, which still counts help &mdash; and printed &ldquo;58h of 72h recorded&rdquo; over cards adding to 48h. Ten hours went missing between a heading and the cards beneath it, and only a rendered page showed it.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AU42</span>
+      <span class="title">Page 2's hero is four tiles, deliberately</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Read the strip at the top of the Monthly Summary page: Recorded, Planned, Complete, Billable.</p>
+      <div class="exp"><b>Expect:</b> four tiles, <b>not</b> the five buckets the screen&rsquo;s Productivity group shows.</div>
+      <div class="why">Page 3 already carries the full split. Repeating it here would rebuild exactly the duplication removed from the screen when the standalone Chargeable block was deleted &mdash; two places computing one fact are two places for it to drift. The hero&rsquo;s job is the few numbers a reviewer opens the file for, and its Billable figure is unchanged by 836.</div>
     </div>
   </div>
 

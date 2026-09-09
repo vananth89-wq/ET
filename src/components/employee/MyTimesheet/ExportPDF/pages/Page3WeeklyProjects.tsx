@@ -1,5 +1,7 @@
 import { Page, View, Text, Svg, Circle, Path } from '@react-pdf/renderer';
 import { styles, colors, rankColors } from '../utils/pdfStyles';
+import { wholePercents } from '../utils/dataTransforms';
+import { billableSharePct } from '../../billability';
 
 /** Non-project time: a neutral ramp, deliberately quieter than the projects.
  *  Leave is the exception — it keeps the tint the weekly bars use for it, so
@@ -66,7 +68,12 @@ export function Page3WeeklyProjects({ data }: { data: TimesheetExportData }) {
   const deferred     = collapseFrom >= 0 ? data.weeks.slice(collapseFrom) : [];
   const deferredPlan = deferred.reduce((s, w) => s + w.planned, 0);
 
-  const projTotal = data.projects.reduce((s, p) => s + p.minutes, 0);
+  /* THE CARDS' OWN TOTAL, not `data.projects`. That array is the donut's --
+   * every hour by project and type -- and it counts help, which these cards
+   * deliberately no longer do. Summing it here printed "58h of 72h recorded"
+   * over cards that added to 48h, and the ten missing hours were the help
+   * block further down. */
+  const projTotal = data.projectActivities.reduce((s, p) => s + p.minutes, 0);
   /* Same rule as the hero strip on page 2, so the two never disagree about
      whether this month has a chargeable story at all. */
   const showBill  = data.billSplit.billable > 0 || data.billSplit.unclassified > 0
@@ -322,25 +329,52 @@ export function Page3WeeklyProjects({ data }: { data: TimesheetExportData }) {
               {/* The figures live in the key, not on the segments: a 4% sliver
                   has no room for a label and the one that gets clipped is
                   always the one somebody wanted. */}
+              {/* LARGEST-REMAINDER, not five independent roundings. This
+                  printed 52 + 11 + 22 + 16 = 101% on a real month: each share
+                  was rounded on its own, and five round-ups cannot be undone by
+                  the reader. `wholePercents` exists in this codebase for exactly
+                  that -- it was written when a four-project month printed 99.
+
+                  Billable is then PINNED to billableSharePct, the figure the
+                  Monthly Summary and the Utilisation report both print. Floor-
+                  and-distribute can land a point off it, and a document that
+                  leaves the building disagreeing with the screen it came from
+                  is the failure this pair exists to prevent. The +-1 lands on
+                  the largest of the others, so the key still totals 100. */}
               <View style={styles.cbKeys}>
-                {([
-                  ['Billable',       data.billSplit.billable,     BILL_GREEN],
-                  ['Not billable',   data.billSplit.nonBillable,  BILL_SLATE],
-                  ['Internal',       data.billSplit.internal,     BILL_CYAN],
-                  ['Support given',  data.billSplit.support,      HELP_INK],
-                  ['Not classified', data.billSplit.unclassified, BILL_AMBER],
-                ] as const).map(([label, mins, colour]) => (
-                  mins > 0 ? (
+                {(() => {
+                  const parts = ([
+                    ['Billable',       data.billSplit.billable,     BILL_GREEN],
+                    ['Not billable',   data.billSplit.nonBillable,  BILL_SLATE],
+                    ['Internal',       data.billSplit.internal,     BILL_CYAN],
+                    ['Support given',  data.billSplit.support,      HELP_INK],
+                    ['Not classified', data.billSplit.unclassified, BILL_AMBER],
+                  ] as const).filter(([, mins]) => mins > 0);
+
+                  const pcts  = wholePercents(parts.map(([, m]) => m), data.billSplit.worked);
+                  const share = billableSharePct(data.billSplit);
+                  if (share !== null) {
+                    const bi = parts.findIndex(([label]) => label === 'Billable');
+                    if (bi >= 0 && pcts[bi] !== share) {
+                      const diff = pcts[bi] - share;
+                      pcts[bi] = share;
+                      let big = -1;
+                      for (let i = 0; i < pcts.length; i++) {
+                        if (i !== bi && (big < 0 || pcts[i] > pcts[big])) big = i;
+                      }
+                      if (big >= 0) pcts[big] += diff;
+                    }
+                  }
+
+                  return parts.map(([label, mins, colour], i) => (
                     <View key={label} style={styles.cbKey}>
                       <View style={{ ...styles.cbDot, backgroundColor: colour }} />
                       <Text style={styles.cbLbl}>{label}</Text>
                       <Text style={styles.cbVal}>{fmtHM(mins)}</Text>
-                      <Text style={styles.cbPct}>
-                        {Math.round((mins / data.billSplit.worked) * 100)}%
-                      </Text>
+                      <Text style={styles.cbPct}>{pcts[i]}%</Text>
                     </View>
-                  ) : null
-                ))}
+                  ));
+                })()}
               </View>
             </View>
           )}
@@ -391,15 +425,45 @@ export function Page3WeeklyProjects({ data }: { data: TimesheetExportData }) {
                       <Text style={styles.pPct}>{p.pctOfProjectTime}%</Text>
                     </View>
 
-                    {/* Only where somebody is paying. On an internal project
-                        the question was never put, and "Billable 0h" would read
-                        as a judgement on work never meant to be charged for. */}
-                    {p.cls === 'billable' && (
-                      <View style={styles.pSplit}>
-                        <Text style={styles.pSplitB}>Billable {fmtHMWide(p.split.billable)}</Text>
-                        <Text style={styles.pSplitN}>Not billable {fmtHMWide(p.split.nonBillable)}</Text>
-                      </View>
-                    )}
+                    {/* Mig 836 on the card. The text pair this replaces --
+                        "Billable 9h 00m  Not billable 7h 00m" -- named two
+                        figures and left the reader to work out which activities
+                        were which. Grouping is what makes that legible, and it
+                        is what finally makes 824's two "Testing" rows read as
+                        two facts rather than as a duplicate.
+
+                        Only where somebody is paying. On an internal project the
+                        question was never put, and "Billable 0h" would read as a
+                        judgement on work never meant to be charged for. */}
+                    {p.cls === 'billable' && (() => {
+                      const worked = p.split.worked > 0 ? p.split.worked : p.minutes;
+                      const segs = ([
+                        [p.split.billable,     BILL_GREEN],
+                        [p.split.nonBillable,  BILL_SLATE],
+                        [p.split.unclassified, BILL_AMBER],
+                      ] as const).filter(([m]) => m > 0);
+                      const pc = wholePercents(segs.map(([m]) => m), worked);
+                      return (
+                        <View>
+                          <View style={styles.pcBar}>
+                            {segs.map(([m, ink], k) => (
+                              <View key={ink} style={{ ...styles.pcSeg, backgroundColor: ink,
+                                borderLeftWidth: k > 0 ? 2 : 0, borderLeftColor: '#FFFFFF',
+                                width: `${(m / worked) * 100}%` }} />
+                            ))}
+                          </View>
+                          <View style={styles.pcKeys}>
+                            {segs.map(([m, ink], k) => (
+                              <Text key={ink} style={{ ...styles.pcKey, color: ink }}>
+                                {ink === BILL_GREEN ? 'Billable'
+                                  : ink === BILL_SLATE ? 'Not billable' : 'Not classified'}
+                                {' '}{fmtHMWide(m)} · {pc[k]}%
+                              </Text>
+                            ))}
+                          </View>
+                        </View>
+                      );
+                    })()}
                     {p.cls === 'unclassified' && (
                       <Text style={styles.pSplitU}>
                         No project type set — these hours are reported as not classified.
@@ -407,35 +471,59 @@ export function Page3WeeklyProjects({ data }: { data: TimesheetExportData }) {
                     )}
 
                     <View style={styles.pActs}>
-                      {/* KEYED ON THE ANSWER TOO. Since mig 824 one name can
-                          appear twice in this list with different answers. */}
-                      {p.activities.map((a, j) => (
-                        <View key={`${a.name}-${a.billable}-${j}`} style={styles.pActRow}>
-                          <View style={styles.pActTop}>
-                            <Text style={styles.pActNo}>{j + 1}.</Text>
-                            <Text style={a.itemised ? styles.pActName : styles.pActNameQ}>
-                              {a.name}
-                            </Text>
-                            {p.cls === 'billable' && a.billable !== null && (
-                              <Text style={a.billable ? styles.pActBill : styles.pActNBill}>
-                                {a.billable ? 'Billable' : 'Not billable'}
+                      {/* THE GROUPS FOLLOW splitEntry's BRANCH, not the raw flag.
+                          The un-itemised remainder has a NULL flag and the split
+                          counts it BILLABLE (822's `WHEN a.id IS NULL`), so
+                          grouping on the column would file it under Not billable
+                          while the bar above counted it the other way, and the
+                          card would contradict itself. */}
+                      {(p.cls === 'billable'
+                        ? [
+                            { key: 'b', word: 'Billable',     ink: BILL_GREEN,
+                              mins: p.split.billable,
+                              acts: p.activities.filter(a => !a.itemised || a.billable === true) },
+                            { key: 'n', word: 'Not billable', ink: BILL_SLATE,
+                              mins: p.split.nonBillable,
+                              acts: p.activities.filter(a => a.itemised && a.billable !== true) },
+                          ].filter(g => g.acts.length > 0)
+                        : [{ key: 'all', word: '', ink: colour, mins: p.minutes, acts: p.activities }]
+                      ).map((g, gi, groups) => (
+                        <View key={g.key}>
+                          {groups.length > 1 && (
+                            <View style={styles.pgHead}>
+                              <View style={{ ...styles.pgDot, backgroundColor: g.ink }} />
+                              <Text style={{ ...styles.pgWord, color: g.ink }}>
+                                {g.word.toUpperCase()}
                               </Text>
-                            )}
-                            <Text style={a.itemised ? styles.pActHrs : styles.pActHrsQ}>
-                              {fmtHMWide(a.minutes)}
-                            </Text>
-                          </View>
-                          <View style={styles.pActBar}>
-                            <View style={styles.pActTrack}>
-                              <View style={{
-                                ...styles.pActFill,
-                                width: `${Math.max(1.5, (a.minutes / widest) * 100)}%`,
-                                backgroundColor: !a.itemised ? '#D1D5DB'
-                                  : p.cls === 'billable' && a.billable === false ? '#CBD5E1'
-                                  : colour,
-                              }} />
+                              <View style={styles.pgRule} />
+                              <Text style={styles.pgHrs}>{fmtHMWide(g.mins)}</Text>
                             </View>
-                          </View>
+                          )}
+                          {g.acts.map((a, j) => (
+                            <View key={`${a.name}-${a.billable}-${gi}-${j}`} style={styles.pActRow}>
+                              <View style={styles.pActTop}>
+                                <Text style={styles.pActNo}>{j + 1}.</Text>
+                                <Text style={a.itemised ? styles.pActName : styles.pActNameQ}>
+                                  {a.name}
+                                </Text>
+                                {p.cls === 'billable' && a.itemised && a.billable === null && (
+                                  <Text style={styles.pActNever}>never asked</Text>
+                                )}
+                                <Text style={a.itemised ? styles.pActHrs : styles.pActHrsQ}>
+                                  {fmtHMWide(a.minutes)}
+                                </Text>
+                              </View>
+                              <View style={styles.pActBar}>
+                                <View style={styles.pActTrack}>
+                                  <View style={{
+                                    ...styles.pActFill,
+                                    width: `${Math.max(1.5, (a.minutes / widest) * 100)}%`,
+                                    backgroundColor: g.ink,
+                                  }} />
+                                </View>
+                              </View>
+                            </View>
+                          ))}
                         </View>
                       ))}
                     </View>
@@ -443,6 +531,83 @@ export function Page3WeeklyProjects({ data }: { data: TimesheetExportData }) {
                 );
               })}
 
+
+              {/* ── Help given to other projects ─────────────────────────────
+                  ITS OWN BLOCK, and its own subtotal. These entries name the
+                  project that was HELPED, and their hours are deliberately kept
+                  out of that project's utilisation, burn and cost — so listing
+                  them among the cards above, carrying a share "of project time",
+                  makes exactly the claim mig 801 exists to deny. Until now this
+                  document did precisely that: AZAD (Support) appeared beside
+                  INTERNAL TOOLS with 10% of project time against it.
+
+                  The requester is named because 829 made the field mandatory so
+                  a project lead could ask why the help was given, and this is
+                  the document that reaches them. */}
+              {data.helpGiven.length > 0 && (
+                <View style={{ marginTop: 14 }} wrap={false}>
+                  <View style={styles.pgHead}>
+                    <View style={{ ...styles.pgDot, backgroundColor: HELP_INK }} />
+                    <Text style={{ ...styles.pgWord, color: HELP_INK }}>
+                      HELP GIVEN TO OTHER PROJECTS
+                    </Text>
+                    <View style={styles.pgRule} />
+                    <Text style={styles.pgHrs}>
+                      {fmtHM(data.helpGiven.reduce((s, h) => s + h.minutes, 0))}
+                    </Text>
+                  </View>
+                  <Text style={{ ...styles.pSplitU, paddingTop: 2 }}>
+                    Not counted towards those projects.
+                  </Text>
+
+                  {data.helpGiven.map(h => {
+                    const widest = Math.max(1, ...h.activities.map(a => a.minutes));
+                    return (
+                      <View key={h.name} style={styles.pCard} wrap={false}>
+                        <View style={styles.pCardHead}>
+                          <View style={{ ...styles.pDot, backgroundColor: HELP_INK }} />
+                          <Text style={styles.pName}>{h.name}</Text>
+                          <Text style={styles.pDays}>
+                            {h.daysActive} {h.daysActive === 1 ? 'day' : 'days'}
+                          </Text>
+                          <Text style={styles.pHrs}>{fmtHMWide(h.minutes)}</Text>
+                        </View>
+
+                        {h.requesters.length > 0 && (
+                          <Text style={{ ...styles.pSplitU, paddingTop: 4 }}>
+                            Requested by {h.requesters.join(', ')}
+                          </Text>
+                        )}
+
+                        <View style={styles.pActs}>
+                          {h.activities.map((a, j) => (
+                            <View key={`${a.name}-${j}`} style={styles.pActRow}>
+                              <View style={styles.pActTop}>
+                                <Text style={styles.pActNo}>{j + 1}.</Text>
+                                <Text style={a.itemised ? styles.pActName : styles.pActNameQ}>
+                                  {a.name}
+                                </Text>
+                                <Text style={a.itemised ? styles.pActHrs : styles.pActHrsQ}>
+                                  {fmtHMWide(a.minutes)}
+                                </Text>
+                              </View>
+                              <View style={styles.pActBar}>
+                                <View style={styles.pActTrack}>
+                                  <View style={{
+                                    ...styles.pActFill,
+                                    width: `${Math.max(1.5, (a.minutes / widest) * 100)}%`,
+                                    backgroundColor: HELP_INK,
+                                  }} />
+                                </View>
+                              </View>
+                            </View>
+                          ))}
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
               {/* Whatever the cards do not cover, named. Leave, training and any
                   other non-project attendance are real hours; letting them fall
                   out of the bottom of a section headed "of 80h recorded" is how

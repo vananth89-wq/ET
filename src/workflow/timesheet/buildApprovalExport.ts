@@ -81,6 +81,12 @@ export async function buildApprovalExportData(p: TsPayload): Promise<TimesheetEx
       // help and Training. This is what tells them apart in the approver's
       // copy the same way the employee's own sheet tells them apart.
       isSupport:    !e.project_id && !!e.related_project_id,
+      // NULL here, and it is a gap rather than a decision: 836 taught the
+      // payload which project was helped but not WHO ASKED, so the approver's
+      // copy prints the help block without the one line 829 exists for. The
+      // fix is a payload field, not a change here -- the name is not in the
+      // rows this function is given.
+      requester:    null,
       // entryMinutes() treats ANY non-empty activity list as the source of
       // truth and sums it. `acts` is a DISPLAY list: for a pre-727 entry it
       // holds the legacy names at minutes 0, so passing it here summed to zero

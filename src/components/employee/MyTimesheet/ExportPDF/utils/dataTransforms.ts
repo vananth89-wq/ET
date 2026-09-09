@@ -1,6 +1,6 @@
 import type {
   ExportDay, ExportEntry, ExportWeek, ExportProject,
-  ExportProjectActivity, ExportProjectBreakdown, ExportNonProjectType,
+  ExportProjectActivity, ExportProjectBreakdown, ExportHelpBreakdown, ExportNonProjectType,
   ExportMonthSplit,
 } from '../types';
 import { splitEntry, EMPTY_SPLIT } from '../../billability';
@@ -223,6 +223,67 @@ export function wholePercents(values: number[], total: number): number[] {
  * activity chart on page 4 counts every activity whether or not it had a
  * project. Two blocks, two scopes, each stated in its heading.
  */
+/**
+ * Help given to other projects, grouped by the project that was helped.
+ *
+ * A SEPARATE BLOCK, not extra cards in the one above -- the same arrangement the
+ * Monthly Summary holds on screen and mig 810 holds on the server, where support
+ * is reported through its own CTEs rather than by widening the ones that measure
+ * the project. Folding 6h of help into AZAD's card would report AZAD as having
+ * consumed hours it is explicitly not charged for.
+ *
+ * No percentage of project time, deliberately: printing one invites a reader to
+ * compare it with the cards above, and these hours are excluded from every one
+ * of those projects' figures on purpose.
+ *
+ * The requester travels with it (829). The field was made mandatory so a project
+ * lead could ask why the help was given, and this document is what reaches them.
+ */
+export function buildHelpGiven(entries: ExportEntry[]): ExportHelpBreakdown[] {
+  const byName = new Map<string, {
+    minutes: number; days: Set<string>; askers: Set<string>;
+    acts: Map<string, ExportProjectActivity>;
+  }>();
+
+  for (const e of entries) {
+    if (!e.isSupport || !e.project || e.minutes <= 0) continue;
+    const row = byName.get(e.project)
+      ?? { minutes: 0, days: new Set<string>(), askers: new Set<string>(),
+           acts: new Map<string, ExportProjectActivity>() };
+    row.minutes += e.minutes;
+    row.days.add(e.date);
+    if (e.requester) row.askers.add(e.requester);
+
+    // No billable key and none possible: help is never chargeable to the project
+    // it helped, so every one of these rows carries NULL and a tag would be an
+    // answer nobody gave.
+    const add = (name: string, minutes: number, itemised: boolean) => {
+      const cur = row.acts.get(name);
+      if (cur) { cur.minutes += minutes; cur.itemised = cur.itemised && itemised; }
+      else row.acts.set(name, { name, minutes, itemised, billable: null });
+    };
+    let itemised = 0;
+    for (const a of e.activities) {
+      if (a.minutes > 0) { add(a.name, a.minutes, true); itemised += a.minutes; }
+    }
+    const gap = e.minutes - itemised;
+    if (gap > 0) add('Not itemised', gap, false);
+
+    byName.set(e.project, row);
+  }
+
+  return [...byName.entries()]
+    .map(([name, r]) => ({
+      name,
+      minutes:    r.minutes,
+      daysActive: r.days.size,
+      requesters: [...r.askers].sort(),
+      activities: [...r.acts.values()].sort((a, b) =>
+        a.itemised === b.itemised ? b.minutes - a.minutes : a.itemised ? -1 : 1),
+    }))
+    .sort((a, b) => b.minutes - a.minutes);
+}
+
 export function buildProjectActivities(entries: ExportEntry[]): ExportProjectBreakdown[] {
   const byProject = new Map<string, {
     minutes: number; days: Set<string>; acts: Map<string, ExportProjectActivity>;
@@ -231,6 +292,12 @@ export function buildProjectActivities(entries: ExportEntry[]): ExportProjectBre
 
   for (const e of entries) {
     if (!e.project || e.minutes <= 0) continue;
+    /* HELP IS NOT A PROJECT CARD. Its `project` names the project that was
+     * HELPED, and those hours are deliberately kept out of that project's
+     * utilisation, burn and cost -- so listing them here, beside real projects
+     * and carrying a share "of project time", makes exactly the claim mig 801
+     * exists to deny. buildHelpGiven() reports them instead. */
+    if (e.isSupport) continue;
     const row = byProject.get(e.project)
       ?? { minutes: 0, days: new Set<string>(), acts: new Map<string, ExportProjectActivity>(),
            cls: e.projectClass, split: { ...EMPTY_SPLIT } };
@@ -271,8 +338,14 @@ export function buildProjectActivities(entries: ExportEntry[]): ExportProjectBre
         project_id: e.projectClass ? e.project : null,
         activities: e.activities.map(a => ({ hours_minutes: a.minutes, is_billable: a.billable })) },
       e.projectClass);
+    /* Field by field, so every bucket 836 added has to be named here too.
+     * The same shape missed `internal` and `support` on the Monthly Summary and
+     * rendered a bar with a hole in it; on a card it would have shown an
+     * internal project whose hours summed to nothing. */
     row.split.billable     += s.billable;
     row.split.nonBillable  += s.nonBillable;
+    row.split.internal     += s.internal;
+    row.split.support      += s.support;
     row.split.unclassified += s.unclassified;
     row.split.absence      += s.absence;
     row.split.worked       += s.worked;

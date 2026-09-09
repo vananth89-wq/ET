@@ -348,6 +348,29 @@ export const styles = StyleSheet.create({
   pActBill:  { fontSize: 7, fontFamily: 'Helvetica-Bold', color: '#0F8A6A',
                marginRight: 7, marginLeft: 6 },
   pActNBill: { fontSize: 7, color: colors.ink3, marginRight: 7, marginLeft: 6 },
+  // ── Mig 836 on the card: the split as a bar and two labelled groups, the
+  // same shape the Monthly Summary draws. The text pair it replaces said
+  // "Billable 9h 00m  Not billable 7h 00m" and left the reader to work out
+  // which activities were which -- the grouping is what makes that legible,
+  // and it is also what finally makes 824's two "Testing" rows read as two
+  // facts rather than as a duplicate.
+  pcBar:     { flexDirection: 'row', height: 4, borderRadius: 2,
+               backgroundColor: '#E9EEF3', overflow: 'hidden',
+               marginHorizontal: 8, marginTop: 6 },
+  pcSeg:     { height: 4 },
+  pcKeys:    { flexDirection: 'row', paddingHorizontal: 8, paddingTop: 4 },
+  pcKey:     { fontSize: 7, fontFamily: 'Helvetica-Bold', marginRight: 12 },
+  // The group heading: swatch, word, a rule to the hours on the right.
+  pgHead:    { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8,
+               paddingTop: 7, paddingBottom: 1 },
+  pgDot:     { width: 5, height: 5, borderRadius: 1.5, marginRight: 5 },
+  pgWord:    { fontSize: 6.5, fontFamily: 'Helvetica-Bold', letterSpacing: 0.5 },
+  pgRule:    { flexGrow: 1, height: 1, backgroundColor: '#F1F2F5', marginHorizontal: 6 },
+  pgHrs:     { fontSize: 7, fontFamily: 'Helvetica-Bold', color: colors.ink2 },
+  // An itemised row nobody was ever asked about. NULL is not "no", and a row
+  // filed under Not billable for want of an answer should say which it is.
+  pActNever: { fontSize: 6.5, color: colors.ink4, marginRight: 7, marginLeft: 6 },
+
   // The card's own subtotal line, under the header and above the activities.
   pSplit:    { flexDirection: 'row', paddingHorizontal: 8, paddingTop: 5 },
   pSplitB:   { fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: '#0F8A6A', marginRight: 12 },

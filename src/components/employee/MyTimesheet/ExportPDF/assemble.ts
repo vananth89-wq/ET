@@ -5,7 +5,8 @@ import type {
 /** Kept in step with the report's own field rather than restated here. */
 type HeaderStatus = TimesheetExportData['status'];
 import {
-  buildWeeks, buildProjects, buildProjectActivities, buildNonProjectTypes, buildMonthSplit,
+  buildWeeks, buildProjects, buildProjectActivities, buildHelpGiven,
+  buildNonProjectTypes, buildMonthSplit,
 } from './utils/dataTransforms';
 import { splitEntry, EMPTY_SPLIT } from '../billability';
 import type { ProjectClass } from '../billability';
@@ -51,6 +52,8 @@ export interface AssembleRow {
    *  Optional so a caller written before 836 still compiles; false is the
    *  right default, because everything that is not help is not help. */
   isSupport?: boolean;
+  /** Who asked for it (829). Optional for the same reason. */
+  requester?: string | null;
   /**
    * What the entry DISPLAYS -- post-727 that is the sum of its activity rows.
    * Callers apply `entryMinutes()` before handing the row over.
@@ -170,6 +173,7 @@ export function assembleExportData(input: AssembleInput): TimesheetExportData {
       project:    r.project,
       projectClass: r.projectClass ?? null,
       isSupport:    r.isSupport ?? false,
+      requester:    r.requester ?? null,
       minutes:    r.minutes,
       notes:      r.notes,
       activities: r.activities.map(a => ({ ...a, billable: a.billable ?? null })),
@@ -244,6 +248,7 @@ export function assembleExportData(input: AssembleInput): TimesheetExportData {
     // Shares are of the MONTH, not of each chart's own subtotal.
     projects:   buildProjects(entries, recorded),
     projectActivities: buildProjectActivities(entries),
+    helpGiven:         buildHelpGiven(entries),
     nonProjectTypes:   buildNonProjectTypes(entries),
     monthSplit:        buildMonthSplit(entries),
 

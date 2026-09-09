@@ -1760,6 +1760,11 @@ export default function MyTimesheet() {
         // class off the display name is how it would become so.
         projectClass: classOfProject(e.project_id),
         isSupport:    isSupportEntry(e),
+        // 829's whole purpose: a project lead can ask why the help was given.
+        // Read off the entry's own join, like the day panel does -- a
+        // requester who has since left the project is not in any live team
+        // reader, and the entry is the only thing that still knows them.
+        requester:    (Array.isArray(e.help_requester) ? e.help_requester[0] : e.help_requester)?.name ?? null,
         minutes:    entryMinutes(e.hours_minutes, acts.map(r => ({ minutes: r.hours_minutes }))),
         rawMinutes: e.hours_minutes,
         notes:      e.notes,
