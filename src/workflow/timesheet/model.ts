@@ -47,6 +47,11 @@ export interface TsPayloadEntry {
    *  and NULL for Training alike, so it cannot tell them apart -- and since 836
    *  they are two different buckets. Absent on a payload from before 836. */
   related_project_id?:    string | null;
+  /** Mig 841. WHO asked for the help (830). The NAME, resolved server-side
+   *  through employees.id, so somebody who has since left the project still has
+   *  one. Absent on a payload from before 841; null on an entry that is not
+   *  cross-project help. */
+  requester?:             string | null;
   time_type_id:           string | null;
   time_type_name:         string | null;
   is_system_generated:    boolean;

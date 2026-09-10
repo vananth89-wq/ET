@@ -20,10 +20,16 @@ export interface Project {
    * managerId null grants nobody Project Manager access; it fails closed.
    */
   projectTypeId:   string | null;
-  /** Label and stable code, embedded so an INACTIVE picklist value still
-   *  renders instead of showing blank. Reports match on typeRefId. */
+  /** The label, embedded so an INACTIVE picklist value still renders instead of
+   *  showing blank.
+   *
+   *  `typeRefId` used to sit here carrying `ref_id`, with a comment claiming
+   *  "reports match on typeRefId". Nothing ever used it, and after mig 839 that
+   *  sentence is false: what makes hours chargeable is the value's own
+   *  `billable` flag, read server-side by project_billability(). A field
+   *  carrying a P-code up to the browser is the next `typeRefId === 'P001'`
+   *  waiting to be written, so it is gone rather than corrected. */
   projectTypeName: string | null;
-  typeRefId:       string | null;
   managerId:       string | null;
   /** Embedded from employees, so the screen never has to load the whole
    *  directory just to print one name. */
@@ -53,9 +59,9 @@ interface UseProjectsResult {
  * types widen it to object-or-array. These unwrap it in one place rather than
  * casting at four call sites.
  */
-function pt(v: unknown): { value: string; ref_id: string | null } | null {
+function pt(v: unknown): { value: string } | null {
   const o = Array.isArray(v) ? v[0] : v;
-  return (o ?? null) as { value: string; ref_id: string | null } | null;
+  return (o ?? null) as { value: string } | null;
 }
 function mgr(v: unknown): { name: string; employee_id: string } | null {
   const o = Array.isArray(v) ? v[0] : v;
@@ -82,7 +88,7 @@ export function useProjects(activeOnly = false): UseProjectsResult {
           .select(`
             id, name, start_date, end_date, active, manager_id, budget_hours,
             project_type_id,
-            project_type:picklist_values!projects_project_type_id_fkey ( value, ref_id ),
+            project_type:picklist_values!projects_project_type_id_fkey ( value ),
             manager:employees!projects_manager_id_fkey ( name, employee_id )
           `)
           .order('name', { ascending: true });
@@ -104,7 +110,6 @@ export function useProjects(activeOnly = false): UseProjectsResult {
               active:    row.active,
               projectTypeId:   row.project_type_id ?? null,
               projectTypeName: pt(row.project_type)?.value  ?? null,
-              typeRefId:       pt(row.project_type)?.ref_id ?? null,
               managerId:       row.manager_id ?? null,
               managerName:     mgr(row.manager)
                                  ? `${mgr(row.manager)!.name} (${mgr(row.manager)!.employee_id})`
