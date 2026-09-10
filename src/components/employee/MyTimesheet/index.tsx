@@ -35,7 +35,8 @@ import type { TimesheetExportData }                    from './ExportPDF/types';
 import { entryMinutes }                               from './ExportPDF/utils/dataTransforms';
 /* mig 837. A timesheet period is a CYCLE, not a calendar month. Everything that
  * used to be worked out here from (year, month) now comes from one window. */
-import { buildPeriodWindow, DEFAULT_PERIOD_START_DAY } from '../../../lib/period';
+import { buildPeriodWindow, DEFAULT_PERIOD_START_DAY,
+         periodOf, periodLabel }                       from '../../../lib/period';
 import type { PeriodWindow }                          from '../../../lib/period';
 import type { ProjectClass }                          from './billability';
 import { loadLogoDataUrl }                            from './ExportPDF/logo';
@@ -659,7 +660,9 @@ export default function MyTimesheet() {
     () => buildPeriodWindow(year, month, periodStartDay ?? DEFAULT_PERIOD_START_DAY),
     [year, month, periodStartDay]);
 
-  /** Earliest month the employee may reach, as YYYY-MM -- their hire month.
+  /** Earliest period the employee may reach, as the LABEL YYYY-MM of the
+   *  period their hire date falls in -- not the calendar month of the hire date,
+   *  which since 837 is a different period at the boundary.
    *  NULL until the employment row loads, and NULL means NO floor: failing open
    *  the way editFloor does, so a slow or refused read never traps someone. */
   const [minPeriod, setMinPeriod] = useState<string | null>(null);
@@ -934,10 +937,20 @@ export default function MyTimesheet() {
 
     if (empErr) { setError(empErr.message); setLoading(false); return; }
 
-    // The hire month is the floor for navigation. Read from the same row rather
-    // than a second query -- it arrives one load late, which is why the clamp
-    // fails open until it does.
-    if (empRow?.hire_date) setMinPeriod(String(empRow.hire_date).slice(0, 7));
+    // The hire PERIOD is the floor for navigation, and it is compared against
+    // curPeriod, which is a period LABEL. Taking YYYY-MM off the hire date is
+    // the same fact in a different unit: somebody hired on 27 Aug belongs to the
+    // period 26 Aug - 25 Sep, which is called SEPTEMBER, so the old floor of
+    // '2026-08' let them page back to a sheet covering 26 Jul - 25 Aug -- a
+    // period ending before they joined. Safe to read periodStartDay directly:
+    // this whole load is gated on it being non-null.
+    //
+    // Read from the same row rather than a second query -- it arrives one load
+    // late, which is why the clamp fails open until it does.
+    if (empRow?.hire_date) {
+      const hl = periodLabel(periodOf(String(empRow.hire_date).slice(0, 10), periodStartDay));
+      setMinPeriod(periodKey(hl.year, hl.month));
+    }
 
     const empWsId = empRow?.work_schedule_id    ?? null;
     const empHcId = empRow?.holiday_calendar_id ?? null;
@@ -1328,7 +1341,7 @@ export default function MyTimesheet() {
   }
 
   // ── Date-scope rules — Create modal ───────────────────────────────────
-  // A date may receive attendance when it is inside this month, not in the
+  // A date may receive attendance when it is inside this PERIOD, not in the
   // future, and not already used up by absence. Non-working days ARE allowed:
   // weekend work is real work.
   //
@@ -1337,7 +1350,13 @@ export default function MyTimesheet() {
   // before the type and project are chosen, so the RPC reports it with the
   // offending dates instead and the user deselects them.
   function dateBlockedReason(dateStr: string): string | null {
-    if (dateStr.slice(0, 7) !== `${year}-${pad2(month)}`) return 'Outside this timesheet month';
+    // Mig 837: the period is a CYCLE, so "inside it" is a date range, not a
+    // month string. Comparing YYYY-MM against the LABEL greyed out every day
+    // of the period that falls in the preceding calendar month -- on a 26-to-25
+    // cycle that is 26-31 August of the sheet called September, six days the
+    // employee could see in the grid and not select. The grid was already built
+    // from win.days; only this test was left behind.
+    if (dateStr < win.start || dateStr > win.end) return 'Outside this timesheet period';
 
     // Mig 729: the TYPE decides whether a future date is legal, not the date.
     //

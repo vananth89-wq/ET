@@ -2,7 +2,7 @@
 {
   "name": "Timesheet Test Plan",
   "schemaVersion": 1,
-  "description": "Prowess timesheet test plan, migrations 726–842. 475 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
+  "description": "Prowess timesheet test plan, migrations 726–842. 477 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
   "mcpTools": [],
   "mcpServerNames": []
 }
@@ -128,6 +128,7 @@
       <span><b>AV15–AV18 added</b> 10 Sep 2026</span>
       <span><b>AW1–AW8 added</b> 10 Sep 2026</span>
       <span><b>AX1–AX10 added</b> 10 Sep 2026</span>
+      <span><b>AV19–AV20 added</b> 10 Sep 2026</span>
     </div>
   </div>
 </header>
@@ -6170,6 +6171,30 @@ order  by created_at desc limit 6;</div>
       <div class="warn">The screen queried <code>.eq('period', '2026-08-01')</code> and formatted <code>ts.period</code> as its own month. On a 26th cycle the first matched nothing and the second would have labelled every row <b>July 2026</b>. An empty list here is the worst failure available: indistinguishable from a month nobody has filed, and it is what an administrator would chase people over.
       <br><br>
       The fix is a RANGE, not a cycle lookup. A period labelled M is anchored either on M-01 or between the 2nd and the 28th of M-1, so <code>labelAnchorRange()</code> gives closed bounds over an indexed column with no config read at all &mdash; which means there is no window in which this screen can query before the cycle is known, and it stays correct on the day cycles become per-employee and one month's timesheets no longer share an anchor. The first version of that range shifted by 27 <i>days</i> instead of by a month; the test that walks all 1,344 label/cycle pairs is what said so.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AV19</span>
+      <span class="title">Create attendance can select the whole period</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>On <b>My Timesheet</b> for <b>September 2026</b> (26 Aug &ndash; 25 Sep), click <b>Create</b> and try to pick <b>26&ndash;31 August</b>.</p>
+      <div class="exp"><b>Expect:</b> selectable, like any other day in the period.</div>
+      <div class="warn"><b>Found on Dev, after 837 shipped.</b> The picker greyed out the first six days of its own period. The grid was already built from <code>win.days</code> &mdash; correct &mdash; but the rule deciding whether a day could be <i>chosen</i> still read <code>dateStr.slice(0,7) !== '2026-09'</code>, comparing a date against the period&rsquo;s <b>label</b>. On a 26-to-25 cycle every day before the 1st fails that test. The screen therefore showed six days it refused to let anyone use, with no message and nothing in the console: not a crash, not an error, just work that could not be recorded and no way to find out why. It is now a range test against <code>win.start</code>/<code>win.end</code>, the same bounds the grid is drawn from.
+      <br><br>
+      837 patched ten SQL functions and rebuilt the calendar; this line survived because it does not <i>look</i> like month arithmetic &mdash; there is no <code>getMonth()</code>, no date construction, just a string compare. Searching for the expression does not find the idea.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AV20</span>
+      <span class="title">A new joiner cannot page back past their first period</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Take an employee hired <b>27 Aug 2026</b> on a 26th cycle. Open My Timesheet and press the back arrow until it stops.</p>
+      <div class="exp"><b>Expect:</b> it stops at <b>September 2026</b> &mdash; the period 26 Aug &ndash; 25 Sep, the one containing their hire date.</div>
+      <div class="why">The navigation floor was <code>hire_date.slice(0,7)</code>, a calendar month, compared against the current period&rsquo;s <b>label</b> &mdash; the same fact in two different units, which 837 made incompatible at the boundary. It gave <code>2026-08</code>, so the arrow opened the August sheet: 26 Jul &ndash; 25 Aug, a period that ended two days before the employee joined. A sheet nobody can legitimately fill, offered by the screen as if they should. The floor is now the label of the period the hire date falls in, and at startDay 1 it is byte-for-byte the old answer. Hired on the <b>25th</b> and hired on the <b>26th</b> are the two cases worth checking &mdash; they are one day apart and belong to different periods.</div>
     </div>
   </div>
 </section>
