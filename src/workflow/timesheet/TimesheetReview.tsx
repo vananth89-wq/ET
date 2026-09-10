@@ -11,6 +11,10 @@
 
 import React from 'react';
 import { hm, hLabel } from './model';
+/* Floor-and-distribute, so a set of shares totals exactly 100. Independently
+ * rounding four values is how the PDF's chargeable key came to print
+ * 52 + 11 + 22 + 16 = 101, in front of the person signing the month off. */
+import { wholePercents } from '../../components/employee/MyTimesheet/ExportPDF/utils/dataTransforms';
 import type { MonthModel, MonthDay, TsPayload, TsPayloadEntry, Exception } from './model';
 
 // ── shared bits ──────────────────────────────────────────────────────────────
@@ -84,6 +88,114 @@ export function TsKpiTiles({ month }: { month: MonthModel }) {
           <div style={{ fontSize: 10, color: '#9CA3AF', marginTop: 2 }}>{sub}</div>
         </div>
       ))}
+    </div>
+  );
+}
+
+
+/* ── the billable split (mig 842) ───────────────────────────────────────────
+ *
+ * The complaint this answers: approval is per timesheet, and the approver was
+ * signing off a number they could not break down. 826 put the class of every
+ * entry into the payload and 836 separated help from internal work; the model
+ * sums them with the SAME function the employee's own Monthly Summary uses.
+ * So this block and the screen the employee filed cannot disagree -- which
+ * matters more here than anywhere, because this is where somebody says yes.
+ *
+ * The palette is the one already in use on the employee's Productivity group
+ * and in both PDFs. Colour is load-bearing on those surfaces; a fourth set of
+ * hues for the same six buckets would be the only colours in the product that
+ * mean something different depending on who is looking. */
+const SPLIT_INK = {
+  billable:     '#0F8A6A',
+  nonBillable:  '#64748B',
+  internal:     '#0891B2',
+  support:      '#7C3AED',
+  unclassified: '#E0A33A',
+} as const;
+
+export function TsBillSplit({ month }: { month: MonthModel }) {
+  /* Hidden rather than zeroed on an older payload. Six zeros would read as
+   * "none of this was billable", which is a claim; the truth is that nobody
+   * was asked, which is the absence of one. */
+  if (!month.splitKnown) return null;
+
+  const s = month.split;
+  const buckets: [string, number, string, string][] = [
+    ['Billable',       s.billable,     SPLIT_INK.billable,     'chargeable to a client'],
+    ['Not billable',   s.nonBillable,  SPLIT_INK.nonBillable,  'on a client project, and declined'],
+    ['Internal',       s.internal,     SPLIT_INK.internal,     'never chargeable by nature'],
+    ['Support given',  s.support,      SPLIT_INK.support,      'help to a project they are not on'],
+  ];
+  /* Only when it happened. A permanent "Not classified: 0" teaches the reader
+   * to stop looking at it, which is the opposite of what it is for. */
+  if (s.unclassified > 0) {
+    buckets.push(['Not classified', s.unclassified, SPLIT_INK.unclassified, 'the project has no type set']);
+  }
+
+  /* One pass over the whole set, not four independent roundings. The four
+   * numbers below are read as a group and will be added up by somebody. */
+  const pcts = wholePercents(buckets.map(([, mins]) => mins), s.worked);
+
+  return (
+    <div style={{ border: '1px solid #E8EDF5', borderRadius: 7, background: '#fff',
+                  overflow: 'hidden', marginBottom: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between',
+                    padding: '9px 13px 8px', background: '#FBFCFD', borderBottom: '1px solid #F1F2F5' }}>
+        <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.09em',
+                       textTransform: 'uppercase', color: '#6B7280' }}>Where the hours went</span>
+        <span style={{ fontSize: 10, fontWeight: 600, color: '#9CA3AF' }}>
+          of {hLabel(s.worked)} worked
+          {s.absence > 0 && ` · ${hLabel(s.absence)} leave, not counted`}
+        </span>
+      </div>
+
+      {/* One bar, so the shape is readable before a single number is. */}
+      <div style={{ padding: '12px 13px 0' }}>
+        <div style={{ display: 'flex', height: 8, borderRadius: 99, background: '#E9EEF3',
+                      overflow: 'hidden' }}>
+          {buckets.map(([label, mins, ink], i) => mins <= 0 ? null : (
+            <div key={label} style={{
+              /* The same percentages the tiles print, so the bar cannot show a
+                 different shape from the numbers beside it. */
+              width: `${pcts[i]}%`, height: 8, background: ink,
+              /* 2px of white between segments rather than a gap, so the bar
+                 still totals 100% of its track. */
+              boxShadow: i === 0 ? undefined : '-2px 0 0 0 #fff',
+            }} />
+          ))}
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)' }}>
+        {buckets.map(([label, mins, ink, note], i) => (
+          <div key={label} style={{ padding: '10px 13px 11px', borderBottom: '1px solid #F5F7FA' }}>
+            <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.07em',
+                          textTransform: 'uppercase', color: '#94A3B8', whiteSpace: 'nowrap' }}>
+              <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: 2,
+                             background: ink, marginRight: 6 }} />{label}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 3 }}>
+              <span style={{ fontSize: 19, fontWeight: 800, letterSpacing: '-0.02em', color: ink,
+                             fontVariantNumeric: 'tabular-nums' }}>{hLabel(mins)}</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: '#9CA3AF',
+                             fontVariantNumeric: 'tabular-nums' }}>
+                {pcts[i]}%
+              </span>
+            </div>
+            <div style={{ fontSize: 10.5, color: '#9CA3AF', marginTop: 1 }}>{note}</div>
+          </div>
+        ))}
+      </div>
+
+      {month.billableShare !== null && (
+        <div style={{ padding: '9px 13px', background: '#FBFCFD', borderTop: '1px solid #F1F2F5',
+                      fontSize: 11.5, color: '#6B7280' }}>
+          <b style={{ color: SPLIT_INK.billable, fontSize: 13 }}>{month.billableShare}%</b>
+          {' '}billable share — billable over worked hours. Leave is outside the
+          denominator, so a fortnight off does not read as a fortnight of lost revenue.
+        </div>
+      )}
     </div>
   );
 }
@@ -711,11 +823,51 @@ export function TsDailyDetail({ month, payload, changedOnly }: {
                       )}
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      {(e.activities ?? []).length
-                        ? e.activities.map((a, i) => (
-                            <div key={i} style={{ fontSize: 12, color: '#374151', padding: '1px 0' }}>{a}</div>
-                          ))
-                        : <div style={{ fontSize: 12, color: '#B4BDC9' }}>—</div>}
+                      {/* Mig 842. activity_rows (745) carries the minutes and,
+                          since 826, the billable answer. The approver was
+                          shown NAMES only -- so on a twelve-hour day split
+                          between two activities, one chargeable and one not,
+                          there was nothing on this screen to say which was
+                          which. Falls back to the bare names for a pre-745
+                          payload rather than showing nothing. */}
+                      {(e.activity_rows ?? []).length ? (
+                        e.activity_rows!.map((a, i) => (
+                          <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 7,
+                                                fontSize: 12, color: '#374151', padding: '1px 0' }}>
+                            <span style={{ flex: 1, minWidth: 0, overflow: 'hidden',
+                                           textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</span>
+                            {a.minutes > 0 && (
+                              <span style={{ fontSize: 11, color: '#94A3B8',
+                                             fontVariantNumeric: 'tabular-nums' }}>{hLabel(a.minutes)}</span>
+                            )}
+                            {/* No tag where the answer is null: nobody was
+                                asked, and printing "Not billable" there would
+                                report a decision that was never made. */}
+                            {a.billable != null && (
+                              <span style={{
+                                fontSize: 9, fontWeight: 800, letterSpacing: '0.05em',
+                                borderRadius: 3, padding: '1px 5px', whiteSpace: 'nowrap',
+                                background: a.billable ? '#ECFDF5' : '#EDEFF2',
+                                color:      a.billable ? '#0F8A6A' : '#6B7280',
+                              }}>{a.billable ? 'BILLABLE' : 'NOT BILLABLE'}</span>
+                            )}
+                          </div>
+                        ))
+                      ) : (e.activities ?? []).length ? (
+                        e.activities.map((a, i) => (
+                          <div key={i} style={{ fontSize: 12, color: '#374151', padding: '1px 0' }}>{a}</div>
+                        ))
+                      ) : <div style={{ fontSize: 12, color: '#B4BDC9' }}>—</div>}
+
+                      {/* Mig 841. Who asked for the help -- the line 829 exists
+                          for, and the approver is the reader it was written
+                          for. Absent on a payload from before 841. */}
+                      {e.requester && (
+                        <div style={{ fontSize: 11, color: '#6D28D9', marginTop: 3 }}>
+                          <i className="fas fa-user-check" style={{ marginRight: 5, fontSize: 10 }} />
+                          Requested by {e.requester}
+                        </div>
+                      )}
                       {e.notes && (
                         <div style={{ fontSize: 11, color: '#94A3B8', fontStyle: 'italic', marginTop: 3 }}>{e.notes}</div>
                       )}

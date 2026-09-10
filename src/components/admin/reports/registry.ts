@@ -70,7 +70,7 @@ export const REPORTS: ReportDef[] = [
   {
     code:        'timesheet',
     name:        'Timesheet Report',
-    description: 'Three views of one period. Compliance: who has and has not submitted, including employees who logged nothing at all. Utilisation: where the recorded hours went, by employee, project and activity. Project Summary: each project against its budget. Exports to Excel.',
+    description: 'Four views of one period. Compliance: who has and has not submitted, including employees who logged nothing at all. Utilisation: where the recorded hours went, by employee, project and activity. Project Summary: each project against its budget. Detail: one employee\'s period read in full. The first three aggregate and export to Excel; the last one drills down.',
     icon:        'fa-clock',
     active:      true,
     views: [
@@ -97,6 +97,14 @@ export const REPORTS: ReportDef[] = [
         permission:  'timesheet_reports.view_projects',
         description: 'Each project against what it was given — hours, budget consumption, contributors and a status. Projects without a budget show their hours and no percentage, rather than a fake one. Exports to Excel.',
         Component:   lazy(() => import('./TimesheetProjectSummary')),
+      },
+      {
+        code:        'detail',
+        name:        'Timesheet Detail',
+        icon:        'fa-file-lines',
+        permission:  'timesheet_reports.view_detail',
+        description: 'One employee\'s period in full — the summary, the billable split, every day and every activity. The same rendering the employee filed and the approver signed off, not a fourth opinion about the same month.',
+        Component:   lazy(() => import('./TimesheetDetail')),
       },
     ],
   },
@@ -142,6 +150,7 @@ export function reportActionLabel(action: string | null): string {
     case 'view_compliance':  return 'Compliance report';
     case 'view_utilisation': return 'Utilisation report';
     case 'view_projects':    return 'Project Summary report';
+    case 'view_detail':      return 'Detail report';
     case 'view_capacity':    return 'Workforce capacity report';
     case 'view_analytics':   return 'Executive dashboard';
     case 'create':           return 'Generate & export';

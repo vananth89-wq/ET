@@ -20,6 +20,12 @@ import { displayLabel } from '../../components/employee/MyTimesheet/ExportPDF/ut
  * function the employee's screen uses, imported rather than reimplemented for
  * exactly the reason displayLabel is. */
 import { periodDays, periodLabel as periodLabelOf } from '../../lib/period';
+/* mig 842. The billable split, imported rather than derived again. This file
+ * already has every input -- 826 put project_class on each entry and the
+ * activity answers beside it -- so a second implementation here would be a
+ * second opinion about revenue, on the screen where somebody signs it off. */
+import { splitEntries, billableSharePct, EMPTY_SPLIT } from '../../components/employee/MyTimesheet/billability';
+import type { BillSplit, ProjectClass } from '../../components/employee/MyTimesheet/billability';
 export { displayLabel };
 
 // ── Payload shape (mirrors time_approval_payload, mig 742) ───────────────────
@@ -201,6 +207,17 @@ export interface MonthModel {
   isReapproval: boolean;
   /** Last day of the month that has already happened; 0 when the month is over. */
   todayDay:     number;
+  /** Mig 842. Where the hours went: billable, not billable, internal, support,
+   *  unclassified, absence. The same six buckets and the same rule as the
+   *  employee's own Monthly Summary and the Utilisation report, because they
+   *  come from the same function. */
+  split:        BillSplit;
+  /** Billable over WORKED, absence excluded. Null when nothing was worked. */
+  billableShare: number | null;
+  /** False on a payload written before 826, where no entry carries a class. The
+   *  screen hides the block rather than showing six zeros, which would read as
+   *  "none of this was billable" instead of "nobody was asked". */
+  splitKnown:   boolean;
 }
 
 // ── Palette ──────────────────────────────────────────────────────────────────
@@ -552,7 +569,40 @@ export function buildMonth(p: TsPayload, now: Date = new Date()): MonthModel {
     detail: `${notDue} day${notDue > 1 ? 's are' : ' is'} still in the future and cannot be missing`,
   });
 
+  /* ── the billable split ─────────────────────────────────────────────────
+   * classOf reads the answer the SERVER already gave. project_billability()
+   * (825, re-based by 839) decided it once; the payload carries that decision
+   * per entry; this maps project id back to it. Recomputing it here from a
+   * project type would be the third opinion in the building. */
+  const classByProject = new Map<string, ProjectClass>();
+  let sawClass = false;
+  p.entries.forEach(e => {
+    if (e.project_class == null) return;
+    sawClass = true;
+    if (e.project_id) classByProject.set(e.project_id, e.project_class);
+  });
+
+  const split = sawClass
+    ? splitEntries(
+        p.entries.map(e => ({
+          entry_kind:         e.entry_kind,
+          hours_minutes:      e.hours_minutes,
+          project_id:         e.project_id,
+          related_project_id: e.related_project_id,
+          /* activity_rows names its fields for the payload; BillEntry names
+           * them for the table. One rename, in one place. */
+          activities: (e.activity_rows ?? []).map(r => ({
+            hours_minutes: r.minutes,
+            is_billable:   r.billable,
+          })),
+        })),
+        (id) => (id ? classByProject.get(id) ?? null : null))
+    : { ...EMPTY_SPLIT };
+
   return {
+    split,
+    billableShare: sawClass ? billableSharePct(split) : null,
+    splitKnown: sawClass,
     /* The month the period is CALLED -- the one it ENDS in -- with the real
      * range beside it when the two are not the same thing. */
     periodLabel: new Date(`${label.year}-${String(label.month).padStart(2, '0')}-01T12:00`)

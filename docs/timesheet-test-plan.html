@@ -2,7 +2,7 @@
 {
   "name": "Timesheet Test Plan",
   "schemaVersion": 1,
-  "description": "Prowess timesheet test plan, migrations 726–839. 465 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
+  "description": "Prowess timesheet test plan, migrations 726–842. 475 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
   "mcpTools": [],
   "mcpServerNames": []
 }
@@ -11,7 +11,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Timesheet — Test Plan for migrations 726 to 836</title>
+<title>Timesheet — Test Plan for migrations 726 to 842</title>
 <style>
   :root{
     --ink:#0F172A; --ink2:#334155; --ink3:#64748B; --ink4:#94A3B8;
@@ -96,7 +96,7 @@
 <header class="top">
   <div class="wrap">
     <p class="eyebrow">Prowess · Time Management</p>
-    <h1>Test plan — migrations 726 to 839</h1>
+    <h1>Test plan — migrations 726 to 842</h1>
     <p class="sub">Multiple entries per day, day-occupancy rules, per-activity hours, advance-dating —
        and, from migration 730, an edit window that actually binds and a submission that goes
        somewhere. Every case says what to do, what should happen, and which rule it proves — so a
@@ -127,6 +127,7 @@
       <span><b>AV1–AV14 added</b> 9 Sep 2026</span>
       <span><b>AV15–AV18 added</b> 10 Sep 2026</span>
       <span><b>AW1–AW8 added</b> 10 Sep 2026</span>
+      <span><b>AX1–AX10 added</b> 10 Sep 2026</span>
     </div>
   </div>
 </header>
@@ -184,6 +185,7 @@
     <a class="toc" href="#au">AU · The split reaches every report (825 &middot; 826)</a>
     <a class="toc" href="#av">AV · A period is a cycle, not a month (837)</a>
     <a class="toc" href="#aw">AW · A project type says what it means (839)</a>
+    <a class="toc" href="#ax">AX · One column, one requester, one sheet (840–842)</a>
   </div>
 
   <div class="bar">
@@ -6261,6 +6263,121 @@ order  by created_at desc limit 6;</div>
       <p>Nothing to click. Any migration that rewrites a plpgsql function must <b>call</b> it before it commits.</p>
       <div class="exp"><b>Expect:</b> 839&rsquo;s verification runs both patched reports.</div>
       <div class="warn">The first version of 839 filtered on <code>type_billable</code> without adding that column to the CTE that feeds it. Every check passed &mdash; the anchors matched, the counts were right, the classification was unchanged, <code>MIG 839 OK</code> printed &mdash; because <b>PostgreSQL does not parse a plpgsql body when the function is replaced</b>. It would have failed the first time somebody opened the report, hours later, with the migration long since green. Executing the thing you just rewrote costs one line and is the only check that would have caught it. The same pass also caught a patch that was not idempotent, for the third time in three migrations: an anchor that survives inside its own replacement can never test as &ldquo;already applied&rdquo;.</div>
+    </div>
+  </div>
+</section>
+
+<section id="ax">
+  <h2><span class="k">AX</span> One column, one requester, one sheet (840 &middot; 841 &middot; 842)</h2>
+  <p class="lede">Three small migrations that each close a gap somebody had already written down and nobody had gone back for. A dead column that a name collision made look alive for three weeks. A field the approver &mdash; the one reader who can act on it &mdash; was the only person not shown. And a report that answers the question the other three cannot: <i>what did she actually do in September?</i></p>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AX1</span>
+      <span class="title">A project&rsquo;s type is decided in one place</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>In the SQL editor, look for <code>projects.project_type</code>. Then open <b>Project Management</b> and check a project still shows its type, and the <b>Utilisation</b> report still classifies it.</p>
+      <div class="exp"><b>Expect:</b> the column is gone; both screens are unchanged.</div>
+      <div class="why">755 moved the classification onto <code>project_type_id</code> and <b>deliberately kept</b> the old text column, because the frontend then in production still selected it and PostgREST 400s the whole request over one missing column &mdash; that would have taken out the entire screen, not one field. It named the order: migration, frontend, then a later migration drops it. The frontend landed three weeks ago. The third step is 840. What was left behind is not dead <i>code</i>, it is stale <b>data</b>: a second, older, differently-shaped answer to &ldquo;what kind of project is this&rdquo;, which nothing writes any more and therefore cannot be kept in step.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AX2</span>
+      <span class="title">Searching for the name did not find the reader</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Nothing to click. Read 840&rsquo;s assertion: it matches <code>&bsol;.project_type</code> &mdash; a <i>qualified</i> reference &mdash; not the bare word.</p>
+      <div class="exp"><b>Expect:</b> <code>my_staffable_projects_detail</code> does not trip it, and <b>My Projects</b> still shows a type after the drop.</div>
+      <div class="warn">This migration was not written earlier because a grep for <code>project_type</code> found <code>MyProjects/index.tsx</code> rendering <code>p.project_type</code>, and that reading was <b>wrong</b>. MyProjects reads <code>my_staffable_projects_detail</code>, whose <code>RETURNS TABLE</code> has an output column merely <i>named</i> project_type but selecting <code>pv.value</code> &mdash; the picklist label, reached through project_type_id. A name collision made a dead column look live to every search anyone ran, including mine, and I said so out loud before correcting it. The real question is never whether the name appears; it is whether anything reads the <b>column</b>.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AX3</span>
+      <span class="title">The drop refuses rather than erases</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Nothing to click on Dev &mdash; this one is for Prod. Before 840 runs, count projects with the old text set and no <code>project_type_id</code>.</p>
+      <div class="exp"><b>Expect:</b> zero. If it is not zero, 840 <b>aborts</b> and names the count.</div>
+      <div class="why">Such a project&rsquo;s classification would exist only in the column being dropped, so the drop would not be a cleanup, it would be a deletion. A drop is irreversible, which is the whole reason both checks &mdash; nothing reads it, nothing depends on it &mdash; run before it and not after. The verification then <code>PERFORM</code>s <code>project_billability()</code>, because AW8&rsquo;s lesson is that a migration which does not call what it changed has not checked it.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AX4</span>
+      <span class="title">The approver is told who asked for the help</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Have an employee log cross-project support with <b>Requested by</b> set. Open that timesheet as the <b>approver</b> and read the help block.</p>
+      <div class="exp"><b>Expect:</b> the entry names the requester, the same person the employee&rsquo;s own export names.</div>
+      <div class="why">Vj asked for the field so that &ldquo;the Project lead can actually question the employee why he took help from others&rdquo;. The project lead is the <b>approver</b> &mdash; and the approver&rsquo;s copy was the one place the field never reached: <code>buildApprovalExport</code> set <code>requester: null</code> with a comment saying why. 836 taught the payload which project was helped, 830 records who asked, and the two had simply never met. The one reader who can act on it was seeing strictly less than the one who cannot.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AX5</span>
+      <span class="title">A requester who has left still has a name</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Remove the requester from that project (or mark them inactive) and reopen the timesheet.</p>
+      <div class="exp"><b>Expect:</b> the name is still printed.</div>
+      <div class="why">841 resolves through <code>employees.id</code>, not through project membership, and carries the <b>name</b> rather than the id because this payload feeds a document and the document prints people. The entire value of the field is being able to ask somebody about a decision months later; a blank where a person used to be answers nothing.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AX6</span>
+      <span class="title">The approver sees what the period was worth</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Open any timesheet for approval and read the <b>Billable split</b> block. Add the percentages up.</p>
+      <div class="exp"><b>Expect:</b> exactly 100 &mdash; never 99, never 101 &mdash; and the minutes behind them equal the period total.</div>
+      <div class="warn">This is the <b>same defect</b> as the PDF&rsquo;s 101%, caught the same way: by rendering it, not by reading it. Independently rounding three shares of a whole is arithmetic that types cannot object to and a reviewer will not notice. The shares are floored and the remainder distributed, so they total 100 by construction. Vj chose to <b>show the split and keep approving per timesheet</b> &mdash; the block informs the decision, it does not subdivide it.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AX7</span>
+      <span class="title">Unanswered is not the same as not billable</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Approve a sheet containing an activity logged before 826, where nobody was ever asked whether it was chargeable.</p>
+      <div class="exp"><b>Expect:</b> those hours appear as <b>unclassified</b>, in their own share &mdash; not folded into non-billable.</div>
+      <div class="why"><code>is_billable</code> is nullable and NULL means <i>never asked</i>, which is why it is read as <code>IS TRUE</code> and never through <code>COALESCE</code>. A split that answers a question nobody put is a split that invents a fact, and the approver would have no way to tell the invented part from the recorded part.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AX8</span>
+      <span class="title">The Detail report is the approver&rsquo;s view without the button</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Open <b>Reports &rarr; Timesheet &rarr; Detail</b>, pick an employee and a period, and <b>Open timesheet</b>. Compare it side by side with the same sheet on the approval screen.</p>
+      <div class="exp"><b>Expect:</b> identical &mdash; the same KPIs, calendar, matrix, split, per-project rows and daily entries, including the requester.</div>
+      <div class="why">The report <b>derives nothing</b>. It reads <code>time_approval_payload</code> &mdash; the same blob the approval screen reads &mdash; runs it through the same <code>buildMonth</code>, and renders the same components. Not similar components: the same ones. So there is no version of this in which &ldquo;the report says something different from the timesheet&rdquo;, and everything the approval screen gains later arrives here already correct. Vj chose the <b>per-employee drill-down</b> over a second aggregate for exactly this reason: the other three reports count, group and total; none of them can answer what one person actually did.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AX9</span>
+      <span class="title">The permission opens the screen; the database decides whose</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Grant <b>Timesheet Detail Report</b> to a role with <b>no</b> Timesheet &rarr; view population. Open the report and pick anybody.</p>
+      <div class="exp"><b>Expect:</b> the report opens and shows <b>nothing</b> &mdash; &ldquo;no timesheet for that employee in this period&rdquo;.</div>
+      <div class="warn">That is the correct outcome, and 842 says so in the migration rather than pretending otherwise. The registry claims a view&rsquo;s permission gates the view <i>and</i> the RPC behind it, because PostgREST is reachable with a token and no UI. For the other three reports that is literally true. It is <b>not</b> true here: <code>time_approval_payload</code> checks <code>user_can('timesheet','view', employee)</code>, not this grant. So <code>view_detail</code> decides whether the report appears in the catalog and nothing else &mdash; the real boundary is per-employee, enforced by RLS on <code>timesheet_headers</code> and again by the payload, and it existed before this screen did. The empty state says &ldquo;no timesheet&rdquo; rather than &ldquo;not permitted&rdquo; because RLS returns <b>zero rows</b>, not an error: the screen genuinely cannot tell an unfiled month from an invisible one, and guessing would either leak that the person exists or accuse the caller of nothing. 842&rsquo;s verification asserts that gate is still in the payload, and refuses to seed a grant that would open onto nothing &mdash; which is the mess 739 spent a whole migration cleaning up.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AX10</span>
+      <span class="title">&ldquo;August&rdquo; is found by cycle, not by the 1st</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>In the Detail report pick <b>August</b> for an employee whose period runs 26 Jul &ndash; 25 Aug.</p>
+      <div class="exp"><b>Expect:</b> that sheet opens, and its header reads the full cycle, not 1&ndash;31 August.</div>
+      <div class="why">Since 837 a period is a <b>cycle</b>, so the header for August is not anchored on 1 August and a screen that queries <code>period = '2026-08-01'</code> finds nothing. The report asks for the closed range an anchor can legally fall in &mdash; which is also why it keeps working on the day cycles go per-employee and one month&rsquo;s sheets stop sharing an anchor. Nothing here reads the configured start day, so nothing here can disagree with it.</div>
     </div>
   </div>
 </section>

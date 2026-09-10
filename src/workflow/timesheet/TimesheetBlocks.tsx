@@ -19,6 +19,7 @@ import { useTimesheetApproval } from './useTimesheetApproval';
 import {
   TsSectionHead, TsEmployeeStrip, TsKpiTiles, TsExceptionChips,
   TsCalendar, TsMatrix, TsWeeklyProgress, TsMonthSplit, TsByProject, TsDailyDetail,
+  TsBillSplit,
 } from './TimesheetReview';
 import { hLabel } from './model';
 import { ExportPDFButton } from '../../components/employee/MyTimesheet/ExportPDF';
@@ -78,6 +79,12 @@ export function TimesheetEnrichment({ headerId, onOpenFull, onMetaResolved }: {
       <TsEmployeeStrip payload={payload} />
       <TsKpiTiles month={month} />
       <TsExceptionChips month={month} />
+
+      {/* Mig 842. Above the calendar deliberately: this is the panel somebody
+          approves FROM, and the split is the thing they were being asked to
+          sign off without. Below the fold it would be a report; here it is
+          part of the decision. */}
+      <TsBillSplit month={month} />
 
       <TsSectionHead title="Calendar overview" sub={month.periodLabel} />
       <TsCalendar month={month} />
@@ -208,6 +215,14 @@ export function TimesheetFullReview({ headerId }: { headerId: string }) {
           <div style={card}>
             <TsSectionHead title="Month split" sub={`${hLabel(month.recorded)} recorded · by project and type`} />
             <TsMonthSplit month={month} />
+          </div>
+          {/* By PROJECT above, by BILLABILITY here. They answer different
+              questions about the same hours and neither substitutes for the
+              other: one says where the work went, this one says what it was
+              worth. */}
+          <div style={card}>
+            <TsSectionHead title="Billable split" sub="what the month was worth" />
+            <TsBillSplit month={month} />
           </div>
           <div style={card}>
             <TsSectionHead title="By project & activity" />
