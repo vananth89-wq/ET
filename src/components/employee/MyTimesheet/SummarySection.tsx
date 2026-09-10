@@ -288,17 +288,7 @@ function ChargeBlock({ split, helpWord }: { split: BillSplit; helpWord: string |
   const worked = split.worked;
   if (worked <= 0) return null;
 
-  /* Mig 836's five buckets. `support` is its own slice rather than a subset of
-   * non-billable, so it can carry a percentage without inviting anybody to add
-   * it in twice. Empty buckets are dropped: a permanent "Not classified 0h"
-   * spends a fifth of this group saying nothing is wrong. */
-  const parts = ([
-    ['Billable',                    split.billable,     BILL_GREEN],
-    ['Not billable',                split.nonBillable,  BILL_SLATE],
-    ['Internal',                    split.internal,     BILL_CYAN],
-    [`${helpWord ?? 'Help'} given`, split.support,      HELP_INK],
-    ['Not classified',              split.unclassified, BILL_AMBER],
-  ] as const).filter(([, mins]) => mins > 0);
+  const parts = chargeParts(split, helpWord);
 
   // Floor-and-distribute, so the tiles total 100 rather than 99.
   const pcts = wholePercents(parts.map(([, m]) => m), worked);
@@ -315,9 +305,13 @@ function ChargeBlock({ split, helpWord }: { split: BillSplit; helpWord: string |
     if (bi >= 0 && pcts[bi] !== share) {
       const diff = pcts[bi] - share;
       pcts[bi] = share;
+      // Only a bucket WITH HOURS may absorb the point. Since the zero buckets
+      // are drawn now, an unguarded "largest of the others" could hand 1% to a
+      // tile reading 0h -- a percentage of nothing, which is the one number on
+      // this strip that could not possibly be true.
       let big = -1;
       for (let i = 0; i < pcts.length; i++) {
-        if (i !== bi && (big < 0 || pcts[i] > pcts[big])) big = i;
+        if (i !== bi && parts[i][1] > 0 && (big < 0 || pcts[i] > pcts[big])) big = i;
       }
       if (big >= 0) pcts[big] += diff;
     }
@@ -326,20 +320,49 @@ function ChargeBlock({ split, helpWord }: { split: BillSplit; helpWord: string |
   return (
     <div style={{ display: 'grid', gridTemplateColumns: `repeat(${parts.length}, 1fr)` }}>
       {parts.map(([label, mins, ink], i) => (
-        <Kpi key={label} label={label} value={h1(mins)} unit="h" tone={ink}
-             dot={ink} sub={`${pcts[i]}%`} />
+        /* A ZERO TILE IS DRAWN, BUT NOT IN ITS SIGNAL COLOUR. The five buckets
+         * are now permanent so the group keeps one shape month to month --
+         * but colour is load-bearing here: green is chargeable, amber is a
+         * question nobody has answered. An amber "0h" sitting there every
+         * month for a year is how somebody learns to stop seeing amber, and
+         * then misses the month it finally reads 3h. Zero is stated in the
+         * same grey as every other neutral figure on this strip; the ink
+         * returns the moment there are hours to put in it. */
+        <Kpi key={label} label={label} value={h1(mins)} unit="h"
+             tone={mins > 0 ? ink : C.ink4}
+             dot={mins > 0 ? ink : C.track} sub={`${pcts[i]}%`} />
       ))}
     </div>
   );
 }
 
-/** How many tiles the chargeable group will draw. The strip widens for the
- *  fifth rather than squeezing four into the space made for it -- a fifth
- *  bucket appears only when a project has no type set, which is the month you
- *  least want the labels truncating. */
-function chargeTileCount(split: BillSplit): number {
-  return [split.billable, split.nonBillable, split.internal,
-          split.support, split.unclassified].filter(m => m > 0).length;
+/**
+ * Mig 836's five buckets, in order, with the ink each is drawn in.
+ *
+ * `support` is its own slice rather than a subset of non-billable, so it can
+ * carry a percentage without inviting anybody to add it in twice.
+ *
+ * EVERY BUCKET, EVERY MONTH -- including the ones at zero. Empty buckets used
+ * to be dropped, on the reasoning that a permanent "Not classified 0h" spends
+ * a fifth of the group saying nothing is wrong. The cost of that showed up on
+ * Dev: a month whose hours are all billable collapsed to a single tile, and a
+ * group whose shape changes with its contents cannot be read at a glance --
+ * you have to find the label before you know what you are looking at. Zero is
+ * also an answer here: "0h not billable, 100%" is the sentence somebody wants.
+ * What zero must NOT do is shout, which the greying at the call site handles.
+ *
+ * ONE DEFINITION, because the KPI strip sizes its third column from the tile
+ * count and ChargeBlock draws the tiles. Two lists would be two places for
+ * that to drift, and the drift is silent: a group sized for four drawing five.
+ */
+function chargeParts(split: BillSplit, helpWord: string | null) {
+  return [
+    ['Billable',                    split.billable,     BILL_GREEN],
+    ['Not billable',                split.nonBillable,  BILL_SLATE],
+    ['Internal',                    split.internal,     BILL_CYAN],
+    [`${helpWord ?? 'Help'} given`, split.support,      HELP_INK],
+    ['Not classified',              split.unclassified, BILL_AMBER],
+  ] as const;
 }
 
 
@@ -800,14 +823,23 @@ export default function SummarySection({
           two-column legend and needs more room than three tiles do. */}
       <div style={{
         display: 'grid',
-        // Widths follow tile count. The chargeable group draws four tiles on an
-        // ordinary month and five when a project has no type set, and that
-        // fifth must not be paid for by squeezing the other four -- 5fr over
-        // four tiles is 144px each, over five it is 115px and the labels start
-        // truncating on exactly the month somebody needs to read them.
-        gridTemplateColumns: !d.showBill ? '1fr 1fr'
-                           : chargeTileCount(d.bill) > 4 ? '3fr 3fr 6fr'
-                           : '3fr 3fr 5fr',
+        // Widths follow tile count -- in BOTH directions, which is the half
+        // this was missing. Four tiles on an ordinary month, five when a
+        // project has no type set, and the fifth must not be paid for by
+        // squeezing the other four: 5fr over four tiles is 144px each, over
+        // five it is 115px and the labels truncate on exactly the month
+        // somebody needs to read them.
+        //
+// n+1 gives each tile ~1.25 shares against the 1.0 the Hours and
+        // Days tiles get -- these carry a swatch and longer words like "Not
+        // classified". Read from chargeParts rather than a count of its own:
+        // the group is sized by exactly the list ChargeBlock renders, so the
+        // two cannot disagree about how many tiles there are. The floor of 2
+        // is the group HEADER, not the tile: it has to hold "PRODUCTIVITY" and
+        // "of 162h worked" on one line.
+        gridTemplateColumns: !d.showBill
+          ? '1fr 1fr'
+          : `3fr 3fr ${Math.max(2, chargeParts(d.bill, d.helpWord).length + 1)}fr`,
         background: '#fff',
         border: `1px solid ${C.rule}`, borderRadius: 12, overflow: 'hidden', marginBottom: 14,
       }}>
