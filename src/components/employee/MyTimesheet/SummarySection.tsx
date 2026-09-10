@@ -320,14 +320,14 @@ function ChargeBlock({ split, helpWord }: { split: BillSplit; helpWord: string |
   return (
     <div style={{ display: 'grid', gridTemplateColumns: `repeat(${parts.length}, 1fr)` }}>
       {parts.map(([label, mins, ink], i) => (
-        /* A ZERO TILE IS DRAWN, BUT NOT IN ITS SIGNAL COLOUR. The five buckets
-         * are now permanent so the group keeps one shape month to month --
-         * but colour is load-bearing here: green is chargeable, amber is a
-         * question nobody has answered. An amber "0h" sitting there every
-         * month for a year is how somebody learns to stop seeing amber, and
-         * then misses the month it finally reads 3h. Zero is stated in the
-         * same grey as every other neutral figure on this strip; the ink
-         * returns the moment there are hours to put in it. */
+        /* A ZERO TILE IS DRAWN, BUT NOT IN ITS SIGNAL COLOUR. The four
+         * permanent buckets hold their slots so the group keeps one shape --
+         * but colour is load-bearing here, and a row of five saturated
+         * numbers where four of them are 0h reads as five findings. Zero is
+         * stated in the same grey as every other neutral figure on this
+         * strip, with a pale swatch; the ink returns the moment there are
+         * hours to put in it, so colour on this row always means the same
+         * thing: there is something here. */
         <Kpi key={label} label={label} value={h1(mins)} unit="h"
              tone={mins > 0 ? ink : C.ink4}
              dot={mins > 0 ? ink : C.track} sub={`${pcts[i]}%`} />
@@ -342,27 +342,40 @@ function ChargeBlock({ split, helpWord }: { split: BillSplit; helpWord: string |
  * `support` is its own slice rather than a subset of non-billable, so it can
  * carry a percentage without inviting anybody to add it in twice.
  *
- * EVERY BUCKET, EVERY MONTH -- including the ones at zero. Empty buckets used
- * to be dropped, on the reasoning that a permanent "Not classified 0h" spends
- * a fifth of the group saying nothing is wrong. The cost of that showed up on
- * Dev: a month whose hours are all billable collapsed to a single tile, and a
- * group whose shape changes with its contents cannot be read at a glance --
- * you have to find the label before you know what you are looking at. Zero is
- * also an answer here: "0h not billable, 100%" is the sentence somebody wants.
- * What zero must NOT do is shout, which the greying at the call site handles.
+ * FOUR FIXED, ONE CONDITIONAL, and the split is not arbitrary.
+ *
+ * Billable, Not billable, Internal and Help given are the vocabulary of a
+ * normal month: each is a real way to spend an hour, and a zero against one of
+ * them is an ANSWER -- "0h not billable, 100%" is the sentence somebody wants
+ * to read. They are drawn every month so the group keeps one shape; empty
+ * buckets used to be dropped and a fully billable month then collapsed to a
+ * single tile, and a group whose shape changes with its contents has to be
+ * read label-first before you know what you are looking at.
+ *
+ * "Not classified" is a different kind of fact. It is not a way to spend an
+ * hour, it is hours whose project has no type set -- a gap in reference data,
+ * and on a correctly configured system it never appears at all. A zero there
+ * is not an answer, it is the absence of a fault. Drawing it permanently in
+ * amber would put a warning colour on the strip every month for years, which
+ * is how somebody learns to stop seeing amber and misses the month it finally
+ * reads 3h. So it appears only when it has hours -- and when it appears, the
+ * group widens to hold it rather than squeezing the other four.
  *
  * ONE DEFINITION, because the KPI strip sizes its third column from the tile
  * count and ChargeBlock draws the tiles. Two lists would be two places for
  * that to drift, and the drift is silent: a group sized for four drawing five.
  */
-function chargeParts(split: BillSplit, helpWord: string | null) {
-  return [
-    ['Billable',                    split.billable,     BILL_GREEN],
-    ['Not billable',                split.nonBillable,  BILL_SLATE],
-    ['Internal',                    split.internal,     BILL_CYAN],
-    [`${helpWord ?? 'Help'} given`, split.support,      HELP_INK],
-    ['Not classified',              split.unclassified, BILL_AMBER],
+function chargeParts(split: BillSplit, helpWord: string | null)
+: ReadonlyArray<readonly [string, number, string]> {
+  const always = [
+    ['Billable',                    split.billable,    BILL_GREEN],
+    ['Not billable',                split.nonBillable, BILL_SLATE],
+    ['Internal',                    split.internal,    BILL_CYAN],
+    [`${helpWord ?? 'Help'} given`, split.support,     HELP_INK],
   ] as const;
+  return split.unclassified > 0
+    ? [...always, ['Not classified', split.unclassified, BILL_AMBER] as const]
+    : always;
 }
 
 
