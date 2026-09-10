@@ -343,13 +343,26 @@ export function Page3WeeklyProjects({ data }: { data: TimesheetExportData }) {
                   the largest of the others, so the key still totals 100. */}
               <View style={styles.cbKeys}>
                 {(() => {
-                  const parts = ([
-                    ['Billable',       data.billSplit.billable,     BILL_GREEN],
-                    ['Not billable',   data.billSplit.nonBillable,  BILL_SLATE],
-                    ['Internal',       data.billSplit.internal,     BILL_CYAN],
-                    ['Support given',  data.billSplit.support,      HELP_INK],
-                    ['Not classified', data.billSplit.unclassified, BILL_AMBER],
-                  ] as const).filter(([, mins]) => mins > 0);
+                  /* FOUR FIXED, ONE CONDITIONAL -- the arrangement both screens
+                     hold. Every empty bucket used to be dropped, which on a
+                     fully billable month printed a one-row key while the screen
+                     the reader had just left showed four. The document and the
+                     screen it came from must not disagree about how many kinds
+                     of hour there are.
+
+                     "Not classified" stays conditional: it is not a way to
+                     spend an hour, it is a project with no type set, and a
+                     permanent amber 0h teaches the reader to stop looking. */
+                  const fixed = [
+                    ['Billable',      data.billSplit.billable,    BILL_GREEN],
+                    ['Not billable',  data.billSplit.nonBillable, BILL_SLATE],
+                    ['Internal',      data.billSplit.internal,    BILL_CYAN],
+                    ['Support given', data.billSplit.support,     HELP_INK],
+                  ] as const;
+                  const parts: ReadonlyArray<readonly [string, number, string]> =
+                    data.billSplit.unclassified > 0
+                      ? [...fixed, ['Not classified', data.billSplit.unclassified, BILL_AMBER] as const]
+                      : fixed;
 
                   const pcts  = wholePercents(parts.map(([, m]) => m), data.billSplit.worked);
                   const share = billableSharePct(data.billSplit);
@@ -358,9 +371,13 @@ export function Page3WeeklyProjects({ data }: { data: TimesheetExportData }) {
                     if (bi >= 0 && pcts[bi] !== share) {
                       const diff = pcts[bi] - share;
                       pcts[bi] = share;
+                      /* Only a bucket with hours may absorb the point. The
+                         zero buckets are printed now, and a percentage of
+                         nothing is the one figure on this key that could not
+                         possibly be true. */
                       let big = -1;
                       for (let i = 0; i < pcts.length; i++) {
-                        if (i !== bi && (big < 0 || pcts[i] > pcts[big])) big = i;
+                        if (i !== bi && parts[i][1] > 0 && (big < 0 || pcts[i] > pcts[big])) big = i;
                       }
                       if (big >= 0) pcts[big] += diff;
                     }

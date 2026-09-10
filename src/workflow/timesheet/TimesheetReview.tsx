@@ -137,6 +137,31 @@ export function TsBillSplit({ month }: { month: MonthModel }) {
    * numbers below are read as a group and will be added up by somebody. */
   const pcts = wholePercents(buckets.map(([, mins]) => mins), s.worked);
 
+  /* AND THE BILLABLE TILE IS PINNED TO THE FOOTER'S FIGURE, which sits eleven
+   * lines below it in the same box. wholePercents floors and distributes;
+   * billableSharePct rounds. On a real split those disagree by a point often
+   * enough to matter -- [2371,1408,382,1176] minutes gives a tile reading 45%
+   * over a footer reading 44%, and [12,1161,194,870] gives "Billable 0%" above
+   * "1% billable share". Two numbers for one fact, a centimetre apart.
+   *
+   * The employee's own summary and page 3 of the PDF have both pinned this
+   * since they were written; this screen never did. The +-1 is absorbed by the
+   * largest OTHER bucket that has hours in it -- never by one reading 0h, which
+   * would be a percentage of nothing -- so the tiles still total 100. */
+  const share = month.billableShare;
+  if (share !== null) {
+    const bi = buckets.findIndex(([label]) => label === 'Billable');
+    if (bi >= 0 && pcts[bi] !== share) {
+      const diff = pcts[bi] - share;
+      pcts[bi] = share;
+      let big = -1;
+      for (let i = 0; i < pcts.length; i++) {
+        if (i !== bi && buckets[i][1] > 0 && (big < 0 || pcts[i] > pcts[big])) big = i;
+      }
+      if (big >= 0) pcts[big] += diff;
+    }
+  }
+
   return (
     <div style={{ border: '1px solid #E8EDF5', borderRadius: 7, background: '#fff',
                   overflow: 'hidden', marginBottom: 16 }}>
@@ -169,14 +194,19 @@ export function TsBillSplit({ month }: { month: MonthModel }) {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)' }}>
         {buckets.map(([label, mins, ink, note], i) => (
+          /* A zero bucket keeps its slot -- the four are a fixed vocabulary and
+             a group that changes shape has to be read label-first -- but not
+             its signal colour. Colour is load-bearing here, so on this panel it
+             means one thing only: there are hours in this bucket. */
           <div key={label} style={{ padding: '10px 13px 11px', borderBottom: '1px solid #F5F7FA' }}>
             <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.07em',
                           textTransform: 'uppercase', color: '#94A3B8', whiteSpace: 'nowrap' }}>
               <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: 2,
-                             background: ink, marginRight: 6 }} />{label}
+                             background: mins > 0 ? ink : '#E9EEF3', marginRight: 6 }} />{label}
             </div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 3 }}>
-              <span style={{ fontSize: 19, fontWeight: 800, letterSpacing: '-0.02em', color: ink,
+              <span style={{ fontSize: 19, fontWeight: 800, letterSpacing: '-0.02em',
+                             color: mins > 0 ? ink : '#9CA3AF',
                              fontVariantNumeric: 'tabular-nums' }}>{hLabel(mins)}</span>
               <span style={{ fontSize: 12, fontWeight: 700, color: '#9CA3AF',
                              fontVariantNumeric: 'tabular-nums' }}>
