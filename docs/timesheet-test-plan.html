@@ -2,7 +2,7 @@
 {
   "name": "Timesheet Test Plan",
   "schemaVersion": 1,
-  "description": "Prowess timesheet test plan, migrations 726–838. 457 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
+  "description": "Prowess timesheet test plan, migrations 726–839. 465 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
   "mcpTools": [],
   "mcpServerNames": []
 }
@@ -96,7 +96,7 @@
 <header class="top">
   <div class="wrap">
     <p class="eyebrow">Prowess · Time Management</p>
-    <h1>Test plan — migrations 726 to 838</h1>
+    <h1>Test plan — migrations 726 to 839</h1>
     <p class="sub">Multiple entries per day, day-occupancy rules, per-activity hours, advance-dating —
        and, from migration 730, an edit window that actually binds and a submission that goes
        somewhere. Every case says what to do, what should happen, and which rule it proves — so a
@@ -126,6 +126,7 @@
       <span><b>AR45 · AS28 added</b> 9 Sep 2026</span>
       <span><b>AV1–AV14 added</b> 9 Sep 2026</span>
       <span><b>AV15–AV18 added</b> 10 Sep 2026</span>
+      <span><b>AW1–AW8 added</b> 10 Sep 2026</span>
     </div>
   </div>
 </header>
@@ -182,6 +183,7 @@
     <a class="toc" href="#at">AT · Known and deliberate (780&ndash;826)</a>
     <a class="toc" href="#au">AU · The split reaches every report (825 &middot; 826)</a>
     <a class="toc" href="#av">AV · A period is a cycle, not a month (837)</a>
+    <a class="toc" href="#aw">AW · A project type says what it means (839)</a>
   </div>
 
   <div class="bar">
@@ -6166,6 +6168,99 @@ order  by created_at desc limit 6;</div>
       <div class="warn">The screen queried <code>.eq('period', '2026-08-01')</code> and formatted <code>ts.period</code> as its own month. On a 26th cycle the first matched nothing and the second would have labelled every row <b>July 2026</b>. An empty list here is the worst failure available: indistinguishable from a month nobody has filed, and it is what an administrator would chase people over.
       <br><br>
       The fix is a RANGE, not a cycle lookup. A period labelled M is anchored either on M-01 or between the 2nd and the 28th of M-1, so <code>labelAnchorRange()</code> gives closed bounds over an indexed column with no config read at all &mdash; which means there is no window in which this screen can query before the cycle is known, and it stays correct on the day cycles become per-employee and one month's timesheets no longer share an anchor. The first version of that range shifted by 27 <i>days</i> instead of by a month; the test that walks all 1,344 label/cycle pairs is what said so.</div>
+    </div>
+  </div>
+</section>
+
+<section id="aw">
+  <h2><span class="k">AW</span> A project type says what it means (839)</h2>
+  <p class="lede">Two faults in one corner. &ldquo;This project earns money&rdquo; was encoded as <code>ref_id = 'P001'</code> &mdash; a sequence number, handed out by position, which also means &ldquo;EC Consultant&rdquo; on another picklist. And the only thing between an administrator and thirteen silently unclassified projects was a guard that looked at employees and nothing else, in front of a foreign key that was <code>ON DELETE SET NULL</code>. The meaning moves onto the value as an administrator&rsquo;s checkbox; the foreign key learns to refuse.</p>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AW1</span>
+      <span class="title">The meaning is on the value, not in its position</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>In <b>Reference Data &rarr; Project Type</b>, confirm <b>Billable</b> shows <b>Chargeable to a client = Yes</b> and the others do not. Then change its <b>ref_id</b> from P001 to P009 and reload the Utilisation report.</p>
+      <div class="exp"><b>Expect:</b> every figure is unchanged.</div>
+      <div class="warn"><code>ref_id = 'P001'</code> was the test for &ldquo;this project earns money&rdquo;, in four functions. But <code>generateRefId()</code> hands out the lowest unused slot, so P001 is whatever was created first &mdash; on a freshly seeded Prod it need not be Billable at all, and <b>nothing fails if it is not</b>: every project reads non-billable, every utilisation figure drops, and no error is raised anywhere. 760 chose that code knowingly and wrote down the price; this is the bill.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AW2</span>
+      <span class="title">P001 means three different things</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Look up <code>ref_id = 'P001'</code> across picklists.</p>
+      <div class="exp"><b>Expect:</b> <b>PROJECT_TYPE</b> &rarr; Billable and <b>PROJECT_ROLE</b> &rarr; EC Consultant, at least.</div>
+      <div class="warn">Two unrelated meanings, one code, and only the join decides which a query gets. Every join was correct &mdash; none was correct <i>by construction</i>, which is a different and much weaker thing. Any picklist an admin creates whose name starts with P adds another.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AW3</span>
+      <span class="title">Two project types can both be chargeable</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Tick <b>Chargeable to a client</b> on a second type &mdash; a company running &ldquo;T&amp;M&rdquo; beside &ldquo;Fixed price&rdquo; &mdash; and reload Utilisation.</p>
+      <div class="exp"><b>Expect:</b> both types&rsquo; projects count as billable.</div>
+      <div class="why">A single privileged code could never express this: only one value can be P001. The flag can, and it is an administrator&rsquo;s checkbox rather than a developer&rsquo;s constant &mdash; which is the argument 755 made when it moved project types onto the picklist in the first place.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AW4</span>
+      <span class="title">Deleting a type in use is refused by the DATABASE</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>With 13 projects on <b>Billable</b>, try to delete it in Reference Data. Then try deleting the whole <b>Project Type</b> picklist.</p>
+      <div class="exp"><b>Expect:</b> both refused. The message names what is using it &mdash; <i>&ldquo;13 projects&rdquo;</i> &mdash; and suggests deactivating instead.</div>
+      <div class="warn">It used to <b>succeed</b>. <code>plIsInUse()</code> scans the loaded <code>employees</code> array and nothing else, so a value with 13 projects on it passed the guard, and <code>projects.project_type_id</code> was <code>ON DELETE SET NULL</code>: thirteen projects silently unclassified, every billable figure moved, no error and no audit row. <code>project_members.role_id</code> got RESTRICT when 790 added it; this column never did. <b>A guard in a screen is advice; a constraint is a rule</b> &mdash; so the FK restricts now, and the screen&rsquo;s job is only to explain it well.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AW5</span>
+      <span class="title">The guard asks the catalog, and tells the two P001s apart</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Delete-check the PROJECT_TYPE <b>Billable</b>, then the PROJECT_ROLE <b>EC Consultant</b>.</p>
+      <div class="exp"><b>Expect:</b> the first names <code>projects.project_type_id</code>; the second names <code>project_members.role_id</code>. Neither mentions the other.</div>
+      <div class="why"><code>picklist_value_usage()</code> reads <code>pg_constraint</code>, so it covers every foreign key to <code>picklist_values</code> &mdash; including ones added by migrations not yet written, without anybody remembering to update it. It matches on the value&rsquo;s <b>id</b>, which is why two values sharing a ref_id cannot be confused.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AW6</span>
+      <span class="title">What a foreign key cannot see</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Delete-check a <b>Designation</b> value that an employee holds.</p>
+      <div class="exp"><b>Expect:</b> still refused &mdash; but by the screen&rsquo;s own scan, not by the catalog walk.</div>
+      <div class="why"><code>employees.designation</code> is TEXT holding <code>'D001'</code>. There is no key to follow, so no catalog walk can see it and the client-side scan has to stay. Worth knowing which half catches what: the FK half is exact and self-maintaining, the text half is a heuristic over whatever the screen happens to have loaded.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AW7</span>
+      <span class="title">Two payload keys nobody read</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Read the Project Summary payload.</p>
+      <div class="exp"><b>Expect:</b> <code>billable_minutes</code> and <code>unclassified_minutes</code> are there; <code>internal_minutes</code> and <code>overhead_minutes</code> are not.</div>
+      <div class="why">They were computed from <code>type_ref = 'P002'</code> and <code>'P003'</code> and displayed nowhere &mdash; two more positional constants that would quietly become zero on a differently seeded database, for figures no screen shows. Removed rather than left in the payload as lies. <code>type_ref</code> still rides along per row for display; it is simply no longer allowed to <i>decide</i> anything.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AW8</span>
+      <span class="title">Patching a plpgsql body does not check the body</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Nothing to click. Any migration that rewrites a plpgsql function must <b>call</b> it before it commits.</p>
+      <div class="exp"><b>Expect:</b> 839&rsquo;s verification runs both patched reports.</div>
+      <div class="warn">The first version of 839 filtered on <code>type_billable</code> without adding that column to the CTE that feeds it. Every check passed &mdash; the anchors matched, the counts were right, the classification was unchanged, <code>MIG 839 OK</code> printed &mdash; because <b>PostgreSQL does not parse a plpgsql body when the function is replaced</b>. It would have failed the first time somebody opened the report, hours later, with the migration long since green. Executing the thing you just rewrote costs one line and is the only check that would have caught it. The same pass also caught a patch that was not idempotent, for the third time in three migrations: an anchor that survives inside its own replacement can never test as &ldquo;already applied&rdquo;.</div>
     </div>
   </div>
 </section>

@@ -14,8 +14,14 @@ interface MetaField {
   placeholder?: string;
   required?: boolean;
   width?: number;
-  /** 'select' renders a dropdown populated from sourcePicklistId instead of a text input */
-  type?: 'text' | 'select';
+  /** 'select' renders a dropdown populated from sourcePicklistId instead of a
+   *  text input; 'boolean' renders a checkbox storing 'true' or ''.
+   *
+   *  Mig 839 uses a boolean on PROJECT_TYPE: `billable` is what makes a
+   *  project's hours chargeable, and it belongs to the administrator rather
+   *  than to a developer. It replaced `ref_id = 'P001'` — a SEQUENCE number
+   *  that also means "EC Consultant" on PROJECT_ROLE. */
+  type?: 'text' | 'select' | 'boolean';
   sourcePicklistId?: string;
 }
 
@@ -81,6 +87,29 @@ function plIsInUse(valueId: string, vals: PlValue[], employees: Record<string, u
     return str === vid || (refId && str === refId) || (code && str === code);
   };
   return employees.some(emp => Object.values(emp as Record<string, unknown>).some(checkStr));
+}
+
+/**
+ * Which tables actually hold this value, from the database's own foreign keys.
+ *
+ * Mig 839. `plIsInUse` below scans the loaded `employees` array and nothing
+ * else, so "Billable" — with 13 projects pointing at it — passed the guard, and
+ * `projects.project_type_id` was ON DELETE SET NULL, so the delete SUCCEEDED and
+ * silently unclassified all 13. The FK is RESTRICT now, so the database refuses
+ * it either way; this exists so the screen can say WHICH rows instead of showing
+ * a foreign key error.
+ *
+ * Derived from pg_constraint server-side, so a key added by a future migration
+ * is covered without anyone editing this file. It cannot see values stored as
+ * plain text — employees.designation holds 'D001' with no key to follow — which
+ * is why the employee scan below stays.
+ */
+async function plFkUsage(valueId: string): Promise<{ table_name: string; column_name: string; row_count: number }[]> {
+  const { data, error } = await supabase.rpc('picklist_value_usage', { p_value_id: valueId });
+  // Failing OPEN here would re-create the bug this was written for, so a failure
+  // is reported as "in use": the delete is refused and the person is told why.
+  if (error) throw new Error(`Could not check what uses this value: ${error.message}`);
+  return (data ?? []) as { table_name: string; column_name: string; row_count: number }[];
 }
 
 /** Returns count of child values that reference this value as their parent */
@@ -260,7 +289,7 @@ function Page2({ picklist, vals, employees, onBack, picklistRowId, onRefetch }: 
     onRefetch();
   }
 
-  function deleteValue(val: PlValue) {
+  async function deleteValue(val: PlValue) {
     // Check 1: has dependent child values in other picklists
     const childCount = plChildCount(val.id, vals);
     if (childCount > 0) {
@@ -271,7 +300,32 @@ function Page2({ picklist, vals, employees, onBack, picklistRowId, onRefetch }: 
       });
       return;
     }
-    // Check 2: referenced in actual employee / expense data
+    // Check 2 (mig 839): rows in OTHER TABLES that point at this value. Asked
+    // of the database rather than of whatever this screen happens to have
+    // loaded, which was employees and only employees.
+    try {
+      const usage = await plFkUsage(val.id);
+      if (usage.length > 0) {
+        const lines = usage
+          .map(u => `${u.row_count} ${u.table_name.replace(/_/g, ' ')}`)
+          .join(', ');
+        setValInfoModal({
+          open: true,
+          title: 'Cannot Delete Value',
+          message: `"${val.value}" is in use by ${lines}. Deactivate it instead — that hides it from new entries and leaves the records that already use it describing themselves correctly.`,
+        });
+        return;
+      }
+    } catch (err) {
+      setValInfoModal({
+        open: true, title: 'Cannot Delete Value',
+        message: err instanceof Error ? err.message : 'Could not check what uses this value.',
+      });
+      return;
+    }
+
+    // Check 3: referenced in employee records as plain text, which no foreign
+    // key can see.
     if (plIsInUse(val.id, vals, employees)) {
       setValInfoModal({
         open: true,
@@ -478,6 +532,16 @@ function Page2({ picklist, vals, employees, onBack, picklistRowId, onRefetch }: 
                         <option key={String(opt.id)} value={String(opt.id)}>{opt.value}</option>
                       ))}
                     </select>
+                  ) : f.type === 'boolean' ? (
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 400, cursor: 'pointer', paddingTop: 6 }}>
+                      <input
+                        type="checkbox"
+                        checked={formMeta[f.key] === 'true'}
+                        onChange={e => { setFormMeta(m => ({ ...m, [f.key]: e.target.checked ? 'true' : '' })); setValFormErrors(p => ({ ...p, [f.key]: '' })); }}
+                        style={{ width: 16, height: 16, margin: 0 }}
+                      />
+                      <span style={{ fontSize: 13, color: '#374151' }}>Yes</span>
+                    </label>
                   ) : (
                     <input
                       type="text"
@@ -527,6 +591,7 @@ function Page2({ picklist, vals, employees, onBack, picklistRowId, onRefetch }: 
                   {metaFields.map(f => {
                     const raw = val.meta?.[f.key] || '';
                     let display = raw || '—';
+                    if (f.type === 'boolean') display = raw === 'true' ? 'Yes' : '—';
                     if (f.type === 'select' && f.sourcePicklistId && raw) {
                       const match = vals.find(v => v.picklistId === f.sourcePicklistId && String(v.id) === raw);
                       display = match ? match.value : raw;
