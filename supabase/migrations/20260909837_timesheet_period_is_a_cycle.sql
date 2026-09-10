@@ -475,17 +475,28 @@ COMMENT ON FUNCTION public.time_holiday_calendar_changed(uuid, date) IS
   'CONTAINS this date. Takes the date itself, not a period — one date can fall '
   'in two differently-anchored periods, and h.span @> date finds both.';
 
+-- ONE trigger function, not two. 722 created trg_time_holidays_recalc; 724
+-- RETIRED it -- dropped the trigger and the function, and asserts the old name
+-- is gone -- because it was bound to the wrong table and could never fire.
+-- Its replacement is trg_time_calendar_entries_recalc.
+--
+-- This migration first shipped patching both, because the list was built by
+-- finding the last file that DEFINED each function and nothing checked whether
+-- a later file had dropped it. It failed on Dev with "trg_time_holidays_recalc()
+-- not found", which is the assertion working: the transaction rolled back and
+-- nothing was half-applied. The house rule that the migration file is not the
+-- live definition applies to a function's EXISTENCE, not only to its body.
 DO $mig$
-DECLARE fn text;
 BEGIN
-  FOREACH fn IN ARRAY ARRAY['trg_time_holidays_recalc',
-                            'trg_time_calendar_entries_recalc']
-  LOOP
-    PERFORM public._mig837_patch(fn,
-      'date_trunc(''month'', NEW.entry_date)::date)', 'NEW.entry_date)', 1);
-    PERFORM public._mig837_patch(fn,
-      'date_trunc(''month'', OLD.entry_date)::date)', 'OLD.entry_date)', 1);
-  END LOOP;
+  IF EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+              WHERE n.nspname = 'public' AND p.proname = 'trg_time_holidays_recalc') THEN
+    RAISE EXCEPTION 'MIG 837: trg_time_holidays_recalc() exists, but 724 retired it. Something has resurrected the trigger that fires on the wrong table -- resolve that before patching holidays.';
+  END IF;
+
+  PERFORM public._mig837_patch('trg_time_calendar_entries_recalc',
+    'date_trunc(''month'', NEW.entry_date)::date)', 'NEW.entry_date)', 1);
+  PERFORM public._mig837_patch('trg_time_calendar_entries_recalc',
+    'date_trunc(''month'', OLD.entry_date)::date)', 'OLD.entry_date)', 1);
 END;
 $mig$;
 
@@ -581,7 +592,7 @@ BEGIN
                          'paste_timesheet_day','time_employee_edit_floor',
                          'time_submission_due_date','timesheet_report_utilisation',
                          'timesheet_report_compliance','timesheet_report_project_summary',
-                         'trg_time_holidays_recalc','trg_time_calendar_entries_recalc')
+                         'trg_time_calendar_entries_recalc')
        AND pg_get_functiondef(p.oid) LIKE '%date_trunc(''month''%'
   LOOP
     RAISE EXCEPTION 'MIG 837 FAILED: %() still computes a period with date_trunc(''month''). It would disagree with every other caller the moment a cycle is not the 1st.', v_src;
