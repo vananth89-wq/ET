@@ -11,6 +11,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../../lib/supabase';
+import { labelAnchorRange, periodLabel } from '../../../lib/period';
 import ErrorBanner from '../../shared/ErrorBanner';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -43,9 +44,13 @@ interface Entry {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+/** Mig 837: `d` is a period ANCHOR, and an anchor is not in the month the
+ *  period is called. 2026-07-26 must read "August 2026", because that is the
+ *  period's name and the name is what the row is filed under. */
 function fmtPeriod(d: string) {
-  const dt = new Date(d + 'T00:00:00');
-  return dt.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+  const { year, month } = periodLabel(d.slice(0, 10));
+  return new Date(`${year}-${String(month).padStart(2, '0')}-01T00:00:00`)
+    .toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
 }
 
 function fmtDate(d: string) {
@@ -228,7 +233,17 @@ export default function TimesheetAdmin() {
   const load = useCallback(async (p: string) => {
     setLoading(true);
     setError(null);
-    const periodDate = `${p}-01`;
+    /* Mig 837. `p` is a LABEL — "2026-08" — and the header it names is no
+     * longer anchored on the 1st of it. `.eq('period', '2026-08-01')` matched
+     * no row on a 26th cycle and rendered as "No timesheets found", which is
+     * the worst failure available here: an empty list is indistinguishable
+     * from a month nobody has filed.
+     *
+     * A RANGE rather than a cycle lookup, deliberately. It needs no config
+     * read, so there is no window in which this screen can query before the
+     * cycle is known — and it stays correct on the day cycles become
+     * per-employee and one month's timesheets no longer share an anchor. */
+    const [pLo, pHi] = labelAnchorRange(Number(p.slice(0, 4)), Number(p.slice(5, 7)));
 
     const { data, error: err } = await supabase
       .from('timesheet_headers')
@@ -242,7 +257,8 @@ export default function TimesheetAdmin() {
           name
         )
       `)
-      .eq('period', periodDate)
+      .gte('period', pLo)
+      .lte('period', pHi)
       .order('period', { ascending: false });
 
     if (err) { setError(err.message); setLoading(false); return; }

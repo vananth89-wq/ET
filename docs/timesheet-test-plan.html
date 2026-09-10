@@ -2,7 +2,7 @@
 {
   "name": "Timesheet Test Plan",
   "schemaVersion": 1,
-  "description": "Prowess timesheet test plan, migrations 726–837. 452 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
+  "description": "Prowess timesheet test plan, migrations 726–838. 457 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
   "mcpTools": [],
   "mcpServerNames": []
 }
@@ -96,7 +96,7 @@
 <header class="top">
   <div class="wrap">
     <p class="eyebrow">Prowess · Time Management</p>
-    <h1>Test plan — migrations 726 to 837</h1>
+    <h1>Test plan — migrations 726 to 838</h1>
     <p class="sub">Multiple entries per day, day-occupancy rules, per-activity hours, advance-dating —
        and, from migration 730, an edit window that actually binds and a submission that goes
        somewhere. Every case says what to do, what should happen, and which rule it proves — so a
@@ -124,7 +124,8 @@
       <span><b>AU27–AU33 added</b> 3 Sep 2026</span>
       <span><b>AU37–AU42 added</b> 9 Sep 2026</span>
       <span><b>AR45 · AS28 added</b> 9 Sep 2026</span>
-      <span><b>AV1–AV13 added</b> 9 Sep 2026</span>
+      <span><b>AV1–AV14 added</b> 9 Sep 2026</span>
+      <span><b>AV15–AV18 added</b> 10 Sep 2026</span>
     </div>
   </div>
 </header>
@@ -6100,6 +6101,71 @@ order  by created_at desc limit 6;</div>
       <p>Nothing to click. <code>period.ts</code> mirrors 837&rsquo;s four SQL functions, and the mirror is checked against a real PostgreSQL over every date from 2024 to 2027 at cycles 1, 26 and 28 &mdash; 4,527 cases, plus the round trip from label to anchor and back, plus that consecutive periods tile with no gap.</p>
       <div class="exp"><b>Expect:</b> if that check is not part of the build, run it before trusting a change to either side.</div>
       <div class="why">Two definitions of one fact are two places for it to drift, and this pair cannot be collapsed into one &mdash; the browser needs the answer without a round trip, and the database needs it without the browser. Where a duplicate is unavoidable, the duplicate has to be <i>proved</i> equal rather than assumed equal.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AV14</span>
+      <span class="title">A function&rsquo;s EXISTENCE is a live fact, not a file fact</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Nothing to click &mdash; this is a recorded defect. Before writing an in-place patch, list the functions it will touch and check each one for a <b>later</b> <code>DROP FUNCTION</code>, not only for its last <code>CREATE OR REPLACE</code>.</p>
+      <div class="exp"><b>Expect:</b> 837 patches <code>trg_time_calendar_entries_recalc</code> only, and <i>asserts</i> that <code>trg_time_holidays_recalc</code> is absent.</div>
+      <div class="warn">837 first shipped patching both. 722 created <code>trg_time_holidays_recalc</code>; <b>724 retired it</b> &mdash; dropped the trigger, dropped the function, and asserts the name is gone &mdash; because it was bound to <code>time_holidays</code>, the global pool, rather than to <code>time_calendar_entries</code>, so it could never fire. <code>db push</code> failed on Dev with <i>&ldquo;trg_time_holidays_recalc() not found&rdquo;</i>.
+      <br><br>
+      The house rule is that <b>the migration file is not the live definition</b>. 837 honoured it for every function BODY &mdash; each patch reads <code>pg_get_functiondef()</code> and asserts its hit count &mdash; and broke it for function EXISTENCE, because the list of what to patch was built by reading the files. Worse, the test fixture was built from the same sources, so it recreated the retired function and confirmed the assumption instead of checking it: <b>a test built from the same wrong premise as the code will always agree with it.</b>
+      <br><br>
+      Two things saved it. The migration is one transaction, so it rolled back whole and the version was never recorded &mdash; an edit in place, not a rename of an applied migration. And the patcher refuses to guess: a missing function is an exception, never a silent skip. The absence is now asserted rather than assumed, so if that trigger ever returns somebody has to explain why before holidays are patched around it.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AV15</span>
+      <span class="title">A period is closed as a whole, or not at all</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Set the employee edit window so that a timesheet sits <b>below</b> the floor, then try to change an entry near the <b>end</b> of that sheet as well as one near the start.</p>
+      <div class="exp"><b>Expect:</b> both refused, for the same reason. The message names the period by its label <i>and</i> its real dates, and names the floor as a <b>date</b>.</div>
+      <div class="warn">On Dev, immediately after 837: <i>&ldquo;July 2026 is closed for editing. The earliest month you can still change is July 2026.&rdquo;</i> &mdash; the same month twice, and it blocked the Dev wipe.
+      <br><br>
+      Two faults. <code>enforce_timesheet_edit_window()</code> tested <code>entry_date &lt; floor</code>, which was equivalent to &ldquo;this sheet is closed&rdquo; only while every floor was the 1st of a month. With a floor on the 26th it closed <b>the first three weeks of a timesheet and left the last one open</b> &mdash; and the screen was meanwhile asking a different question, <code>period anchor &lt; floor</code>, so a sheet could read closed and still take writes. It now compares the entry's period, read from the header the entry hangs off: identical to the old rule at start day 1, and identical to the screen at every start day. And a month name no longer identifies a period, so nothing in the message is a month any more.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AV16</span>
+      <span class="title">Every notification names the month the employee filed</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Submit the 26 Aug &ndash; 25 Sep timesheet and read the approval request &mdash; the email subject, and the row in the Approver Inbox. Then approve it and read that notification too.</p>
+      <div class="exp"><b>Expect:</b> <b>September 2026</b> throughout.</div>
+      <div class="warn"><code>submit_timesheet()</code> builds the metadata every timesheet notification renders from, and it labelled the period with its ANCHOR: <code>to_char(v_hdr.period, 'FMMonth YYYY')</code> gives <b>August 2026</b> for the sheet everyone calls September. Both <code>{{period_label}}</code> and the <code>period</code> key now go through <code>timesheet_period_label()</code>. Nothing on screen would have looked wrong &mdash; the mislabelling lives in mail nobody re-reads beside the timesheet.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AV17</span>
+      <span class="title">Searching for the expression does not find the idea</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Nothing to click. When a rule as fundamental as &ldquo;a period is a calendar month&rdquo; changes, sweep for the <b>assumption</b>, not for the expression that usually encodes it.</p>
+      <div class="exp"><b>Expect:</b> the sweep to name places that hold the assumption while sharing no syntax at all.</div>
+      <div class="warn">837 swept for the string <code>date_trunc('month', X)</code> and patched all eleven copies. Four more sites held the same assumption and contained none of that text: a guard comparing a raw date to a floor, two places formatting a period as a month name, and a page header reading &ldquo;August 1 &ndash; 31&rdquo; above a calendar that opens on 26 July. Each was found by tripping over it &mdash; the first by a failed <code>db push</code>, the second by a self-contradictory error message, the rest only because those two prompted a proper look.
+      <br><br>
+      The sweep that followed found one more &mdash; <code>TimesheetAdmin</code>, below &mdash; and, just as usefully, cleared two suspects. <code>fromMonthInput()</code> in <code>reportShared.ts</code> appends <code>-01</code> to a month picker and <i>looks</i> like the same bug in three report screens across seven call sites. It is not: every report RPC normalises that parameter with <code>timesheet_period_of()</code>, and the period CONTAINING the 1st of month M is always the period LABELLED M, at every cycle from 1 to 28. Checked over four years of months, rather than assumed. <b>A sweep is only worth running if it can also return &ldquo;this one is fine&rdquo;</b> &mdash; changing those seven call sites would have been churn dressed as a fix.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AV18</span>
+      <span class="title">The admin list finds the month it was asked for</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Open <b>Time Management &rarr; Timesheets</b>, pick <b>August 2026</b>, and read the rows and the period column.</p>
+      <div class="exp"><b>Expect:</b> the sheets running 26 Jul &ndash; 25 Aug, each shown as <b>August 2026</b>.</div>
+      <div class="warn">The screen queried <code>.eq('period', '2026-08-01')</code> and formatted <code>ts.period</code> as its own month. On a 26th cycle the first matched nothing and the second would have labelled every row <b>July 2026</b>. An empty list here is the worst failure available: indistinguishable from a month nobody has filed, and it is what an administrator would chase people over.
+      <br><br>
+      The fix is a RANGE, not a cycle lookup. A period labelled M is anchored either on M-01 or between the 2nd and the 28th of M-1, so <code>labelAnchorRange()</code> gives closed bounds over an indexed column with no config read at all &mdash; which means there is no window in which this screen can query before the cycle is known, and it stays correct on the day cycles become per-employee and one month's timesheets no longer share an anchor. The first version of that range shifted by 27 <i>days</i> instead of by a month; the test that walks all 1,344 label/cycle pairs is what said so.</div>
     </div>
   </div>
 </section>

@@ -8,6 +8,7 @@
 
 import { useCallback, useRef, useState } from 'react';
 import { supabase } from '../../../lib/supabase';
+import { periodLabel } from '../../../lib/period';
 
 // ─── Formatting ──────────────────────────────────────────────────────────────
 
@@ -48,14 +49,32 @@ export function fmtDayRange(a: string, b: string | null | undefined): string {
     : `${d1.getDate()} ${MONTHS[d1.getMonth()]} \u2013 ${d2.getDate()} ${MONTHS[d2.getMonth()]}`;
 }
 
+/**
+ * A period ANCHOR to the month it is CALLED.
+ *
+ * Mig 837: an anchor is not necessarily in its own label month — 2026-07-26 is
+ * the period everyone calls August 2026 — so the month cannot be read off the
+ * date. Rendering the anchor's own month put "July 2026" against every August
+ * row.
+ */
 export function fmtPeriod(v: string | null | undefined): string {
   if (!v) return '—';
-  const d = new Date(v.slice(0, 10) + 'T00:00:00');
-  if (isNaN(d.getTime())) return String(v);
-  return `${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+  const iso = v.slice(0, 10);
+  if (isNaN(new Date(iso + 'T00:00:00').getTime())) return String(v);
+  const { year, month } = periodLabel(iso);
+  return `${MONTHS[month - 1]} ${year}`;
 }
 
-/** '2026-08' -> '2026-08-01', which is what the RPCs expect. */
+/**
+ * '2026-08' -> '2026-08-01', which is what the RPCs expect — still, after 837.
+ *
+ * This looks like it should need the cycle, and it does not. Every report RPC
+ * normalises the parameter with `timesheet_period_of()`, and the period
+ * CONTAINING the 1st of month M is always the period LABELLED M, for every
+ * cycle from 1 to 28. So sending the label's first day names the right period
+ * without the client knowing what the cycle is — which is also why this screen
+ * cannot query before a config read that never happens.
+ */
 export function fromMonthInput(m: string): string { return `${m}-01`; }
 
 export function currentMonthInput(): string {

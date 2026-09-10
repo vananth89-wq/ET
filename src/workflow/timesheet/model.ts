@@ -19,7 +19,7 @@ import { displayLabel } from '../../components/employee/MyTimesheet/ExportPDF/ut
 /* mig 837. The period's own days, derived from the anchor alone -- the same
  * function the employee's screen uses, imported rather than reimplemented for
  * exactly the reason displayLabel is. */
-import { periodDays, periodLabel as periodLabelOf } from '../../components/employee/MyTimesheet/period';
+import { periodDays, periodLabel as periodLabelOf } from '../../lib/period';
 export { displayLabel };
 
 // ── Payload shape (mirrors time_approval_payload, mig 742) ───────────────────

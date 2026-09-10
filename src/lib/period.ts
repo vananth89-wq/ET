@@ -131,3 +131,31 @@ export function buildPeriodWindow(
     spansTwoMonths: start.slice(0, 7) !== end.slice(0, 7),
   };
 }
+
+/**
+ * The range of ANCHORS a period labelled {year, month} can have, for any legal
+ * cycle — without knowing the cycle.
+ *
+ * A period labelled M is anchored at day `startDay` of the month BEFORE it —
+ * except at startDay 1, where it is M-01 itself. So across the legal cycles
+ * 1..28 the anchor is either M-01 or a day from the 2nd to the 28th of M-1,
+ * which is the closed range [(M-1)-02, M-01].
+ *
+ * Nothing else lands in that window. The periods labelled M-1 are anchored at
+ * (M-1)-01 or in M-2, all below it; the ones labelled M+1 are anchored at
+ * (M+1)-01 or from M-02 onwards, all above it. True in every month, February
+ * included, which is what the 28-day cap buys.
+ *
+ * (Written first as `[M-01 - 27, M-01]` — anchors shift by a MONTH, not by
+ * days, so that window was wrong from the 2nd of every 30- and 31-day month.
+ * The test that walks all 1,344 label/cycle pairs is what said so.)
+ *
+ * This exists so a screen can ask "the August timesheets" as a range over an
+ * indexed column instead of looking the cycle up first — which also means it
+ * keeps working on the day cycles become per-employee and one month's
+ * timesheets no longer share an anchor.
+ */
+export function labelAnchorRange(year: number, month: number): [string, string] {
+  const hi = firstOfMonth(year, month);
+  return [addDays(addMonths(hi, -1), 1), hi];
+}

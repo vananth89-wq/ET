@@ -4,7 +4,7 @@ import type { TimesheetExportData } from '../../components/employee/MyTimesheet/
 import { loadLogoDataUrl } from '../../components/employee/MyTimesheet/ExportPDF/logo';
 import { entryMinutes } from '../../components/employee/MyTimesheet/ExportPDF/utils/dataTransforms';
 import type { TsPayload, TsPayloadEntry } from './model';
-import { periodDays, periodLabel } from '../../components/employee/MyTimesheet/period';
+import { periodDays, periodLabel } from '../../lib/period';
 
 /**
  * The approver's copy of the employee's report.

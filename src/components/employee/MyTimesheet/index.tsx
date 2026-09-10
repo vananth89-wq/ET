@@ -35,8 +35,8 @@ import type { TimesheetExportData }                    from './ExportPDF/types';
 import { entryMinutes }                               from './ExportPDF/utils/dataTransforms';
 /* mig 837. A timesheet period is a CYCLE, not a calendar month. Everything that
  * used to be worked out here from (year, month) now comes from one window. */
-import { buildPeriodWindow, DEFAULT_PERIOD_START_DAY } from './period';
-import type { PeriodWindow }                          from './period';
+import { buildPeriodWindow, DEFAULT_PERIOD_START_DAY } from '../../../lib/period';
+import type { PeriodWindow }                          from '../../../lib/period';
 import type { ProjectClass }                          from './billability';
 import { loadLogoDataUrl }                            from './ExportPDF/logo';
 
@@ -1932,9 +1932,15 @@ export default function MyTimesheet() {
     ? 'You have view-only access to this timesheet.'
     : pending
       ? 'Waiting for approval — withdraw it to make changes.'
+      /* Mig 838. A month name no longer identifies a period, and the floor is a
+       * period anchor that can land mid-month — so "the earliest month you can
+       * still change is July 2026" was printed over a July sheet that was
+       * closed. Both are named by DATE now, in the same words the database uses
+       * when it refuses the write, so the screen and the error agree. */
       : monthClosed
-        ? `This month is closed for editing. The earliest month you can still change is ${
-            editFloor ? `${MONTH_NAMES[Number(editFloor.slice(5, 7)) - 1]} ${editFloor.slice(0, 4)}` : '—'}.`
+        ? `This timesheet (${fmtChip(win.start)} – ${fmtChip(win.end)} ${win.end.slice(0, 4)})`
+          + ` is closed for editing. The earliest period you can still change starts ${
+            editFloor ? `${fmtChip(editFloor)} ${editFloor.slice(0, 4)}` : '—'}.`
         : '';
 
   const dayEntries = selectedDate ? (entriesByDate[selectedDate] ?? []) : [];
@@ -2854,7 +2860,15 @@ export default function MyTimesheet() {
             <i className="fa-solid fa-chevron-left" style={{ fontSize: 10 }} />
           </button>
           <h1 style={{ fontSize: 16, fontWeight: 700, color: '#111827', margin: 0, whiteSpace: 'nowrap' }}>
-            Time Sheet for {MONTH_NAMES[month - 1]} 1 – {totalDays}, {year}
+            {/* Mig 838. "August 1 – 31" is a caption the page can contradict:
+                on a 26-to-25 cycle the calendar underneath opens on 26 July.
+                The month is the NAME; the dates are what is on screen. */}
+            Time Sheet for {MONTH_NAMES[month - 1]} {year}
+            {win.spansTwoMonths && (
+              <span style={{ fontWeight: 500, color: '#6B7280', marginLeft: 8 }}>
+                {fmtChip(win.start)} – {fmtChip(win.end)}
+              </span>
+            )}
           </h1>
           <button onClick={nextMonth} disabled={!canNext} style={{ ...navBtnSt, opacity: canNext ? 1 : 0.35, cursor: canNext ? 'pointer' : 'not-allowed' }}
                   title={canNext ? 'Next month' : `Timesheets open ${FUTURE_MONTHS} months ahead`}>
@@ -3023,7 +3037,12 @@ export default function MyTimesheet() {
           left. That painted this banner for a single frame on every navigation.
           Tying it to the header actually being for the month on screen means it
           can only appear once THIS month has loaded and genuinely has none. */}
-      {!loading && !error && header?.period === `${year}-${pad2(month)}-01` && !schedule && (
+      {/* Mig 838: the period's anchor, not the 1st of the label month. Comparing
+          against `${year}-${month}-01` never matched on a 26-to-25 cycle, so
+          this banner could never appear -- an employee with no work schedule
+          would have seen a month of non-working days and nothing to explain it,
+          which is the exact failure the banner was written for. */}
+      {!loading && !error && header?.period === win.start && !schedule && (
         <div style={{ padding: '8px 24px' }}>
           <div style={{
             display: 'flex', gap: 10, alignItems: 'flex-start',
