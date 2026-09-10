@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { TimesheetExportData } from './types';
 import type { TimesheetReportVariant } from './TimesheetPDF';
+import { isStaleBuildError, STALE_BUILD_MESSAGE } from '../../../../lib/staleBuild';
 
 type ExportState = 'idle' | 'generating' | 'done';
 
@@ -106,7 +107,16 @@ export function ExportPDFButton({
       window.setTimeout(() => setState('idle'), 3000);
     } catch (err) {
       console.error('PDF export failed', err);
-      onToast(err instanceof Error ? `Export failed — ${err.message}` : 'Export failed — please try again', 'bad');
+      /* The PDF is loaded lazily, so the commonest way for this to fail is not
+         a fault in the PDF at all: it is a tab older than the last deploy
+         asking for a chunk hash that no longer exists. Printing the raw
+         message named a URL and blamed the export -- true of nothing the
+         reader could act on. The banner is already up by now; this stops the
+         toast contradicting it. */
+      onToast(
+        isStaleBuildError(err) ? `Export failed — ${STALE_BUILD_MESSAGE}`
+        : err instanceof Error ? `Export failed — ${err.message}`
+        : 'Export failed — please try again', 'bad');
       setState('idle');
     } finally {
       // Revoking immediately after click() can race the download in Safari.

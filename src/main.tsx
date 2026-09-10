@@ -4,8 +4,14 @@ import { BrowserRouter } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { PermissionProvider } from './contexts/PermissionContext';
 import { ErrorBoundary } from './components/shared/ErrorBoundary';
+import { installStaleBuildNotice } from './lib/staleBuild';
 import './assets/style.css';
 import App from './App';
+
+/* Before React, because the thing it watches for is a CHUNK failing to load --
+ * which can happen to the app shell itself, at a moment when mounting a
+ * component to say so is the one thing that may not work. */
+installStaleBuildNotice();
 
 /**
  * Provider hierarchy (order matters):

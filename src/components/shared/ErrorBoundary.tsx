@@ -19,6 +19,7 @@
 
 import { Component } from 'react';
 import type { ErrorInfo, ReactNode } from 'react';
+import { isStaleBuildError, STALE_BUILD_MESSAGE } from '../../lib/staleBuild';
 
 interface Props {
   children:  ReactNode;
@@ -61,7 +62,18 @@ export class ErrorBoundary extends Component<Props, State> {
   render() {
     if (!this.state.hasError) return this.props.children;
 
-    const { scope = 'app', heading = 'Something went wrong' } = this.props;
+    /* A LAZY ROUTE THAT 404s IS NOT A CRASH. Five of the report tabs are
+       React.lazy, so a tab older than the last deploy lands HERE rather than in
+       a try/catch -- and the generic copy below ("an unexpected error occurred",
+       "attempt recovery without a full reload") is wrong twice over: it is not
+       unexpected, and Try again cannot fix it, because the chunk it would
+       re-request still does not exist. Say what happened and offer the one
+       action that works. */
+    const stale = isStaleBuildError(this.state.errorMsg);
+
+    const { scope = 'app' } = this.props;
+    const heading = stale ? 'A new version is available'
+                          : (this.props.heading ?? 'Something went wrong');
     const isFullScreen = scope === 'app';
 
     const wrapStyle: React.CSSProperties = isFullScreen
@@ -102,8 +114,9 @@ export class ErrorBoundary extends Component<Props, State> {
 
           {/* Message */}
           <div style={{ fontSize: 13, color: '#6B7280', marginBottom: 20, lineHeight: 1.5 }}>
-            An unexpected error occurred in this section. You can try refreshing
-            the page, or use the button below to attempt recovery without a full reload.
+            {stale
+              ? `${STALE_BUILD_MESSAGE} This page was loaded before it was released, so part of it is no longer on the server. Nothing you have already saved is affected.`
+              : 'An unexpected error occurred in this section. You can try refreshing the page, or use the button below to attempt recovery without a full reload.'}
           </div>
 
           {/* Error detail — collapsed by default */}
@@ -129,7 +142,11 @@ export class ErrorBoundary extends Component<Props, State> {
 
           {/* Actions */}
           <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-            <button
+            {/* Withheld on a stale build: it re-renders the same lazy component,
+                re-requests the same missing chunk and fails again. A button that
+                cannot work is worse than no button -- it costs a click and
+                teaches the reader the screen is broken. */}
+            {!stale && <button
               type="button"
               onClick={this.handleReset}
               style={{
@@ -140,7 +157,7 @@ export class ErrorBoundary extends Component<Props, State> {
             >
               <i className="fa-solid fa-rotate-left" style={{ marginRight: 6 }} />
               Try again
-            </button>
+            </button>}
             <button
               type="button"
               onClick={() => window.location.reload()}
