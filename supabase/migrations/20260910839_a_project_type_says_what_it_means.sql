@@ -212,17 +212,66 @@ BEGIN
 END;
 $$;
 
+-- The utilisation classifier is patched by SHAPE, not by a counted anchor.
+--
+-- The first version of this migration asserted one `pv.ref_id = 'P001'` and one
+-- `pv.ref_id <> 'P001'`, reconstructed from reading 820/822/836. The live
+-- function has no `= 'P001'` arm at all -- for a P001 project, billable-vs-not
+-- is decided per ACTIVITY by 821, so the only P001 test is the `<>` one that
+-- sorts internal work out. The deploy failed on the count, which is the
+-- assertion doing its job, and cost a round trip that reading the function
+-- would have saved.
+--
+-- So: both forms are rewritten wherever they appear, zero occurrences of either
+-- being acceptable, and the STRICT check moves to where it belongs -- that when
+-- this is finished NO function decides billability by ref_id, that both reports
+-- still run, and that not one project changed class. Those three together are
+-- stronger than a per-arm count and do not depend on my reading of anything.
+CREATE OR REPLACE FUNCTION public._mig839_rebase(p_fn text)
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_src text; v_new text;
+  -- A ref_id or type_ref compared against a P-code: the thing that decides
+  -- something by position. Prose mentioning P001 is not that.
+  v_code CONSTANT text := '(ref_id|type_ref)[[:space:]]*(=|<>|!=)[[:space:]]*''P[0-9]';
+BEGIN
+  SELECT pg_get_functiondef(p.oid) INTO v_src
+  FROM   pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE  n.nspname = 'public' AND p.proname = p_fn;
+  IF v_src IS NULL THEN RAISE EXCEPTION 'MIG 839: %() not found.', p_fn; END IF;
+
+  -- Match the COMPARISON, never the bare string. 836 inserted a comment saying
+  -- "the billable question is only put on a P001 project", and a test for the
+  -- characters P001 cannot tell that apart from code that acts on them -- it
+  -- would refuse to run, or refuse to believe it had finished, over prose.
+  IF v_src !~ v_code THEN
+    RAISE NOTICE 'MIG 839: %() already reads the flag, skipping.', p_fn;
+    RETURN;
+  END IF;
+
+  -- IS DISTINCT FROM rather than <>, because meta is NULL on a value nobody has
+  -- ticked and `NULL <> 'true'` is NULL -- which in a CASE falls through to the
+  -- next arm without saying so.
+  v_new := replace(v_src, 'pv.ref_id = ''P001''',  '(pv.meta->>''billable'') = ''true''');
+  v_new := replace(v_new, 'pv.ref_id <> ''P001''', '(pv.meta->>''billable'') IS DISTINCT FROM ''true''');
+
+  IF v_new = v_src THEN
+    RAISE EXCEPTION 'MIG 839: %() contains P001 but in neither form this migration knows how to rewrite. Read it before editing this file.', p_fn;
+  END IF;
+  IF v_new ~ v_code THEN
+    RAISE EXCEPTION 'MIG 839: %() still DECIDES something by comparing a code to P-something after rewriting. There is a third form in there this migration does not know.', p_fn;
+  END IF;
+
+  EXECUTE v_new;
+  RAISE NOTICE 'MIG 839: rebased %() onto the billable flag.', p_fn;
+END;
+$$;
+
 DO $mig$
 BEGIN
-  -- ── Utilisation ──────────────────────────────────────────────────────────
-  -- Two arms, both keyed on P001: the billable test (820/822) and 836's
-  -- internal test. `IS DISTINCT FROM` rather than `<>` because meta may be NULL
-  -- on a value nobody has ticked, and `NULL <> 'true'` is NULL, which in a CASE
-  -- falls through to the wrong arm without saying so.
-  PERFORM public._mig839_patch('timesheet_report_utilisation',
-    'pv.ref_id = ''P001''', '(pv.meta->>''billable'') = ''true''', 1);
-  PERFORM public._mig839_patch('timesheet_report_utilisation',
-    'pv.ref_id <> ''P001''', '(pv.meta->>''billable'') IS DISTINCT FROM ''true''', 1);
+  PERFORM public._mig839_rebase('timesheet_report_utilisation');
 
   -- ── Project summary ──────────────────────────────────────────────────────
   -- Only billable_minutes and unclassified_minutes are read by the screen.
@@ -233,23 +282,24 @@ BEGIN
   -- The CTE has to carry the flag before anything can filter on it. type_ref
   -- stays -- it is still shown per row; it is just no longer allowed to DECIDE.
   PERFORM public._mig839_patch('timesheet_report_project_summary',
-'    pv.ref_id       AS type_ref,',
-'    pv.ref_id       AS type_ref,
-    (pv.meta->>''billable'') = ''true'' AS type_billable,',
+'           pv.ref_id       AS type_ref,',
+'           pv.ref_id       AS type_ref,
+           (pv.meta->>''billable'') = ''true'' AS type_billable,',
     1, 'AS type_billable');
 
   PERFORM public._mig839_patch('timesheet_report_project_summary',
-'    ''billable_minutes'',     (SELECT COALESCE(sum(recorded_minutes) FILTER (WHERE type_ref = ''P001''), 0) FROM ranked),
-    ''internal_minutes'',     (SELECT COALESCE(sum(recorded_minutes) FILTER (WHERE type_ref = ''P002''), 0) FROM ranked),
-    ''overhead_minutes'',     (SELECT COALESCE(sum(recorded_minutes) FILTER (WHERE type_ref = ''P003''), 0) FROM ranked),',
-'    -- Mig 839: the flag, not the position. type_ref still rides along per row
-    -- for display; it is no longer allowed to DECIDE anything.
-    ''billable_minutes'',     (SELECT COALESCE(sum(recorded_minutes) FILTER (WHERE type_billable), 0) FROM ranked),',
+'      ''billable_minutes'',     (SELECT COALESCE(sum(recorded_minutes) FILTER (WHERE type_ref = ''P001''), 0) FROM ranked),
+      ''internal_minutes'',     (SELECT COALESCE(sum(recorded_minutes) FILTER (WHERE type_ref = ''P002''), 0) FROM ranked),
+      ''overhead_minutes'',     (SELECT COALESCE(sum(recorded_minutes) FILTER (WHERE type_ref = ''P003''), 0) FROM ranked),',
+'      -- Mig 839: the flag, not the position. type_ref still rides along per row
+      -- for display; it is no longer allowed to DECIDE anything.
+      ''billable_minutes'',     (SELECT COALESCE(sum(recorded_minutes) FILTER (WHERE type_billable), 0) FROM ranked),',
     1);
 END;
 $mig$;
 
 DROP FUNCTION IF EXISTS public._mig839_patch(text, text, text, integer, text);
+DROP FUNCTION IF EXISTS public._mig839_rebase(text);
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- PART 4 — the database refuses what the screen misses
@@ -341,9 +391,11 @@ BEGIN
     WHERE  n.nspname = 'public'
       AND  p.proname IN ('project_billability', 'billable_project_ids',
                          'timesheet_report_utilisation', 'timesheet_report_project_summary')
-      AND  pg_get_functiondef(p.oid) LIKE '%P001%'
+      -- The comparison, not the characters: a comment that MENTIONS P001 is
+      -- fine and 836 left one behind. Code that BRANCHES on it is not.
+      AND  pg_get_functiondef(p.oid) ~ '(ref_id|type_ref)[[:space:]]*(=|<>|!=)[[:space:]]*''P[0-9]'
   LOOP
-    RAISE EXCEPTION 'MIG 839 FAILED: %() still reads P001. On a database seeded in a different order that code means something else entirely.', v_src;
+    RAISE EXCEPTION 'MIG 839 FAILED: %() still decides by a P-code. On a database seeded in a different order that code means something else entirely.', v_src;
   END LOOP;
 
   IF (SELECT pg_get_functiondef(p.oid) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
