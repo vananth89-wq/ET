@@ -206,6 +206,7 @@ const CC_NOTIFY_TYPES = [
   { value: 'DEPT_HEAD',        label: 'Department Head',   icon: 'fa-building',    hint: "Submitter's department head" },
   { value: 'ROLE',             label: 'Role',              icon: 'fa-users-gear',  hint: 'All users with a specific role' },
   { value: 'SPECIFIC_USER',    label: 'Specific User',     icon: 'fa-user-check',  hint: 'A fixed named user' },
+  { value: 'JOB_RELATIONSHIP', label: 'Job Relationship',  icon: 'fa-sitemap',     hint: 'A specific PM or OM matrix manager' },
 ];
 
 // Fixed JR codes — labels are the defaults; admins relabel via the picklist management UI
@@ -2103,6 +2104,21 @@ export default function WorkflowTemplates() {
                       style={iStyle}
                     />
                   )}
+                </ModalRow>
+              )}
+
+              {stepDraft.approverType === 'JOB_RELATIONSHIP' && (
+                <ModalRow label="Relationship Code *" hint="Which matrix-manager role to notify">
+                  <select
+                    value={stepDraft.relationshipCode ?? ''}
+                    onChange={e => setStepDraft(d => ({ ...d, relationshipCode: e.target.value || null }))}
+                    style={iStyle}
+                  >
+                    <option value="">— choose a code —</option>
+                    {JR_CODES.map(c => (
+                      <option key={c.value} value={c.value}>{c.label}</option>
+                    ))}
+                  </select>
                 </ModalRow>
               )}
             </div>
