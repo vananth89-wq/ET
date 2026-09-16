@@ -12,6 +12,8 @@ import { supabase } from '../lib/supabase';
 import type { Database } from '../types/database';
 import { mapEmployee, type Employee } from '../hooks/useEmployees';
 import { clearRecentlyViewedForUser } from '../hooks/useRecentlyViewed';
+import { useIdleTimeout } from '../hooks/useIdleTimeout';
+import { IdleTimeoutModal } from '../components/IdleTimeoutModal';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -274,6 +276,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearUserData();
   }, [clearUserData, employee?.id]);
 
+  // ── Idle timeout (30 min inactivity → auto sign-out) ────────────────────────
+  // Only active while a session exists (enabled = !!session).
+  const { showWarning, secondsLeft, stayLoggedIn } = useIdleTimeout(
+    signOut,
+    !!session,
+  );
+
   const value: AuthContextValue = {
     session,
     user,
@@ -294,6 +303,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return (
     <AuthContext.Provider value={value}>
       {children}
+
+      {/* Idle-timeout warning — rendered outside the app tree so it always
+          sits on top regardless of z-index stacking contexts */}
+      {showWarning && (
+        <IdleTimeoutModal
+          secondsLeft={secondsLeft}
+          onStayLoggedIn={stayLoggedIn}
+          onLogOut={signOut}
+        />
+      )}
     </AuthContext.Provider>
   );
 }
