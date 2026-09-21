@@ -9,6 +9,7 @@ import ManagerAutocomplete from './ManagerAutocomplete';
 import ConfirmationModal from '../shared/ConfirmationModal';
 import ErrorBanner from '../shared/ErrorBanner';
 import type { Project } from '../../hooks/useProjects';
+import EmployeeAssignments from './EmployeeAssignments';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -51,7 +52,55 @@ function StatusBadge({ status }: { status: 'Active' | 'Upcoming' | 'Closed' }) {
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─── Tab type ─────────────────────────────────────────────────────────────────
+
+type AdminTab = 'projects' | 'assignments';
+
+// ─── Tab bar ──────────────────────────────────────────────────────────────────
+
+function TabBar({ active, onChange }: { active: AdminTab; onChange: (t: AdminTab) => void }) {
+  const tabs: { key: AdminTab; label: string; icon: string }[] = [
+    { key: 'projects',    label: 'Projects',             icon: 'fa-solid fa-folder-open' },
+    { key: 'assignments', label: 'Employee Assignments',  icon: 'fa-solid fa-user-magnifying-glass' },
+  ];
+  return (
+    <div style={{
+      display: 'flex', gap: 4,
+      borderBottom: '1px solid #E3E9F2',
+      marginBottom: 20,
+    }}>
+      {tabs.map(t => {
+        const on = t.key === active;
+        return (
+          <button
+            key={t.key}
+            type="button"
+            onClick={() => onChange(t.key)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 7,
+              border: 0, background: 'transparent', cursor: 'pointer',
+              font: 'inherit', padding: '10px 18px', fontSize: 13.5,
+              fontWeight: on ? 600 : 500,
+              color: on ? '#18345B' : '#6B7280',
+              borderBottom: `2px solid ${on ? '#2B54CE' : 'transparent'}`,
+              marginBottom: -1,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <i className={t.icon} style={{ fontSize: 12, opacity: on ? 1 : 0.65 }} />
+            {t.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default function Projects() {
+  const [activeTab, setActiveTab] = useState<AdminTab>('projects');
+
   const { projects, loading, error, refetch } = useProjects();
   const { can } = usePermissions();
 
@@ -289,6 +338,20 @@ export default function Projects() {
 
   return (
     <div className="ar-panel">
+      {/* Page title */}
+      <div style={{ marginBottom: 16 }}>
+        <h2 className="page-title">Project Management</h2>
+      </div>
+
+      {/* Tab navigation */}
+      <TabBar active={activeTab} onChange={setActiveTab} />
+
+      {/* ── Employee Assignments tab ──────────────────────────────────────────── */}
+      {activeTab === 'assignments' && <EmployeeAssignments />}
+
+      {/* ── Projects tab ─────────────────────────────────────────────────────── */}
+      {activeTab === 'projects' && <>
+
       {/* Workflow gate banner.
           MIG 798 retired project_create — a create cannot be gated while
           workflow_instances.record_id is NOT NULL and projects has no draft
@@ -304,11 +367,6 @@ export default function Projects() {
           handleSave routes through the engine. See Q11 in
           docs/prowess-project-staffing.docx. */}
       <WorkflowGateBanner moduleCode="project_edit" actionLabel="project edits saved" />
-
-      {/* Page title */}
-      <div style={{ marginBottom: 20 }}>
-        <h2 className="page-title">Project Management</h2>
-      </div>
 
       {error && <ErrorBanner message={error} onRetry={refetch} />}
 
@@ -582,7 +640,7 @@ export default function Projects() {
         isOpen={modal.isOpen}
         title="Delete Project"
         message={`Are you sure you want to delete "${modal.project?.name ?? ''}"?`}
-        warning="This action cannot be undone and will permanently remove the project. If team members have job relationships linked to this project's reporting manager, those will not be automatically removed — please review Job Relationships manually."
+        warning="This action cannot be undone and will permanently remove the project."
         confirmText="Delete"
         cancelText="Cancel"
         onConfirm={confirmDelete}
@@ -610,6 +668,8 @@ export default function Projects() {
           </div>
         </div>
       )}
+
+      </>}{/* end activeTab === 'projects' */}
     </div>
   );
 }
