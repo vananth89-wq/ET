@@ -43,11 +43,7 @@ AS $$
     pv.value                                                           AS project_type_name,
     p.start_date                                                       AS project_start,
     p.end_date                                                         AS project_end,
-    CASE
-      WHEN mgr.id IS NOT NULL
-        THEN mgr.first_name || ' ' || mgr.last_name
-      ELSE NULL
-    END                                                                AS manager_name,
+    mgr.name                                                           AS manager_name,
     p.budget_hours                                                     AS budget_hours,
     rv.value                                                           AS role_name,
     pm.allocation_pct                                                  AS allocation_pct,
