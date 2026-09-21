@@ -45,9 +45,9 @@ export function useIdleTimeout(onTimeout: () => void, enabled: boolean) {
   // be recreated whenever component state changes.
   const resetRef = useRef<() => void>(() => {});
 
-  const warnTimerId   = useRef<ReturnType<typeof setTimeout>>();
-  const logoutTimerId = useRef<ReturnType<typeof setTimeout>>();
-  const countdownId   = useRef<ReturnType<typeof setInterval>>();
+  const warnTimerId   = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const logoutTimerId = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const countdownId   = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 
   useEffect(() => {
     if (!enabled) {
