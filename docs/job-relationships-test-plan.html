@@ -8,10 +8,10 @@
   "@context": "https://schema.org",
   "@type": "TechArticle",
   "name": "Prowess — Job Relationships test plan",
-  "description": "Prowess job-relationships test plan, migrations 844-849. 34 checkable cases across back-dated assignments reaching later sets, the overlap constraint, the mirror helper that was never created, the removed_on readers, the workflow-approved writer, and the nightly job that applies future-dated ends, and the removal that was recorded but never shown. Plus four known-and-deliberate gaps: the job ends but never adds, four readers still treating ended relationships as live, the add path selecting by flag, and mirror columns for only six of the codes."
+  "description": "Prowess job-relationships test plan, migrations 844-850. 48 checkable cases across back-dated assignments reaching later sets, the overlap constraint, the mirror helper that was never created, the removed_on readers, the workflow-approved writer, and the nightly job that applies future-dated ends, and the removal that now opens a record of its own on the day it took effect. Plus three known-and-deliberate gaps: the job ends but never adds, four readers still treating ended relationships as live, the add path selecting by flag, and mirror columns for only six of the codes."
 }
 </script>
-<title>Job Relationships — Test Plan for migrations 844 to 849</title>
+<title>Job Relationships — Test Plan for migrations 844 to 850</title>
 <style>
   :root{
     --ink:#0F172A; --ink2:#334155; --ink3:#64748B; --ink4:#94A3B8;
@@ -96,7 +96,7 @@
 <header class="top">
   <div class="wrap">
     <p class="eyebrow">Prowess · People</p>
-    <h1>Job Relationships — test plan, migrations 844 to 849</h1>
+    <h1>Job Relationships — test plan, migrations 844 to 850</h1>
     <p class="sub">Five migrations from one report: <i>"the record added on June is reflecting in the latest, but is not propagated to all the future records."</i> Each case says what to do, what should happen, and which rule it proves — so a failure tells you where to look rather than just that something is wrong.</p>
     <div class="meta">
       <span><b>Against</b> Dev (prowess-dev)</span>
@@ -114,6 +114,7 @@
     <a class="toc" href="#d">D · The approved path writes the same timeline (847)</a>
     <a class="toc" href="#e">E · A future-dated end actually ends (848)</a>
     <a class="toc" href="#f">F · A removal is a record, not an absence (849)</a>
+    <a class="toc" href="#h">H · A slot remembers which project put it there (850)</a>
     <a class="toc" href="#g">G · Known and deliberate</a>
   </div>
   <div class="bar"><div class="barrow">
@@ -280,6 +281,26 @@
       <div class="why">Markers are carried across the rebuild only where the manager is unchanged. A different manager is a new assignment and the old end date says nothing about it; inheriting it would mark somebody as gone before they started.</div>
     </div>
   </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">C6</span>
+      <span class="title">History agrees with the table above it</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>With a post-dated set present &mdash; say one beginning 01 Oct while today is 22 Sep &mdash; open <b>History</b>.</p>
+      <div class="exp"><b>Expect:</b> the <span style="background:#D1FAE5;color:#065F46;border-radius:4px;padding:1px 6px;font-size:11px;font-weight:600">Current</span> pill on the period containing today; the 01 Oct period marked <span style="background:#FEF3C7;color:#92400E;border:1px solid #FDE68A;border-radius:4px;padding:1px 6px;font-size:11px;font-weight:600">Scheduled</span> and headed <code>From 01 Oct 2026</code>; the panel <b>opens</b> on the period in force, not on the scheduled one.</div>
+      <div class="warn">846 replaced <code>is_active = true AND effective_to = '9999-12-31'</code> in the server reader and left the identical test in the client, in two places. Reeshethaa's profile showed <b>01 Oct 2026 &mdash; Present · Current</b> nine days before it started, with the period actually in force sitting below it unlabelled &mdash; while the table above, which 846 taught to select by date, showed the right thing. <b>One fact, two readers, two answers.</b></div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">C7</span>
+      <span class="title">And with nothing post-dated, nothing changes</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>An ordinary employee whose latest set is open-ended and already started.</p>
+      <div class="exp"><b>Expect:</b> that set is <b>Current</b> and the panel opens on it, exactly as before. No Scheduled pill anywhere.</div>
+      <div class="why">The flag test and the date test give the same answer whenever nothing is dated ahead, which is why this went three months without being noticed.</div>
+    </div>
+  </div>
 </section>
 
 <section id="d">
@@ -372,84 +393,223 @@
 
 <section id="f">
   <h2><span class="k">F</span> A removal is a record, not an absence (849)</h2>
-  <p class="lede">The row that records a removal already existed. 846's history filter dropped exactly the shape of it that lands on the day the removal takes effect, so the one event you were looking for was the only one never shown. 849 returns it, dates it, and the portlet draws it struck through with the last day it was valid.</p>
+  <p class="lede">A removal now opens a set on the last day the assignment was valid and marks it there. One period in History carries the struck row; the period before it is clean, and no period after it mentions the manager at all. The history filter 846 wrote is unchanged &mdash; it was right, the marker was in the wrong place.</p>
 
   <div class="case">
     <div class="head"><input type="checkbox"><span class="id">F1</span>
-      <span class="title">The removal on the day is visible at last</span></div>
+      <span class="title">The record day exists</span></div>
     <div class="body"><span class="lbl">Do</span>
-      <p>Vijaya's JCDC case, or rebuild it: a set already starting 01 Sep, then delimit her PM05 project assignment to 31 Aug. Open Job Relationships.</p>
-      <div class="exp"><b>Expect:</b> the PM05 row shows <b>the manager struck through</b> with an amber <code>Ended 31 Aug 2026</code> beside it, and the header line ends <code>&middot; 1 ended</code>.</div>
-      <div class="warn">Before 849 this read as "—", which is what an unassigned slot looks like. The item was in the table the whole time carrying <code>removed_on = 2026-09-01</code>; both readers filtered it out. <b>An empty slot and an ended one are different facts and must not render the same.</b></div>
+      <p>Vijaya's JCDC case, or rebuild it: a set already starting 01 Sep, then delimit her PM05 project assignment to <b>31 Aug</b>. Open History.</p>
+      <div class="exp"><b>Expect:</b> three entries in the sidebar &mdash;
+        <code>01 Jul &ndash; 30 Aug</code> (PM03, PM04, PM05 <b>normal</b>),
+        <code>31 Aug &ndash; 31 Aug</code> (PM03, PM04, then an <code>ENDED</code> rule and PM05 <b>struck through</b> with <code>Ended 31 Aug 2026</code>),
+        <code>01 Sep &ndash; Present</code> (PM03, PM04 &mdash; <b>no PM05 row at all</b>).</div>
+      <div class="warn">Before 849 there were two entries and no mention of the removal anywhere: the marker was stamped on the set that <i>starts</i> on 01 Sep, where <code>removed_on = effective_from</code> means invalid for the whole period, so history correctly dropped it and the slot just emptied.</div>
     </div>
   </div>
 
   <div class="case">
     <div class="head"><input type="checkbox"><span class="id">F2</span>
-      <span class="title">And in History, on the set that starts that day</span></div>
+      <span class="title">The usual shape gives the same three periods</span></div>
     <div class="body"><span class="lbl">Do</span>
-      <p>History &rarr; select the set beginning 01 Sep.</p>
-      <div class="exp"><b>Expect:</b> the continuing managers first, then a dashed rule, <code>ENDED</code>, and the removed one struck through with <code>Ended 31 Aug 2026</code>.</div>
-      <div class="why">The date printed is <code>ended_on</code> — the last day the assignment was valid — not <code>removed_on</code>, which is the day after and is not the date anyone typed. The database stores one and the screen shows the other on purpose.</div>
+      <p>The commoner case &mdash; no set exists on the removal date, so 844 splits. End an assignment on a date with no existing boundary.</p>
+      <div class="exp"><b>Expect:</b> identical shape to F1: clean period, one-day record period with the strike, then a period without the manager.</div>
+      <div class="why">The pre-pass runs before the CASE dispatch, so CASE 3 closes the record day and stamps it without knowing anything changed. Not a line of CASE 3 was edited &mdash; it was already doing the right thing to the wrong set.</div>
     </div>
   </div>
 
   <div class="case">
     <div class="head"><input type="checkbox"><span class="id">F3</span>
-      <span class="title">The period it covered is untouched</span></div>
+      <span class="title">The date shown is the one that was typed</span></div>
     <div class="body"><span class="lbl">Do</span>
-      <p>Same History, select the set that ran 01 Jul – 31 Aug.</p>
-      <div class="exp"><b>Expect:</b> all three managers listed <b>normally</b>. No strikethrough, no ENDED group.</div>
-      <div class="warn">She did have that manager every day of July and August. A removal dated 01 Sep says nothing about a period that ended 31 Aug, and a reader that struck it through there would be lying about the past — the same defect 846 was written to stop, arriving from the other side.</div>
+      <p>Read the badge on the struck row.</p>
+      <div class="exp"><b>Expect:</b> <code>Ended 31 Aug 2026</code> &mdash; the end date entered, not 01 Sep.</div>
+      <div class="why"><code>removed_on</code> is the first day the assignment was <i>not</i> valid: the correct thing to store and the wrong thing to print. History returns <code>ended_on = removed_on - 1</code> so no reader has to do date arithmetic to be right.</div>
     </div>
   </div>
 
   <div class="case">
     <div class="head"><input type="checkbox"><span class="id">F4</span>
-      <span class="title">The usual shape: the removal that split the set</span></div>
+      <span class="title">An ordinary change leaves no record day behind</span></div>
     <div class="body"><span class="lbl">Do</span>
-      <p>The commoner case — no set starts on the removal date, so 844 closes the old one and opens a new one. End an assignment on a date with no existing boundary.</p>
-      <div class="exp"><b>Expect:</b> the current screen still says <code>Ended &lt;last day&gt;</code>; the closing set in History shows that manager struck through; the new set does not list them at all.</div>
-      <div class="why">The marker is written on the <i>closing</i> set here and on the <i>in-force</i> set in F1. <code>get_current_job_relationships</code> selects by date (<code>removed_on &gt;= the in-force set's start</code>) rather than by set id, so both report. Keyed to the set it would have shown one and missed the other, and no user can see which shape their removal took.</div>
+      <p>Change a manager in a slot &mdash; replace, don't remove. Check History.</p>
+      <div class="exp"><b>Expect:</b> two periods, as before. <b>No</b> one-day set.</div>
+      <div class="warn">The pre-pass is gated on <code>p_remove_codes</code> being non-empty. If every edit started producing a one-day set, the history panel would fill with noise within a month.</div>
     </div>
   </div>
 
   <div class="case">
     <div class="head"><input type="checkbox"><span class="id">F5</span>
-      <span class="title">A future-dated end still shows nothing</span></div>
+      <span class="title">Two removals on the same date share one record day</span></div>
     <div class="body"><span class="lbl">Do</span>
-      <p>End an assignment on a date next month. Check the screen today.</p>
-      <div class="exp"><b>Expect:</b> the manager is listed <b>normally</b>, no ended badge, header shows no ended count.</div>
-      <div class="why">Vj's decision in E: a future end takes effect on the day and not before. Until then it is a live assignment, so it belongs in <code>items</code> and not in <code>ended</code>. On the day, the 848 job applies it and F1 or F4 takes over.</div>
+      <p>End two assignments with the same end date, in two separate actions.</p>
+      <div class="exp"><b>Expect:</b> <b>one</b> record-day period holding both struck rows &mdash; not two one-day sets, and no constraint error.</div>
+      <div class="why">The second call finds a set already beginning on that day and reuses it. <code>ejrs_no_overlap</code> would have rejected a second one anyway; the point is that it never gets that far.</div>
     </div>
   </div>
 
   <div class="case">
     <div class="head"><input type="checkbox"><span class="id">F6</span>
-      <span class="title">An older removal stays in History</span></div>
+      <span class="title">No earlier set at all &mdash; the record day is still created</span></div>
     <div class="body"><span class="lbl">Do</span>
-      <p>An assignment ended in March; a later set began in September. Check the current screen.</p>
-      <div class="exp"><b>Expect:</b> <b>no</b> ended badge on the current screen. History still shows the March removal on the set that carried it.</div>
-      <div class="why">The current screen reports removals that shaped the period now in force. A removal two periods back is history, and leaving it on the live screen forever would make the badge meaningless.</div>
+      <p>An employee whose only job-relationship set was entered on 01 Sep. Delimit a project assignment to 31 Aug.</p>
+      <div class="exp"><b>Expect:</b> a <code>31 Aug &ndash; 31 Aug</code> period appears holding the struck row, and the 01 Sep set no longer carries the manager.</div>
+      <div class="warn">This is the shape the first draft got wrong: with no set covering 31 Aug the helper returned NULL and the marker fell back onto the 01 Sep set, invisible &mdash; the original bug, still there in the exact case the test fixture reproduced. The helper now clones the record day from the earliest set starting after it.</div>
     </div>
   </div>
 
   <div class="case">
     <div class="head"><input type="checkbox"><span class="id">F7</span>
-      <span class="title">A slot filled again is not a vacancy</span></div>
+      <span class="title">A future-dated end still records nothing until the day</span></div>
     <div class="body"><span class="lbl">Do</span>
-      <p>Remove PM05, then assign someone else to PM05 a few days later.</p>
-      <div class="exp"><b>Expect:</b> PM05 shows the new manager, normally. No ended badge on that row.</div>
+      <p>End an assignment on a date next month. Check History today.</p>
+      <div class="exp"><b>Expect:</b> unchanged &mdash; no record day, no strike, the manager still listed on the live screen.</div>
+      <div class="why">Vj's decision in E, undisturbed. The record day is written when the removal is applied, which for a future end is the morning of the day by the 848 job.</div>
     </div>
   </div>
 
   <div class="case">
     <div class="head"><input type="checkbox"><span class="id">F8</span>
+      <span class="title">844's own behaviour is untouched</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>Re-run <b>A1</b> through <b>A6</b>: the back-dated add reaching every later set, the same date picked twice, the overlap constraint.</p>
+      <div class="exp"><b>Expect:</b> all pass unchanged &mdash; the June add still reaches July and September, the exact-date edit still happens in place, no overlapping ranges exist.</div>
+      <div class="why">849 adds a pre-pass and edits one branch of CASE 2. Everything else in that function is 844's and must stay that way; the migration asserts the forward walk and the exact-date branch are still present, but only running A1&ndash;A6 proves they still work.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">F9</span>
       <span class="title">Edit does not raise the dead</span></div>
     <div class="body"><span class="lbl">Do</span>
-      <p>History &rarr; the set carrying the ended item &rarr; <b>Edit</b>. Look at that role's picker. Then Save without touching anything.</p>
-      <div class="exp"><b>Expect:</b> the ended role's picker is <b>empty</b>; after Save the item is still ended, with the same date.</div>
-      <div class="warn">This is the one that has to be checked every time history's payload changes. <code>admin_update_job_relationship_set</code> rebuilds the set from what the form submits; an ended item that reached the form pre-filled would be re-submitted as live, and the assignment would come back with nothing recording that it ever ended. 846 made the server carry the markers across the rebuild; 849 makes the client keep them out of the form. <b>Both halves are needed.</b></div>
+      <p>History &rarr; the record day &rarr; <b>Edit</b>. Look at that role's picker. Then Save without touching anything.</p>
+      <div class="exp"><b>Expect:</b> the ended role's picker is <b>empty</b>; after Save the row is still struck, with the same date.</div>
+      <div class="warn">Check this every time history's payload changes. <code>admin_update_job_relationship_set</code> rebuilds the set from what the form submits; an ended item that reached the form pre-filled would be re-submitted as live and the assignment would come back with nothing recording that it ever ended. 846 made the server carry the markers across the rebuild; 849 keeps them out of the form. <b>Both halves are needed.</b></div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">F10</span>
+      <span class="title">And the live screen says nothing about it</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>Close History. Look at the main table.</p>
+      <div class="exp"><b>Expect:</b> the vacated role shows <code>&mdash;</code>, with no badge and no strike.</div>
+      <div class="why">Deliberate, and Vj's call: a set beginning after the assignment ended does not carry it, so there is nothing there to strike. The record lives on its own day in History. If the vacancy ever needs flagging on the live screen, that is a separate decision, not a side effect of this one.</div>
+    </div>
+  </div>
+</section>
+
+<section id="h">
+  <h2><span class="k">H</span> A slot remembers which project put it there (850)</h2>
+  <p class="lede">A PM slot now records the project that filled it. NULL means a human did, and automation never touches it &mdash; which is every row that existed before this migration, because <b>nothing was backfilled</b>. Changing a project's lead moves the slots that project owns and nothing else.</p>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">H1</span>
+      <span class="title">Nothing you already have moves</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p><b>Before anything else.</b> Pick an employee with PM slots that pre-date this deploy. Change the lead of a project they are on.</p>
+      <div class="exp"><b>Expect:</b> their slots are <b>unchanged</b>. Nothing this migration does can move a row created before it.</div>
+      <div class="warn">No backfill was the deliberate choice. A backfill would have had to guess which existing slots were project-derived &mdash; the guess the column exists to avoid &mdash; and a wrong guess overwrites an assignment somebody made on purpose. The behaviour below begins with memberships created <i>after</i> the deploy, so test it with fresh ones.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">H2</span>
+      <span class="title">The handover</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>Create a project led by Suchitra, add a member, then change the lead to someone else.</p>
+      <div class="exp"><b>Expect:</b> two periods &mdash; <code>&hellip; &ndash; yesterday</code> holding Suchitra in the slot, <code>today &ndash; Present</code> holding the new lead in the <b>same slot</b>. No strike.</div>
+      <div class="why">A replacement, not a removal plus an add: the slot never ended, its occupant changed, and a set boundary is exactly how that is recorded. 849's record day and strike are for things that <i>ended</i>.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">H3</span>
+      <span class="title">A hand-set slot survives the change</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>As H2, but first assign someone to another slot by hand through the portlet. Then change the project's lead.</p>
+      <div class="exp"><b>Expect:</b> the project's slot moves; the hand-set slot is <b>untouched</b>, same person, no new boundary of its own.</div>
+      <div class="warn">The whole point of the column. Naming a manager for a slot &mdash; through the portlet, through the approval path, through a history Edit &mdash; clears ownership, because a human just made a decision about it.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">H4</span>
+      <span class="title">Shared manager: the slot is kept and re-homed</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>Suchitra leads <b>two</b> projects; one employee is on both. Change the lead of one of them.</p>
+      <div class="exp"><b>Expect:</b> Suchitra <b>stays</b> in her slot, now owned by the project that still justifies it, and the incoming lead is placed in the <b>next free slot</b>, owned by the project that changed.</div>
+      <div class="why">834's rule, applied to a change rather than an ending &mdash; the same case Vj raised for end dates. The assignment is still earned by the other project, so removing it would be wrong; but the new lead is genuinely new and needs a slot.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">H5</span>
+      <span class="title">Clearing the lead ends the assignment, with a record</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>Set the project's manager to empty.</p>
+      <div class="exp"><b>Expect:</b> a one-day record period holding the old lead <b>struck through</b> with <code>Ended &lt;yesterday&gt;</code>, then a period without them.</div>
+      <div class="why">Nobody is taking over, so this is a removal and 849 does what it does for every other removal. The two migrations meet here.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">H6</span>
+      <span class="title">The incoming lead is not listed twice</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>An employee already has Iqraa as a manager through another project. Change a second project's lead <i>to</i> Iqraa.</p>
+      <div class="exp"><b>Expect:</b> the second project's slot <b>ends</b> (record day, strike). Iqraa appears <b>once</b>, in the slot she already held.</div>
+      <div class="why">Two slots would claim she manages the person in two capacities, which is not what happened. One slot cannot record two owners &mdash; a known limit, written down in the migration header.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">H7</span>
+      <span class="title">Ending a membership after a handover releases the right slot</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>H2's project, after the lead change. Now delimit the member's assignment.</p>
+      <div class="exp"><b>Expect:</b> the slot is released, on the right date, with 849's record day.</div>
+      <div class="warn">Before 850 this was <b>broken</b> and nobody would have seen it. <code>sync_project_jr_on_remove</code> looked up <code>projects.manager_id</code> &mdash; the <i>current</i> lead &mdash; and matched on the person, so after a handover it released the new lead's slot, or matched nothing and released none. It now asks the slot which project owns it.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">H8</span>
+      <span class="title">Ownership survives an unrelated edit</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>Create a project-derived slot, then make an <i>unrelated</i> change through the portlet so a new set is created. Then change the project's lead.</p>
+      <div class="exp"><b>Expect:</b> the lead change still moves that slot.</div>
+      <div class="warn">Each set is a fresh snapshot and carry-forward rebuilds the rows. Without copying the column through every carry-forward, ownership would be correct until the next unrelated edit and then silently empty &mdash; and the failure would look exactly like "the feature does not work sometimes".</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">H9</span>
+      <span class="title">Renaming a project changes nothing</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>Edit a project's name, type, or budget &mdash; anything but the lead.</p>
+      <div class="exp"><b>Expect:</b> no new job-relationship sets for anybody, no boundaries, nothing.</div>
+      <div class="why">The trigger is narrowed to <code>UPDATE OF manager_id</code>, 797's rule. The migration asserts it; this confirms it on real data.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">H10</span>
+      <span class="title">A failed sync does not roll back the project edit</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>Not clickable. Read <code>trg_projects_jr_on_lead_change</code>, then check the Postgres log after a lead change.</p>
+      <div class="exp"><b>Expect:</b> the whole sync is wrapped; a failure leaves a <code>WARNING</code> and the lead change stands.</div>
+      <div class="warn">Both sync functions used to end <code>EXCEPTION WHEN OTHERS THEN NULL</code>. They now raise a WARNING. 845 sat unrunnable for three months behind exactly that silence, and was found only because something finally called it. <b>A sync that cannot run must not also be quiet.</b></div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">H11</span>
+      <span class="title">And G3 is closed</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>With a post-dated set present, add a member to a project.</p>
+      <div class="exp"><b>Expect:</b> the free-slot search consults the picture in force <b>on the date the membership starts</b>, not the post-dated one.</div>
+      <div class="why">Both sync functions were rewritten here, and leaving the flag test inside a body being replaced would not have been a saving. This is the last of the four places 846 could not reach.</div>
     </div>
   </div>
 </section>
@@ -464,7 +624,7 @@
     <div class="body"><span class="lbl">Do</span>
       <p>Assignment ends 31 Aug; a new project with the <i>same</i> manager starts 01 Oct, booked in advance.</p>
       <div class="exp"><b>Expect:</b> the slot is released on 01 Sep and <b>nothing restores it in October</b>.</div>
-      <div class="warn">September is correct — she is on none of his projects that month. October is not. <code>sync_project_jr_on_add</code> already ran when the membership was created, found the manager still in a slot, and returned; it will never run again. The job cannot safely add, because a slot can be set by hand as well as by a project and nothing on the row records which — re-adding every manager a project implies would undo deliberate removals. Fixing it properly needs provenance on the item row: a schema change with a backfill.</div>
+      <div class="warn">September is correct — she is on none of his projects that month. October is not. <code>sync_project_jr_on_add</code> already ran when the membership was created, found the manager still in a slot, and returned; it will never run again. The job cannot safely add, because a slot can be set by hand as well as by a project and nothing on the row records which — re-adding every manager a project implies would undo deliberate removals. <b>850 added the provenance it was waiting for</b> &mdash; <code>source_project_id</code>, so the job can now tell its own slots from a human’s. The adding half is written but not built: it still has to decide which project’s manager wins when two of them start the same month.</div>
     </div>
   </div>
 
@@ -480,16 +640,6 @@
 
   <div class="case">
     <div class="head"><input type="checkbox"><span class="id">G3</span>
-      <span class="title">The add path still reads the open-ended set by flag</span></div>
-    <div class="body"><span class="lbl">Do</span>
-      <p>Read <code>sync_project_jr_on_add</code>: its "already there" check and free-slot search both select on <code>is_active = true AND effective_to = '9999-12-31'</code>.</p>
-      <div class="exp"><b>Expect:</b> with a post-dated set present it consults a picture that has not started, and may pick a slot on that basis.</div>
-      <div class="why">846 removed that test from the current reader and left these. Same fix, same reason, not yet applied.</div>
-    </div>
-  </div>
-
-  <div class="case">
-    <div class="head"><input type="checkbox"><span class="id">G4</span>
       <span class="title">Only six of the codes have mirror columns</span></div>
     <div class="body"><span class="lbl">Do</span>
       <p>Compare the mirror columns on <code>employees</code> with the slots the sync functions search.</p>
@@ -504,14 +654,14 @@
 
   <footer>
     <p><b>If something fails</b>, the "why this matters" note on each case names the rule it is
-       testing — start there. The migration headers for 844 to 849 carry the reasoning in full,
+       testing — start there. The migration headers for 844 to 850 carry the reasoning in full,
        and <code>docs/job-relationships-design.md</code> has the original model.</p>
-    <p><b>Known open items</b> are section F, and they are open on purpose. F1 — the daily job
+    <p><b>Known open items</b> are section G, and they are open on purpose. G1 — the daily job
        releases relationships but never restores them — is the one most likely to be reported as a
-       bug; it needs provenance on the item row before it can be fixed honestly.</p>
+       bug. 850 removed what was blocking it, so it is now a decision rather than an obstacle.</p>
     <p><b>Method.</b> Every migration here was reproduced on a real PostgreSQL 16 against the live
        function definitions read from Dev, not from the migration files: the files do not add up to
-       what is running. Each was then re-run to prove idempotence. Three verification blocks failed
+       what is running. Each was then re-run to prove idempotence. Four verification blocks failed
        during development because an assertion matched the migration's own prose rather than its
        code — if you write one, match a predicate, not a phrase.</p>
   </footer>

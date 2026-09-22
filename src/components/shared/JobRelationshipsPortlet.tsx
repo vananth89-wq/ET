@@ -165,6 +165,29 @@ type HistoryItem = HistorySet['items'][number];
 /** Live for the whole period this set covers. */
 const isLive = (i: HistoryItem) => !i.removed_on;
 
+/**
+ * Which period a set is, BY DATE.
+ *
+ * This panel used to ask `effective_to === '9999-12-31' && is_active`, which
+ * answers "which set is open-ended" — a different question, and the two part
+ * company the moment anything is dated ahead. Post-date a change and the
+ * open-ended set is one that has not started yet: a set beginning in October
+ * was labelled **Current** while the set actually in force sat below it with
+ * no label at all, and the table above it — which mig 846 taught to select by
+ * date — disagreed with it on the same screen.
+ *
+ * 846 removed this predicate from get_current_job_relationships and left it
+ * here, in two places. Same question, same fix.
+ */
+type JRPeriod = 'past' | 'current' | 'scheduled';
+
+function periodOf(s: { effective_from: string; effective_to: string }): JRPeriod {
+  const t = todayISO();                       // ISO dates compare correctly as strings
+  if (s.effective_from > t) return 'scheduled';
+  if (s.effective_to   < t) return 'past';
+  return 'current';
+}
+
 function HistoryPanel({
   employeeId,
   codeLabels,
@@ -199,7 +222,12 @@ function HistoryPanel({
     );
     if (err) { setError(err.message); setLoading(false); return; }
     const payload = data as { ok: boolean; sets: HistorySet[] } | null;
-    setSets(payload?.sets ?? []);
+    const rows = payload?.sets ?? [];
+    setSets(rows);
+    // Open on the period in force, not on whatever sorts first. Sets come back
+    // newest-first, so a scheduled change put index 0 in the future.
+    const inForce = rows.findIndex(s => periodOf(s) === 'current');
+    setSelIdx(inForce >= 0 ? inForce : 0);
     setLoading(false);
   }
 
@@ -282,7 +310,7 @@ function HistoryPanel({
           {/* Date sidebar */}
           <div style={{ width: 150, borderRight: '1px solid #E0E7FF', overflowY: 'auto', flexShrink: 0 }}>
             {sets.map((s, i) => {
-              const isCurrent = s.effective_to === '9999-12-31' && s.is_active;
+              const period = periodOf(s);
               return (
                 <button
                   key={s.id}
@@ -296,8 +324,13 @@ function HistoryPanel({
                   }}
                 >
                   <div style={{ fontWeight: 600 }}>{fmtDate(s.effective_from)}</div>
-                  <div style={{ color: '#9CA3AF', fontSize: 11, marginTop: 2 }}>
-                    {isCurrent ? 'Current' : `→ ${fmtDate(s.effective_to)}`}
+                  <div style={{
+                    color: period === 'scheduled' ? '#B45309' : '#9CA3AF',
+                    fontSize: 11, marginTop: 2,
+                  }}>
+                    {period === 'current'   ? 'Current'
+                     : period === 'scheduled' ? 'Scheduled'
+                     : `→ ${fmtDate(s.effective_to)}`}
                   </div>
                 </button>
               );
@@ -308,7 +341,8 @@ function HistoryPanel({
           {(() => {
             const s = sets[selIdx];
             if (!s) return null;
-            const isCurrent = s.effective_to === '9999-12-31' && s.is_active;
+            const period    = periodOf(s);
+            const openEnded = s.effective_to === '9999-12-31';
             const isEditing = editingId === s.id;
             const isConfirmingDelete = confirmDelId === s.id;
             return (
@@ -316,11 +350,22 @@ function HistoryPanel({
                 {/* Header row with date + action buttons */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
                   <span style={{ fontSize: 12, fontWeight: 600, color: '#6B7280' }}>
-                    {fmtDate(s.effective_from)} — {isCurrent ? 'Present' : fmtDate(s.effective_to)}
+                    {period === 'scheduled' && openEnded
+                      ? `From ${fmtDate(s.effective_from)}`
+                      : `${fmtDate(s.effective_from)} — ${openEnded ? 'Present' : fmtDate(s.effective_to)}`}
                   </span>
-                  {isCurrent && (
+                  {period === 'current' && (
                     <span style={{ fontSize: 11, fontWeight: 600, background: '#D1FAE5', color: '#065F46', borderRadius: 4, padding: '2px 7px' }}>
                       Current
+                    </span>
+                  )}
+                  {period === 'scheduled' && (
+                    <span
+                      title={`These assignments take effect on ${fmtDate(s.effective_from)}. They are not in force yet.`}
+                      style={{ fontSize: 11, fontWeight: 600, background: '#FEF3C7', color: '#92400E', border: '1px solid #FDE68A', borderRadius: 4, padding: '1px 7px' }}
+                    >
+                      <i className="fa-solid fa-clock" style={{ fontSize: 9, marginRight: 4 }} />
+                      Scheduled
                     </span>
                   )}
                   {/* Edit / Delete buttons — right side */}
