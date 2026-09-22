@@ -1,5 +1,5 @@
 -- =============================================================================
--- Migration 850 — a slot remembers which project put it there
+-- Migration 851 — a slot remembers which project put it there
 --
 -- THE REPORT
 -- ══════════
@@ -78,7 +78,7 @@
 --   to the other project and leaves the assignment alone. Correct, but it
 --   cannot show that two projects justify the same slot.
 --
--- Depends on: 834 (the shared-manager rule), 844 (the writer), 849 (the record
+-- Depends on: 834 (the shared-manager rule), 844 (the writer), 850 (the record
 --             day a removal now gets), 797 (which already watches manager_id)
 -- =============================================================================
 
@@ -112,7 +112,7 @@ CREATE INDEX IF NOT EXISTS idx_ejri_source_project
   WHERE source_project_id IS NOT NULL;
 
 COMMENT ON COLUMN public.employee_job_relationship_item.source_project_id IS
-  'MIG 850: the project that put this manager in this slot, or NULL when a '
+  'MIG 851: the project that put this manager in this slot, or NULL when a '
   'human did. Automation may only move a slot it owns. Never backfilled: every '
   'row that predates this column reads as hand-set and is left alone forever.';
 
@@ -139,14 +139,17 @@ BEGIN
   WHERE  n.nspname = 'public' AND p.proname = 'fn_close_and_replace_job_relationship_set';
 
   IF v_src IS NULL THEN
-    RAISE EXCEPTION 'MIG 850 FAILED: fn_close_and_replace_job_relationship_set() does not exist.';
+    RAISE EXCEPTION 'MIG 851 FAILED: fn_close_and_replace_job_relationship_set() does not exist.';
   END IF;
-  IF position('MIG 849' IN v_src) = 0 THEN
-    RAISE EXCEPTION 'MIG 850 FAILED: migration 849 has not been applied to this database.';
+  -- The prerequisite is the record day, not a marker. 849 shipped under two
+  -- different contents and its marker means nothing; 850 is what actually
+  -- gives the writer its pre-pass, whichever file a database got it from.
+  IF position('fn_jr_open_removal_record' IN v_src) = 0 THEN
+    RAISE EXCEPTION 'MIG 851 FAILED: the writer has no record-day pre-pass -- 850 has not been applied.';
   END IF;
 
-  IF position('MIG 850' IN v_src) > 0 THEN
-    RAISE NOTICE 'MIG 850: the writer already carries provenance -- skipping.';
+  IF position('source_project_id' IN v_src) > 0 THEN
+    RAISE NOTICE 'MIG 851: the writer already carries provenance -- skipping.';
   ELSE
 
     -- ── 2a. carry-forward, CASE 1 (from the covering set) ────────────────────
@@ -154,7 +157,7 @@ BEGIN
            || '      SELECT v_new_set_id, relationship_code, manager_employee_id' || E'\n'
            || '      FROM   employee_job_relationship_item' || E'\n'
            || '      WHERE  set_id            = v_covering_set.id';
-    v_to   := '      -- MIG 850: source_project_id travels with the slot.' || E'\n'
+    v_to   := '      -- MIG 851: source_project_id travels with the slot.' || E'\n'
            || '      INSERT INTO employee_job_relationship_item (set_id, relationship_code, manager_employee_id, source_project_id)' || E'\n'
            || '      SELECT v_new_set_id, relationship_code, manager_employee_id, source_project_id' || E'\n'
            || '      FROM   employee_job_relationship_item' || E'\n'
@@ -162,7 +165,7 @@ BEGIN
 
     v_hits := (length(v_src) - length(replace(v_src, v_from, ''))) / length(v_from);
     IF v_hits <> 1 THEN
-      RAISE EXCEPTION 'MIG 850 FAILED: expected 1 CASE 1 carry-forward, found %.', v_hits;
+      RAISE EXCEPTION 'MIG 851 FAILED: expected 1 CASE 1 carry-forward, found %.', v_hits;
     END IF;
     v_new := replace(v_src, v_from, v_to);
 
@@ -171,7 +174,7 @@ BEGIN
            || '      SELECT v_new_set_id, relationship_code, manager_employee_id' || E'\n'
            || '      FROM   employee_job_relationship_item' || E'\n'
            || '      WHERE  set_id            = v_old_set.id';
-    v_to   := '      -- MIG 850: source_project_id travels with the slot.' || E'\n'
+    v_to   := '      -- MIG 851: source_project_id travels with the slot.' || E'\n'
            || '      INSERT INTO employee_job_relationship_item (set_id, relationship_code, manager_employee_id, source_project_id)' || E'\n'
            || '      SELECT v_new_set_id, relationship_code, manager_employee_id, source_project_id' || E'\n'
            || '      FROM   employee_job_relationship_item' || E'\n'
@@ -179,7 +182,7 @@ BEGIN
 
     v_hits := (length(v_new) - length(replace(v_new, v_from, ''))) / length(v_from);
     IF v_hits <> 1 THEN
-      RAISE EXCEPTION 'MIG 850 FAILED: expected 1 CASE 3 carry-forward, found %.', v_hits;
+      RAISE EXCEPTION 'MIG 851 FAILED: expected 1 CASE 3 carry-forward, found %.', v_hits;
     END IF;
     v_new := replace(v_new, v_from, v_to);
 
@@ -190,16 +193,16 @@ BEGIN
     v_to   := '      ON CONFLICT (set_id, relationship_code) DO UPDATE' || E'\n'
            || '        SET manager_employee_id = EXCLUDED.manager_employee_id,' || E'\n'
            || '            removed_on          = NULL,' || E'\n'
-           || '            source_project_id   = NULL;   -- MIG 850: named, so hand-set';
+           || '            source_project_id   = NULL;   -- MIG 851: named, so hand-set';
 
     v_hits := (length(v_new) - length(replace(v_new, v_from, ''))) / length(v_from);
     IF v_hits <> 3 THEN
-      RAISE EXCEPTION 'MIG 850 FAILED: expected 3 explicit-assignment blocks, found %.', v_hits;
+      RAISE EXCEPTION 'MIG 851 FAILED: expected 3 explicit-assignment blocks, found %.', v_hits;
     END IF;
     v_new := replace(v_new, v_from, v_to);
 
     EXECUTE v_new;
-    RAISE NOTICE 'MIG 850: fn_close_and_replace_job_relationship_set carries provenance.';
+    RAISE NOTICE 'MIG 851: fn_close_and_replace_job_relationship_set carries provenance.';
   END IF;
 END $mig$;
 
@@ -213,11 +216,11 @@ BEGIN
   WHERE  n.nspname = 'public' AND p.proname = 'fn_jr_open_removal_record';
 
   IF v_src IS NULL THEN
-    RAISE EXCEPTION 'MIG 850 FAILED: fn_jr_open_removal_record() is missing -- 849 not applied.';
+    RAISE EXCEPTION 'MIG 851 FAILED: fn_jr_open_removal_record() is missing -- 850 not applied.';
   END IF;
 
-  IF position('MIG 850' IN v_src) > 0 THEN
-    RAISE NOTICE 'MIG 850: the record-day helper already carries provenance -- skipping.';
+  IF position('source_project_id' IN v_src) > 0 THEN
+    RAISE NOTICE 'MIG 851: the record-day helper already carries provenance -- skipping.';
   ELSE
     -- Two clone sites, at different indentation: the gap branch (four spaces)
     -- and the split branch (two). Patched separately so each hit is asserted
@@ -226,28 +229,28 @@ BEGIN
 
     v_from := '    INSERT INTO employee_job_relationship_item (set_id, relationship_code, manager_employee_id)' || E'\n'
            || '    SELECT v_id, relationship_code, manager_employee_id';
-    v_to   := '    -- MIG 850: provenance travels with the slot.' || E'\n'
+    v_to   := '    -- MIG 851: provenance travels with the slot.' || E'\n'
            || '    INSERT INTO employee_job_relationship_item (set_id, relationship_code, manager_employee_id, source_project_id)' || E'\n'
            || '    SELECT v_id, relationship_code, manager_employee_id, source_project_id';
     v_hits := (length(v_new) - length(replace(v_new, v_from, ''))) / length(v_from);
     IF v_hits <> 1 THEN
-      RAISE EXCEPTION 'MIG 850 FAILED: expected 1 gap-branch clone, found %.', v_hits;
+      RAISE EXCEPTION 'MIG 851 FAILED: expected 1 gap-branch clone, found %.', v_hits;
     END IF;
     v_new := replace(v_new, v_from, v_to);
 
     v_from := E'\n' || '  INSERT INTO employee_job_relationship_item (set_id, relationship_code, manager_employee_id)' || E'\n'
            || '  SELECT v_id, relationship_code, manager_employee_id';
-    v_to   := E'\n' || '  -- MIG 850: provenance travels with the slot.' || E'\n'
+    v_to   := E'\n' || '  -- MIG 851: provenance travels with the slot.' || E'\n'
            || '  INSERT INTO employee_job_relationship_item (set_id, relationship_code, manager_employee_id, source_project_id)' || E'\n'
            || '  SELECT v_id, relationship_code, manager_employee_id, source_project_id';
     v_hits := (length(v_new) - length(replace(v_new, v_from, ''))) / length(v_from);
     IF v_hits <> 1 THEN
-      RAISE EXCEPTION 'MIG 850 FAILED: expected 1 split-branch clone, found %.', v_hits;
+      RAISE EXCEPTION 'MIG 851 FAILED: expected 1 split-branch clone, found %.', v_hits;
     END IF;
     v_new := replace(v_new, v_from, v_to);
 
     EXECUTE v_new;
-    RAISE NOTICE 'MIG 850: fn_jr_open_removal_record carries provenance.';
+    RAISE NOTICE 'MIG 851: fn_jr_open_removal_record carries provenance.';
   END IF;
 END $mig$;
 
@@ -306,7 +309,7 @@ BEGIN
   SELECT manager_id INTO v_manager_id FROM projects WHERE id = p_project_id;
   IF v_manager_id IS NULL THEN RETURN; END IF;
 
-  -- MIG 850: the picture IN FORCE on the date this takes effect. This used to
+  -- MIG 851: the picture IN FORCE on the date this takes effect. This used to
   -- ask for the open-ended set by flag, which with anything post-dated is a
   -- picture that has not started -- so "is this slot free" was answered about
   -- the wrong month. Same correction 846 made to the readers.
@@ -336,7 +339,14 @@ BEGIN
       AND  i.relationship_code = slot
       AND  i.removed_on        IS NULL
   )
-  LIMIT 1;
+  -- MIG 851: LIMIT 1 with no ORDER BY has always been here, and "the first
+  -- free slot" was only ever the array order by habit -- nothing obliged the
+  -- planner to return PM01 before PM04, and under a different plan it does
+  -- not. Which slot a manager lands in is visible to the user and decides
+  -- whether they reach the PM01-PM03 mirror at all (G3), so it is not
+  -- something to leave to chance.
+  ORDER  BY array_position(v_pm_slots, slot)
+  LIMIT  1;
 
   IF v_slot IS NULL THEN RETURN; END IF;
 
@@ -353,14 +363,14 @@ BEGIN
     NULL
   );
 
-  -- MIG 850: and record that THIS project is why the slot is filled.
+  -- MIG 851: and record that THIS project is why the slot is filled.
   PERFORM fn_jr_stamp_slot_source(p_employee_id, v_slot, v_manager_id,
                                   p_effective_from, p_project_id);
 EXCEPTION WHEN OTHERS THEN
-  -- MIG 850: was `NULL`. A sync that cannot run must not also be silent --
+  -- MIG 851: was `NULL`. A sync that cannot run must not also be silent --
   -- 845 sat broken for three months behind exactly this. The membership still
   -- stands; the log says the slot did not follow.
-  RAISE WARNING 'MIG 850: sync_project_jr_on_add(%, %) failed: % (%)',
+  RAISE WARNING 'MIG 851: sync_project_jr_on_add(%, %) failed: % (%)',
     p_employee_id, p_project_id, SQLERRM, SQLSTATE;
 END;
 $function$;
@@ -381,7 +391,7 @@ DECLARE
   v_pm_slots   text[] := ARRAY['PM01','PM02','PM03','PM04','PM05','PM06'];
   v_slot       text;
 BEGIN
-  -- MIG 850: ask the slot which project owns it. The old code looked up
+  -- MIG 851: ask the slot which project owns it. The old code looked up
   -- projects.manager_id and matched on the person, which is the CURRENT lead --
   -- so after a handover, ending a membership released the new lead's slot, or
   -- matched nothing and released none. Provenance is the durable answer.
@@ -438,7 +448,7 @@ BEGIN
     NULL
   );
 EXCEPTION WHEN OTHERS THEN
-  RAISE WARNING 'MIG 850: sync_project_jr_on_remove(%, %) failed: % (%)',
+  RAISE WARNING 'MIG 851: sync_project_jr_on_remove(%, %) failed: % (%)',
     p_employee_id, p_project_id, SQLERRM, SQLSTATE;
 END;
 $function$;
@@ -602,7 +612,7 @@ BEGIN
   BEGIN
     PERFORM fn_project_manager_changed(NEW.id, OLD.manager_id, NEW.manager_id, CURRENT_DATE);
   EXCEPTION WHEN OTHERS THEN
-    RAISE WARNING 'MIG 850: job-relationship sync for project % failed: % (%). The lead change stands.',
+    RAISE WARNING 'MIG 851: job-relationship sync for project % failed: % (%). The lead change stands.',
       NEW.id, SQLERRM, SQLSTATE;
   END;
 
@@ -616,7 +626,7 @@ AFTER UPDATE OF manager_id ON public.projects
 FOR EACH ROW EXECUTE FUNCTION public.trg_projects_jr_on_lead_change();
 
 COMMENT ON TRIGGER after_project_lead_jr_sync ON public.projects IS
-  'MIG 850: moves the job-relationship slots this project owns when its lead '
+  'MIG 851: moves the job-relationship slots this project owns when its lead '
   'changes. Separate from 797''s notification trigger on purpose -- one tells '
   'people, this one moves data, and a failure in either must not take the '
   'other down with it.';
@@ -635,7 +645,7 @@ BEGIN
       AND table_name   = 'employee_job_relationship_item'
       AND column_name  = 'source_project_id'
   ) THEN
-    RAISE EXCEPTION 'MIG 850 FAILED: source_project_id was not added.';
+    RAISE EXCEPTION 'MIG 851 FAILED: source_project_id was not added.';
   END IF;
 
   -- Nothing was backfilled. Assert it, because a later migration quietly
@@ -645,22 +655,22 @@ BEGIN
   WHERE  source_project_id IS NOT NULL
     AND  created_at < now() - interval '1 minute';
   IF v_probe > 0 THEN
-    RAISE WARNING 'MIG 850: % pre-existing rows already carry source_project_id. '
+    RAISE WARNING 'MIG 851: % pre-existing rows already carry source_project_id. '
                   'Expected 0 on first run; fine on a re-run.', v_probe;
   END IF;
 
   IF to_regprocedure('public.fn_jr_stamp_slot_source(uuid,text,uuid,date,uuid)') IS NULL THEN
-    RAISE EXCEPTION 'MIG 850 FAILED: fn_jr_stamp_slot_source() was not created.';
+    RAISE EXCEPTION 'MIG 851 FAILED: fn_jr_stamp_slot_source() was not created.';
   END IF;
   IF to_regprocedure('public.fn_project_manager_changed(uuid,uuid,uuid,date)') IS NULL THEN
-    RAISE EXCEPTION 'MIG 850 FAILED: fn_project_manager_changed() was not created.';
+    RAISE EXCEPTION 'MIG 851 FAILED: fn_project_manager_changed() was not created.';
   END IF;
 
   IF NOT EXISTS (
     SELECT 1 FROM pg_trigger
     WHERE  tgname = 'after_project_lead_jr_sync' AND NOT tgisinternal
   ) THEN
-    RAISE EXCEPTION 'MIG 850 FAILED: the lead-change trigger was not created.';
+    RAISE EXCEPTION 'MIG 851 FAILED: the lead-change trigger was not created.';
   END IF;
 
   -- Narrowed to manager_id, 797's rule: a trigger firing on every column edit
@@ -668,14 +678,14 @@ BEGIN
   SELECT pg_get_triggerdef(oid) INTO v_src FROM pg_trigger
   WHERE  tgname = 'after_project_lead_jr_sync' AND NOT tgisinternal;
   IF position('UPDATE OF manager_id' IN v_src) = 0 THEN
-    RAISE EXCEPTION 'MIG 850 FAILED: the trigger is not narrowed to manager_id -- %', v_src;
+    RAISE EXCEPTION 'MIG 851 FAILED: the trigger is not narrowed to manager_id -- %', v_src;
   END IF;
 
   -- 797's own trigger must still be there. Two triggers, two jobs.
   IF NOT EXISTS (
     SELECT 1 FROM pg_trigger WHERE tgname = 'after_project_lead_notify' AND NOT tgisinternal
   ) THEN
-    RAISE WARNING 'MIG 850: 797''s notification trigger is absent from this database.';
+    RAISE WARNING 'MIG 851: 797''s notification trigger is absent from this database.';
   END IF;
 
   -- The flag test must be gone from BOTH sync functions, and the date test in.
@@ -688,18 +698,18 @@ BEGIN
       WHERE  n.nspname = 'public' AND p.proname = v_src;
 
       IF v_body IS NULL THEN
-        RAISE EXCEPTION 'MIG 850 FAILED: %() is missing.', v_src;
+        RAISE EXCEPTION 'MIG 851 FAILED: %() is missing.', v_src;
       END IF;
       -- Matched as code, not as the bare phrase, so the prose above cannot
       -- fire it. Four deploys have been lost to that; not a fifth.
       IF v_body ~ 'AND[[:space:]]+s\.is_active[[:space:]]*=[[:space:]]*true' THEN
-        RAISE EXCEPTION 'MIG 850 FAILED: %() still selects the picture by the is_active flag.', v_src;
+        RAISE EXCEPTION 'MIG 851 FAILED: %() still selects the picture by the is_active flag.', v_src;
       END IF;
       IF position('BETWEEN s.effective_from AND s.effective_to' IN v_body) = 0 THEN
-        RAISE EXCEPTION 'MIG 850 FAILED: %() does not select by date.', v_src;
+        RAISE EXCEPTION 'MIG 851 FAILED: %() does not select by date.', v_src;
       END IF;
       IF v_body ~ 'EXCEPTION[[:space:]]+WHEN[[:space:]]+OTHERS[[:space:]]+THEN[[:space:]]*\n?[[:space:]]*NULL' THEN
-        RAISE EXCEPTION 'MIG 850 FAILED: %() still swallows its errors.', v_src;
+        RAISE EXCEPTION 'MIG 851 FAILED: %() still swallows its errors.', v_src;
       END IF;
     END;
   END LOOP;
@@ -713,7 +723,7 @@ BEGIN
   WHERE  CURRENT_DATE BETWEEN s.effective_from AND s.effective_to
     AND  i.removed_on IS NULL;
 
-  RAISE NOTICE 'MIG 850 OK: a slot records which project filled it, and a lead change moves only those.';
+  RAISE NOTICE 'MIG 851 OK: a slot records which project filled it, and a lead change moves only those.';
 END $v$;
 
 COMMIT;

@@ -8,10 +8,10 @@
   "@context": "https://schema.org",
   "@type": "TechArticle",
   "name": "Prowess — Job Relationships test plan",
-  "description": "Prowess job-relationships test plan, migrations 844-850. 48 checkable cases across back-dated assignments reaching later sets, the overlap constraint, the mirror helper that was never created, the removed_on readers, the workflow-approved writer, and the nightly job that applies future-dated ends, and the removal that now opens a record of its own on the day it took effect. Plus three known-and-deliberate gaps: the job ends but never adds, four readers still treating ended relationships as live, the add path selecting by flag, and mirror columns for only six of the codes."
+  "description": "Prowess job-relationships test plan, migrations 844-851. 48 checkable cases across back-dated assignments reaching later sets, the overlap constraint, the mirror helper that was never created, the removed_on readers, the workflow-approved writer, and the nightly job that applies future-dated ends, and the removal that now opens a record of its own on the day it took effect. Plus three known-and-deliberate gaps: the job ends but never adds, four readers still treating ended relationships as live, the add path selecting by flag, and mirror columns for only six of the codes."
 }
 </script>
-<title>Job Relationships — Test Plan for migrations 844 to 850</title>
+<title>Job Relationships — Test Plan for migrations 844 to 851</title>
 <style>
   :root{
     --ink:#0F172A; --ink2:#334155; --ink3:#64748B; --ink4:#94A3B8;
@@ -96,7 +96,7 @@
 <header class="top">
   <div class="wrap">
     <p class="eyebrow">Prowess · People</p>
-    <h1>Job Relationships — test plan, migrations 844 to 850</h1>
+    <h1>Job Relationships — test plan, migrations 844 to 851</h1>
     <p class="sub">Five migrations from one report: <i>"the record added on June is reflecting in the latest, but is not propagated to all the future records."</i> Each case says what to do, what should happen, and which rule it proves — so a failure tells you where to look rather than just that something is wrong.</p>
     <div class="meta">
       <span><b>Against</b> Dev (prowess-dev)</span>
@@ -113,8 +113,8 @@
     <a class="toc" href="#c">C · The screen reads what the database records (846)</a>
     <a class="toc" href="#d">D · The approved path writes the same timeline (847)</a>
     <a class="toc" href="#e">E · A future-dated end actually ends (848)</a>
-    <a class="toc" href="#f">F · A removal is a record, not an absence (849)</a>
-    <a class="toc" href="#h">H · A slot remembers which project put it there (850)</a>
+    <a class="toc" href="#f">F · A removal is a record, not an absence (850)</a>
+    <a class="toc" href="#h">H · A slot remembers which project put it there (851)</a>
     <a class="toc" href="#g">G · Known and deliberate</a>
   </div>
   <div class="bar"><div class="barrow">
@@ -392,8 +392,8 @@
 </section>
 
 <section id="f">
-  <h2><span class="k">F</span> A removal is a record, not an absence (849)</h2>
-  <p class="lede">A removal now opens a set on the last day the assignment was valid and marks it there. One period in History carries the struck row; the period before it is clean, and no period after it mentions the manager at all. The history filter 846 wrote is unchanged &mdash; it was right, the marker was in the wrong place.</p>
+  <h2><span class="k">F</span> A removal is a record, not an absence (850)</h2>
+  <p class="lede"><b>Shipped as 850, not 849.</b> 849 reached Dev carrying an earlier draft of itself &mdash; a reader-only change that dropped 846’s filter &mdash; and a migration is never re-run once recorded, so the work below moved to 850, which also puts the readers back. See 850’s header.<br><br>A removal now opens a set on the last day the assignment was valid and marks it there. One period in History carries the struck row; the period before it is clean, and no period after it mentions the manager at all. The history filter 846 wrote is unchanged &mdash; it was right, the marker was in the wrong place.</p>
 
   <div class="case">
     <div class="head"><input type="checkbox"><span class="id">F1</span>
@@ -500,7 +500,7 @@
 </section>
 
 <section id="h">
-  <h2><span class="k">H</span> A slot remembers which project put it there (850)</h2>
+  <h2><span class="k">H</span> A slot remembers which project put it there (851)</h2>
   <p class="lede">A PM slot now records the project that filled it. NULL means a human did, and automation never touches it &mdash; which is every row that existed before this migration, because <b>nothing was backfilled</b>. Changing a project's lead moves the slots that project owns and nothing else.</p>
 
   <div class="case">
@@ -569,7 +569,7 @@
     <div class="body"><span class="lbl">Do</span>
       <p>H2's project, after the lead change. Now delimit the member's assignment.</p>
       <div class="exp"><b>Expect:</b> the slot is released, on the right date, with 849's record day.</div>
-      <div class="warn">Before 850 this was <b>broken</b> and nobody would have seen it. <code>sync_project_jr_on_remove</code> looked up <code>projects.manager_id</code> &mdash; the <i>current</i> lead &mdash; and matched on the person, so after a handover it released the new lead's slot, or matched nothing and released none. It now asks the slot which project owns it.</div>
+      <div class="warn">Before 851 this was <b>broken</b> and nobody would have seen it. <code>sync_project_jr_on_remove</code> looked up <code>projects.manager_id</code> &mdash; the <i>current</i> lead &mdash; and matched on the person, so after a handover it released the new lead's slot, or matched nothing and released none. It now asks the slot which project owns it.</div>
     </div>
   </div>
 
@@ -609,7 +609,7 @@
     <div class="body"><span class="lbl">Do</span>
       <p>With a post-dated set present, add a member to a project.</p>
       <div class="exp"><b>Expect:</b> the free-slot search consults the picture in force <b>on the date the membership starts</b>, not the post-dated one.</div>
-      <div class="why">Both sync functions were rewritten here, and leaving the flag test inside a body being replaced would not have been a saving. This is the last of the four places 846 could not reach.</div>
+      <div class="why">Both sync functions were rewritten in 851, and leaving the flag test inside a body being replaced would not have been a saving. This is the last of the four places 846 could not reach.</div>
     </div>
   </div>
 </section>
@@ -624,7 +624,7 @@
     <div class="body"><span class="lbl">Do</span>
       <p>Assignment ends 31 Aug; a new project with the <i>same</i> manager starts 01 Oct, booked in advance.</p>
       <div class="exp"><b>Expect:</b> the slot is released on 01 Sep and <b>nothing restores it in October</b>.</div>
-      <div class="warn">September is correct — she is on none of his projects that month. October is not. <code>sync_project_jr_on_add</code> already ran when the membership was created, found the manager still in a slot, and returned; it will never run again. The job cannot safely add, because a slot can be set by hand as well as by a project and nothing on the row records which — re-adding every manager a project implies would undo deliberate removals. <b>850 added the provenance it was waiting for</b> &mdash; <code>source_project_id</code>, so the job can now tell its own slots from a human’s. The adding half is written but not built: it still has to decide which project’s manager wins when two of them start the same month.</div>
+      <div class="warn">September is correct — she is on none of his projects that month. October is not. <code>sync_project_jr_on_add</code> already ran when the membership was created, found the manager still in a slot, and returned; it will never run again. The job cannot safely add, because a slot can be set by hand as well as by a project and nothing on the row records which — re-adding every manager a project implies would undo deliberate removals. <b>851 added the provenance it was waiting for</b> &mdash; <code>source_project_id</code>, so the job can now tell its own slots from a human’s. The adding half is written but not built: it still has to decide which project’s manager wins when two of them start the same month.</div>
     </div>
   </div>
 
@@ -654,11 +654,11 @@
 
   <footer>
     <p><b>If something fails</b>, the "why this matters" note on each case names the rule it is
-       testing — start there. The migration headers for 844 to 850 carry the reasoning in full,
+       testing — start there. The migration headers for 844 to 851 carry the reasoning in full,
        and <code>docs/job-relationships-design.md</code> has the original model.</p>
     <p><b>Known open items</b> are section G, and they are open on purpose. G1 — the daily job
        releases relationships but never restores them — is the one most likely to be reported as a
-       bug. 850 removed what was blocking it, so it is now a decision rather than an obstacle.</p>
+       bug. 851 removed what was blocking it, so it is now a decision rather than an obstacle.</p>
     <p><b>Method.</b> Every migration here was reproduced on a real PostgreSQL 16 against the live
        function definitions read from Dev, not from the migration files: the files do not add up to
        what is running. Each was then re-run to prove idempotence. Four verification blocks failed
