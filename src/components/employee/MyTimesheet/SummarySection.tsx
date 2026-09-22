@@ -284,11 +284,11 @@ function KpiGroup({ label, note, cols, last, children }: {
  *     and dragged the whole strip's height with them. It sits in the group
  *     header now, and each subtitle is a bare percentage.
  */
-function ChargeBlock({ split, helpWord }: { split: BillSplit; helpWord: string | null }) {
+function ChargeBlock({ split }: { split: BillSplit }) {
   const worked = split.worked;
   if (worked <= 0) return null;
 
-  const parts = chargeParts(split, helpWord);
+  const parts = chargeParts(split);
 
   // Floor-and-distribute, so the tiles total 100 rather than 99.
   const pcts = wholePercents(parts.map(([, m]) => m), worked);
@@ -365,13 +365,29 @@ function ChargeBlock({ split, helpWord }: { split: BillSplit; helpWord: string |
  * count and ChargeBlock draws the tiles. Two lists would be two places for
  * that to drift, and the drift is silent: a group sized for four drawing five.
  */
-function chargeParts(split: BillSplit, helpWord: string | null)
+function chargeParts(split: BillSplit)
 : ReadonlyArray<readonly [string, number, string]> {
   const always = [
-    ['Billable',                    split.billable,    BILL_GREEN],
-    ['Not billable',                split.nonBillable, BILL_SLATE],
-    ['Internal',                    split.internal,    BILL_CYAN],
-    [`${helpWord ?? 'Help'} given`, split.support,     HELP_INK],
+    ['Billable',     split.billable,    BILL_GREEN],
+    ['Not billable', split.nonBillable, BILL_SLATE],
+    ['Internal',     split.internal,    BILL_CYAN],
+    /* "Support given", FIXED -- the approval screen (TsBillSplit) and page 3 of
+     * the PDF both already print exactly that for this bucket, and one figure
+     * called two things across three renderings is a question nobody should
+     * have to ask.
+     *
+     * It used to read `${helpWord} given`, taking the month's own type word so
+     * a month of "Consulting" said Consulting. That was right when the tile
+     * appeared only alongside hours: the word came from the hours it described.
+     * It is wrong now the tile is permanent -- with no support hours there is
+     * no word, so it fell back to "Help" and disagreed with the other two
+     * screens on exactly the months it says 0h. And a fixed vocabulary of four
+     * headings cannot have one of them changing wording month to month; that
+     * is what forces you to read the label before the number.
+     *
+     * helpWord still names the SECTION heading below, where it describes
+     * entries that exist and can honestly borrow their word. */
+    ['Support given', split.support,    HELP_INK],
   ] as const;
   return split.unclassified > 0
     ? [...always, ['Not classified', split.unclassified, BILL_AMBER] as const]
@@ -852,7 +868,7 @@ export default function SummarySection({
         // "of 162h worked" on one line.
         gridTemplateColumns: !d.showBill
           ? '1fr 1fr'
-          : `3fr 3fr ${Math.max(2, chargeParts(d.bill, d.helpWord).length + 1)}fr`,
+          : `3fr 3fr ${Math.max(2, chargeParts(d.bill).length + 1)}fr`,
         background: '#fff',
         border: `1px solid ${C.rule}`, borderRadius: 12, overflow: 'hidden', marginBottom: 14,
       }}>
@@ -889,7 +905,7 @@ export default function SummarySection({
             annual leave must not read as a fortnight of lost revenue. */}
         {d.showBill && (
           <KpiGroup label="Productivity" note={`of ${h1(d.bill.worked)}h worked`} last>
-            <ChargeBlock split={d.bill} helpWord={d.helpWord} />
+            <ChargeBlock split={d.bill} />
           </KpiGroup>
         )}
       </div>
