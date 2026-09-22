@@ -2,7 +2,7 @@
 {
   "name": "Timesheet Test Plan",
   "schemaVersion": 1,
-  "description": "Prowess timesheet test plan, migrations 726–842. 477 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
+  "description": "Prowess timesheet test plan, migrations 726–843. 485 checkable cases across day rules, per-activity hours, the edit window, submit/withdraw, the monthly summary, the PDF report, the approval screens — the project-lead persona — a Project Manager role, Team Allocation with its own four verbs, mandatory roles and end dates, date guards that refuse to strand booked hours, assignment and project-lead notifications whose wording an administrator edits without a deploy — and notification wording: the step / template / generic resolution chain, the stored category, module-scoped tokens, and the grouped picker. Plus the recorded defects: in-place patch reverts, stale migration snapshots, the text[] array-literal trap, the zero-minute fallback that silently emptied an entry's hours, and a migration edited after it had already been pushed.",
   "mcpTools": [],
   "mcpServerNames": []
 }
@@ -11,7 +11,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Timesheet — Test Plan for migrations 726 to 842</title>
+<title>Timesheet — Test Plan for migrations 726 to 843</title>
 <style>
   :root{
     --ink:#0F172A; --ink2:#334155; --ink3:#64748B; --ink4:#94A3B8;
@@ -96,7 +96,7 @@
 <header class="top">
   <div class="wrap">
     <p class="eyebrow">Prowess · Time Management</p>
-    <h1>Test plan — migrations 726 to 842</h1>
+    <h1>Test plan — migrations 726 to 843</h1>
     <p class="sub">Multiple entries per day, day-occupancy rules, per-activity hours, advance-dating —
        and, from migration 730, an edit window that actually binds and a submission that goes
        somewhere. Every case says what to do, what should happen, and which rule it proves — so a
@@ -128,6 +128,7 @@
       <span><b>AV15–AV18 added</b> 10 Sep 2026</span>
       <span><b>AW1–AW8 added</b> 10 Sep 2026</span>
       <span><b>AX1–AX10 added</b> 10 Sep 2026</span>
+      <span><b>AY1–AY8 added</b> 22 Sep 2026</span>
       <span><b>AV19–AV20 added</b> 10 Sep 2026</span>
     </div>
   </div>
@@ -187,6 +188,7 @@
     <a class="toc" href="#av">AV · A period is a cycle, not a month (837)</a>
     <a class="toc" href="#aw">AW · A project type says what it means (839)</a>
     <a class="toc" href="#ax">AX · One column, one requester, one sheet (840–842)</a>
+    <a class="toc" href="#ay">AY · Pasting the same day twice (843)</a>
   </div>
 
   <div class="bar">
@@ -6403,6 +6405,99 @@ order  by created_at desc limit 6;</div>
       <p>In the Detail report pick <b>August</b> for an employee whose period runs 26 Jul &ndash; 25 Aug.</p>
       <div class="exp"><b>Expect:</b> that sheet opens, and its header reads the full cycle, not 1&ndash;31 August.</div>
       <div class="why">Since 837 a period is a <b>cycle</b>, so the header for August is not anchored on 1 August and a screen that queries <code>period = '2026-08-01'</code> finds nothing. The report asks for the closed range an anchor can legally fall in &mdash; which is also why it keeps working on the day cycles go per-employee and one month&rsquo;s sheets stop sharing an anchor. Nothing here reads the configured start day, so nothing here can disagree with it.</div>
+    </div>
+  </div>
+</section>
+
+<section id="ay">
+  <h2><span class="k">AY</span> Pasting the same day twice (843)</h2>
+  <p class="lede">Copy Day appends, on purpose: paste Monday&rsquo;s AMPTJ onto a Tuesday that already holds AZAD and Tuesday should end up with both. What it never asked was whether the paste <i>creates</i> anything &mdash; so the same clipboard landing twice doubled the day, and left no trace that it had.</p>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AY1</span>
+      <span class="title">The second paste of the same day is refused</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Copy a day with two entries onto an empty day, then immediately paste the same clipboard into it again.</p>
+      <div class="exp"><b>Expect:</b> &ldquo;6 September is already on 17 September &mdash; every activity in it is recorded there.&rdquo; The day total is unchanged.</div>
+      <div class="warn">Measured before the fix, on a real PostgreSQL against the live definition: <b>480 minutes became 960</b>, with the activity rows going 300 to 600 and 180 to 360. No duplicate ROW appears &mdash; the append branch sums into the matching activity by <code>(entry_id, lower(btrim(name)), is_billable)</code> &mdash; so afterwards the day holds one AMPTJ entry with one activity reading 10h. Expand it and you see a long day, not a mistake. The only thing that said otherwise was a toast reading &ldquo;2 merged&rdquo;, gone by the time anybody looks.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AY2</span>
+      <span class="title">Nothing is written by the refusal</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>After the refusal, reopen the target day and check the hours and the activity rows.</p>
+      <div class="exp"><b>Expect:</b> byte-identical to before the second paste &mdash; 8h, activity at 5h.</div>
+      <div class="why">The guard sits with the other pre-flight checks, above the write loop, and writes nothing. 775 made this function all-or-nothing; a guard that refused <i>after</i> a partial write would be the defect 775 was written to remove.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AY3</span>
+      <span class="title">The case Copy Day exists for still works</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Paste a day holding AMPTJ onto a day that already holds AZAD.</p>
+      <div class="exp"><b>Expect:</b> allowed &mdash; the target ends with both, and the toast reports one created.</div>
+      <div class="why">This is what 772&rsquo;s append was written for. The difference from AY1 is not the gesture, it is whether the paste creates anything: AMPTJ is new on that day, so it does.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AY4</span>
+      <span class="title">A bare duration still merges</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Copy a Training entry &mdash; a time type with no project and no activity rows &mdash; onto a day that already holds Training, twice.</p>
+      <div class="exp"><b>Expect:</b> it merges both times. 2h onto 2h reads 4h, then 6h.</div>
+      <div class="why">776 made this merge deliberately, and a duration carries no evidence of whether it is a second helping or a second click. Refusing every such merge would undo 776 on a guess, so the guard exempts them. The rule is about what can be <b>identified</b>: an activity has a name, a duration does not.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AY5</span>
+      <span class="title">A partial overlap is allowed, and says so</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Source day has activities X and Y on one project; the target already has X but not Y. Paste.</p>
+      <div class="exp"><b>Expect:</b> allowed &mdash; Y is added and X doubles.</div>
+      <div class="why">Refusing here would block a genuine merge, which is the case 772 exists for. Named in the migration header rather than decided in silence, so the next person meets it as a choice and not as a surprise.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AY6</span>
+      <span class="title">Case and padding do not get round it</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Rename the target&rsquo;s activity to the same words in different case with leading spaces, then paste again.</p>
+      <div class="exp"><b>Expect:</b> still refused.</div>
+      <div class="why">The guard compares <code>lower(btrim(name))</code> with <code>is_billable</code> &mdash; the same key the unique index uses, so what the guard calls &ldquo;the same activity&rdquo; is what the database calls the same activity. Two definitions of that would be two places for it to drift.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AY7</span>
+      <span class="title">A different requester is still a new entry</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Copy a support entry, then change the target day&rsquo;s equivalent entry to name a different requester and paste again.</p>
+      <div class="exp"><b>Expect:</b> allowed &mdash; it creates a second entry.</div>
+      <div class="why">829 settled that two people asking for help on one project in one day are two facts. The duplicate guard mirrors the same four-column key &mdash; time type, project, related project, requester &mdash; so it cannot call them the same paste.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">AY8</span>
+      <span class="title">The refusal is the duplicate one, not the cap</span></div>
+    <div class="body">
+      <span class="lbl">Do</span>
+      <p>Try a third paste of the same day.</p>
+      <div class="exp"><b>Expect:</b> <code>DUPLICATE_PASTE</code> again, not <code>DAILY_CAP</code>.</div>
+      <div class="warn">The 16h cap would eventually have stopped a runaway paste, and before 843 that was the only thing that did &mdash; at 24h, after the day had already doubled. A guard that only catches the third mistake is not a guard. <b>Two of this section&rsquo;s test failures during development were the fixture hitting the cap first</b>, measuring mig 738 while claiming to measure this one; check the error code, not just that it refused.</div>
     </div>
   </div>
 </section>

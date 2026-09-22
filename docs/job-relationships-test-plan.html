@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "name": "Prowess — Job Relationships test plan",
+  "description": "Prowess job-relationships test plan, migrations 844-848. 26 checkable cases across back-dated assignments reaching later sets, the overlap constraint, the mirror helper that was never created, the removed_on readers, the workflow-approved writer, and the nightly job that applies future-dated ends. Plus four known-and-deliberate gaps: the job ends but never adds, four readers still treating ended relationships as live, the add path selecting by flag, and mirror columns for only six of the codes."
+}
+</script>
+<title>Job Relationships — Test Plan for migrations 844 to 848</title>
+<style>
+  :root{
+    --ink:#0F172A; --ink2:#334155; --ink3:#64748B; --ink4:#94A3B8;
+    --line:#E2E8F0; --line2:#F1F5F9; --bg:#F8FAFC; --card:#fff;
+    --blue:#1D4ED8; --blueBg:#EFF6FF; --blueLn:#BFDBFE;
+    --green:#059669; --greenBg:#ECFDF5; --greenLn:#A7F3D0;
+    --amber:#B45309; --amberBg:#FFFBEB; --amberLn:#FDE68A;
+    --purple:#7C3AED; --purpleBg:#FAF5FF; --purpleLn:#E9D5FF;
+    --red:#B91C1C; --redBg:#FEF2F2; --redLn:#FECACA;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:1000px;margin:0 auto;padding:0 24px 90px}
+
+  header.top{background:linear-gradient(180deg,#0F172A,#1E293B);color:#fff;padding:42px 0 34px}
+  header.top .wrap{padding-bottom:0}
+  .eyebrow{font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#7DD3FC;margin:0 0 10px}
+  h1{margin:0 0 10px;font-size:31px;line-height:1.2;font-weight:800;letter-spacing:-.02em}
+  .sub{margin:0;color:#CBD5E1;font-size:15px;max-width:64ch}
+  .meta{margin-top:18px;padding-top:15px;border-top:1px solid rgba(255,255,255,.12);
+        display:flex;flex-wrap:wrap;gap:20px;font-size:12px;color:#94A3B8}
+  .meta b{color:#E2E8F0;font-weight:600}
+
+  .bar{position:sticky;top:0;z-index:20;background:var(--bg);padding:14px 0 12px;
+       border-bottom:1px solid var(--line);margin-bottom:6px}
+  .barrow{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  .prog{flex:1 1 220px;min-width:180px;height:9px;border-radius:99px;background:var(--line);overflow:hidden}
+  .prog i{display:block;height:100%;width:0;background:var(--green);transition:width .25s}
+  .count{font-size:13px;font-weight:700;color:var(--ink2);font-variant-numeric:tabular-nums;white-space:nowrap}
+  .btn{border:1px solid var(--line);background:#fff;color:var(--ink2);padding:7px 13px;border-radius:8px;
+       font:600 12.5px inherit;cursor:pointer}
+  .btn:hover{border-color:var(--ink4)}
+
+  section{margin-top:32px;scroll-margin-top:90px}
+  section>h2{margin:0 0 4px;font-size:19px;font-weight:800;letter-spacing:-.01em;display:flex;gap:10px;align-items:baseline}
+  section>h2 .k{font-size:11px;font-weight:800;color:var(--ink4);letter-spacing:.1em;
+     border:1px solid var(--line);border-radius:5px;padding:2px 6px;background:#fff}
+  section>p.lede{margin:0 0 14px;color:var(--ink3);font-size:13.5px;max-width:74ch}
+
+  .case{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--blue);
+        border-radius:10px;padding:14px 16px;margin-bottom:10px}
+  .case.reg{border-left-color:var(--ink4)}
+  .case.rough{border-left-color:var(--amber)}
+  .case.sql{border-left-color:var(--purple)}
+  .sqlblock{font:11.5px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+       background:#0F172A;color:#E2E8F0;padding:13px 15px;border-radius:7px;overflow-x:auto;
+       margin:9px 0 0;white-space:pre}
+  .qnote{font-size:12.5px;line-height:1.6;margin:0 0 7px;color:var(--ink3)}
+  .head{display:flex;gap:10px;align-items:flex-start}
+  .head input[type=checkbox]{width:17px;height:17px;margin-top:3px;flex:0 0 auto;cursor:pointer;accent-color:#059669}
+  .id{font:700 11.5px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--ink3);
+      background:var(--line2);border:1px solid var(--line);padding:3px 6px;border-radius:5px;flex:0 0 auto}
+  .title{font-weight:650;font-size:14.5px;flex:1 1 200px;min-width:0}
+  .body{margin:9px 0 0 27px;font-size:13.5px;color:var(--ink2)}
+  .body p{margin:0 0 7px}
+  .body ol{margin:0 0 7px;padding-left:19px}
+  .body li{margin-bottom:3px}
+  .lbl{font-size:10px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--ink4);
+       display:block;margin:9px 0 3px}
+  code{font:12.5px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--line2);
+       padding:1.5px 5px;border-radius:4px}
+  .exp{background:var(--greenBg);border-left:3px solid var(--green);border-radius:7px;
+       padding:9px 12px;font-size:13px;color:#065F46;margin-top:4px}
+  .exp b{color:#064E3B}
+  .why{background:var(--purpleBg);border-left:3px solid var(--purple);border-radius:7px;
+       padding:8px 12px;font-size:12.5px;color:#4C1D95;margin-top:8px}
+  .warn{background:var(--amberBg);border-left:3px solid var(--amber);border-radius:7px;
+        padding:9px 12px;font-size:12.5px;color:#78350F;margin-top:8px}
+  .done{opacity:.5}
+  .done .title{text-decoration:line-through}
+
+  footer{margin-top:46px;padding-top:20px;border-top:1px solid var(--line);font-size:12.5px;color:var(--ink3)}
+  a.toc{display:inline-block;padding:5px 10px;margin:0 5px 5px 0;border-radius:7px;border:1px solid var(--line);
+        background:#fff;color:var(--ink2);text-decoration:none;font-size:12.5px;font-weight:600}
+  a.toc:hover{border-color:var(--blue);color:var(--blue)}
+  @media print{.bar,.toc-wrap{display:none}.case{break-inside:avoid}}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <p class="eyebrow">Prowess · People</p>
+    <h1>Job Relationships — test plan, migrations 844 to 848</h1>
+    <p class="sub">Five migrations from one report: <i>"the record added on June is reflecting in the latest, but is not propagated to all the future records."</i> Each case says what to do, what should happen, and which rule it proves — so a failure tells you where to look rather than just that something is wrong.</p>
+    <div class="meta">
+      <span><b>Against</b> Dev (prowess-dev)</span>
+      <span><b>Migrations</b> <b>844</b> · <b>845</b> · <b>846</b> · <b>847</b> · <b>848</b></span>
+      <span><b>Written</b> 22 Sep 2026</span>
+    </div>
+  </div>
+</header>
+
+<nav class="toc-wrap">
+  <div class="wrap">
+    <a class="toc" href="#a">A · A back-dated assignment reaches every month (844)</a>
+    <a class="toc" href="#b">B · The mirror helper nobody created (845)</a>
+    <a class="toc" href="#c">C · The screen reads what the database records (846)</a>
+    <a class="toc" href="#d">D · The approved path writes the same timeline (847)</a>
+    <a class="toc" href="#e">E · A future-dated end actually ends (848)</a>
+    <a class="toc" href="#f">F · Known and deliberate</a>
+  </div>
+  <div class="bar"><div class="barrow">
+    <span class="count" id="count">0 / 0</span>
+    <div class="prog"><i id="progbar"></i></div>
+  </div></div>
+</nav>
+
+<main class="wrap">
+
+<section id="a">
+  <h2><span class="k">A</span> A back-dated assignment reaches every month (844)</h2>
+  <p class="lede">Each set is a complete snapshot from its effective date — that is why creating one carries the previous set's items forward. A back-dated addition wrote to the set it created and to the <i>active</i> set, and to nothing in between.</p>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">A1</span>
+      <span class="title">The reported sequence</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>Add PM01 effective 01 Jul, then PM02 effective 01 Sep, then go back and add PM03 effective 01 Jun.</p>
+      <div class="exp"><b>Expect:</b> PM03 appears in the June set, the July set <b>and</b> September.</div>
+      <div class="warn">Before 844 it appeared in June and September and was missing from July — a month it was in force for. Reproduced on PostgreSQL 16 against the live definition; the four rows it produced matched Dev row for row.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">A2</span>
+      <span class="title">No two sets overlap</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>With sets at 01 Jul and 01 Sep, add something effective 20 Jun. Read the new set's end date.</p>
+      <div class="exp"><b>Expect:</b> <b>30 Jun</b> — the day before the next set starts.</div>
+      <div class="warn">It used to be bounded by the <i>active</i> set, giving 20 Jun – 31 Aug against an existing 01 Jul – 31 Aug. Two sets then claimed July and August, and "which set is in force on 15 July" had two answers. Nothing objected: the only index on the table enforces one <i>open active</i> set. <code>ejrs_no_overlap</code> now makes it impossible, and 844 aborts rather than installing a constraint the data contradicts.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">A3</span>
+      <span class="title">The walk stops where somebody else holds the slot</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>September already has PM03 = someone else. Back-date PM03 = a different manager to 01 Jun.</p>
+      <div class="exp"><b>Expect:</b> June and July take the back-dated manager; <b>September keeps its own</b>.</div>
+      <div class="why">An assignment continues until something says otherwise, and a set filling the slot with a different manager is something saying otherwise. A set already holding the same code with the <i>same</i> manager is walked past instead: carried-forward and deliberately-entered are indistinguishable in the data, and here they mean the same thing.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">A4</span>
+      <span class="title">And at a removal</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>Remove PM03 effective 01 Sep, then back-date PM03 to 01 Jun.</p>
+      <div class="exp"><b>Expect:</b> June and July hold it; September stays ended. The removal is not undone.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">A5</span>
+      <span class="title">Re-picking a date that already has a set</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>From the history panel, edit a closed set using its own effective date.</p>
+      <div class="exp"><b>Expect:</b> the set is edited in place. No new set, no error.</div>
+      <div class="warn">Pre-existing and found only by testing for it: the covering-set lookup used <code>effective_from &lt;= p_effective_from</code>, matched the set starting on that very date, and truncated it to the day before its own start — 01 Mar – 31 May became 01 Mar – 28 Feb. The user saw <code>chk_ejrs_effective_order</code> by name. The unmodified 835 function does it too.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">A6</span>
+      <span class="title">Removals are not walked forward</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>Nothing to click — read 844's header.</p>
+      <div class="exp"><b>Expect:</b> a retroactive removal still touches only the active set.</div>
+      <div class="why">An add can be walked past an identical row because both readings mean the same thing. A remove cannot: a later row naming the same manager might be the assignment continuing (should end) or somebody re-entering it on purpose (must not), and ending it on a guess silently deletes a real assignment. Named, not forgotten.</div>
+    </div>
+  </div>
+</section>
+
+<section id="b">
+  <h2><span class="k">B</span> The mirror helper nobody created (845)</h2>
+  <p class="lede">Two functions called <code>sync_job_relationship_mirrors</code>. It did not exist. Neither caught the failure.</p>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">B1</span>
+      <span class="title">An approved change no longer rolls back</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>Submit a job relationship change through workflow and approve it, dated today or earlier.</p>
+      <div class="exp"><b>Expect:</b> it applies.</div>
+      <div class="warn">Before 845 it raised <code>function sync_job_relationship_mirrors(uuid, uuid) does not exist</code> and rolled the whole approval back. Since June. Nobody noticed because the direct HR edit goes through a different function that mirrors inline — so the path everyone used worked, and the path nobody used was broken.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">B2</span>
+      <span class="title">461 could never have worked</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>Nothing to click. Read 461's body: <code>MAX(CASE WHEN relationship_code = 'PM01' THEN manager_employee_id END)</code>.</p>
+      <div class="exp"><b>Expect:</b> there is no <code>max(uuid)</code> aggregate in PostgreSQL.</div>
+      <div class="warn">So that text <b>creates cleanly</b> — <code>CREATE FUNCTION</code> does not resolve names inside a plpgsql body — and raises on first call. Restoring 461 verbatim would have restored the outage under a different message, and a database where 461 <i>did</i> apply has the same outage. Found because 845's verification <b>calls</b> the function instead of asserting it exists.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">B3</span>
+      <span class="title">An assignment ending in the future is still mirrored</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>Give someone a relationship carrying a removal date in 2027 and check the mirror column.</p>
+      <div class="exp"><b>Expect:</b> the manager is still named. One ended on or before today is not.</div>
+      <div class="why">The comparison is against <code>CURRENT_DATE</code>, not the blunt <code>removed_on IS NULL</code> that 835 uses inline. Blanking it early would tell the org chart somebody's manager changed before they did. 835's version is safe where it sits — it only meets the active set at the moment of a change — but it is not the general rule.</div>
+    </div>
+  </div>
+</section>
+
+<section id="c">
+  <h2><span class="k">C</span> The screen reads what the database records (846)</h2>
+  <p class="lede">The report that started all of this: delimit an assignment, and nothing appears to happen. The database was right the whole time.</p>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">C1</span>
+      <span class="title">A delimit is visible</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>End a project assignment on a past date. Open Job Relationships.</p>
+      <div class="exp"><b>Expect:</b> that manager's slot is gone from the current panel.</div>
+      <div class="warn"><code>removed_on</code> appeared in <b>zero</b> client files and in exactly one migration besides the one that added it. Both RPCs this screen calls were last written by migration <b>360</b> — five months before 835 added the column. Meanwhile the mirror column was correct, so the database held two answers to "who is her PM03", and which you got depended on which reader you asked.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">C2</span>
+      <span class="title">And history stays honest about the months before</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>Click back to a set that ended before the removal date.</p>
+      <div class="exp"><b>Expect:</b> the manager is <b>still listed there</b>.</div>
+      <div class="why"><code>removed_on</code> is the first date the assignment is no longer valid <i>within its set</i>. An item ended 01 Sep was valid for every day of a 01 Jul – 31 Aug set. The blunt <code>removed_on IS NULL</code> hides it from July too, and July then says she had no PM03 during a month she did — the same defect as C1, arriving from the other side. So: current compares against today, history against <b>each set's own start</b>.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">C3</span>
+      <span class="title">A post-dated change does not take effect early</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>Set a job relationship with an effective date months ahead. Look at the current panel today.</p>
+      <div class="exp"><b>Expect:</b> today's managers, not the future ones.</div>
+      <div class="warn">Live before 846 and reachable without any trigger: the reader picked its set by <code>is_active = true AND effective_to = '9999-12-31'</code> — "the open-ended set", not "the set in force today". Measured on 22 Sep with a set dated 01 Mar 2027, it returned the March set. Nothing prevents post-dating: 456 validates against the hire date, not the future.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">C4</span>
+      <span class="title">Edit no longer resurrects the dead</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>On a set holding an ended relationship, press <b>Edit</b>, change nothing, save. Re-read the set.</p>
+      <div class="exp"><b>Expect:</b> the ended relationship is still there, still ended.</div>
+      <div class="warn">The edit path deleted every item and re-inserted from a payload that has never heard of <code>removed_on</code>, so one Edit wiped every removal marker on the set — and because history returned removed items as live, the form resubmitted them and they came back alive with nothing recording they had ever ended.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">C5</span>
+      <span class="title">…but a new manager in that slot starts live</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>Edit the same set and assign a <i>different</i> person to the ended slot.</p>
+      <div class="exp"><b>Expect:</b> they are live, not pre-ended, and the mirror names them.</div>
+      <div class="why">Markers are carried across the rebuild only where the manager is unchanged. A different manager is a new assignment and the old end date says nothing about it; inheriting it would mark somebody as gone before they started.</div>
+    </div>
+  </div>
+</section>
+
+<section id="d">
+  <h2><span class="k">D</span> The approved path writes the same timeline (847)</h2>
+  <p class="lede">Two functions write job relationship sets. Only one got 844's fix.</p>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">D1</span>
+      <span class="title">A back-dated <i>approval</i> reaches later sets</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>Repeat A1, but submit the back-dated change through workflow and approve it.</p>
+      <div class="exp"><b>Expect:</b> identical to A1 — June, July and September.</div>
+      <div class="warn">The approved path has its own case logic and never got the forward walk, so the bug Vj reported was still live on that route after 844 fixed the direct edit. Two writers, one job, different rules.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">D2</span>
+      <span class="title">An approved correction keeps its removal markers</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>Approve a correction on a set that holds an ended relationship.</p>
+      <div class="exp"><b>Expect:</b> the ended relationship survives, still ended. Same as C4, other path.</div>
+      <div class="warn">Urgent because <b>845 unbroke this path</b>. Until then it raised on the missing mirror helper, and a failed approval writes nothing — the outage was accidentally protecting the data.</div>
+    </div>
+  </div>
+</section>
+
+<section id="e">
+  <h2><span class="k">E</span> A future-dated end actually ends (848)</h2>
+  <p class="lede">Vj chose: a future-dated end records nothing when you set it, and a job applies it on the day. Before 848 there was no job — and the one written for this in June was never scheduled and could not have run.</p>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">E1</span>
+      <span class="title">Nothing happens before the day</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>End a project assignment on a future date. Check Job Relationships.</p>
+      <div class="exp"><b>Expect:</b> unchanged — the manager is still there.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">E2</span>
+      <span class="title">And it happens on the day</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p><code>select apply_due_project_jr_ends('&lt;the day after the end date&gt;'::date);</code></p>
+      <div class="exp"><b>Expect:</b> <code>due 1, released 1</code>, and the slot carries that date as its end.</div>
+      <div class="why">Pass a date to test it without waiting. The scheduled run passes none and gets <code>CURRENT_DATE</code>.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">E3</span>
+      <span class="title">Two projects, one manager — the slot is retained</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>Same manager on two projects, employee on both, one ending and one continuing. Run the job past the first end date.</p>
+      <div class="exp"><b>Expect:</b> <code>due 1, released 0, retained 1</code>. The relationship survives.</div>
+      <div class="why">The job calls the same <code>sync_project_jr_on_remove</code> the same-day path calls, so the shared-manager guard is not reimplemented. If it is right there it is right here, because it <b>is</b> there.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">E4</span>
+      <span class="title">…and released when the last one ends</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>Run the job past the second project's end date too.</p>
+      <div class="exp"><b>Expect:</b> released.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">E5</span>
+      <span class="title">A missed night catches up</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>Run the job weeks after a boundary fell due.</p>
+      <div class="exp"><b>Expect:</b> still applied. Run it again: <code>due 0</code>.</div>
+      <div class="why">It asks which ended assignments still hold a live slot — a question about the present — not what changed yesterday. A job whose correctness depends on having run every day since is a job nobody can verify; this one is verified by running it.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">E6</span>
+      <span class="title">It is actually scheduled</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p><code>select jobname, schedule from cron.job where jobname = 'job-relationship-due-ends';</code></p>
+      <div class="exp"><b>Expect:</b> one row, <code>40 1 * * *</code>.</div>
+      <div class="warn">461 wrote a nightly sync for this and its comment claims it was "added to nightly cron". <code>cron.job</code> held two entries, neither of them it. Written in June, never scheduled, and carrying the same unrunnable <code>max(uuid)</code>. Three months, no signal. <b>Check the row, not the intention.</b></div>
+    </div>
+  </div>
+</section>
+
+<section id="f">
+  <h2><span class="k">F</span> Known and deliberate</h2>
+  <p class="lede">Decided, written down, and not fixed. Each is here so it is met as a choice rather than found as a surprise.</p>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">F1</span>
+      <span class="title">The job ends, it never adds</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>Assignment ends 31 Aug; a new project with the <i>same</i> manager starts 01 Oct, booked in advance.</p>
+      <div class="exp"><b>Expect:</b> the slot is released on 01 Sep and <b>nothing restores it in October</b>.</div>
+      <div class="warn">September is correct — she is on none of his projects that month. October is not. <code>sync_project_jr_on_add</code> already ran when the membership was created, found the manager still in a slot, and returned; it will never run again. The job cannot safely add, because a slot can be set by hand as well as by a project and nothing on the row records which — re-adding every manager a project implies would undo deliberate removals. Fixing it properly needs provenance on the item row: a schema change with a backfill.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">F2</span>
+      <span class="title">Four readers still treat an ended relationship as live</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>Nothing to click while Prowess is in testing.</p>
+      <div class="exp"><b>Expect:</b> the bulk export lists ended relationships; nobody is notified that one ended; the approver's "before" picture in both <code>submit_change_request</code> overloads shows them as current.</div>
+      <div class="why">These produce wrong <b>display</b>, and nothing acts on that output yet. 846 and 847 covered the paths that write wrong <b>data</b>. Revisit before go-live.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">F3</span>
+      <span class="title">The add path still reads the open-ended set by flag</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>Read <code>sync_project_jr_on_add</code>: its "already there" check and free-slot search both select on <code>is_active = true AND effective_to = '9999-12-31'</code>.</p>
+      <div class="exp"><b>Expect:</b> with a post-dated set present it consults a picture that has not started, and may pick a slot on that basis.</div>
+      <div class="why">846 removed that test from the current reader and left these. Same fix, same reason, not yet applied.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">F4</span>
+      <span class="title">Only six of the codes have mirror columns</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>Compare the mirror columns on <code>employees</code> with the slots the sync functions search.</p>
+      <div class="exp"><b>Expect:</b> columns for PM01–PM03 and OM01–OM03; slot-finding searches PM01–<b>PM06</b>.</div>
+      <div class="why">A project whose manager lands in PM04 or PM05 cannot reach the mirror at all, so anything reading <code>employees.pmNN_manager_id</code> is blind to it. The mirror is a cached copy of a fact the item table already holds correctly — the same shape as the dead <code>projects.project_type</code> column 840 removed. Worth asking whether it should be a view rather than columns.</div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+
+  <footer>
+    <p><b>If something fails</b>, the "why this matters" note on each case names the rule it is
+       testing — start there. The migration headers for 844 to 848 carry the reasoning in full,
+       and <code>docs/job-relationships-design.md</code> has the original model.</p>
+    <p><b>Known open items</b> are section F, and they are open on purpose. F1 — the daily job
+       releases relationships but never restores them — is the one most likely to be reported as a
+       bug; it needs provenance on the item row before it can be fixed honestly.</p>
+    <p><b>Method.</b> Every migration here was reproduced on a real PostgreSQL 16 against the live
+       function definitions read from Dev, not from the migration files: the files do not add up to
+       what is running. Each was then re-run to prove idempotence. Three verification blocks failed
+       during development because an assertion matched the migration's own prose rather than its
+       code — if you write one, match a predicate, not a phrase.</p>
+  </footer>
+
+<script>
+(function(){
+  var boxes = Array.prototype.slice.call(document.querySelectorAll('.case input[type=checkbox]'));
+  var count = document.getElementById('count');
+  var bar   = document.getElementById('progbar');
+
+  function paint(){
+    var done = boxes.filter(function(b){ return b.checked; }).length;
+    count.textContent = done + ' / ' + boxes.length;
+    bar.style.width = (boxes.length ? (done / boxes.length * 100) : 0) + '%';
+    boxes.forEach(function(b){
+      b.closest('.case').classList.toggle('done', b.checked);
+    });
+  }
+  boxes.forEach(function(b){ b.addEventListener('change', paint); });
+  document.getElementById('reset').addEventListener('click', function(){
+    boxes.forEach(function(b){ b.checked = false; });
+    paint();
+  });
+  paint();
+})();
+</script>
+</body>
+</html>
