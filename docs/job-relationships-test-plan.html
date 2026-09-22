@@ -8,10 +8,10 @@
   "@context": "https://schema.org",
   "@type": "TechArticle",
   "name": "Prowess — Job Relationships test plan",
-  "description": "Prowess job-relationships test plan, migrations 844-848. 26 checkable cases across back-dated assignments reaching later sets, the overlap constraint, the mirror helper that was never created, the removed_on readers, the workflow-approved writer, and the nightly job that applies future-dated ends. Plus four known-and-deliberate gaps: the job ends but never adds, four readers still treating ended relationships as live, the add path selecting by flag, and mirror columns for only six of the codes."
+  "description": "Prowess job-relationships test plan, migrations 844-849. 34 checkable cases across back-dated assignments reaching later sets, the overlap constraint, the mirror helper that was never created, the removed_on readers, the workflow-approved writer, and the nightly job that applies future-dated ends, and the removal that was recorded but never shown. Plus four known-and-deliberate gaps: the job ends but never adds, four readers still treating ended relationships as live, the add path selecting by flag, and mirror columns for only six of the codes."
 }
 </script>
-<title>Job Relationships — Test Plan for migrations 844 to 848</title>
+<title>Job Relationships — Test Plan for migrations 844 to 849</title>
 <style>
   :root{
     --ink:#0F172A; --ink2:#334155; --ink3:#64748B; --ink4:#94A3B8;
@@ -96,7 +96,7 @@
 <header class="top">
   <div class="wrap">
     <p class="eyebrow">Prowess · People</p>
-    <h1>Job Relationships — test plan, migrations 844 to 848</h1>
+    <h1>Job Relationships — test plan, migrations 844 to 849</h1>
     <p class="sub">Five migrations from one report: <i>"the record added on June is reflecting in the latest, but is not propagated to all the future records."</i> Each case says what to do, what should happen, and which rule it proves — so a failure tells you where to look rather than just that something is wrong.</p>
     <div class="meta">
       <span><b>Against</b> Dev (prowess-dev)</span>
@@ -113,11 +113,16 @@
     <a class="toc" href="#c">C · The screen reads what the database records (846)</a>
     <a class="toc" href="#d">D · The approved path writes the same timeline (847)</a>
     <a class="toc" href="#e">E · A future-dated end actually ends (848)</a>
-    <a class="toc" href="#f">F · Known and deliberate</a>
+    <a class="toc" href="#f">F · A removal is a record, not an absence (849)</a>
+    <a class="toc" href="#g">G · Known and deliberate</a>
   </div>
   <div class="bar"><div class="barrow">
     <span class="count" id="count">0 / 0</span>
     <div class="prog"><i id="progbar"></i></div>
+    <button class="btn" id="reset">Clear all</button>
+  </div>
+  <div style="font-size:11.5px;color:var(--ink4);margin-top:7px">
+    Ticks are for this sitting only — reloading the page clears them.
   </div></div>
 </nav>
 
@@ -366,11 +371,95 @@
 </section>
 
 <section id="f">
-  <h2><span class="k">F</span> Known and deliberate</h2>
-  <p class="lede">Decided, written down, and not fixed. Each is here so it is met as a choice rather than found as a surprise.</p>
+  <h2><span class="k">F</span> A removal is a record, not an absence (849)</h2>
+  <p class="lede">The row that records a removal already existed. 846's history filter dropped exactly the shape of it that lands on the day the removal takes effect, so the one event you were looking for was the only one never shown. 849 returns it, dates it, and the portlet draws it struck through with the last day it was valid.</p>
 
   <div class="case">
     <div class="head"><input type="checkbox"><span class="id">F1</span>
+      <span class="title">The removal on the day is visible at last</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>Vijaya's JCDC case, or rebuild it: a set already starting 01 Sep, then delimit her PM05 project assignment to 31 Aug. Open Job Relationships.</p>
+      <div class="exp"><b>Expect:</b> the PM05 row shows <b>the manager struck through</b> with an amber <code>Ended 31 Aug 2026</code> beside it, and the header line ends <code>&middot; 1 ended</code>.</div>
+      <div class="warn">Before 849 this read as "—", which is what an unassigned slot looks like. The item was in the table the whole time carrying <code>removed_on = 2026-09-01</code>; both readers filtered it out. <b>An empty slot and an ended one are different facts and must not render the same.</b></div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">F2</span>
+      <span class="title">And in History, on the set that starts that day</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>History &rarr; select the set beginning 01 Sep.</p>
+      <div class="exp"><b>Expect:</b> the continuing managers first, then a dashed rule, <code>ENDED</code>, and the removed one struck through with <code>Ended 31 Aug 2026</code>.</div>
+      <div class="why">The date printed is <code>ended_on</code> — the last day the assignment was valid — not <code>removed_on</code>, which is the day after and is not the date anyone typed. The database stores one and the screen shows the other on purpose.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">F3</span>
+      <span class="title">The period it covered is untouched</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>Same History, select the set that ran 01 Jul – 31 Aug.</p>
+      <div class="exp"><b>Expect:</b> all three managers listed <b>normally</b>. No strikethrough, no ENDED group.</div>
+      <div class="warn">She did have that manager every day of July and August. A removal dated 01 Sep says nothing about a period that ended 31 Aug, and a reader that struck it through there would be lying about the past — the same defect 846 was written to stop, arriving from the other side.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">F4</span>
+      <span class="title">The usual shape: the removal that split the set</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>The commoner case — no set starts on the removal date, so 844 closes the old one and opens a new one. End an assignment on a date with no existing boundary.</p>
+      <div class="exp"><b>Expect:</b> the current screen still says <code>Ended &lt;last day&gt;</code>; the closing set in History shows that manager struck through; the new set does not list them at all.</div>
+      <div class="why">The marker is written on the <i>closing</i> set here and on the <i>in-force</i> set in F1. <code>get_current_job_relationships</code> selects by date (<code>removed_on &gt;= the in-force set's start</code>) rather than by set id, so both report. Keyed to the set it would have shown one and missed the other, and no user can see which shape their removal took.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">F5</span>
+      <span class="title">A future-dated end still shows nothing</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>End an assignment on a date next month. Check the screen today.</p>
+      <div class="exp"><b>Expect:</b> the manager is listed <b>normally</b>, no ended badge, header shows no ended count.</div>
+      <div class="why">Vj's decision in E: a future end takes effect on the day and not before. Until then it is a live assignment, so it belongs in <code>items</code> and not in <code>ended</code>. On the day, the 848 job applies it and F1 or F4 takes over.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">F6</span>
+      <span class="title">An older removal stays in History</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>An assignment ended in March; a later set began in September. Check the current screen.</p>
+      <div class="exp"><b>Expect:</b> <b>no</b> ended badge on the current screen. History still shows the March removal on the set that carried it.</div>
+      <div class="why">The current screen reports removals that shaped the period now in force. A removal two periods back is history, and leaving it on the live screen forever would make the badge meaningless.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">F7</span>
+      <span class="title">A slot filled again is not a vacancy</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>Remove PM05, then assign someone else to PM05 a few days later.</p>
+      <div class="exp"><b>Expect:</b> PM05 shows the new manager, normally. No ended badge on that row.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">F8</span>
+      <span class="title">Edit does not raise the dead</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>History &rarr; the set carrying the ended item &rarr; <b>Edit</b>. Look at that role's picker. Then Save without touching anything.</p>
+      <div class="exp"><b>Expect:</b> the ended role's picker is <b>empty</b>; after Save the item is still ended, with the same date.</div>
+      <div class="warn">This is the one that has to be checked every time history's payload changes. <code>admin_update_job_relationship_set</code> rebuilds the set from what the form submits; an ended item that reached the form pre-filled would be re-submitted as live, and the assignment would come back with nothing recording that it ever ended. 846 made the server carry the markers across the rebuild; 849 makes the client keep them out of the form. <b>Both halves are needed.</b></div>
+    </div>
+  </div>
+</section>
+
+<section id="g">
+  <h2><span class="k">G</span> Known and deliberate</h2>
+  <p class="lede">Decided, written down, and not fixed. Each is here so it is met as a choice rather than found as a surprise.</p>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">G1</span>
       <span class="title">The job ends, it never adds</span></div>
     <div class="body"><span class="lbl">Do</span>
       <p>Assignment ends 31 Aug; a new project with the <i>same</i> manager starts 01 Oct, booked in advance.</p>
@@ -380,7 +469,7 @@
   </div>
 
   <div class="case">
-    <div class="head"><input type="checkbox"><span class="id">F2</span>
+    <div class="head"><input type="checkbox"><span class="id">G2</span>
       <span class="title">Four readers still treat an ended relationship as live</span></div>
     <div class="body"><span class="lbl">Do</span>
       <p>Nothing to click while Prowess is in testing.</p>
@@ -390,7 +479,7 @@
   </div>
 
   <div class="case">
-    <div class="head"><input type="checkbox"><span class="id">F3</span>
+    <div class="head"><input type="checkbox"><span class="id">G3</span>
       <span class="title">The add path still reads the open-ended set by flag</span></div>
     <div class="body"><span class="lbl">Do</span>
       <p>Read <code>sync_project_jr_on_add</code>: its "already there" check and free-slot search both select on <code>is_active = true AND effective_to = '9999-12-31'</code>.</p>
@@ -400,7 +489,7 @@
   </div>
 
   <div class="case">
-    <div class="head"><input type="checkbox"><span class="id">F4</span>
+    <div class="head"><input type="checkbox"><span class="id">G4</span>
       <span class="title">Only six of the codes have mirror columns</span></div>
     <div class="body"><span class="lbl">Do</span>
       <p>Compare the mirror columns on <code>employees</code> with the slots the sync functions search.</p>
@@ -415,7 +504,7 @@
 
   <footer>
     <p><b>If something fails</b>, the "why this matters" note on each case names the rule it is
-       testing — start there. The migration headers for 844 to 848 carry the reasoning in full,
+       testing — start there. The migration headers for 844 to 849 carry the reasoning in full,
        and <code>docs/job-relationships-design.md</code> has the original model.</p>
     <p><b>Known open items</b> are section F, and they are open on purpose. F1 — the daily job
        releases relationships but never restores them — is the one most likely to be reported as a

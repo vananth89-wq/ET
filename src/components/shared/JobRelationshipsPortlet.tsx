@@ -9,13 +9,29 @@
  *   • MyProfile/index.tsx      — ESS self-service (read-only, pending pill)
  *   • EmployeeEditPanel.tsx    — HR direct-edit
  *
- * RPCs consumed (mig 359–360):
+ * RPCs consumed (mig 359–360, 846, 849):
  *   get_current_job_relationships(p_employee_id)
  *     → { ok, set: {...}|null, items: [...] }
  *   upsert_job_relationship_set(p_employee_id, p_effective_from, p_items)
  *     → { ok, workflow, set_id?, instance_id?, effective_from? }
  *   get_job_relationships_history(p_employee_id)
- *     → { ok, sets: [...] }
+ *     → { ok, sets: [ { …, items: [ { …, removed_on, ended_on } ] } ] }
+ *
+ * A removal is a record, not an absence (mig 849)
+ *   A removal now opens a set on the last day the assignment was valid, and
+ *   marks it there. So exactly one period in History carries the ended item;
+ *   the period before it shows the manager normally, and no period after it
+ *   mentions them at all. That shape comes from the database — this file only
+ *   has to draw it:
+ *     • an item with removed_on is struck through and stamped with ended_on
+ *       (the last valid day, not removed_on, which is the day after).
+ *     • ended items never populate the Edit slots. admin_update rebuilds the
+ *       set from whatever is submitted, so an ended item that reached the form
+ *       would be re-submitted as live and the assignment would come back from
+ *       the dead with nothing recording that it had ever ended (mig 846).
+ *     • ended items never count towards the roles assigned or the empty state.
+ *   The live screen is deliberately untouched: a set beginning after the
+ *   assignment ended does not carry it, so there is nothing there to strike.
  *
  * Locked decisions (docs/job-relationships-design.md):
  *   - 6 fixed codes — order: PM01, PM02, PM03, OM01, OM02, OM03
@@ -69,6 +85,32 @@ interface JRItem {
   manager_employee_code: string;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// EndedBadge — the one place a removal is drawn
+// ─────────────────────────────────────────────────────────────────────────────
+
+function EndedBadge({ on }: { on?: string | null }) {
+  if (!on) return null;
+  return (
+    <span
+      title={`This assignment ended on ${fmtDate(on)}`}
+      style={{
+        marginLeft: 8, fontSize: 10.5, fontWeight: 600, whiteSpace: 'nowrap',
+        background: '#FEF3C7', color: '#92400E',
+        border: '1px solid #FDE68A', borderRadius: 4, padding: '1px 6px',
+      }}
+    >
+      <i className="fa-solid fa-circle-minus" style={{ fontSize: 9, marginRight: 4 }} />
+      Ended {fmtDate(on)}
+    </span>
+  );
+}
+
+/** Manager name drawn as a relationship that has finished. */
+function endedNameStyle(): React.CSSProperties {
+  return { color: '#9CA3AF', textDecoration: 'line-through' };
+}
+
 // Draft: one slot per code (null = unassigned)
 type DraftSlots = Record<JRCode, string | null>; // code → manager employee UUID | null
 
@@ -111,8 +153,17 @@ interface HistorySet {
     manager_employee_id:   string;
     manager_name:          string;
     manager_employee_code: string;
+    /** mig 849 — first day the assignment was no longer valid, or null. */
+    removed_on?:           string | null;
+    /** mig 849 — last day it WAS valid. Printed; removed_on is not. */
+    ended_on?:             string | null;
   }[];
 }
+
+type HistoryItem = HistorySet['items'][number];
+
+/** Live for the whole period this set covers. */
+const isLive = (i: HistoryItem) => !i.removed_on;
 
 function HistoryPanel({
   employeeId,
@@ -160,7 +211,9 @@ function HistoryPanel({
   function startEdit(s: HistorySet) {
     const slots: Record<string, string | null> = {};
     JR_CODE_ORDER.forEach(code => {
-      const item = s.items.find(i => i.relationship_code === code);
+      // Live items only. An ended item put into a slot would be submitted back
+      // as a live assignment and silently resurrected — see the file header.
+      const item = s.items.find(i => i.relationship_code === code && isLive(i));
       slots[code] = item?.manager_employee_id ?? null;
     });
     setEditSlots(slots);
@@ -352,34 +405,64 @@ function HistoryPanel({
                   </div>
                 ) : (
                   /* ── View mode items ── */
-                  !isConfirmingDelete && (
-                    s.items && s.items.length > 0 ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        {JR_CODE_ORDER
-                          .filter(c => s.items.some(i => i.relationship_code === c))
-                          .map(code => {
-                            const item = s.items.find(i => i.relationship_code === code);
-                            if (!item) return null;
-                            return (
-                              <div key={code} style={{ display: 'flex', gap: 8, fontSize: 13 }}>
-                                <span style={{ minWidth: 130, color: '#6B7280', fontWeight: 500 }}>
-                                  {codeLabels[code] ?? code}
-                                  <span style={{ marginLeft: 5, fontSize: 10, color: '#9CA3AF' }}>{code}</span>
-                                </span>
-                                <span style={{ color: '#111827' }}>
-                                  {item.manager_name}
-                                  <span style={{ color: '#9CA3AF', marginLeft: 4 }}>({item.manager_employee_code})</span>
-                                </span>
-                              </div>
-                            );
-                          })}
+                  !isConfirmingDelete && (() => {
+                    // (set_id, relationship_code) is unique, so a code appears
+                    // at most once per set — either live or ended, never both.
+                    const all   = s.items ?? [];
+                    const live  = JR_CODE_ORDER.filter(c => all.some(i => i.relationship_code === c && isLive(i)));
+                    const ended = JR_CODE_ORDER.filter(c => all.some(i => i.relationship_code === c && !isLive(i)));
+
+                    const row = (code: string, item: HistoryItem, done: boolean) => (
+                      <div key={code} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                        <span style={{ minWidth: 130, color: '#6B7280', fontWeight: 500, flexShrink: 0 }}>
+                          {codeLabels[code] ?? code}
+                          <span style={{ marginLeft: 5, fontSize: 10, color: '#9CA3AF' }}>{code}</span>
+                        </span>
+                        <span style={done ? endedNameStyle() : { color: '#111827' }}>
+                          {item.manager_name}
+                          <span style={{ color: '#9CA3AF', marginLeft: 4 }}>({item.manager_employee_code})</span>
+                        </span>
+                        {done && <EndedBadge on={item.ended_on} />}
                       </div>
-                    ) : (
-                      <p style={{ fontSize: 12.5, color: '#9CA3AF', fontStyle: 'italic', margin: 0 }}>
-                        No assignments in this period.
-                      </p>
-                    )
-                  )
+                    );
+
+                    if (live.length === 0 && ended.length === 0) {
+                      return (
+                        <p style={{ fontSize: 12.5, color: '#9CA3AF', fontStyle: 'italic', margin: 0 }}>
+                          No assignments in this period.
+                        </p>
+                      );
+                    }
+
+                    return (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {live.length > 0
+                          ? live.map(code => row(code, all.find(i => i.relationship_code === code)!, false))
+                          : (
+                            <p style={{ fontSize: 12.5, color: '#9CA3AF', fontStyle: 'italic', margin: 0 }}>
+                              No continuing assignments in this period.
+                            </p>
+                          )}
+
+                        {/* Ended below a rule of their own: the point of showing
+                            them is that they read differently from the live ones,
+                            which they cannot do mixed into the same list. */}
+                        {ended.length > 0 && (
+                          <>
+                            <div style={{ borderTop: '1px dashed #E5E7EB', marginTop: 4, paddingTop: 8 }}>
+                              <span style={{ fontSize: 11, fontWeight: 600, color: '#92400E', letterSpacing: 0.2 }}>
+                                ENDED
+                              </span>
+                              <span style={{ fontSize: 11, color: '#9CA3AF', marginLeft: 6 }}>
+                                — recorded on the last day it was valid
+                              </span>
+                            </div>
+                            {ended.map(code => row(code, all.find(i => i.relationship_code === code)!, true))}
+                          </>
+                        )}
+                      </div>
+                    );
+                  })()
                 )}
               </div>
             );
@@ -885,7 +968,9 @@ export default function JobRelationshipsPortlet({
                 {historyVisible
                   ? 'Assignment History'
                   : hasAnyAssignment
-                    ? `${currentItems.length} of 6 roles assigned · Effective ${fmtDate(currentSet?.effective_from ?? '')}`
+                    // "of 6" was written when there were six codes; there are
+                    // nine, and nine rows render below it.
+                    ? `${currentItems.length} of ${JR_CODE_ORDER.length} roles assigned · Effective ${fmtDate(currentSet?.effective_from ?? '')}`
                     : <span style={{ fontStyle: 'italic' }}>No matrix manager assignments</span>
                 }
               </span>
