@@ -8,10 +8,10 @@
   "@context": "https://schema.org",
   "@type": "TechArticle",
   "name": "Prowess — Job Relationships test plan",
-  "description": "Prowess job-relationships test plan, migrations 844-852. 48 checkable cases across back-dated assignments reaching later sets, the overlap constraint, the mirror helper that was never created, the removed_on readers, the workflow-approved writer, and the nightly job that applies future-dated ends, and the removal that now opens a record of its own on the day it took effect. Plus three known-and-deliberate gaps: the job ends but never adds, four readers still treating ended relationships as live, the add path selecting by flag, and mirror columns for only six of the codes."
+  "description": "Prowess job-relationships test plan, migrations 844-854. 54 checkable cases across back-dated assignments reaching later sets, the overlap constraint, the mirror helper that was never created, the removed_on readers, the workflow-approved writer, and the nightly job that applies future-dated ends, and the removal that now opens a record of its own on the day it took effect. Plus three known-and-deliberate gaps: the job ends but never adds, four readers still treating ended relationships as live, the add path selecting by flag, and mirror columns for only six of the codes."
 }
 </script>
-<title>Job Relationships — Test Plan for migrations 844 to 852</title>
+<title>Job Relationships — Test Plan for migrations 844 to 854</title>
 <style>
   :root{
     --ink:#0F172A; --ink2:#334155; --ink3:#64748B; --ink4:#94A3B8;
@@ -96,7 +96,7 @@
 <header class="top">
   <div class="wrap">
     <p class="eyebrow">Prowess · People</p>
-    <h1>Job Relationships — test plan, migrations 844 to 852</h1>
+    <h1>Job Relationships — test plan, migrations 844 to 854</h1>
     <p class="sub">Five migrations from one report: <i>"the record added on June is reflecting in the latest, but is not propagated to all the future records."</i> Each case says what to do, what should happen, and which rule it proves — so a failure tells you where to look rather than just that something is wrong.</p>
     <div class="meta">
       <span><b>Against</b> Dev (prowess-dev)</span>
@@ -494,7 +494,69 @@
       <div class="why">852 edits the removal path in three places and one filter. Everything else in that function is 844&rsquo;s; the migration asserts the forward walk, the exact-date branch and 851&rsquo;s provenance all survive, but only A1&ndash;A6 proves they still work.</div>
     </div>
   </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">F11</span>
+      <span class="title">A manager hidden from a period he held it &mdash; repaired</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>Harikrishnan A, period <code>01 Aug &ndash; 21 Sep</code>, PM02 Mohammed Insaf.</p>
+      <div class="exp"><b>Expect:</b> PM02 listed <b>normally</b> for that period, and the period beginning <code>22 Sep</code> carrying him struck with <code>Ended 21 Sep 2026</code>.</div>
+      <div class="warn">852 alone made this worse before 853 fixed it. His marker was on the period being closed, the shape 844 wrote; the equals rule hid that row, so the period showed <b>no PM02 at all</b> &mdash; for a manager he held every day of it. 852 stopped the writer creating these. It could not move one already written.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">F12</span>
+      <span class="title">A removal recorded two months after it happened &mdash; repaired</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>Vijaya, PM01 Iqraa. Check the period beginning on the removal date, and the <code>01 Oct</code> period.</p>
+      <div class="exp"><b>Expect:</b> the mention on the period that begins on the removal date; <b>nothing</b> on 01 Oct.</div>
+      <div class="why">Her marker had been carried into a period beginning two months after the removal it recorded. 853 moves it to the day it names and deletes the row that never belonged there.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">F13</span>
+      <span class="title">An Edit cannot plant a marker on the wrong period</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>Open a period in History, <b>Edit</b>, save. Then have an approved correction rewrite a set.</p>
+      <div class="exp"><b>Expect:</b> markers that name that period survive; one that names a different date is not restored &mdash; neither struck nor live.</div>
+      <div class="warn">This is how the two strays were made. <code>admin_update</code> (846) and 847&rsquo;s <code>correction</code> branch both put saved markers back carrying their original date, with nothing checking it falls on the target&rsquo;s start. Put a 01 Aug marker into a set beginning 01 Oct and you get Vijaya&rsquo;s row.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">F14</span>
+      <span class="title">And nothing of an unknown shape was touched</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>Read 853&rsquo;s deploy log for <code>LEFT ALONE</code> notices.</p>
+      <div class="exp"><b>Expect:</b> none on Dev &mdash; the scan found only the two known shapes. Any that do appear are named in full and were not changed.</div>
+      <div class="why">A marker strictly inside a period is neither a closing-set marker nor one carried forward, and no rule in 853 covers it. Inventing a reading for a row nobody can explain is how this thread started; the migration counts them and says so instead.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">F15</span>
+      <span class="title">A removal on an employee who has a scheduled change</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>An employee with a period dated ahead &mdash; Vijaya&rsquo;s shape. Remove a manager <b>effective today</b>.</p>
+      <div class="exp"><b>Expect:</b> the period beginning today carries the strike, the period before shows the manager normally, the scheduled period says nothing, and the live table drops them.</div>
+      <div class="warn">Silent before 854, and this is <b>not</b> the rare case it sounds like. 844 chooses its branch by comparing the removal date with the <i>open-ended</i> period&rsquo;s start, not with today. Give an employee any scheduled future change and every removal dated before it &mdash; including one dated today &mdash; took the retroactive path, which created the right period and then wrote the record somewhere it could never be read.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">F16</span>
+      <span class="title">A genuinely back-dated removal, and it still takes effect</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>Today, remove a manager with an effective date weeks in the past.</p>
+      <div class="exp"><b>Expect:</b> the period beginning on that date carries the strike; the period before it shows the manager normally; the live table no longer lists them.</div>
+      <div class="why">The action leaves two rows: a hidden one on the current period, which is what actually ends the assignment, and a visible one on the day it happened. Same division of labour the other branches have had since 852. The hidden one is load-bearing &mdash; 853 will not delete a marker it cannot re-record for exactly this reason.</div>
+    </div>
+  </div>
 </section>
+
+
 
 <section id="h">
   <h2><span class="k">H</span> A slot remembers which project put it there (851)</h2>
@@ -651,7 +713,7 @@
 
   <footer>
     <p><b>If something fails</b>, the "why this matters" note on each case names the rule it is
-       testing — start there. The migration headers for 844 to 852 carry the reasoning in full,
+       testing — start there. The migration headers for 844 to 854 carry the reasoning in full,
        and <code>docs/job-relationships-design.md</code> has the original model.</p>
     <p><b>Known open items</b> are section G, and they are open on purpose. G1 — the daily job
        releases relationships but never restores them — is the one most likely to be reported as a
