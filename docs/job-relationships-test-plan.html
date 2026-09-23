@@ -8,10 +8,10 @@
   "@context": "https://schema.org",
   "@type": "TechArticle",
   "name": "Prowess — Job Relationships test plan",
-  "description": "Prowess job-relationships test plan, migrations 844-854. 55 checkable cases across back-dated assignments reaching later sets, the overlap constraint, the mirror helper that was never created, the removed_on readers, the workflow-approved writer, and the nightly job that applies future-dated ends, and the removal that now opens a record of its own on the day it took effect. Plus four known-and-deliberate gaps: the job ends but never adds, four readers still treating ended relationships as live, the add path selecting by flag, and mirror columns for only six of the codes."
+  "description": "Prowess job-relationships test plan, migrations 844-855. 57 checkable cases across back-dated assignments reaching later sets, the overlap constraint, the mirror helper that was never created, the removed_on readers, the workflow-approved writer, and the nightly job that applies future-dated ends, and the removal that now opens a record of its own on the day it took effect. Plus four known-and-deliberate gaps: the job ends but never adds, four readers still treating ended relationships as live, the add path selecting by flag, and mirror columns for only six of the codes."
 }
 </script>
-<title>Job Relationships — Test Plan for migrations 844 to 854</title>
+<title>Job Relationships — Test Plan for migrations 844 to 855</title>
 <style>
   :root{
     --ink:#0F172A; --ink2:#334155; --ink3:#64748B; --ink4:#94A3B8;
@@ -96,7 +96,7 @@
 <header class="top">
   <div class="wrap">
     <p class="eyebrow">Prowess · People</p>
-    <h1>Job Relationships — test plan, migrations 844 to 854</h1>
+    <h1>Job Relationships — test plan, migrations 844 to 855</h1>
     <p class="sub">Five migrations from one report: <i>"the record added on June is reflecting in the latest, but is not propagated to all the future records."</i> Each case says what to do, what should happen, and which rule it proves — so a failure tells you where to look rather than just that something is wrong.</p>
     <div class="meta">
       <span><b>Against</b> Dev (prowess-dev)</span>
@@ -671,7 +671,28 @@
       <div class="why">Both sync functions were rewritten here, and leaving the flag test inside a body being replaced would not have been a saving. This is the last of the four places 846 could not reach.</div>
     </div>
   </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">H12</span>
+      <span class="title">An Edit does not take a slot out of the sync</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>A project-derived slot. Open its period in History, press <b>Edit</b>, save <i>without changing anything</i>. Then change that project&rsquo;s lead.</p>
+      <div class="exp"><b>Expect:</b> the lead change still moves the slot.</div>
+      <div class="warn">Before 855 it did not, and nothing said so. <code>admin_update</code> rebuilds the period from the Edit form&rsquo;s payload, which carries a code and a manager and has never heard of <code>source_project_id</code> &mdash; so every rebuilt row defaulted to NULL, the slot read as hand-set, and 851 correctly kept its hands off it. Nothing errored and the screen looked right; the loss surfaced weeks later as &ldquo;the lead change skipped that employee&rdquo;. <b>Also check an approved correction</b>, which rebuilds the same way.</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">H13</span>
+      <span class="title">&hellip;but a different manager does not inherit the project</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>Same setup, but the Edit puts <i>somebody else</i> in that slot.</p>
+      <div class="exp"><b>Expect:</b> the slot becomes hand-set. A later lead change leaves it alone.</div>
+      <div class="why">846&rsquo;s test for removal markers, applied to provenance for the same reason: a different occupant is a new assignment, the old one&rsquo;s project says nothing about it, and inheriting would hand a slot HR had just set by hand back to automation to move. Restoring too much is worse here than losing it.</div>
+    </div>
+  </div>
 </section>
+
 
 <section id="g">
   <h2><span class="k">G</span> Known and deliberate</h2>
@@ -725,7 +746,7 @@
 
   <footer>
     <p><b>If something fails</b>, the "why this matters" note on each case names the rule it is
-       testing — start there. The migration headers for 844 to 854 carry the reasoning in full,
+       testing — start there. The migration headers for 844 to 855 carry the reasoning in full,
        and <code>docs/job-relationships-design.md</code> has the original model.</p>
     <p><b>Known open items</b> are section G, and they are open on purpose. G1 — the daily job
        releases relationships but never restores them — is the one most likely to be reported as a
