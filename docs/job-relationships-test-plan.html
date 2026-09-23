@@ -8,7 +8,7 @@
   "@context": "https://schema.org",
   "@type": "TechArticle",
   "name": "Prowess — Job Relationships test plan",
-  "description": "Prowess job-relationships test plan, migrations 844-854. 54 checkable cases across back-dated assignments reaching later sets, the overlap constraint, the mirror helper that was never created, the removed_on readers, the workflow-approved writer, and the nightly job that applies future-dated ends, and the removal that now opens a record of its own on the day it took effect. Plus three known-and-deliberate gaps: the job ends but never adds, four readers still treating ended relationships as live, the add path selecting by flag, and mirror columns for only six of the codes."
+  "description": "Prowess job-relationships test plan, migrations 844-854. 55 checkable cases across back-dated assignments reaching later sets, the overlap constraint, the mirror helper that was never created, the removed_on readers, the workflow-approved writer, and the nightly job that applies future-dated ends, and the removal that now opens a record of its own on the day it took effect. Plus four known-and-deliberate gaps: the job ends but never adds, four readers still treating ended relationships as live, the add path selecting by flag, and mirror columns for only six of the codes."
 }
 </script>
 <title>Job Relationships — Test Plan for migrations 844 to 854</title>
@@ -706,7 +706,19 @@
       <div class="why">A project whose manager lands in PM04 or PM05 cannot reach the mirror at all, so anything reading <code>employees.pmNN_manager_id</code> is blind to it. The mirror is a cached copy of a fact the item table already holds correctly — the same shape as the dead <code>projects.project_type</code> column 840 removed. Worth asking whether it should be a view rather than columns.</div>
     </div>
   </div>
+
+  <div class="case">
+    <div class="head"><input type="checkbox"><span class="id">G4</span>
+      <span class="title">A handover into the same slot records no ending</span></div>
+    <div class="body"><span class="lbl">Do</span>
+      <p>Replace who holds a slot &mdash; either in one action, or as a removal followed by an assignment to the same slot on the same date.</p>
+      <div class="exp"><b>Expect:</b> no strike. The period before shows the outgoing manager, the period from that date shows the incoming one. In the two-step version the strike appears after the removal and is then <b>overwritten</b> by the assignment.</div>
+      <div class="warn">Decided, not overlooked. <code>uq_ejri</code> is unique on <code>(set_id, relationship_code)</code>, so one period holds exactly one row per slot: it can say "Iqraa ended" or "Suchitra holds it", never both. Recording both would mean dropping that constraint for something like "one <i>live</i> row per slot per period" and teaching every reader that a slot can return two rows &mdash; <code>get_current</code>, history, the mirror sync, both project syncs, <code>admin_update</code>, 847's transition, and the portlet's slot lookups, each of which assumes one.</div>
+      <div class="why">A slot whose occupant changed did not end; it changed hands, and the boundary says so. A genuine vacancy is still recorded &mdash; if the incoming manager takes a <i>different</i> slot, the outgoing one is struck as normal. Revisit only if the two-step path's disappearing strike causes real confusion; the cheaper fix then is to make it behave like the one-step path and never write the strike at all.</div>
+    </div>
+  </div>
 </section>
+
 
 </main>
 
