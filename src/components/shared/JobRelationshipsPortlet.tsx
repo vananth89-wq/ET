@@ -9,7 +9,7 @@
  *   • MyProfile/index.tsx      — ESS self-service (read-only, pending pill)
  *   • EmployeeEditPanel.tsx    — HR direct-edit
  *
- * RPCs consumed (mig 359–360, 846, 849):
+ * RPCs consumed (mig 359–360, 846, 850):
  *   get_current_job_relationships(p_employee_id)
  *     → { ok, set: {...}|null, items: [...] }
  *   upsert_job_relationship_set(p_employee_id, p_effective_from, p_items)
@@ -17,12 +17,12 @@
  *   get_job_relationships_history(p_employee_id)
  *     → { ok, sets: [ { …, items: [ { …, removed_on, ended_on } ] } ] }
  *
- * A removal is a record, not an absence (mig 849)
- *   A removal now opens a set on the last day the assignment was valid, and
- *   marks it there. So exactly one period in History carries the ended item;
- *   the period before it shows the manager normally, and no period after it
- *   mentions them at all. That shape comes from the database — this file only
- *   has to draw it:
+ * A removal is mentioned on the day it happens (mig 850)
+ *   The period that BEGINS on the day of the change carries the ended item —
+ *   `removed_on = effective_from`, which is the only test history applies.
+ *   The period before it shows the manager normally, because she held the role
+ *   through all of it; no period after it mentions her at all. That shape
+ *   comes from the database — this file only has to draw it:
  *     • an item with removed_on is struck through and stamped with ended_on
  *       (the last valid day, not removed_on, which is the day after).
  *     • ended items never populate the Edit slots. admin_update rebuilds the
@@ -30,8 +30,8 @@
  *       would be re-submitted as live and the assignment would come back from
  *       the dead with nothing recording that it had ever ended (mig 846).
  *     • ended items never count towards the roles assigned or the empty state.
- *   The live screen is deliberately untouched: a set beginning after the
- *   assignment ended does not carry it, so there is nothing there to strike.
+ *   The live screen is deliberately untouched: once the period carrying the
+ *   change has been superseded, nothing later holds the row at all.
  *
  * Locked decisions (docs/job-relationships-design.md):
  *   - 6 fixed codes — order: PM01, PM02, PM03, OM01, OM02, OM03
@@ -153,9 +153,9 @@ interface HistorySet {
     manager_employee_id:   string;
     manager_name:          string;
     manager_employee_code: string;
-    /** mig 849 — first day the assignment was no longer valid, or null. */
+    /** mig 850 — first day the assignment was no longer valid, or null. */
     removed_on?:           string | null;
-    /** mig 849 — last day it WAS valid. Printed; removed_on is not. */
+    /** mig 850 — last day it WAS valid. Printed; removed_on is not. */
     ended_on?:             string | null;
   }[];
 }
@@ -499,7 +499,7 @@ function HistoryPanel({
                                 ENDED
                               </span>
                               <span style={{ fontSize: 11, color: '#9CA3AF', marginLeft: 6 }}>
-                                — recorded on the last day it was valid
+                                — this period begins with the change
                               </span>
                             </div>
                             {ended.map(code => row(code, all.find(i => i.relationship_code === code)!, true))}
