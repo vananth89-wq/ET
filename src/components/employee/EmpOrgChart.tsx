@@ -269,25 +269,41 @@ function OrgNode({
           <div className="eoc-card-id">{node.employeeId}</div>
         </div>
 
-        {/* Team badge */}
-        {size > 0 && (
+        {/* ── Team badge, which is also the expand/collapse control ──────────
+            It was already here, already shown only for somebody with reports,
+            and already doing nothing of its own — the click fell through to the
+            card and opened details. So it is the one place a toggle can go
+            without taking a gesture away: the card keeps click-for-details and
+            double-click-to-focus exactly as they were.
+
+            Interactive only when the node HAS RENDERED CHILDREN, which is not
+            the question the number answers. `size` counts every descendant in
+            empMap; under a search or department filter a node can read 3 and
+            have nothing below it to open. A badge that looks like a button and
+            does nothing is worse than one that never offered.
+
+            stopPropagation on click, or this toggles AND opens the details
+            panel. preventDefault + stopPropagation on dblclick, or a quick
+            double tap toggles twice — net nothing — and re-roots the chart. */}
+        {size > 0 && (hasChildren ? (
+          <button
+            type="button"
+            className="eoc-team-badge eoc-team-badge--toggle"
+            data-emp-id={node.employeeId}
+            aria-expanded={!isCollapsed}
+            title={`${size} total report${size !== 1 ? 's' : ''} — click to ${isCollapsed ? 'expand' : 'collapse'}`}
+            onClick={e => { e.stopPropagation(); onToggle(node.employeeId); }}
+            onDoubleClick={e => { e.preventDefault(); e.stopPropagation(); }}
+          >
+            <i className="fa-solid fa-users" /> {size}
+            <i className={`fa-solid ${isCollapsed ? 'fa-chevron-down' : 'fa-chevron-up'} eoc-team-caret`} />
+          </button>
+        ) : (
           <div className="eoc-team-badge" title={`${size} total report${size !== 1 ? 's' : ''}`}>
             <i className="fa-solid fa-users" /> {size}
           </div>
-        )}
+        ))}
       </div>
-
-      {/* ── Toggle btn ── */}
-      {hasChildren && (
-        <button
-          className="eoc-toggle-btn"
-          data-emp-id={node.employeeId}
-          title={isCollapsed ? 'Expand' : 'Collapse'}
-          onClick={e => { e.stopPropagation(); onToggle(node.employeeId); }}
-        >
-          <i className={`fa-solid ${isCollapsed ? 'fa-plus' : 'fa-minus'}`} />
-        </button>
-      )}
 
       {/* ── Children ── */}
       {hasChildren && !isCollapsed && (

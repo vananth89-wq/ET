@@ -142,25 +142,39 @@ function OrgNode({ node, collapsed, highlightMap, employees, docMap, onToggle, o
           {parentName && <div className="eoc-card-dept">{parentName}</div>}
           <div className="eoc-card-id">{node.deptId}</div>
         </div>
-        <div className="eoc-team-badge">
-          <i className="fa-solid fa-users" />{' '}{empCount} emp
-          {subCount > 0 && (
-            <> &nbsp;·&nbsp; <i className="fa-solid fa-sitemap" />{' '}{subCount} sub</>
-          )}
-        </div>
-      </div>
+        {/* The badge is also the expand/collapse control — same move as the
+            employee chart, so the two read alike. Interactive only when this
+            department has child departments in the RENDERED tree: the counts
+            printed here are employees and sub-departments from docMap, and
+            under a filter either can be non-zero with nothing below to open.
 
-      {/* Toggle button */}
-      {hasChildren && (
-        <button
-          className="eoc-toggle-btn"
-          data-dept-id={node.deptId}
-          title={isCollapsed ? 'Expand' : 'Collapse'}
-          onClick={e => { e.stopPropagation(); onToggle(node.deptId); }}
-        >
-          <i className={`fa-solid ${isCollapsed ? 'fa-plus' : 'fa-minus'}`} />
-        </button>
-      )}
+            stopPropagation on click, or this toggles AND opens the details
+            panel; the dblclick swallow keeps a double tap off onFocus. */}
+        {hasChildren ? (
+          <button
+            type="button"
+            className="eoc-team-badge eoc-team-badge--toggle"
+            data-dept-id={node.deptId}
+            aria-expanded={!isCollapsed}
+            title={`Click to ${isCollapsed ? 'expand' : 'collapse'} ${node.name}`}
+            onClick={e => { e.stopPropagation(); onToggle(node.deptId); }}
+            onDoubleClick={e => { e.preventDefault(); e.stopPropagation(); }}
+          >
+            <i className="fa-solid fa-users" />{' '}{empCount} emp
+            {subCount > 0 && (
+              <> &nbsp;·&nbsp; <i className="fa-solid fa-sitemap" />{' '}{subCount} sub</>
+            )}
+            <i className={`fa-solid ${isCollapsed ? 'fa-chevron-down' : 'fa-chevron-up'} eoc-team-caret`} />
+          </button>
+        ) : (
+          <div className="eoc-team-badge">
+            <i className="fa-solid fa-users" />{' '}{empCount} emp
+            {subCount > 0 && (
+              <> &nbsp;·&nbsp; <i className="fa-solid fa-sitemap" />{' '}{subCount} sub</>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Children */}
       {hasChildren && !isCollapsed && (

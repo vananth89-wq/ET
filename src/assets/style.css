@@ -3345,6 +3345,32 @@ tbody td:last-child {
 }
 .eoc-team-badge i { font-size: 9px; color: var(--blue); }
 
+/* The badge is the expand/collapse control when the node has children below
+   it. Rendered as a <button>, so the browser's own font/line-height/margin
+   defaults have to be turned off — without `font: inherit` it silently falls
+   back to the UA font and the badge no longer matches the non-clickable one
+   on a leaf card. */
+button.eoc-team-badge {
+    font: inherit;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: normal;
+    cursor: pointer;
+    transition: background .15s, border-color .15s, color .15s;
+}
+.eoc-team-badge--toggle:hover {
+    background: var(--blue);
+    border-color: var(--blue);
+    color: var(--white);
+}
+.eoc-team-badge--toggle:hover i { color: var(--white); }
+.eoc-team-badge--toggle:focus-visible {
+    outline: 2px solid var(--blue);
+    outline-offset: 2px;
+}
+/* The caret leans on the count rather than crowding it. */
+.eoc-team-caret { margin-left: 3px; font-size: 8px !important; opacity: .8; }
+
 /* "You" badge */
 .eoc-you-badge {
     position: absolute;
