@@ -551,7 +551,7 @@ export default function AddEmployee() {
 
   // ── Info / success modal (replaces browser alert) ───────────────────────
   const [infoModal, setInfoModal] = useState<{
-    open: boolean; title: string; message: string; type: 'success' | 'info' | 'warning';
+    open: boolean; title: string; message: string; type: 'success' | 'info' | 'warning' | 'error';
   }>({ open: false, title: '', message: '', type: 'success' });
 
   // ── Probation 180-day warning modal ─────────────────────────────────────
@@ -2099,10 +2099,32 @@ export default function AddEmployee() {
     if (!deletingId) return;
     const deletedRow = allEmployees.find(e => e.employeeId === deletingId);
     if (deletedRow) {
-      await supabase
+      // supabase-js does not throw -- it returns { error }. This used to be
+      // awaited and discarded, so a delete the database refused looked exactly
+      // like one it accepted: the modal closed, the list refetched unchanged,
+      // and nothing was said. It now reports through infoModal, the same
+      // dialog the rest of this screen uses in place of a browser alert.
+      //
+      // Deliberately no .select() to count the affected rows. employees_select
+      // carries `deleted_at IS NULL`, so a SUCCESSFUL soft-delete returns zero
+      // rows -- row count cannot tell success from refusal here, and reading it
+      // that way would report every working delete as a permission failure.
+      const { error } = await supabase
         .from('employees')
         .update({ deleted_at: new Date().toISOString() } as any)
         .eq('id', deletedRow.id);
+
+      if (error) {
+        setDeletingId(null);
+        setInfoModal({
+          open: true,
+          title: 'Could not discard draft',
+          message: `${deletedRow.name || 'This draft'} (${deletedRow.employeeId}) was not removed.\n\n${error.message}`,
+          type: 'error',
+        });
+        return;
+      }
+      // No success dialog: the row leaving the list is the confirmation.
       refetchEmployees();
     }
     if (editingEmpId === deletingId) resetForm();
@@ -3282,12 +3304,14 @@ export default function AddEmployee() {
           <div className="modal-box" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <i className={`fa-solid ${
-                infoModal.type === 'success' ? 'fa-circle-check' :
-                infoModal.type === 'warning' ? 'fa-triangle-exclamation' :
+                infoModal.type === 'success' ? 'fa-circle-check'         :
+                infoModal.type === 'warning' ? 'fa-triangle-exclamation'  :
+                infoModal.type === 'error'   ? 'fa-circle-exclamation'    :
                 'fa-circle-info'
               } modal-icon`} style={{
                 color: infoModal.type === 'success' ? '#16A34A' :
-                       infoModal.type === 'warning'  ? '#D97706' : '#2563EB',
+                       infoModal.type === 'warning' ? '#D97706' :
+                       infoModal.type === 'error'   ? '#DC2626' : '#2563EB',
               }} />
               <h3>{infoModal.title}</h3>
             </div>
