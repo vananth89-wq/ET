@@ -2537,25 +2537,39 @@ export default function MyTimesheet() {
               // An absence is a whole day unless somebody says otherwise, and
               // typing 8 and 0 every time is work the form can do itself.
               //
-              // Three conditions, each earning its place:
-              //   • ADDING, not editing. Changing the type on a saved entry
-              //     must not quietly rewrite hours somebody already chose.
-              //   • both boxes EMPTY. This never overwrites a typed value —
-              //     pick Annual Leave, type 4, switch to Sick Leave, and the 4
-              //     survives, because it was an answer and this is only a guess.
-              //   • something LEFT to fill. See absenceDefaultMinutes.
-              const fillable =
-                tt?.category === 'absence' && !editingEntry && !!selectedDate
-                && !form.hours && !form.mins;
-              const fill = fillable ? absenceDefaultMinutes(selectedDate) : 0;
+              // Two shapes, and the type's own flag decides which.
+              const isAbsence = tt?.category === 'absence';
+              const fullDay   = isAbsence && !tt!.allows_half_day;
+              const planned   = selectedDate ? plannedFor(selectedDate) : 0;
+              const asHM = (m: number) => ({ hours: String(Math.floor(m / 60)), mins: String(m % 60) });
 
-              setForm(f => ({
-                ...f,
-                typeId: v, projId: '', reqId: '',
-                ...(fill > 0
-                    ? { hours: String(Math.floor(fill / 60)), mins: String(fill % 60) }
-                    : {}),
-              }));
+              let dur: { hours: string; mins: string } | null = null;
+              if (isAbsence && !editingEntry && !!selectedDate) {
+                if (fullDay && planned > 0) {
+                  // NOT a suggestion. Mig 726 rule (c) refuses any other
+                  // duration outright — "this leave type must be recorded as a
+                  // full day (N minutes)" — and the Time Types screen already
+                  // promises it: "Leave it off and the entry is locked to the
+                  // whole planned day". The boxes below are disabled to match.
+                  //
+                  // Overwrites a typed value on purpose. Nothing else can be
+                  // saved, and leaving somebody a number that will be rejected
+                  // is not a kindness.
+                  //
+                  // The whole PLANNED day, not what is left of it: (c) tests
+                  // `hours_minutes <> planned`, so the remainder would fail.
+                  dur = asHM(planned);
+                } else if (!form.hours && !form.mins) {
+                  // Half-day-capable, so this really is only a default, and it
+                  // never overwrites a typed value — pick Annual Leave, type 4,
+                  // switch to Sick Leave, and the 4 survives, because it was an
+                  // answer and this is a guess. See absenceDefaultMinutes.
+                  const fill = absenceDefaultMinutes(selectedDate);
+                  if (fill > 0) dur = asHM(fill);
+                }
+              }
+
+              setForm(f => ({ ...f, typeId: v, projId: '', reqId: '', ...(dur ?? {}) }));
               setFormErr('');
             }}
             style={selectSt}
@@ -2817,28 +2831,64 @@ export default function MyTimesheet() {
         })()}
 
         {/* Duration — only for entries that are not itemised. */}
-        {!selTT?.requires_project && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: gap }}>
-          <div>
-            <Label>Hours</Label>
-            <input
-              type="number" min="0" max="23" placeholder="0"
-              value={form.hours}
-              onChange={e => { setForm(f => ({ ...f, hours: e.target.value })); setFormErr(''); }}
-              style={inputSt}
-            />
-          </div>
-          <div>
-            <Label>Minutes</Label>
-            <input
-              type="number" min="0" max="59" placeholder="0"
-              value={form.mins}
-              onChange={e => { setForm(f => ({ ...f, mins: e.target.value })); setFormErr(''); }}
-              style={inputSt}
-            />
-          </div>
-        </div>
-        )}
+        {!selTT?.requires_project && (() => {
+          /**
+           * A full-day-only leave has no duration to choose. Mig 726 rule (c)
+           * rejects anything other than the planned day, and the Time Types
+           * screen states it as the meaning of the flag: "Leave it off and the
+           * entry is locked to the whole planned day and blocks everything
+           * else." An editable box was offering a decision that does not exist.
+           *
+           * Locked on ADD only. 726's header is explicit that rows written
+           * before a rule existed must stay editable, or the next save of a
+           * legacy day is refused by a rule that post-dates it — so an Edit
+           * keeps the boxes open and lets the trigger have the final word.
+           *
+           * And only when the day plans something. On a holiday or a
+           * non-working day `planned` is zero; locking the boxes to 0 would
+           * leave an entry nobody can save and no way to see why.
+           */
+          const lockedFullDay =
+            selTT?.category === 'absence' && !selTT.allows_half_day
+            && !editingEntry && !!selectedDate && plannedFor(selectedDate) > 0;
+
+          const lockedSt = { ...inputSt, background: '#F3F4F6', color: '#6B7280', cursor: 'not-allowed' };
+
+          return (
+            <div style={{ marginBottom: gap }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <div>
+                  <Label>Hours</Label>
+                  <input
+                    type="number" min="0" max="23" placeholder="0"
+                    value={form.hours}
+                    disabled={lockedFullDay}
+                    onChange={e => { setForm(f => ({ ...f, hours: e.target.value })); setFormErr(''); }}
+                    style={lockedFullDay ? lockedSt : inputSt}
+                  />
+                </div>
+                <div>
+                  <Label>Minutes</Label>
+                  <input
+                    type="number" min="0" max="59" placeholder="0"
+                    value={form.mins}
+                    disabled={lockedFullDay}
+                    onChange={e => { setForm(f => ({ ...f, mins: e.target.value })); setFormErr(''); }}
+                    style={lockedFullDay ? lockedSt : inputSt}
+                  />
+                </div>
+              </div>
+              {lockedFullDay && (
+                <div style={{ marginTop: 6, fontSize: 11.5, color: '#6B7280', lineHeight: 1.4 }}>
+                  <i className="fa-solid fa-lock" style={{ fontSize: 9, marginRight: 5 }} />
+                  {selTT?.name} is always a full day, so it is set to the day&rsquo;s
+                  planned hours. An administrator can allow part days on the Time
+                  Types screen.
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Notes */}
         <div style={{ marginBottom: 10 }}>
