@@ -1323,6 +1323,29 @@ export default function MyTimesheet() {
       .some(e => e.entry_kind !== 'leave' && e.entry_kind !== 'holiday');
   }
 
+  /** Everything already recorded on a date, of any kind. */
+  function recordedMinutes(dateStr: string): number {
+    return (entriesByDate[dateStr] ?? []).reduce((s, e) => s + e.hours_minutes, 0);
+  }
+
+  /**
+   * How long an absence picked on this date should default to: what is left of
+   * the planned day. The same number the day header prints as "N hr remaining",
+   * and deliberately not the raw planned day —
+   *
+   *   • a day with four hours of work already on it defaults to four, which is
+   *     a legal part-day absence. Defaulting to eight would hand the user a
+   *     form that mig 726 rule (f) rejects the moment they save it, and a
+   *     prefilled value that cannot be saved is worse than an empty box.
+   *   • a holiday or non-working day plans zero, so nothing is filled.
+   *   • a day already full leaves nothing to fill either.
+   *
+   * Returns 0 when there is nothing to offer, and the caller fills nothing.
+   */
+  function absenceDefaultMinutes(dateStr: string): number {
+    return Math.max(0, plannedFor(dateStr) - recordedMinutes(dateStr));
+  }
+
   /**
    * Rule (g) of mig 726 — absence already covers the whole planned day, so
    * there is no room for work in it. Instance-level: measured in minutes, not
@@ -2507,7 +2530,34 @@ export default function MyTimesheet() {
           <Label>{form.ttCategory === 'absence' ? 'Leave / Absence Type' : 'Attendance Type'}</Label>
           <select
             value={form.typeId}
-            onChange={e => { setForm(f => ({ ...f, typeId: e.target.value, projId: '', reqId: '' })); setFormErr(''); }}
+            onChange={e => {
+              const v  = e.target.value;
+              const tt = timeTypes.find(t => t.id === v);
+
+              // An absence is a whole day unless somebody says otherwise, and
+              // typing 8 and 0 every time is work the form can do itself.
+              //
+              // Three conditions, each earning its place:
+              //   • ADDING, not editing. Changing the type on a saved entry
+              //     must not quietly rewrite hours somebody already chose.
+              //   • both boxes EMPTY. This never overwrites a typed value —
+              //     pick Annual Leave, type 4, switch to Sick Leave, and the 4
+              //     survives, because it was an answer and this is only a guess.
+              //   • something LEFT to fill. See absenceDefaultMinutes.
+              const fillable =
+                tt?.category === 'absence' && !editingEntry && !!selectedDate
+                && !form.hours && !form.mins;
+              const fill = fillable ? absenceDefaultMinutes(selectedDate) : 0;
+
+              setForm(f => ({
+                ...f,
+                typeId: v, projId: '', reqId: '',
+                ...(fill > 0
+                    ? { hours: String(Math.floor(fill / 60)), mins: String(fill % 60) }
+                    : {}),
+              }));
+              setFormErr('');
+            }}
             style={selectSt}
           >
             <option value="">— Select —</option>
