@@ -8,7 +8,7 @@
 
 import { useCallback, useRef, useState } from 'react';
 import { supabase } from '../../../lib/supabase';
-import { periodLabel } from '../../../lib/period';
+import { periodEnd, periodLabel } from '../../../lib/period';
 
 // ─── Formatting ──────────────────────────────────────────────────────────────
 
@@ -63,6 +63,28 @@ export function fmtPeriod(v: string | null | undefined): string {
   if (isNaN(new Date(iso + 'T00:00:00').getTime())) return String(v);
   const { year, month } = periodLabel(iso);
   return `${MONTHS[month - 1]} ${year}`;
+}
+
+/**
+ * '2026-07-26' -> '26 Jul – 25 Aug'. The window a period actually covers.
+ *
+ * A row labelled "Aug 2026" with a deadline of 31 Aug looks wrong until you
+ * know the period ran 26 Jul – 25 Aug and the deadline is period end plus the
+ * configured offset. Both columns are correct; the fact that reconciles them
+ * was the one thing not on screen. Mig 838 made the same repair to the
+ * timesheet header, which prints "26 Aug – 25 Sep" beside the month name.
+ *
+ * Empty string on a calendar-month cycle: there "Aug 2026" already says
+ * 1–31 Aug, and repeating it is noise.
+ */
+export function fmtPeriodSpan(v: string | null | undefined): string {
+  if (!v) return '';
+  const start = v.slice(0, 10);
+  if (isNaN(new Date(start + 'T00:00:00').getTime())) return '';
+  if (Number(start.slice(8, 10)) === 1) return '';
+  const d = (iso: string) =>
+    new Date(iso + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  return `${d(start)} – ${d(periodEnd(start))}`;
 }
 
 /**
