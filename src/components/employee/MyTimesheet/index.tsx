@@ -1916,6 +1916,22 @@ export default function MyTimesheet() {
   const status     = header?.status ?? 'to_be_submitted';
   const statusM    = STATUS_META[status];
 
+  /* Viewing somebody else's month that they have never opened.
+   *
+   * loadPeriod deliberately refuses to create a header on a viewer's visit --
+   * doing so would make every manager who ever glanced at a month a false
+   * positive in a "who hasn't submitted" report. The cost is that `header` is
+   * null, and the page would otherwise render its entire chrome against that
+   * null: a "To Be Submitted" pill, Planned as an em dash, Recorded 0 min and
+   * a grid of inert cells. Every one of those is a claim about the month, and
+   * none of them is true -- the month has simply not been started. Read as a
+   * whole the screen looks broken, and the first thing anyone checks is the
+   * work schedule, which was never the problem.
+   *
+   * Only for a viewer. On your own timesheet a header is always created, so
+   * this can never be true and the normal empty month still renders. */
+  const notStarted = !loading && !error && !isSelf && !header;
+
   // ── What makes a month editable (mig 730) ────────────────────────────
   // It used to be `status === 'to_be_submitted'`, which meant submitting was a
   // one-way door: the sheet went to Pending Approval, nothing existed to
@@ -2994,8 +3010,10 @@ export default function MyTimesheet() {
             <i className="fa-solid fa-chevron-right" style={{ fontSize: 10 }} />
           </button>
 
-          <span style={{ padding: '3px 12px', borderRadius: 99, fontSize: 12, fontWeight: 600, background: statusM.bg, color: statusM.color }}>
-            {statusM.label}
+          <span style={notStarted
+            ? { padding: '3px 12px', borderRadius: 99, fontSize: 12, fontWeight: 600, background: '#F3F4F6', color: '#6B7280' }
+            : { padding: '3px 12px', borderRadius: 99, fontSize: 12, fontWeight: 600, background: statusM.bg, color: statusM.color }}>
+            {notStarted ? 'Not Started' : statusM.label}
           </span>
 
           {/* A greyed-out Resubmit with no visible reason reads as broken. The
@@ -3102,12 +3120,19 @@ export default function MyTimesheet() {
           {schedule && (
             <Stat label="Work Schedule" value={`${schedule.name} (${schedule.code})`} />
           )}
-          <Stat label="Planned" value={header ? fmtMins(header.planned_minutes) : '—'} />
-          <Stat
-            label="Recorded"
-            value={fmtMins(header?.recorded_minutes ?? entries.reduce((s,e) => s + e.hours_minutes, 0))}
-            color={header && header.recorded_minutes >= header.planned_minutes && header.planned_minutes > 0 ? '#059669' : undefined}
-          />
+          {/* Suppressed when the month was never started: "Planned —" and
+              "Recorded 0 min" read as findings about the month rather than as
+              the absence of one. */}
+          {!notStarted && (
+            <Stat label="Planned" value={header ? fmtMins(header.planned_minutes) : '—'} />
+          )}
+          {!notStarted && (
+            <Stat
+              label="Recorded"
+              value={fmtMins(header?.recorded_minutes ?? entries.reduce((s,e) => s + e.hours_minutes, 0))}
+              color={header && header.recorded_minutes >= header.planned_minutes && header.planned_minutes > 0 ? '#059669' : undefined}
+            />
+          )}
           {header?.submitted_at && (
             <Stat label="Submitted" value={new Date(header.submitted_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} />
           )}
@@ -3115,7 +3140,7 @@ export default function MyTimesheet() {
         {/* Tabs — these SCROLL, they do not switch. Nothing is unmounted, so
             the summary stays reachable by scrolling whether or not anyone
             presses one, and the active tab follows the viewport. */}
-        <div style={{ display: 'flex', gap: 22, marginTop: 12, marginBottom: -12 }}>
+        <div style={{ display: notStarted ? 'none' : 'flex', gap: 22, marginTop: 12, marginBottom: -12 }}>
           {([['days', 'Days'], ['summary', 'Summary']] as const).map(([k, label]) => {
             const on = k === 'summary' ? atSummary : !atSummary;
             return (
@@ -3198,6 +3223,21 @@ export default function MyTimesheet() {
             <div style={{ textAlign: 'center', padding: 60, color: '#9CA3AF' }}>
               <i className="fa-solid fa-spinner fa-spin" style={{ fontSize: 22, display: 'block', marginBottom: 10 }} />
               Loading timesheet…
+            </div>
+          ) : notStarted ? (
+            /* Not an error and not an empty month -- there is no month yet.
+               Said once, in the middle of the space the grid would have
+               occupied, so nobody goes looking for a broken work schedule. */
+            <div style={{ textAlign: 'center', padding: '72px 24px', color: '#6B7280' }}>
+              <i className="fa-regular fa-calendar" style={{ fontSize: 30, color: '#D1D5DB', display: 'block', marginBottom: 14 }} />
+              <div style={{ fontSize: 15, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
+                {subjectName || 'This employee'} has not started a timesheet for{' '}
+                {MONTH_NAMES[month - 1]} {year}
+              </div>
+              <div style={{ fontSize: 13, lineHeight: 1.6, maxWidth: 440, margin: '0 auto' }}>
+                The sheet is created when they first open the month themselves.
+                Nothing is wrong with their work schedule or holiday calendar.
+              </div>
             </div>
           ) : (
             <>
