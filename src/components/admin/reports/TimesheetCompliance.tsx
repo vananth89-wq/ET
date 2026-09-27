@@ -24,32 +24,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../../../lib/supabase';
-import { periodEnd } from '../../../lib/period';
 import MSDropdown from './MSDropdown';
 import { Kpi, Meter, MonthRange, Pager, PendingFilters, ReportStatus, ScopeBadge, StatusBar }
   from './reportControls';
-import { STATE_FILL, exportXlsx, fmtDate, fmtHM, fmtPeriod, fmtPeriodSpan, fromMonthInput, toDecimalHours, useReportRpc }
+import { STATE_FILL, exportXlsx, fmtDate, fmtHM, fmtPeriod, fromMonthInput, toDecimalHours, useReportRpc }
   from './reportShared';
 import type { ReportTabProps } from './reportShared';
-
-/**
- * Period, with the window it covers.
- *
- * "Aug 2026" beside a deadline of 31-Aug reads as a bug until you know the
- * period ran 26 Jul – 25 Aug and Due is period end plus the configured offset.
- * Both numbers were already right; the row just never showed the fact that
- * joins them. Nothing is printed on a calendar-month cycle, where the label
- * says it already.
- */
-function PeriodCell({ anchor }: { anchor: string }) {
-  const span = fmtPeriodSpan(anchor);
-  return (
-    <td style={{ whiteSpace: 'nowrap' }}>
-      <div>{fmtPeriod(anchor)}</div>
-      {span && <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 1 }}>{span}</div>}
-    </td>
-  );
-}
 
 interface Row {
   employee_id: string; employee_name: string; employee_code: string;
@@ -225,10 +205,7 @@ export default function TimesheetCompliance({ shared, setShared }: ReportTabProp
 
       await exportXlsx([
         { name: 'Compliance', rows: rows.map(r => ({
-            Period: fmtPeriod(r.period),
-            'Period start': r.period,
-            'Period end':   periodEnd(r.period),
-            Employee: r.employee_name, 'Employee ID': r.employee_code,
+            Period: fmtPeriod(r.period), Employee: r.employee_name, 'Employee ID': r.employee_code,
             Department: r.department_name ?? '', Manager: r.manager_name ?? '',
             Schedule: r.schedule_name ?? '', State: STATE_STYLE[r.state]?.label ?? r.state,
             'Planned hours':  toDecimalHours(r.planned_minutes),
@@ -410,7 +387,7 @@ export default function TimesheetCompliance({ shared, setShared }: ReportTabProp
                   </td>
                   <td style={{ whiteSpace: 'nowrap' }}>{r.department_name ?? '—'}</td>
                   <td style={{ whiteSpace: 'nowrap' }}>{r.manager_name ?? '—'}</td>
-                  <PeriodCell anchor={r.period} />
+                  <td style={{ whiteSpace: 'nowrap' }}>{fmtPeriod(r.period)}</td>
                   <td style={{ textAlign: 'center' }}><StateBadge state={r.state} /></td>
                   <td className="er-td-amt">{fmtHM(r.planned_minutes)}</td>
                   <td className="er-td-amt">{fmtHM(r.recorded_minutes)}</td>
