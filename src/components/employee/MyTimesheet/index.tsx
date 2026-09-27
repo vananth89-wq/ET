@@ -700,6 +700,10 @@ export default function MyTimesheet() {
 
   // Timesheet data
   const [header,    setHeader]    = useState<TimesheetHeader | null>(null);
+  /* The month has no header and this viewer is not allowed to create one.
+   * Set only where that is actually established -- by the database refusing
+   * the INSERT -- never inferred from who is looking. */
+  const [notStarted, setNotStarted] = useState(false);
   const [entries,   setEntries]   = useState<TimesheetEntry[]>([]);
   const [schedule,  setSchedule]  = useState<WorkSchedule | null>(null);
   const [holidays,  setHolidays]  = useState<HolidayEntry[]>([]);
@@ -899,6 +903,7 @@ export default function MyTimesheet() {
     if (!subjectId || !empCode || periodStartDay == null) return;
     setLoading(true);
     setError(null);
+    setNotStarted(false);
 
     const periodDate = win.start;
 
@@ -967,17 +972,6 @@ export default function MyTimesheet() {
 
     let headerId: string;
 
-    // Opening a month with no header creates one — right for the employee's own
-    // visit, wrong for anybody else's. Nothing reads empty headers today, but
-    // the moment a "who hasn't submitted" report exists, every manager who ever
-    // glanced at a month becomes a false positive in it. Viewing reads.
-    if (!hdr && !isSelf) {
-      setHeader(null);
-      setEntries([]);
-      setLoading(false);
-      return;
-    }
-
     if (!hdr) {
       // 2a. Work schedule + holiday calendar come from the hoisted lookup above
       const wsId  = empWsId;
@@ -1040,7 +1034,21 @@ export default function MyTimesheet() {
         .select('id, employee_id, period, period_start_day, external_code, status, work_schedule_id, holiday_calendar_id, planned_minutes, recorded_minutes, submitted_at, approved_at, content_changed_at')
         .single();
 
-      if (cErr) { setError(cErr.message); setLoading(false); return; }
+      // tsh_insert demands user_can('timesheet','create', employee_id). Someone
+      // with view-only access to this employee is refused here, and that is a
+      // normal state, not a fault -- so it renders as "not started" rather than
+      // as a row-level-security error banner, which tells the reader nothing
+      // they can act on. Anything else genuinely is a fault and still surfaces.
+      if (cErr) {
+        if ((cErr as any).code === '42501') {
+          setNotStarted(true);
+          setHeader(null);
+          setEntries([]);
+          setLoading(false);
+          return;
+        }
+        setError(cErr.message); setLoading(false); return;
+      }
       hdr = created;
 
       if (ws) { setSchedule(ws); }
@@ -1916,21 +1924,6 @@ export default function MyTimesheet() {
   const status     = header?.status ?? 'to_be_submitted';
   const statusM    = STATUS_META[status];
 
-  /* Viewing somebody else's month that they have never opened.
-   *
-   * loadPeriod deliberately refuses to create a header on a viewer's visit --
-   * doing so would make every manager who ever glanced at a month a false
-   * positive in a "who hasn't submitted" report. The cost is that `header` is
-   * null, and the page would otherwise render its entire chrome against that
-   * null: a "To Be Submitted" pill, Planned as an em dash, Recorded 0 min and
-   * a grid of inert cells. Every one of those is a claim about the month, and
-   * none of them is true -- the month has simply not been started. Read as a
-   * whole the screen looks broken, and the first thing anyone checks is the
-   * work schedule, which was never the problem.
-   *
-   * Only for a viewer. On your own timesheet a header is always created, so
-   * this can never be true and the normal empty month still renders. */
-  const notStarted = !loading && !error && !isSelf && !header;
 
   // ── What makes a month editable (mig 730) ────────────────────────────
   // It used to be `status === 'to_be_submitted'`, which meant submitting was a
@@ -3234,8 +3227,10 @@ export default function MyTimesheet() {
                 {subjectName || 'This employee'} has not started a timesheet for{' '}
                 {MONTH_NAMES[month - 1]} {year}
               </div>
-              <div style={{ fontSize: 13, lineHeight: 1.6, maxWidth: 440, margin: '0 auto' }}>
-                The sheet is created when they first open the month themselves.
+              <div style={{ fontSize: 13, lineHeight: 1.6, maxWidth: 460, margin: '0 auto' }}>
+                You have view-only access to {subjectName || 'this employee'}, so the sheet
+                cannot be opened on their behalf. It appears once they open the month
+                themselves, or once someone with permission records against it.
                 Nothing is wrong with their work schedule or holiday calendar.
               </div>
             </div>
