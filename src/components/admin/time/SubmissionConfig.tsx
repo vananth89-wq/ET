@@ -38,7 +38,7 @@ interface ConfigRow {
   recipients:        string[];
 }
 
-interface RoleOption { code: string; name: string }
+interface RoleOption { code: string; name: string; role_type: string }
 
 /** The two settings that are NOT reminder rules. */
 interface Settings { grace: number; catchup: number }
@@ -128,11 +128,24 @@ export default function SubmissionConfig() {
     } as ConfigRow));
     setRows(loaded);
 
-    // Roles are data, not a list this file knows. Read live so hr_head,
-    // project_manager and anything created next month simply appear.
+    /* Roles are data, not a list this file knows -- read live, so a role created
+       next month appears with no deploy.
+    
+       But NOT every role. System roles (ess, mss, dept_head, project_manager)
+       have their membership synced from org structure, so they are
+       population-sized: role:ess is all 58 employees, and CC-ing it on a
+       reminder mails the company. 'Department Head' the system role would also
+       sit next to 'Dept Head' the relationship meaning something different --
+       the relationship is THIS employee's head, the role is everyone who is
+       one. Custom and protected roles are assigned deliberately by a person,
+       which is what a CC list wants.
+    
+       The cost, stated: there is no way to copy "this employee's project
+       manager", because that is a relationship and no token exists for it yet.
+       Adding one is a resolver change, not a config change. */
     const { data: roleData } = await supabase
-      .from('roles').select('code, name').order('name');
-    setRoles((roleData ?? []) as RoleOption[]);
+      .from('roles').select('code, name, role_type').order('name');
+    setRoles(((roleData ?? []) as RoleOption[]).filter(r => r.role_type !== 'system'));
 
     const { data: cfg } = await supabase
       .from('time_edit_config')
