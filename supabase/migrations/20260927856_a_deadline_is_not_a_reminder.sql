@@ -41,9 +41,19 @@ ALTER TABLE time_edit_config
 -- from the reminder table, which is never empty. Defaulting the new column to 0
 -- on an absent row would therefore MOVE the deadline. Materialise the row first
 -- so the seed below has something to write to.
-INSERT INTO time_edit_config (employee_edit_window_days)
-SELECT 30
-WHERE  NOT EXISTS (SELECT 1 FROM time_edit_config);
+--
+-- DEFAULT VALUES, naming no column. The first draft of this named
+-- employee_edit_window_days, which 702 created and 730 DROPPED when edit
+-- windows became whole months -- so it failed on Dev at statement 2. Naming a
+-- column here buys nothing: every column of this table either has a default or
+-- is nullable, and the row exists only so the UPDATE below has a target.
+DO $mig$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM time_edit_config) THEN
+    INSERT INTO time_edit_config DEFAULT VALUES;
+  END IF;
+END
+$mig$;
 
 -- Seeded from the CURRENT effective deadline, never from a guess.
 -- GREATEST(..., 0) because a schedule whose only active row fires BEFORE period
