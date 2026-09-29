@@ -31,6 +31,7 @@ import ErrorBanner from '../../shared/ErrorBanner';
 interface ConfigRow {
   _key:              number;   // local-only key for React list rendering
   offset_days:       number;
+  title_template:    string;
   message_template:  string;
   notification_type: 'in_app' | 'email' | 'both';
   is_active:         boolean;
@@ -81,10 +82,14 @@ function fmtFireDate(iso: string | null | undefined): string | null {
     .toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+// Mig 863. 'email' is gone on purpose. One notifications row IS the bell item
+// and an AFTER INSERT trigger mails it, so there is no way to send the mail
+// without also recording the bell item -- the option promised something the
+// system has never been able to do. Rules already stored as 'email' still load
+// and are sent as 'both'; they just cannot be chosen any more.
 const NOTIF_OPTIONS: { value: ConfigRow['notification_type']; label: string }[] = [
-  { value: 'in_app', label: 'In-App'     },
-  { value: 'email',  label: 'Email'      },
-  { value: 'both',   label: 'Both'       },
+  { value: 'both',   label: 'In-App + Email' },
+  { value: 'in_app', label: 'In-App only'    },
 ];
 
 let _keyCounter = 0;
@@ -115,7 +120,7 @@ export default function SubmissionConfig() {
     setError(null);
     const { data, error: err } = await supabase
       .from('time_submission_config')
-      .select('offset_days, message_template, notification_type, is_active, sort_order, recipients')
+      .select('offset_days, title_template, message_template, notification_type, is_active, sort_order, recipients')
       .order('sort_order');
     if (err) { setError(err.message); setLoading(false); return; }
     const loaded = (data ?? []).map(r => ({
@@ -200,6 +205,7 @@ export default function SubmissionConfig() {
     setRows(prev => [...prev, {
       _key:              nextKey(),
       offset_days:       prev.length === 0 ? -1 : (prev[prev.length - 1].offset_days + 3),
+      title_template:    'Your {{period}} timesheet is due',
       message_template:  'Hi {{employee_name}}, your timesheet for {{period}} requires attention.',
       notification_type: 'both',
       is_active:         true,
@@ -232,6 +238,11 @@ export default function SubmissionConfig() {
   async function handleSave() {
     // Validate
     for (const r of rows) {
+      if (!r.title_template.trim()) {
+        setInfoModal({ open: true, title: 'Validation Error',
+          message: `The rule at offset ${r.offset_days} has no subject. A notification cannot be sent without one.` });
+        return;
+      }
       if (!r.message_template.trim()) {
         setInfoModal({ open: true, title: 'Validation Error', message: 'All rows must have a message template.' });
         return;
@@ -246,6 +257,7 @@ export default function SubmissionConfig() {
     setSaved(false);
     const payload = rows.map((r, i) => ({
       offset_days:       r.offset_days,
+      title_template:    r.title_template.trim(),
       message_template:  r.message_template.trim(),
       notification_type: r.notification_type,
       is_active:         r.is_active,
@@ -422,6 +434,16 @@ export default function SubmissionConfig() {
                         type="number"
                         value={row.offset_days}
                         onChange={e => updateRow(row._key, { offset_days: parseInt(e.target.value) || 0 })}
+                        style={{ padding: '6px 8px', borderRadius: 4, border: '1px solid #D1D5DB', fontSize: 13, width: '100%' }}
+                      />
+                    </div>
+
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label>Subject</label>
+                      <input
+                        type="text"
+                        value={row.title_template}
+                        onChange={e => updateRow(row._key, { title_template: e.target.value })}
                         style={{ padding: '6px 8px', borderRadius: 4, border: '1px solid #D1D5DB', fontSize: 13, width: '100%' }}
                       />
                     </div>
