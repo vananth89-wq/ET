@@ -427,7 +427,11 @@ export default function SubmissionConfig() {
                   </div>
 
                   {/* Fields */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr 120px', gap: 12, marginBottom: 10 }}>
+                  {/* Two rows, not one. Offset, Subject and Notification are
+                      one-liners and share a row; the message is the longest
+                      field on the card and gets the full width to itself.
+                      Notification is 170px so 'In-App + Email' is not clipped. */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr 170px', gap: 12, marginBottom: 10 }}>
                     <div className="form-group" style={{ marginBottom: 0 }}>
                       <label>Offset Days</label>
                       <input
@@ -449,16 +453,6 @@ export default function SubmissionConfig() {
                     </div>
 
                     <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label>Message Template</label>
-                      <textarea
-                        rows={2}
-                        value={row.message_template}
-                        onChange={e => updateRow(row._key, { message_template: e.target.value })}
-                        style={{ padding: '6px 8px', borderRadius: 4, border: '1px solid #D1D5DB', fontSize: 13, width: '100%', resize: 'vertical', fontFamily: 'inherit' }}
-                      />
-                    </div>
-
-                    <div className="form-group" style={{ marginBottom: 0 }}>
                       <label>Notification</label>
                       <select
                         value={row.notification_type}
@@ -468,6 +462,16 @@ export default function SubmissionConfig() {
                         {NOTIF_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                       </select>
                     </div>
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: 10 }}>
+                    <label>Message Template</label>
+                    <textarea
+                      rows={2}
+                      value={row.message_template}
+                      onChange={e => updateRow(row._key, { message_template: e.target.value })}
+                      style={{ padding: '6px 8px', borderRadius: 4, border: '1px solid #D1D5DB', fontSize: 13, width: '100%', resize: 'vertical', fontFamily: 'inherit' }}
+                    />
                   </div>
 
                   {/* Recipients. Tokens, not people: who a token resolves to is
