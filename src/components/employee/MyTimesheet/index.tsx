@@ -2297,10 +2297,12 @@ export default function MyTimesheet() {
   // nothing else — no workflow instance, no approver, no queue, no screen. The
   // sheet said "Pending Approval" and was pending nowhere.
   //
-  // submit_timesheet() (mig 730) asks whether a workflow is actually assigned
-  // to timesheet_headers. If none is, there is nobody to approve it, so it goes
-  // straight to 'approved' — which is honest, where waiting for ever was not.
-  // If one is, it goes to 'to_be_approved' and can be withdrawn.
+  // submit_timesheet() decides, and says so. A sheet can come back 'approved'
+  // two different ways — no workflow is assigned at all (mig 730), or one is
+  // assigned and ran to the end inside the submit call because every step
+  // resolved to nobody (mig 861: the approver is the initiator, a relationship
+  // is unset, a step is cc-only). Both are honest approvals; only the database
+  // knows which happened, so the wording comes from there.
   async function handleSubmit() {
     if (!header) return;
     setSubmitting(true);
@@ -2326,10 +2328,15 @@ export default function MyTimesheet() {
     // how "nothing has changed" survives a change made seconds later.
     setHeader(h => h ? { ...h, status: next } : h);
     await refreshHeaderStatus();
+    // Mig 861. This used to assert 'no approval workflow is configured' for
+    // every approved result, which was false whenever a workflow had just run
+    // and simply had nobody left to ask. The RPC already returns the sentence
+    // it means — the failure path above has always used it — so use it here too.
     pushToast(
-      next === 'approved'
-        ? 'Timesheet submitted and approved — no approval workflow is configured.'
-        : 'Timesheet submitted for approval.',
+      data.message ??
+        (next === 'approved'
+          ? 'Timesheet submitted and approved.'
+          : 'Timesheet submitted for approval.'),
     );
   }
 
