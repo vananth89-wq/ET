@@ -2638,6 +2638,31 @@ export default function MyTimesheet() {
                 gets worse with every project added, since in any month several
                 of forty sit outside their own windows. An explanation of an
                 absence only helps somebody who noticed the absence. */}
+            {/* THE POOL ITSELF IS EMPTY, which is a different statement from
+                the two hints below and has to be made before either of them.
+
+                Until mig 860, my_timesheet_projects fell back to every active
+                project when it had nothing to narrow to -- on the reasoning
+                that narrowing must never be why somebody cannot record their
+                time. The cost was invisible: an unallocated employee saw all
+                twenty projects and no indication that the filter had switched
+                itself off, which reads exactly like a broken filter, and let
+                hours land on a project nobody had staffed them to.
+
+                860 removed the fallback, so this case now shows an empty
+                picker. An empty picker with no explanation is the same failure
+                in the other direction, so it says what is missing and who can
+                fix it. `projects`, not `options`: an empty `options` with a
+                non-empty pool means the dates withheld everything, which is
+                what the next hint is for. */}
+            {!usesRelated && projects.length === 0 && (
+              <div style={{ marginTop: 5, fontSize: 11.5, color: '#B45309', lineHeight: 1.45 }}>
+                <i className="fa-solid fa-triangle-exclamation" style={{ marginRight: 5 }} />
+                You are not allocated to any project for this period, so there is nothing
+                to record project work against. Ask your manager or HR to add you to one.
+                Leave and other non-project time can still be recorded as usual.
+              </div>
+            )}
             {!usesRelated && withheld.length > 0 && (
               <div style={{ marginTop: 5, fontSize: 11.5, color: '#8A97A8', lineHeight: 1.45 }}>
                 <i className="fa-solid fa-circle-info" style={{ marginRight: 5 }} />
