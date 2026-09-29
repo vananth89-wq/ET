@@ -784,6 +784,16 @@ export default function MyTimesheet() {
   const emptyForm = { kind: 'time_type' as 'time_type' | 'project', typeId: '', projId: '', reqId: '', hours: '', mins: '', notes: '', actRows: [{ name: '', h: '', m: '' }] as ActRow[], ttCategory: '' as '' | 'attendance' | 'absence' };
   const [form,    setForm]    = useState(emptyForm);
   const [formErr, setFormErr] = useState('');
+
+  /* A complaint outlives the thing it complained about unless something clears
+     it. Every field that can cause one already cleared formErr -- but the
+     Create modal reports through createErr, which was only ever cleared on a
+     date change or a new submit. So correcting the named field left the old
+     banner on screen, which is most of what made the missing
+     help_requested_by look like a phantom rather than a bug. They are one
+     event: the user changed something, so what we said about the old value is
+     no longer true. */
+  function clearEntryErrors() { setFormErr(''); setCreateErr(null); }
   /** What the edit form held when it opened. NULL while adding — there is
    *  nothing for a new entry to be unchanged from. */
   const [baselineForm, setBaselineForm] = useState<typeof emptyForm | null>(null);
@@ -1562,6 +1572,14 @@ export default function MyTimesheet() {
         project_id:    tt?.requires_project ? form.projId : null,
         hours_minutes: totalMins,
         notes:         form.notes.trim() || null,
+        /* Cross-project support could never be created from this modal. The
+           single-entry path has always sent this; the bulk payload did not, so
+           bulk_create_timesheet_entries read help_requested_by as blank and
+           refused with HELP_REQUESTER_REQUIRED -- an accurate complaint about a
+           field the client never sent, while the picker sat there showing the
+           requester the employee had chosen. 829 both validates and stores it,
+           so sending it completes the round trip. */
+        help_requested_by: usesRelatedFor(form.typeId) ? form.reqId : null,
         // Objects carry per-activity hours and switch the RPC into itemised
         // mode; a plain string array is still accepted for anything that is not
         // project time.
@@ -2579,7 +2597,7 @@ export default function MyTimesheet() {
               }
 
               setForm(f => ({ ...f, typeId: v, projId: '', reqId: '', ...(dur ?? {}) }));
-              setFormErr('');
+              clearEntryErrors();
             }}
             style={selectSt}
           >
@@ -2615,7 +2633,7 @@ export default function MyTimesheet() {
                 // Keeping it across a change would leave somebody named against
                 // help given to a project they have nothing to do with.
                 setForm(f => ({ ...f, projId: v, reqId: '', actRows: f.actRows.map(r => ({ ...r, billable: null })) }));
-                setFormErr('');
+                clearEntryErrors();
               }}
               style={selectSt}
             >
@@ -2724,7 +2742,7 @@ export default function MyTimesheet() {
               <Label>Requested by *</Label>
               <select
                 value={form.reqId}
-                onChange={e => { setForm(f => ({ ...f, reqId: e.target.value })); setFormErr(''); }}
+                onChange={e => { setForm(f => ({ ...f, reqId: e.target.value })); clearEntryErrors(); }}
                 style={selectSt}
               >
                 <option value="">{teamLoading ? 'Loading…' : '— Select —'}</option>
@@ -2771,7 +2789,7 @@ export default function MyTimesheet() {
                   {askBill && namedRows(form.actRows).length > 1 && (
                     <button
                       type="button"
-                      onClick={() => { setRows(rows => rows.map(r => ({ ...r, billable: false }))); setFormErr(''); }}
+                      onClick={() => { setRows(rows => rows.map(r => ({ ...r, billable: false }))); clearEntryErrors(); }}
                       style={{ background: 'none', border: 'none', color: '#6B7280', fontSize: 11, fontWeight: 600, cursor: 'pointer', padding: '0 2px' }}
                     >
                       Mark all not billable
@@ -2779,7 +2797,7 @@ export default function MyTimesheet() {
                   )}
                 <button
                   type="button"
-                  onClick={() => { setRows(rows => [...rows, { name: '', h: '', m: '', billable: null }]); setFormErr(''); }}
+                  onClick={() => { setRows(rows => [...rows, { name: '', h: '', m: '', billable: null }]); clearEntryErrors(); }}
                   style={{ background: 'none', border: 'none', color: '#2563EB', fontSize: 11, fontWeight: 700, cursor: 'pointer', padding: '0 2px' }}
                 >
                   + Add
@@ -2793,7 +2811,7 @@ export default function MyTimesheet() {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <ActivityAutocomplete
                       value={row.name}
-                      onChange={val => { setRows(rows => rows.map((r, i) => i === idx ? { ...r, name: val } : r)); setFormErr(''); }}
+                      onChange={val => { setRows(rows => rows.map((r, i) => i === idx ? { ...r, name: val } : r)); clearEntryErrors(); }}
                       onFavoriteToggle={handleFavoriteToggle}
                       history={activityHistory}
                       inputStyle={inputSt}
@@ -2802,20 +2820,20 @@ export default function MyTimesheet() {
                   <input
                     type="number" min="0" max="23" placeholder="h" aria-label="Hours"
                     value={row.h}
-                    onChange={e => { const v = e.target.value; setRows(rows => rows.map((r, i) => i === idx ? { ...r, h: v } : r)); setFormErr(''); }}
+                    onChange={e => { const v = e.target.value; setRows(rows => rows.map((r, i) => i === idx ? { ...r, h: v } : r)); clearEntryErrors(); }}
                     style={numSt}
                   />
                   <input
                     type="number" min="0" max="59" placeholder="m" aria-label="Minutes"
                     value={row.m}
-                    onChange={e => { const v = e.target.value; setRows(rows => rows.map((r, i) => i === idx ? { ...r, m: v } : r)); setFormErr(''); }}
+                    onChange={e => { const v = e.target.value; setRows(rows => rows.map((r, i) => i === idx ? { ...r, m: v } : r)); clearEntryErrors(); }}
                     style={numSt}
                   />
                   {form.actRows.length > 1 && (
                     <button
                       type="button"
                       aria-label={`Remove ${row.name.trim() || 'this activity'}`}
-                      onClick={() => { setRows(rows => rows.filter((_, i) => i !== idx)); setFormErr(''); }}
+                      onClick={() => { setRows(rows => rows.filter((_, i) => i !== idx)); clearEntryErrors(); }}
                       style={{ background: 'none', border: '1px solid #FEE2E2', borderRadius: 5, color: '#DC2626', cursor: 'pointer', padding: '0 7px', fontSize: 13, alignSelf: 'stretch' }}
                     >
                       ×
@@ -2837,7 +2855,7 @@ export default function MyTimesheet() {
                           type="radio"
                           name={`bill-${scope}-${idx}`}
                           checked={row.billable === val}
-                          onChange={() => { setRows(rows => rows.map((r, i) => i === idx ? { ...r, billable: val } : r)); setFormErr(''); }}
+                          onChange={() => { setRows(rows => rows.map((r, i) => i === idx ? { ...r, billable: val } : r)); clearEntryErrors(); }}
                           style={{ width: 13, height: 13, cursor: 'pointer' }}
                         />
                         {label}
@@ -2897,7 +2915,7 @@ export default function MyTimesheet() {
                     type="number" min="0" max="23" placeholder="0"
                     value={form.hours}
                     disabled={lockedFullDay}
-                    onChange={e => { setForm(f => ({ ...f, hours: e.target.value })); setFormErr(''); }}
+                    onChange={e => { setForm(f => ({ ...f, hours: e.target.value })); clearEntryErrors(); }}
                     style={lockedFullDay ? lockedSt : inputSt}
                   />
                 </div>
@@ -2907,7 +2925,7 @@ export default function MyTimesheet() {
                     type="number" min="0" max="59" placeholder="0"
                     value={form.mins}
                     disabled={lockedFullDay}
-                    onChange={e => { setForm(f => ({ ...f, mins: e.target.value })); setFormErr(''); }}
+                    onChange={e => { setForm(f => ({ ...f, mins: e.target.value })); clearEntryErrors(); }}
                     style={lockedFullDay ? lockedSt : inputSt}
                   />
                 </div>
