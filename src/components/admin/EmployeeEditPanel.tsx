@@ -263,6 +263,9 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved, initialEmploy
   // reads only from the employees head table).
   const [currentWorkScheduleId,    setCurrentWorkScheduleId]    = useState('');
   const [currentHolidayCalendarId, setCurrentHolidayCalendarId] = useState('');
+  // Mig 865: Time Management Type (picklist-backed)
+  const [dTimeManagementTypeId,       setDTimeManagementTypeId]       = useState('');
+  const [currentTimeManagementTypeId, setCurrentTimeManagementTypeId] = useState('');
   // Lookups for the two scheduling dropdowns
   const [workSchedules,    setWorkSchedules]    = useState<{ id: string; name: string; code: string }[]>([]);
   const [holidayCalendars, setHolidayCalendars] = useState<{ id: string; name: string }[]>([]);
@@ -350,6 +353,11 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved, initialEmploy
     picklistVals.filter(p => p.picklistId === 'RELATIONSHIP_TYPE' && p.active !== false)
       .sort((a, b) => a.value.localeCompare(b.value)), [picklistVals]);
 
+  const timeManagementTypes = useMemo(
+    () => picklistVals.filter(p => p.picklistId === 'TIME_MANAGEMENT_TYPE' && p.active !== false),
+    [picklistVals]
+  );
+
   const activeManagers = useMemo(() =>
     (employees as FullEmployee[]).filter(e => e.status === 'Active' && e.id !== liveEmp.id)
       .sort((a, b) => a.name.localeCompare(b.name)),
@@ -427,7 +435,7 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved, initialEmploy
     if (!empUUID) return;
     supabase
       .from('employee_employment')
-      .select('work_schedule_id, holiday_calendar_id')
+      .select('work_schedule_id, holiday_calendar_id, time_management_type_id')
       .eq('employee_id',  empUUID)
       .eq('is_active',    true)
       .eq('effective_to', '9999-12-31')
@@ -436,6 +444,7 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved, initialEmploy
       .then(({ data }) => {
         setCurrentWorkScheduleId(String(data?.work_schedule_id    ?? ''));
         setCurrentHolidayCalendarId(String(data?.holiday_calendar_id ?? ''));
+        setCurrentTimeManagementTypeId(String(data?.time_management_type_id ?? ''));
       });
   }, [liveEmp.id]);
 
@@ -516,6 +525,7 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved, initialEmploy
         // the useEffect above (liveEmp doesn't carry them).
         setDWorkScheduleId(currentWorkScheduleId);
         setDHolidayCalendarId(currentHolidayCalendarId);
+        setDTimeManagementTypeId(currentTimeManagementTypeId);
         // Clear the flag after effects have had a chance to run (next tick)
         setTimeout(() => { isLoadingEmploymentRef.current = false; }, 0);
         break;
@@ -574,6 +584,7 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved, initialEmploy
     // Mig 713/714: get_employment_info_history returns these two fields.
     setDWorkScheduleId(String(h.work_schedule_id    || ''));
     setDHolidayCalendarId(String(h.holiday_calendar_id || ''));
+    setDTimeManagementTypeId(String(h.time_management_type_id || ''));
     setEmploymentEffectiveFrom(String(h.effective_from));
     setIsDirty(false);
     setTimeout(() => { isLoadingEmploymentRef.current = false; }, 0);
@@ -975,8 +986,10 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved, initialEmploy
           work_location:       dWorkLoc           || null,
           probation_end_date:  dProbation         || null,
           // Mig 703/713/714: scheduling fields
-          work_schedule_id:    dWorkScheduleId    || null,
-          holiday_calendar_id: dHolidayCalendarId || null,
+          work_schedule_id:         dWorkScheduleId          || null,
+          holiday_calendar_id:      dHolidayCalendarId       || null,
+          // Mig 865: time management type
+          time_management_type_id:  dTimeManagementTypeId    || null,
         },
         p_effective_from: effectiveFrom,
       });
@@ -1005,6 +1018,7 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved, initialEmploy
     if (sectionId === 'employment') {
       setCurrentWorkScheduleId(dWorkScheduleId);
       setCurrentHolidayCalendarId(dHolidayCalendarId);
+      setCurrentTimeManagementTypeId(dTimeManagementTypeId);
     }
     onSaved?.();   // trigger parent refetch in the background
 
@@ -1096,6 +1110,7 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved, initialEmploy
             <GridField label="Currency"         value={currencyList.find(c => c.id === (e.baseCurrencyId as string))?.name} />
             <GridField label="Work Schedule"    value={workSchedules.find(s => s.id === currentWorkScheduleId)?.name} />
             <GridField label="Holiday Calendar" value={holidayCalendars.find(c => c.id === currentHolidayCalendarId)?.name} />
+            <GridField label="Time Management Type" value={timeManagementTypes.find(t => String(t.id) === currentTimeManagementTypeId)?.value} />
             <GridField label="Status">
               <span style={{ padding: '3px 12px', borderRadius: 12, fontSize: 12, fontWeight: 600, background: sc.bg, color: sc.color }}>
                 {e.status as string || '—'}
@@ -1140,6 +1155,7 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved, initialEmploy
           <GridField label="Currency"         value={currencyList.find(c => c.id === (e.baseCurrencyId as string))?.name ?? resolve('CURRENCY', e.baseCurrency)} />
           <GridField label="Work Schedule"    value={workSchedules.find(s => s.id === currentWorkScheduleId)?.name} />
           <GridField label="Holiday Calendar" value={holidayCalendars.find(c => c.id === currentHolidayCalendarId)?.name} />
+          <GridField label="Time Management Type" value={timeManagementTypes.find(t => String(t.id) === currentTimeManagementTypeId)?.value} />
         </GridRow>
       );
       case 'identity': {
@@ -1261,6 +1277,7 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved, initialEmploy
             <GridField label="Currency"         value={currencyList.find(c => c.id === (liveEmp.baseCurrencyId as string))?.name} />
             <GridField label="Work Schedule"    value={workSchedules.find(s => s.id === currentWorkScheduleId)?.name} />
             <GridField label="Holiday Calendar" value={holidayCalendars.find(c => c.id === currentHolidayCalendarId)?.name} />
+            <GridField label="Time Management Type" value={timeManagementTypes.find(t => String(t.id) === currentTimeManagementTypeId)?.value} />
           </GridRow>
 
           <div style={{ borderTop: '1px solid #F3F4F6', paddingTop: 16, marginTop: 4, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px 24px' }}>
@@ -1739,6 +1756,13 @@ export default function EmployeeEditPanel({ emp, onClose, onSaved, initialEmploy
               <select value={dHolidayCalendarId} onChange={e => { setDHolidayCalendarId(e.target.value); setIsDirty(true); }}>
                 <option value="">-- Select Holiday Calendar --</option>
                 {holidayCalendars.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            <div className="form-group">
+              <label><i className="fa-solid fa-clock-rotate-left fa-fw" /> Time Management Type</label>
+              <select value={dTimeManagementTypeId} onChange={e => { setDTimeManagementTypeId(e.target.value); setIsDirty(true); }}>
+                <option value="">-- Select --</option>
+                {timeManagementTypes.map(t => <option key={String(t.id)} value={String(t.id)}>{t.value}</option>)}
               </select>
             </div>
           </div>
